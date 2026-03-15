@@ -950,3 +950,39 @@ h1 {
   letter-spacing: -1px;
   margin-top: 4px;
 }
+
+.portfolioValue.positive {
+  color: #4ade80;
+}
+
+.portfolioValue.negative {
+  color: #fb7185;
+}
+
+.chartTabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.chartTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.chartTab {
+  border: none;
+  background: rgba(255,255,255,0.05);
+  color: #9fb0cc;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chartTab.active {
+  background: #7CC4FF;
+  color: #0b1017;
+  font-weight: 700;
+}

@@ -157,7 +157,7 @@ function TickerBar({ items, onRemove }) {
   );
 }
 
-function EquityCurveCard({ equitySeries, sourceLabel }) {
+function EquityCurveCard({ equitySeries, sourceLabel, chartRange, setChartRange }) {
   const points = useMemo(() => buildSvgLinePoints(equitySeries), [equitySeries]);
   const areaPoints = `0,100 ${points} 100,100`;
 
@@ -168,6 +168,19 @@ function EquityCurveCard({ equitySeries, sourceLabel }) {
 
   return (
     <Card title="Equity Curve" className="equityCard">
+      
+      <div className="chartTabs">
+        {["1D", "1W", "1M", "3M", "ALL"].map((range) => (
+          <button
+            key={range}
+            className={`chartTab ${chartRange === range ? "active" : ""}`}
+            onClick={() => setChartRange(range)}
+            type="button"
+          >
+            {range}
+          </button>
+        ))}
+      </div>
       <div className="equityMeta">
         <div>
           <span>Start</span>
@@ -368,7 +381,11 @@ export default function App() {
 
   const [newSymbol, setNewSymbol] = useState("");
 
+  const [screenshotResult, setScreenshotResult] = useState(null);
+
   const [user, setUser] = useState(null);
+
+  const [chartRange, setChartRange] = useState("ALL");
 
   const [showTradeEntry, setShowTradeEntry] = useState(false);
 
@@ -383,7 +400,8 @@ export default function App() {
   );
 
   const [trades, setTrades] = useState([]);
-
+  
+  const [raylaUserCount, setRaylaUserCount] = useState(0);
   
 
   const [tradeForm, setTradeForm] = useState({
@@ -407,6 +425,10 @@ export default function App() {
   };
 }, []);
 
+
+  useEffect(() => {
+    fetchRaylaUserCount();
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -501,6 +523,19 @@ export default function App() {
             .reduce((sum, x) => sum + parseFloat(x.result_r || 0), 0)
       )
     : fallbackEquity;
+
+  const filteredEquitySeries =
+    chartRange === "1D"
+      ? equitySeries.slice(-5)
+      : chartRange === "1W"
+      ? equitySeries.slice(-10)
+      : chartRange === "1M"
+      ? equitySeries.slice(-20)
+      : chartRange === "3M"
+      ? equitySeries.slice(-40)
+      : equitySeries;
+
+
 
 async function handleAddTrade(e) {
   e.preventDefault();
@@ -601,7 +636,6 @@ function runAIAnalysis() {
 
 async function handleScreenshotUpload(e) {
   const file = e.target.files?.[0];
-
   if (!file || !user) return;
 
   const fileExt = file.name.split(".").pop();
@@ -621,33 +655,66 @@ async function handleScreenshotUpload(e) {
     .from("trade-screenshots")
     .getPublicUrl(filePath);
 
-  const { data: newTrade, error: tradeInsertError } = await supabase
-  .from("trades")
-  .insert([
-    {
-      user_id: user.id,
-      asset: "Screenshot",
-      setup: "screenshot",
-      session: "upload",
-      result_r: 0,
-      screenshot_url: data.publicUrl,
-    },
-  ])
-  .select()
-  .single();
+  setScreenshotResult({
+    screenshot_url: data.publicUrl,
+    asset: "",
+    setup: "",
+    session: "",
+    result_r: 0,
+  });
 
-  if (tradeInsertError) {
-    alert("Trade row failed: " + tradeInsertError.message);
+  console.log("Screenshot URL:", data.publicUrl);
+  alert("Screenshot uploaded.");
+
+  setShowTradeEntry(false);
+}
+
+
+async function fetchRaylaUserCount() {
+  const { data, error } = await supabase
+    .from("trades")
+    .select("user_id");
+
+  if (error) {
+    console.error("Failed to fetch user count:", error);
+    return;
+  }
+
+  const uniqueUsers = new Set(
+    (data || [])
+      .map((row) => row.user_id)
+      .filter(Boolean)
+  );
+
+  setRaylaUserCount(uniqueUsers.size);
+}
+
+async function handleLogTradeFromScreenshot() {
+  if (!screenshotResult || !user) return;
+
+  const { data: newTrade, error } = await supabase
+    .from("trades")
+    .insert([
+      {
+        user_id: user.id,
+        asset: screenshotResult.asset || "Screenshot",
+        setup: screenshotResult.setup || "screenshot",
+        session: screenshotResult.session || "upload",
+        result_r: screenshotResult.result_r || 0,
+        screenshot_url: screenshotResult.screenshot_url,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    alert("Trade row failed: " + error.message);
     return;
   }
 
   setTrades((prev) => [newTrade, ...prev]);
-
-  alert("Screenshot uploaded and trade created.");
-
-  console.log("Screenshot URL:", data.publicUrl);
-
-  setShowTradeEntry(false);
+  setScreenshotResult(null);
+  alert("Trade created.");
 }
 
   function handleAddSymbol() {
@@ -704,218 +771,249 @@ async function handleScreenshotUpload(e) {
     return <Login onLogin={() => window.location.reload()} />;
   }
 
-  return (
-    <div className="appShell">
-      <div className="topbar">
-        <div>
-          <p className="eyebrow">Rayla</p>
-          <div className={`portfolioValue ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
-            {parseFloat(totalR) >= 0 ? "+" : ""}
-            {totalR}R
+return (
+  <div className="appShell">
+    <div className="topbar">
+      <div>
+        <p className="eyebrow">Rayla</p>
+
+        {user?.email === "davis.tovey@gmail.com" && (
+          <div style={{ fontSize: "12px", opacity: 0.7 }}>
+            Users: {raylaUserCount}
           </div>
-          <p className="subheading">Total Performance</p>
+        )}
+
+        <div className={`portfolioValue ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
+          {parseFloat(totalR) >= 0 ? "+" : ""}
+          {totalR}R
+        </div>
+
+        <p className="subheading">Total Performance</p>
+      </div>
+
+      <button
+        className="ghostButton"
+        type="button"
+        onClick={() => setShowTradeEntry(!showTradeEntry)}
+      >
+        + Log Trade
+      </button>
+    </div>
+<div>
+
+
+        <EquityCurveCard
+          equitySeries={filteredEquitySeries}
+          sourceLabel={equitySourceLabel}
+          chartRange={chartRange}
+          setChartRange={setChartRange}
+        />
+      </div>
+
+    {showTradeEntry ? (
+      <div id="log" className="tradeEntryRow">
+        <input
+          className="authInput"
+          type="text"
+          placeholder="Asset"
+          value={tradeForm.asset}
+          onChange={(e) =>
+            setTradeForm((prev) => ({ ...prev, asset: e.target.value }))
+          }
+        />
+
+        <select
+          className="authInput"
+          value={tradeForm.setup}
+          onChange={(e) =>
+            setTradeForm((prev) => ({ ...prev, setup: e.target.value }))
+          }
+        >
+          <option value="">Setup</option>
+          {SETUP_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="authInput"
+          value={tradeForm.session}
+          onChange={(e) =>
+            setTradeForm((prev) => ({ ...prev, session: e.target.value }))
+          }
+        >
+          <option value="">Session</option>
+          {SESSION_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+
+        <input
+          className="authInput"
+          type="text"
+          placeholder="Result (R)"
+          value={tradeForm.result}
+          onChange={(e) =>
+            setTradeForm((prev) => ({ ...prev, result: e.target.value }))
+          }
+        />
+
+        <button className="ghostButton" type="button" onClick={handleAddTrade}>
+          Enter Trade
+        </button>
+
+        <label className="ghostButton">
+          Screenshot (for documentation only. Rayla can't read screenshots yet)
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleScreenshotUpload}
+          />
+        </label>
+      </div>
+    ) : null}
+
+      {user?.email === "davis.tovey@gmail.com" && screenshotResult && (
+      <div className="screenshotCard">
+        <h3>Screenshot Uploaded</h3>
+
+        <img
+          src={screenshotResult.screenshot_url}
+          alt="Trade screenshot"
+          style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: "12px" }}
+        />
+
+        <button
+          type="button"
+          onClick={() => setScreenshotResult(null)}
+        >
+          Clear
+        </button>
+      </div>
+    )}
+
+    <TickerBar items={marketItems} onRemove={handleRemoveSymbol} />
+
+    <div className="statsGrid">
+      {statCards.map((card) => (
+        <StatCard
+          key={card.title}
+          title={card.title}
+          value={card.value}
+          subtext={card.subtext}
+          tone={card.tone}
+        />
+      ))}
+    </div>
+
+    <div className="mainGrid">
+      <div className="span8">
+        <MarketCard
+          items={marketItems}
+          selectedId={selectedMarketId}
+          onSelect={setSelectedMarketId}
+          onRemove={handleRemoveSymbol}
+          newSymbol={newSymbol}
+          setNewSymbol={setNewSymbol}
+          onAddSymbol={handleAddSymbol}
+        />
+      </div>
+
+      <div className="span4">
+        <div id="ai">
+          <TodayPlanCard aiAnalysis={aiAnalysis} onRunAnalysis={runAIAnalysis} />
+        </div>
+      </div>
+
+      <div className="span4">
+        <TopEdgesCard topEdges={topEdges} />
+      </div>
+
+      <div className="span4">
+        <div id="trades">
+          <RecentTradesCard recentTrades={recentTrades} onTagTrade={handleTagTrade} />
+        </div>
+      </div>
+    </div>
+
+    <div id="profile" className="card profileCard">
+      <h3>Profile</h3>
+
+      <div className="list">
+        <div className="listRow">
+          <div>
+            <input
+              className="authInput"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+            <div className="listSubtext">
+              {user?.email || "No email found"}
+            </div>
+          </div>
+        </div>
+
+
+        <div className="listRow">
+          <div>
+            <div className="listTitle">Trades Logged</div>
+            <div className="listSubtext">{trades.length}</div>
+          </div>
         </div>
 
         <button
           className="ghostButton"
           type="button"
-          onClick={() => setShowTradeEntry(!showTradeEntry)}
+          onClick={async () => {
+            const { error } = await supabase.auth.updateUser({
+              data: { display_name: displayName },
+            });
+
+            if (error) {
+              alert("Could not save name.");
+              return;
+            }
+
+            alert("Name updated.");
+            window.location.reload();
+          }}
         >
-          + Log Trade
+          Save Name
+        </button>
+
+        <div className="listRow">
+          <div>
+            <div className="listTitle">Win Rate</div>
+            <div className="listSubtext">{winRate}</div>
+          </div>
+        </div>
+
+        <div className="listRow">
+          <div>
+            <div className="listTitle">Average R</div>
+            <div className="listSubtext">{avgR}</div>
+          </div>
+        </div>
+
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={async () => {
+            await supabase.auth.signOut();
+            window.location.reload();
+          }}
+        >
+          Sign Out
         </button>
       </div>
-    
-    {showTradeEntry ? (
-  <div id="log" className="tradeEntryRow">
-    <input
-      className="authInput"
-      type="text"
-      placeholder="Asset"
-      value={tradeForm.asset}
-      onChange={(e) =>
-        setTradeForm((prev) => ({ ...prev, asset: e.target.value }))
-      }
-    />
+    </div>
 
- <select
-  className="authInput"
-  value={tradeForm.setup}
-  onChange={(e) =>
-    setTradeForm((prev) => ({ ...prev, setup: e.target.value }))
-  }
->
-  <option value="">Setup</option>
-  {SETUP_OPTIONS.map((option) => (
-    <option key={option} value={option}>
-      {option}
-    </option>
-  ))}
-</select>
-
-<select
-  className="authInput"
-  value={tradeForm.session}
-  onChange={(e) =>
-    setTradeForm((prev) => ({ ...prev, session: e.target.value }))
-  }
->
-  <option value="">Session</option>
-  {SESSION_OPTIONS.map((option) => (
-    <option key={option} value={option}>
-      {option}
-    </option>
-  ))}
-</select>
-
-<input
-  className="authInput"
-  type="text"
-  placeholder="Result (R)"
-  value={tradeForm.result}
-  onChange={(e) =>
-    setTradeForm((prev) => ({ ...prev, result: e.target.value }))
-  }
-/>
-
-    <button className="ghostButton" type="button" onClick={handleAddTrade}>
-      Enter Trade
-    </button>
-
-    <label className="ghostButton">
-      Screenshot (for documentation only. Rayla can't read screenshots yet)
-      <input
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={handleScreenshotUpload}
-      />
-    </label>
-
-  </div>
-) : null}
-
-      <TickerBar items={marketItems} onRemove={handleRemoveSymbol} />
-
-      <div className="statsGrid">
-        {statCards.map((card) => (
-          <StatCard
-            key={card.title}
-            title={card.title}
-            value={card.value}
-            subtext={card.subtext}
-            tone={card.tone}
-          />
-        ))}
-      </div>
-
-            <div className="mainGrid">
-        <div className="span4">
-          <EquityCurveCard equitySeries={equitySeries} sourceLabel={equitySourceLabel} />
-        </div>
-
-        <div className="span8">
-          <MarketCard
-            items={marketItems}
-            selectedId={selectedMarketId}
-            onSelect={setSelectedMarketId}
-            onRemove={handleRemoveSymbol}
-            newSymbol={newSymbol}
-            setNewSymbol={setNewSymbol}
-            onAddSymbol={handleAddSymbol}
-          />
-        </div>
-
-
-
-        <div className="span4">
-          <div id="ai">
-            <TodayPlanCard aiAnalysis={aiAnalysis} onRunAnalysis={runAIAnalysis} />
-          </div>
-        </div>
-
-        <div className="span4">
-          <TopEdgesCard topEdges={topEdges} />
-        </div>
-
-        <div className="span4">
-          <div id="trades">
-            <RecentTradesCard recentTrades={recentTrades} onTagTrade={handleTagTrade} />
-          </div>
-        </div>
-      </div>
-
-      <div id="profile" className="card profileCard">
-        <h3>Profile</h3>
-
-        <div className="list">
-          <div className="listRow">
-            <div>
-              <input
-                className="authInput"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-              <div className="listSubtext">
-                {user?.email || "No email found"}
-              </div>
-            </div>
-          </div>
-
-          <div className="listRow">
-            <div>
-              <div className="listTitle">Trades Logged</div>
-              <div className="listSubtext">{trades.length}</div>
-            </div>
-          </div>
-
-          <button
-            className="ghostButton"
-            type="button"
-            onClick={async () => {
-              const { error } = await supabase.auth.updateUser({
-                data: { display_name: displayName },
-              });
-
-              if (error) {
-                alert("Could not save name.");
-                return;
-              }
-
-              alert("Name updated.");
-              window.location.reload();
-            }}
-          >
-            Save Name
-          </button>
-
-          <div className="listRow">
-            <div>
-              <div className="listTitle">Win Rate</div>
-              <div className="listSubtext">{winRate}</div>
-            </div>
-          </div>
-
-          <div className="listRow">
-            <div>
-              <div className="listTitle">Average R</div>
-              <div className="listSubtext">{avgR}</div>
-            </div>
-          </div>
-
-          <button
-            className="ghostButton"
-            type="button"
-            onClick={async () => {
-              await supabase.auth.signOut();
-              window.location.reload();
-            }}
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-
-      <div className="mobileNav">
+    <div className="mobileNav">
       <button
         className={activeTab === "dashboard" ? "active" : ""}
         onClick={() => {
@@ -973,9 +1071,7 @@ async function handleScreenshotUpload(e) {
         <User size={18} />
         <span>Profile</span>
       </button>
-
-      </div>
-
     </div>
-  );
+  </div>
+);
 }
