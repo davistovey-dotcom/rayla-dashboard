@@ -159,6 +159,11 @@ h1 {
   grid-column: span 12;
 }
 
+
+.profileCard {
+  width: 100%;
+  min-width: 0;
+}
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -267,8 +272,12 @@ h1 {
   line-height: 1.4;
 }
 
-.marketCard {
-  min-height: 520px;
+.marketItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 12px;
 }
 
 .marketLayout {
@@ -666,4 +675,278 @@ h1 {
 
 .tradeForm input::placeholder {
   color: #9ca3af;
+}
+
+/* MOBILE MODE */
+@media (max-width: 768px) {
+
+  .mainGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 12px;
+  }
+
+  .card {
+    width: 100%;
+    border-radius: 16px;
+  }
+
+  .tickerBar {
+    overflow-x: auto;
+    display: flex;
+    gap: 10px;
+  }
+
+  .tickerItem {
+    min-width: 120px;
+  }
+
+  .liveMarketCard {
+    order: 3;
+  }
+
+  .equityCard {
+    order: 2;
+  }
+
+  .aiCard {
+    order: 1;
+  }
+
+}
+
+.equityChart {
+  width: 100%;
+  height: 260px;
+}
+
+.aiCard {
+  padding: 16px;
+}
+
+@media (max-width: 768px) {
+
+  .mainGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 12px;
+  }
+
+  .appShell {
+    padding: 12px;
+  }
+
+  .mainGrid > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .card {
+    width: 100%;
+    border-radius: 20px;
+  }
+
+    .tickerBar {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .tickerItem {
+    min-width: 110px;
+    flex-shrink: 0;
+  }
+
+    .equityCard {
+    width: 100%;
+  }
+
+  .equityChart,
+  .equityChartWrap {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .equityChart {
+    height: 260px;
+  }
+
+    .liveMarketCard,
+  .aiCard,
+  .equityCard,
+  .recentTradesCard,
+  .logTradeCard {
+    width: 100%;
+    min-width: 0;
+  }
+
+    .card {
+    padding: 14px;
+  }
+
+    .equityStatsRow {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .equityStat {
+    padding: 10px 8px;
+  }
+
+    .recentTradesCard {
+    overflow-x: auto;
+  }
+
+  .recentTradesCard table {
+    min-width: 640px;
+  }
+
+    .appHeader {
+    padding: 8px 0 2px;
+  }
+
+  .appHeader h1 {
+    font-size: 1.4rem;
+    line-height: 1.1;
+  }
+
+  .appHeader p {
+    font-size: 0.9rem;
+  }
+
+    .logTradeCard {
+    order: -1;
+  }
+
+    .mainGrid {
+    gap: 10px;
+  }
+
+  .card + .card {
+    margin-top: 0;
+  }
+
+}
+
+.mobileNav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+
+  padding: 10px 0;
+
+  background: #7CC4FF;
+  border-top: 1px solid rgba(255,255,255,0.06);
+
+  z-index: 1000;
+}
+
+.mobileNav button {
+  flex: 1;
+  padding: 6px 0;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+
+  background: none;
+  border: none;
+  color: #4b5563;
+  font-size: 0.7rem;
+}
+
+.mobileNav button.active {
+  color: white;
+}
+
+.mobileNav button.active svg {
+  stroke-width: 2.6;
+}
+
+.mobileNav button:hover {
+  color: white;
+}
+
+.mobileNav button svg {
+  display: block;
+}
+
+/* TEMP TEST */
+.mobileNav {
+  display: flex;
+}
+
+@media (max-width: 768px) {
+  body {
+    padding-bottom: 80px;
+  }
+}
+
+@media (max-width: 768px) {
+
+  .tradeEntryRow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tradeEntryRow button,
+  .tradeEntryRow label {
+    width: 100%;
+  }
+
+}
+
+
+.profileCard {
+  border: 2px solid #7CC4FF;
+  background: rgba(124,196,255,0.05);
+}
+
+.profileCard {
+  border: 2px solid #7CC4FF;
+  background: rgba(124, 196, 255, 0.05);
+  border-radius: 20px;
+  padding: 18px;
+}
+
+.profileCard h3 {
+  margin: 0 0 14px 0;
+  font-size: 1.1rem;
+}
+
+.profileCard .list {
+  gap: 0;
+}
+
+.profileCard .listRow {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.profileCard .listRow:last-of-type {
+  border-bottom: none;
+}
+
+.profileCard .ghostButton {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.portfolioValue {
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  margin-top: 4px;
 }

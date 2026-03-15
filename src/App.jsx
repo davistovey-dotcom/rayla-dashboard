@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
+import { LayoutDashboard, PlusSquare, Receipt, Brain, User } from "lucide-react";
 
 const statCards = [
   { title: "Best Edge", value: "Breakout × New York", subtext: "+0.83R avg", tone: "accent" },
@@ -290,66 +291,68 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
     : "";
 
   return (
-    <Card title="Live Market" className="marketCard">
-      <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
-        <input
-          type="text"
-          value={newSymbol}
-          onChange={(e) => setNewSymbol(e.target.value)}
-          placeholder="Add symbol (AAPL or NASDAQ:AAPL)"
-          className="authInput"
-        />
-        <button type="button" onClick={onAddSymbol} className="ghostButton">
-          Add
-        </button>
-      </div>
+    <div id="dashboard">
+      <Card title="Live Market" className="marketCard">
+        <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+          <input
+            type="text"
+            value={newSymbol}
+            onChange={(e) => setNewSymbol(e.target.value)}
+            placeholder="Add symbol (AAPL or NASDAQ:AAPL)"
+            className="authInput"
+          />
+          <button type="button" onClick={onAddSymbol} className="ghostButton">
+            Add
+          </button>
+        </div>
 
-      <div className="marketLayout">
-        <div className="marketWatchlist">
-          {items.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
-              onClick={() => onSelect(item.id)}
-            >
-              <div className="marketWatchLeft">
-                <div className="marketWatchSymbol">{item.id}</div>
-                <div className="marketWatchLabel">{item.label}</div>
-              </div>
-
-              <div className="marketWatchRight">
-                <div className="marketWatchPrice">{item.priceText}</div>
-                <div className={`marketWatchChange ${item.changeValue < 0 ? "negative" : "positive"}`}>
-                  {item.changeText}
+        <div className="marketLayout">
+          <div className="marketWatchlist">
+            {items.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
+                onClick={() => onSelect(item.id)}
+              >
+                <div className="marketWatchLeft">
+                  <div className="marketWatchSymbol">{item.id}</div>
+                  <div className="marketWatchLabel">{item.label}</div>
                 </div>
 
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove(item.id);
-                  }}
-                  style={{ marginLeft: "8px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
-                >
-                  ×
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
+                <div className="marketWatchRight">
+                  <div className="marketWatchPrice">{item.priceText}</div>
+                  <div className={`marketWatchChange ${item.changeValue < 0 ? "negative" : "positive"}`}>
+                    {item.changeText}
+                  </div>
 
-        <div className="tradingviewFrameWrap">
-          {selectedItem ? (
-            <iframe
-              key={selectedItem.tvSymbol}
-              title={`${selectedItem.id} chart`}
-              className="tradingviewFrame"
-              src={iframeSrc}
-            />
-          ) : null}
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(item.id);
+                    }}
+                    style={{ marginLeft: "8px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
+                  >
+                    ×
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="tradingviewFrameWrap">
+            {selectedItem ? (
+              <iframe
+                key={selectedItem.tvSymbol}
+                title={`${selectedItem.id} chart`}
+                className="tradingviewFrame"
+                src={iframeSrc}
+              />
+            ) : null}
+          </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 }
 
@@ -361,11 +364,15 @@ export default function App() {
     return saved ? JSON.parse(saved) : marketSeeds;
   });
 
+  const [activeTab, setActiveTab] = useState("dashboard");
+
   const [newSymbol, setNewSymbol] = useState("");
 
   const [user, setUser] = useState(null);
 
   const [showTradeEntry, setShowTradeEntry] = useState(false);
+
+  const [displayName, setDisplayName] = useState("");
 
   const [session, setSession] = useState(null);
 
@@ -399,6 +406,13 @@ export default function App() {
     listener.subscription.unsubscribe();
   };
 }, []);
+
+
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
+    }
+  }, [user]);
 
   useEffect(() => {
 
@@ -473,6 +487,10 @@ export default function App() {
           trades.reduce((sum, t) => sum + parseFloat(t.result || 0), 0) /
           trades.length
         ).toFixed(2) + "R";
+
+  const totalR = trades.length
+    ? trades.reduce((sum, t) => sum + parseFloat(t.result_r || 0), 0).toFixed(2)
+    : "0.00";
 
   const equitySeries = trades.length
     ? trades.map(
@@ -691,17 +709,24 @@ async function handleScreenshotUpload(e) {
       <div className="topbar">
         <div>
           <p className="eyebrow">Rayla</p>
-          <h1>Trading Dashboard</h1>
-          <p className="subheading">AI analysis, live markets, and performance review.</p>
+          <div className={`portfolioValue ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
+            {parseFloat(totalR) >= 0 ? "+" : ""}
+            {totalR}R
+          </div>
+          <p className="subheading">Total Performance</p>
         </div>
 
-        <button className="ghostButton" type="button" onClick={() => setShowTradeEntry(!showTradeEntry)}>
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={() => setShowTradeEntry(!showTradeEntry)}
+        >
           + Log Trade
         </button>
       </div>
     
     {showTradeEntry ? (
-  <div className="tradeEntryRow">
+  <div id="log" className="tradeEntryRow">
     <input
       className="authInput"
       type="text"
@@ -757,7 +782,7 @@ async function handleScreenshotUpload(e) {
     </button>
 
     <label className="ghostButton">
-      Upload Proof of Trade via Screenshot
+      Screenshot (for documentation only. Rayla can't read screenshots yet)
       <input
         type="file"
         accept="image/*"
@@ -803,7 +828,9 @@ async function handleScreenshotUpload(e) {
 
 
         <div className="span4">
-          <TodayPlanCard aiAnalysis={aiAnalysis} onRunAnalysis={runAIAnalysis} />
+          <div id="ai">
+            <TodayPlanCard aiAnalysis={aiAnalysis} onRunAnalysis={runAIAnalysis} />
+          </div>
         </div>
 
         <div className="span4">
@@ -811,9 +838,144 @@ async function handleScreenshotUpload(e) {
         </div>
 
         <div className="span4">
-          <RecentTradesCard recentTrades={recentTrades} onTagTrade={handleTagTrade} />
+          <div id="trades">
+            <RecentTradesCard recentTrades={recentTrades} onTagTrade={handleTagTrade} />
+          </div>
         </div>
       </div>
+
+      <div id="profile" className="card profileCard">
+        <h3>Profile</h3>
+
+        <div className="list">
+          <div className="listRow">
+            <div>
+              <input
+                className="authInput"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+              <div className="listSubtext">
+                {user?.email || "No email found"}
+              </div>
+            </div>
+          </div>
+
+          <div className="listRow">
+            <div>
+              <div className="listTitle">Trades Logged</div>
+              <div className="listSubtext">{trades.length}</div>
+            </div>
+          </div>
+
+          <button
+            className="ghostButton"
+            type="button"
+            onClick={async () => {
+              const { error } = await supabase.auth.updateUser({
+                data: { display_name: displayName },
+              });
+
+              if (error) {
+                alert("Could not save name.");
+                return;
+              }
+
+              alert("Name updated.");
+              window.location.reload();
+            }}
+          >
+            Save Name
+          </button>
+
+          <div className="listRow">
+            <div>
+              <div className="listTitle">Win Rate</div>
+              <div className="listSubtext">{winRate}</div>
+            </div>
+          </div>
+
+          <div className="listRow">
+            <div>
+              <div className="listTitle">Average R</div>
+              <div className="listSubtext">{avgR}</div>
+            </div>
+          </div>
+
+          <button
+            className="ghostButton"
+            type="button"
+            onClick={async () => {
+              await supabase.auth.signOut();
+              window.location.reload();
+            }}
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+
+      <div className="mobileNav">
+      <button
+        className={activeTab === "dashboard" ? "active" : ""}
+        onClick={() => {
+          setActiveTab("dashboard");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      >
+        <LayoutDashboard size={18} />
+        <span>Dashboard</span>
+      </button>
+
+      <button
+        className={activeTab === "log" ? "active" : ""}
+        onClick={() => {
+          setActiveTab("log");
+          setShowTradeEntry(true);
+          setTimeout(() => {
+            document.getElementById("log")?.scrollIntoView({ behavior: "smooth" });
+          }, 100);
+        }}
+      >
+        <PlusSquare size={18} />
+        <span>Log</span>
+      </button>
+
+      <button
+        className={activeTab === "trades" ? "active" : ""}
+        onClick={() => {
+          setActiveTab("trades");
+          document.getElementById("trades")?.scrollIntoView({ behavior: "smooth" });
+        }}
+      >
+        <Receipt size={18} />
+        <span>Trades</span>
+      </button>
+
+      <button
+        className={activeTab === "ai" ? "active" : ""}
+        onClick={() => {
+          setActiveTab("ai");
+          document.getElementById("ai")?.scrollIntoView({ behavior: "smooth" });
+        }}
+      >
+        <Brain size={18} />
+        <span>AI</span>
+      </button>
+
+      <button
+        className={activeTab === "profile" ? "active" : ""}
+        onClick={() => {
+          setActiveTab("profile");
+          document.getElementById("profile")?.scrollIntoView({ behavior: "smooth" });
+        }}
+      >
+        <User size={18} />
+        <span>Profile</span>
+      </button>
+
+      </div>
+
     </div>
   );
 }
