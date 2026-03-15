@@ -1,0 +1,12 @@
+timestamp,asset,direction,setup,session,planned_R,result_R,status,entry,stop,target,mistake,note,source
+2026-03-07 19:49:37,BTC,long,breakout,New_York,2.67,1.5,closed,62000.0,60500.0,66000.0,,,manual_text
+2026-03-07 20:11:24,ETH,short,rejection,London,2.0,1.25,closed,3200.0,3250.0,3100.0,,,manual_text
+2026-03-07 21:40:51,BTC,long,breakout,New_York,3.0,-1.0,closed,63000.0,62500.0,64500.0,moved_stop,,manual_text
+2026-03-07 22:37:44,BTC,long,breakout,New_York,3.0,,open,64000.0,63500.0,65500.0,,,manual_text
+2026-03-07 22:37:51,BTC,long,breakout,New_York,3.0,2.0,closed,64000.0,63500.0,65500.0,,felt rushed on entry,manual_text
+2026-03-09 17:55:28,BTC,long,breakout,New_York,,,open,65000.0,64500.0,67000.0,,,screenshot
+2026-03-09 18:05:38,BTC,long,breakout,New_York,,,open,65000.0,64500.0,67000.0,,,screenshot
+2026-03-09 18:12:41,BTC,long,breakout,New_York,,,open,65000.0,64500.0,67000.0,,,screenshot
+2026-03-09 18:34:20,BTC,long,breakout,New_York,,,open,65000.0,64500.0,67000.0,,,screenshot
+2026-03-09 18:36:31,BTC,long,breakout,New_York,,,open,65000.0,64500.0,67000.0,,,screenshot
+2026-03-09 18:58:44,BTC,long,breakout,New_York,,,open,65000.0,64500.0,67000.0,,,screenshot
