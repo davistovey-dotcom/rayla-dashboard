@@ -1,16 +1,80 @@
-# React + Vite
+# Rayla Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+AI-powered trading analysis and coaching — React + Vite frontend backed by Supabase.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+## Build
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run build
+```
 
-## Expanding the ESLint configuration
+## Supabase Edge Functions
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Two edge functions live in `supabase/functions/`:
+
+| Function | Trigger | Description |
+|---|---|---|
+| `daily-intel` | Supabase cron (daily) | Fetches top movers, scores via news rubric, upserts to `daily_intel_reports` |
+| `ask-rayla` | HTTP POST `{ asset }` | On-demand stock/crypto scoring; returns verdict JSON |
+
+### Required environment variables (set in Supabase Dashboard → Settings → Edge Functions)
+
+| Variable | Used by | Description |
+|---|---|---|
+| `GNEWS_API_KEY` | both functions | [GNews](https://gnews.io) API key for fetching news articles |
+| `SUPABASE_URL` | `daily-intel` | Auto-injected by Supabase runtime |
+| `SUPABASE_SERVICE_ROLE_KEY` | `daily-intel` | Auto-injected; needed to upsert `daily_intel_reports` |
+
+### `daily_intel_reports` table schema (create once in Supabase SQL editor)
+
+```sql
+create table if not exists daily_intel_reports (
+  id            bigint generated always as identity primary key,
+  report_date   date not null unique,
+  hottest_stocks   jsonb,
+  coldest_stocks   jsonb,
+  hottest_crypto   jsonb,
+  coldest_crypto   jsonb,
+  stock_candidates_count integer,
+  crypto_candidates_count integer,
+  generated_at  timestamptz,
+  created_at    timestamptz default now()
+);
+```
+
+### Deploy functions
+
+```bash
+supabase functions deploy daily-intel
+supabase functions deploy ask-rayla
+```
+
+### Schedule `daily-intel` (Supabase cron via pg_cron)
+
+```sql
+select cron.schedule(
+  'daily-intel-job',
+  '0 14 * * 1-5',   -- weekdays at 14:00 UTC (≈ 9:00–10:00 AM ET, pre/early US market)
+  $$
+    select net.http_post(
+      url := 'https://<project-ref>.supabase.co/functions/v1/daily-intel',
+      headers := '{"Authorization":"Bearer <service-role-key>"}'::jsonb,
+      body := '{}'::jsonb
+    )
+  $$
+);
+```
+
+## ESLint
+
+```bash
+npm run lint
+```
+

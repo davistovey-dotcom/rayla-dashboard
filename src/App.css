@@ -981,6 +981,156 @@ h1 {
   white-space: nowrap;
 }
 
+/* ── Ask Rayla ────────────────────────────────────────────────────────────── */
+
+.askRaylaCard {
+  margin-top: 16px;
+}
+
+.askForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.askForm .authInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.askError {
+  color: var(--red);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.askResult {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.askResultHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.askSymbol {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.verdictBadge,
+.actionBadge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.verdictHot {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--green);
+}
+
+.verdictCold {
+  background: rgba(251, 113, 133, 0.15);
+  color: var(--red);
+}
+
+.verdictNeutral {
+  background: rgba(148, 166, 187, 0.15);
+  color: var(--muted);
+}
+
+.actionBadge {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.askSummary {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.breakdownGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.breakdownItem {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.breakdownItem span {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.breakdownItem strong {
+  font-size: 14px;
+}
+
+.citations {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.citationsLabel {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.citationItem {
+  display: block;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+  transition: opacity 0.15s;
+}
+
+.citationItem:last-child {
+  border-bottom: none;
+}
+
+.citationItem:hover {
+  opacity: 0.75;
+}
+
+.citationTitle {
+  display: block;
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 3px;
+}
+
+.citationMeta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── End Ask Rayla ─────────────────────────────────────────────────────────── */
+
 .chartTab.active {
   background: #7CC4FF;
   color: #0b1017;

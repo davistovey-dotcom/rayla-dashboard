@@ -241,6 +241,123 @@ function TodayPlanCard({ aiAnalysis, onRunAnalysis }) {
   );
 }
 
+function AskRaylaCard() {
+  const [input, setInput] = useState("");
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleAsk(e) {
+    e.preventDefault();
+    const asset = input.trim();
+    if (!asset) return;
+
+    setLoading(true);
+    setError("");
+    setResult(null);
+
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("ask-rayla", {
+        body: { asset },
+      });
+
+      if (fnError) throw fnError;
+      setResult(data);
+    } catch (err) {
+      setError(err?.message || "Something went wrong. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const verdictColor =
+    result?.verdict === "Hot"
+      ? "verdictHot"
+      : result?.verdict === "Cold"
+      ? "verdictCold"
+      : "verdictNeutral";
+
+  return (
+    <Card title="Ask Rayla" className="askRaylaCard">
+      <form onSubmit={handleAsk} className="askForm">
+        <input
+          className="authInput"
+          type="text"
+          placeholder="Ticker or name — TSLA, BTC, Tesla, Bitcoin…"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={loading}
+        />
+        <button className="ghostButton" type="submit" disabled={loading || !input.trim()}>
+          {loading ? "…" : "Ask"}
+        </button>
+      </form>
+
+      {error && <div className="askError">{error}</div>}
+
+      {result && (
+        <div className="askResult">
+          <div className="askResultHeader">
+            <span className="askSymbol">{result.asset}</span>
+            <span className={`verdictBadge ${verdictColor}`}>{result.verdict}</span>
+            <span className="actionBadge">{result.action}</span>
+          </div>
+
+          <p className="askSummary">{result.summary}</p>
+
+          <div className="breakdownGrid">
+            <div className="breakdownItem">
+              <span>Price Change</span>
+              <strong
+                className={
+                  result.dayChangePct >= 0 ? "positive" : "negative"
+                }
+              >
+                {result.breakdown.priceChange}
+              </strong>
+            </div>
+            <div className="breakdownItem">
+              <span>Price Signal</span>
+              <strong>{result.breakdown.priceSignal}</strong>
+            </div>
+            <div className="breakdownItem">
+              <span>News Signal</span>
+              <strong>{result.breakdown.newsSignal}</strong>
+            </div>
+            <div className="breakdownItem">
+              <span>Score</span>
+              <strong>{result.breakdown.totalScore}</strong>
+            </div>
+          </div>
+
+          {result.citations.length > 0 && (
+            <div className="citations">
+              <div className="citationsLabel">Sources</div>
+              {result.citations.map((c, i) => (
+                <a
+                  key={i}
+                  href={c.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="citationItem"
+                >
+                  <span className="citationTitle">{c.title}</span>
+                  <span className="citationMeta">
+                    {c.source}
+                    {c.publishedAt
+                      ? ` · ${new Date(c.publishedAt).toLocaleDateString()}`
+                      : ""}
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function TopEdgesCard({ topEdges }) {
   return (
     <Card title="Top Edges">
@@ -927,6 +1044,7 @@ return (
       <div className="span4">
         <div id="ai">
           <TodayPlanCard aiAnalysis={aiAnalysis} onRunAnalysis={runAIAnalysis} />
+          <AskRaylaCard />
         </div>
       </div>
 
