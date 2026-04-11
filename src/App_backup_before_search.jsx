@@ -357,33 +357,10 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
 }
 
 function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSymbol, onAddSymbol, fullPage = false }) {
-  const [quotes, setQuotes] = useState({});
-  const [searchResults, setSearchResults] = useState([]);
   const selectedItem = items.find((item) => item.id === selectedId) || items[0];
   const iframeSrc = selectedItem
     ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedItem.tvSymbol)}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
     : "";
-
-
-    useEffect(() => {
-  async function fetchQuotes() {
-    try {
-      const symbols = items.map(item => item.id);
-      const res = await fetch('https://uoxzzhtnzmsolvcykynu.functions.supabase.co/market-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVveHp6aHRuem1zb2x2Y3lreW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MzQ5OTQsImV4cCI6MjA4OTAxMDk5NH0.Wy5DWwRbohcAdS4zVEBj2P_cykNHQ6AApPJ7yU1OZ_U' },
-        body: JSON.stringify({ symbols }),
-      });
-      const data = await res.json();
-      if (data.ok && Object.keys(data.quotes || {}).length > 0) {
-        setQuotes(data.quotes);
-      }
-    } catch {}
-  }
-
-  fetchQuotes();
-}, [items.length]);
-
 
   const WatchlistItems = () => (
     <div className="marketWatchlist">
@@ -395,18 +372,12 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
           onClick={() => onSelect(item.id)}
         >
           <div className="marketWatchLeft">
-            <div className="marketWatchLabel">
-              {quotes[item.id]?.price
-                ? quotes[item.id].price.toFixed(2)
-                : item.priceText}
-            </div>
+            <div className="marketWatchLabel">{item.priceText}</div>
             <div className="marketWatchSymbol">{item.id}</div>
           </div>
           <div className="marketWatchRight">
             <div className={`marketWatchChange ${item.changeValue < 0 ? "negative" : "positive"}`}>
-              {quotes[item.id]?.change !== undefined
-              ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
-              : item.changeText}
+              {item.changeText}
             </div>
             <span
               onClick={(e) => {
@@ -425,39 +396,24 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
 
   return (
     <Card title="Live Market" className="marketCard">
-      <div style={{ position: "relative", marginBottom: "16px" }}>
-        <div style={{ display: "flex", gap: "10px" }}>
+      <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
         <input
           type="text"
           value={newSymbol}
-          onChange={async (e) => {
-            const val = e.target.value;
-            setNewSymbol(val);
-            if (val.length < 1) { setSearchResults([]); return; }
-            try {
-              const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(val) + "&token=d7cq591r01qv03etaetgd7cq591r01qv03etaeu0");
-              const data = await res.json();
-              setSearchResults((data.result || []).slice(0, 6));
-            } catch { setSearchResults([]); }
-          }}
+          onChange={(e) => setNewSymbol(e.target.value)}
+          placeholder="e.g. AAPL, BTC, NRG"
           onKeyDown={(e) => {
-            if (e.key === "Enter") { onAddSymbol(); setSearchResults([]); }
+            if (e.key === "Enter") onAddSymbol();
           }}
-          placeholder="Search symbol (AAPL, BTC, NRG)"
           className="authInput"
         />
-        <button type="button" onClick={() => { onAddSymbol(); setSearchResults([]); }} className="ghostButton">Add</button>
-        </div>
-        {searchResults.length > 0 && (
-          <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, width: "100%", maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
-            {searchResults.map((r) => (
-              <div key={r.symbol} onClick={() => { onAddSymbol(r.symbol); setSearchResults([]); setNewSymbol(""); }} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{r.symbol}</span>
-                <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{r.description}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <button
+            type="button"
+            onClick={() => onAddSymbol()}
+            className="ghostButton"
+          >
+  Add
+</button>
       </div>
 
       <div className={`marketLayout ${fullPage ? "marketLayoutFull" : "marketLayoutDash"}`}>
@@ -575,102 +531,22 @@ function IntelAssetCard({ item }) {
 }
 
 function getAnswerFromReport(r, question) {
-  const ql = question.toLowerCase().trim();
-
-  if (ql.includes("best setup") || ql.includes("strongest") || ql.includes("best edge")) {
-    return r.bestCombo
-      ? `Your strongest edge right now is ${r.bestCombo.setup} on ${r.bestCombo.asset}. That's giving you about ${r.bestCombo.avgR.toFixed(2)}R per trade with a ${r.bestCombo.winRate.toFixed(0)}% win rate across ${r.bestCombo.trades} trades. That's the area I'd trust most until the data says otherwise.`
-      : "You need at least 2 trades in the same setup before I can confidently tell you what your strongest edge is.";
+  const ql = question.toLowerCase();
+  if (ql.includes("best setup") || ql.includes("strongest")) {
+    return r.bestCombo ? `Your strongest edge is ${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)}R avg with a ${r.bestCombo.winRate.toFixed(0)}% win rate across ${r.bestCombo.trades} trades.` : "Need at least 2 trades in the same setup.";
+  } else if (ql.includes("win rate")) {
+    return `Your win rate is ${r.winRate.toFixed(1)}% across ${r.trades} trades.`;
+  } else if (ql.includes("avg r") || ql.includes("average r")) {
+    return `Your average R is ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R per trade.`;
+  } else if (ql.includes("overtrading")) {
+    return r.trades >= 5 && r.winRate < 50 ? "Possibly — win rate under 50% with 5+ trades suggests you may be forcing setups. Be more selective." : "Not necessarily. Keep logging and stay disciplined.";
+  } else if (ql.includes("worst") || ql.includes("weak")) {
+    const worst = r.setupStats[r.setupStats.length - 1];
+    return worst ? `Your weakest setup is ${worst.setup} — ${worst.avgR.toFixed(2)}R avg, ${worst.winRate.toFixed(0)}% win rate over ${worst.trades} trades.` : "Not enough data yet.";
+  } else if (ql.includes("focus") || ql.includes("should i")) {
+    return r.actions[0] || "Keep logging trades consistently and review your edge weekly.";
   }
-
-  if (ql.includes("win rate")) {
-    return `Your win rate is ${r.winRate.toFixed(1)}% across ${r.trades} trades. That's useful, but I'd care just as much about your average R and whether your edge is repeatable.`;
-  }
-
-  if (ql.includes("avg r") || ql.includes("average r")) {
-    return `Your average R is ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R per trade. That's a strong number if you can keep repeating it with discipline and not drift into lower-quality setups.`;
-  }
-
-  if (ql.includes("overtrading")) {
-    return r.trades >= 5 && r.winRate < 50
-      ? "Possibly. A win rate under 50% with at least 5 trades can be a sign you're forcing setups or trading too often. I'd tighten your standards and make sure you're only taking your cleanest looks."
-      : "Not necessarily. I don't see clear proof of overtrading just from that question alone. Keep logging trades and watch whether your lower-quality setups are dragging your results down.";
-  }
-
-  if (ql.includes("worst") || ql.includes("weak")) {
-
-  // WORST ASSET
-  if (ql.includes("asset") || ql.includes("stock") || ql.includes("coin")) {
-    const worstAsset = r.assetStats[r.assetStats.length - 1];
-    return worstAsset
-      ? `Your weakest asset right now is ${worstAsset.asset}. It's averaging ${worstAsset.avgR.toFixed(2)}R with a ${worstAsset.winRate.toFixed(0)}% win rate over ${worstAsset.trades} trades. That might be something to either study deeper or cut back on.`
-      : "Not enough data yet to clearly identify your weakest asset.";
-  }
-
-  // WORST SETUP (default)
-  const worstSetup = r.setupStats[r.setupStats.length - 1];
-  return worstSetup
-    ? `Your weakest setup right now is ${worstSetup.setup}. It's averaging ${worstSetup.avgR.toFixed(2)}R with a ${worstSetup.winRate.toFixed(0)}% win rate over ${worstSetup.trades} trades. That's the first place I'd tighten up.`
-    : "Not enough data yet to clearly identify your weakest setup.";
-}
-
-  if (
-    ql.includes("improve") ||
-    ql.includes("better") ||
-    ql.includes("fix") ||
-    ql.includes("work on") ||
-    ql.includes("what can i do better") ||
-    ql.includes("how do i get better")
-  ) {
-    const improveParts = [];
-
-    if (r.warnings.length > 0) {
-      improveParts.push(`The biggest thing to improve right now is this: ${r.warnings[0]}`);
-    }
-
-    if (r.actions.length > 0) {
-      improveParts.push(`My biggest recommendation would be: ${r.actions[0]}`);
-    }
-
-    if (r.setupStats.length > 1) {
-      const worst = r.setupStats[r.setupStats.length - 1];
-      if (worst && worst.avgR < 0) {
-        improveParts.push(`Also, your ${worst.setup} setup is underperforming. That's an area I'd either tighten up hard or cut back on until you understand why it's lagging.`);
-      }
-    }
-
-    if (improveParts.length === 0) {
-      improveParts.push("Right now there isn't one glaring weakness in your data. The main goal is to stay selective, keep logging everything, and keep pressing your strongest edge instead of getting random.");
-    }
-
-    return improveParts.join(" ");
-  }
-
-  if (ql.includes("focus") || ql.includes("should i")) {
-    return r.actions[0]
-      ? `If I were you, I'd focus here next: ${r.actions[0]}`
-      : "Keep logging trades consistently, stay selective, and review your edge every week.";
-  }
-
-  return `You're doing solid overall. Right now you're at a ${r.winRate.toFixed(1)}% win rate across ${r.trades} trades, averaging ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R per trade.
-
-The biggest bright spot is ${
-    r.bestCombo
-      ? `${r.bestCombo.setup} on ${r.bestCombo.asset}, which looks like your strongest edge so far.`
-      : "that you're still building enough data to identify your strongest edge."
-  }
-
-${
-    r.warnings.length > 0
-      ? `The main thing I'd watch is ${r.warnings[0]}`
-      : "There aren't any major red flags showing up right now."
-  }
-
-${
-    r.actions.length > 0
-      ? `If I were coaching you directly, I'd tell you to do this next: ${r.actions[0]}`
-      : ""
-  }`;
+  return `Win Rate: ${r.winRate.toFixed(1)}% · Avg R: ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R · Total R: ${r.totalR >= 0 ? "+" : ""}${r.totalR.toFixed(2)}R · ${r.trades} trades.${r.bestCombo ? " Best edge: " + r.bestCombo.setup + " on " + r.bestCombo.asset + " (" + r.bestCombo.avgR.toFixed(2) + "R avg)." : ""}${r.warnings.length > 0 ? " Watch: " + r.warnings[0] : ""}`;
 }
 
 function CoachAskBox({ trades }) {
@@ -831,24 +707,29 @@ export default function App() {
   async function handleScreenshotUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    showToast("Parsing screenshot...", "success");
     const reader = new FileReader();
     reader.onload = async () => {
+      const base64 = reader.result.split(",")[1];
+      const key = window.__OPENAI_KEY__;
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+        body: JSON.stringify({ model: "gpt-4o", max_tokens: 500, messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "data:image/jpeg;base64," + base64 } }, { type: "text", text: "Extract trade details and return ONLY JSON: { asset, entryPrice, size, direction, result, setup, session }" }] }] }),
+      });
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content || "{}";
       try {
-        const base64 = reader.result.split(",")[1];
-        const mimeType = file.type || "image/jpeg";
-        const res = await fetch("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/parse-screenshot", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64, mimeType }),
-        });
-        const data = await res.json();
-        if (!data.ok) { showToast("Parse failed — fill in manually.", "error"); return; }
-        const f = data.fields || {};
-        setTradeForm({ asset: f.asset || "", entryPrice: f.entryPrice || "", size: f.size || "", entryTime: "", setup: f.setup || "", session: f.session || "", marketCondition: "", direction: f.direction || "", result: f.result?.toString() || "", exitPrice: "", exitTime: "" });
-        const missing = data.missing || [];
-        showToast(`Prefilled — still need: ${missing.join(", ")}`, "warning");
-      } catch { showToast("Could not parse screenshot — fill in manually.", "error"); }
+        const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        setTradeForm({ asset: parsed.asset || "", entryPrice: parsed.entryPrice || "", size: parsed.size || "", entryTime: "", setup: parsed.setup || "", session: parsed.session || "", marketCondition: "", direction: parsed.direction || "", result: parsed.result?.toString() || "", exitPrice: "", exitTime: "" });
+        const missing = [];
+        if (!parsed.asset) missing.push("asset");
+        if (!parsed.entryPrice) missing.push("entry price");
+        if (!parsed.size) missing.push("size");
+        if (!parsed.direction) missing.push("direction");
+        if (!parsed.result) missing.push("result");
+        missing.push("entry time (fill in manually)");
+        showToast("Screenshot accepted — missing: " + missing.join(", ") + ". Fill in manually.", "warning");
+      } catch { showToast("Screenshot could not be parsed — fill in manually.", "error"); }
     };
     reader.readAsDataURL(file);
   }
@@ -886,7 +767,7 @@ export default function App() {
   }
 
   function handleAddSymbol(overrideSymbol) {
-    
+    alert(`handleAddSymbol fired: ${overrideSymbol || newSymbol}`);
   const raw = (overrideSymbol || newSymbol).trim();
   if (!raw) return;
 
