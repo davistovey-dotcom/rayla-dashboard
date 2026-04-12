@@ -561,19 +561,19 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 .mobileNav {
   position: fixed;
-  bottom: 0;
   left: 0;
   right: 0;
+  bottom: 0;
   display: none;
   justify-content: space-around;
   align-items: center;
-  padding: 10px 8px max(30px, env(safe-area-inset-bottom));
+  padding: 10px 8px calc(12px + env(safe-area-inset-bottom));
   background: rgba(11,16,23,0.96);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid rgba(255,255,255,0.08);
   z-index: 9999;
-  min-height: calc(60px + env(safe-area-inset-bottom));
+  min-height: 78px;
 }
 
 .mobileNav button {
@@ -781,12 +781,31 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 @media (max-width: 600px) {
-  html { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
-  body { padding-bottom: 300px; }
+  html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
 
-  .appShell { padding: 0 10px 100px; max-width: 100vw; overflow-x: hidden; }
+  body {
+    padding-bottom: 0;
+  }
 
-  .topbar { flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
+  .appShell {
+    min-height: 100dvh;
+    padding:
+      calc(18px + env(safe-area-inset-top))
+      10px
+      calc(110px + env(safe-area-inset-bottom));
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
 
   h1 { margin: 4px 0; font-size: 26px; }
 
@@ -806,7 +825,17 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .mainGrid > .span6, .mainGrid > .span4, .mainGrid > .span12 { display: block; width: 100%; min-width: 0; overflow: hidden; }
   .mainGrid > .span6 > *, .mainGrid > .span4 > *, .mainGrid > .span12 > * { width: 100%; min-width: 0; }
 
-  .card { padding: 12px; border-radius: 14px; max-width: 100%; overflow: hidden; box-sizing: border-box; }
+  .card {
+    padding: 12px;
+    border-radius: 14px;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  .profileCard {
+    margin-top: 6px;
+  }
 
   .equityChart { max-width: 100%; overflow: hidden; }
   .equityChart svg { max-width: 100%; }
@@ -818,7 +847,6 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .mobileNav { display: flex; }
 
-  /* Dashboard market — watchlist beside chart in compact grid */
   .marketLayout {
     grid-template-columns: 120px 1fr;
     gap: 10px;
@@ -842,7 +870,6 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .tradingviewFrameWrap { height: 320px; }
 
-  /* Full market tab — chart on top, watchlist wraps below */
   .marketLayoutFull {
     flex-direction: column;
   }
