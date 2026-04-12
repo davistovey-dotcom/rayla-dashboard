@@ -3,13 +3,23 @@ import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList } from "lucide-react";
+import { Tutorial } from "./Login";
+
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timeout));
+}
 
 const marketSeeds = [
-  { id: "BTC", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
-  { id: "ETH", label: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", fallbackPrice: "3,120", fallbackChange: "+0.9%" },
-  { id: "SPY", label: "SPDR S&P 500 ETF", tvSymbol: "AMEX:SPY", fallbackPrice: "521.14", fallbackChange: "-0.4%" },
-  { id: "NVDA", label: "NVIDIA", tvSymbol: "NASDAQ:NVDA", fallbackPrice: "908.55", fallbackChange: "+3.2%" },
-  { id: "AAPL", label: "Apple", tvSymbol: "NASDAQ:AAPL", fallbackPrice: "212.44", fallbackChange: "-0.4%" },
+  { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
+  { id: "ETH", type: "crypto", label: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", fallbackPrice: "3,120", fallbackChange: "+0.9%" },
+  { id: "SPY", type: "stock", label: "SPDR S&P 500 ETF", tvSymbol: "AMEX:SPY", fallbackPrice: "521.14", fallbackChange: "-0.4%" },
+  { id: "NVDA", type: "stock", label: "NVIDIA", tvSymbol: "NASDAQ:NVDA", fallbackPrice: "908.55", fallbackChange: "+3.2%" },
+  { id: "AAPL", type: "stock", label: "Apple", tvSymbol: "NASDAQ:AAPL", fallbackPrice: "212.44", fallbackChange: "-0.4%" },
 ];
 
 const fallbackEquity = [100, 101.5, 100.7, 102.1, 103.4, 102.8, 104.6, 105.2];
@@ -357,32 +367,66 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
 }
 
 function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSymbol, onAddSymbol, fullPage = false }) {
-  const [quotes, setQuotes] = useState({});
+  const [quotes, setQuotes] = useState(() => {
+  try {
+    return JSON.parse(sessionStorage.getItem("rayla-market-quotes") || "{}");
+  } catch {
+    return {};
+  }
+});
   const [searchResults, setSearchResults] = useState([]);
+  const symbolsKey = items.map((item) => item.id).sort().join("|");
   const selectedItem = items.find((item) => item.id === selectedId) || items[0];
   const iframeSrc = selectedItem
     ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedItem.tvSymbol)}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
     : "";
 
 
-    useEffect(() => {
+useEffect(() => {
+  if (!items.length) return;
+
+
   async function fetchQuotes() {
     try {
-      const symbols = items.map(item => item.id);
-      const res = await fetch('https://uoxzzhtnzmsolvcykynu.functions.supabase.co/market-data', {
+      const symbols = items.map(item => ({
+        symbol: item.id,
+        type: item.type || "stock",
+      }));
+      const res = await fetchWithTimeout('https://uoxzzhtnzmsolvcykynu.functions.supabase.co/market-data', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVveHp6aHRuem1zb2x2Y3lreW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MzQ5OTQsImV4cCI6MjA4OTAxMDk5NH0.Wy5DWwRbohcAdS4zVEBj2P_cykNHQ6AApPJ7yU1OZ_U' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+        },
         body: JSON.stringify({ symbols }),
       });
       const data = await res.json();
-      if (data.ok && Object.keys(data.quotes || {}).length > 0) {
-        setQuotes(data.quotes);
+
+        if (!res.ok || !data.ok) {
+          console.error("market-data bad response:", data);
+          return;
+        }
+
+        if (data.ok) {
+        
+        setQuotes((prev) => {
+          const next = { ...prev };
+          Object.entries(data.quotes || {}).forEach(([symbol, q]) => {
+            if (q?.price != null) next[symbol] = q;
+          });
+          sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
+          return next;
+        });
       }
-    } catch {}
+    } catch (err) {
+      console.error("fetchQuotes failed:", err);
+    }
   }
 
   fetchQuotes();
-}, [items.length]);
+  const interval = setInterval(fetchQuotes, 30000);
+  return () => clearInterval(interval);
+}, [symbolsKey]);
 
 
   const WatchlistItems = () => (
@@ -396,17 +440,21 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
         >
           <div className="marketWatchLeft">
             <div className="marketWatchLabel">
-              {quotes[item.id]?.price
+              {quotes[item.id]?.price != null
                 ? quotes[item.id].price.toFixed(2)
                 : item.priceText}
             </div>
             <div className="marketWatchSymbol">{item.id}</div>
           </div>
           <div className="marketWatchRight">
-            <div className={`marketWatchChange ${item.changeValue < 0 ? "negative" : "positive"}`}>
-              {quotes[item.id]?.change !== undefined
-              ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
-              : item.changeText}
+            <div
+              className={`marketWatchChange ${
+                (quotes[item.id]?.change ?? item.changeValue) < 0 ? "negative" : "positive"
+              }`}
+            >
+              {quotes[item.id]?.change != null
+                ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
+                : item.changeText}
             </div>
             <span
               onClick={(e) => {
@@ -435,8 +483,9 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
             setNewSymbol(val);
             if (val.length < 1) { setSearchResults([]); return; }
             try {
-              const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(val) + "&token=d7cq591r01qv03etaetgd7cq591r01qv03etaeu0");
+              const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(val) + "&token=" + import.meta.env.VITE_FINNHUB_KEY);
               const data = await res.json();
+              
               setSearchResults((data.result || []).slice(0, 6));
             } catch { setSearchResults([]); }
           }}
@@ -451,7 +500,7 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
         {searchResults.length > 0 && (
           <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, width: "100%", maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
             {searchResults.map((r) => (
-              <div key={r.symbol} onClick={() => { onAddSymbol(r.symbol); setSearchResults([]); setNewSymbol(""); }} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div key={r.symbol} onClick={() => { onAddSymbol(r); setSearchResults([]); setNewSymbol(""); }} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{r.symbol}</span>
                 <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{r.description}</span>
               </div>
@@ -710,15 +759,33 @@ function CoachAskBox({ trades }) {
 
 export default function App() {
   const [selectedMarketId, setSelectedMarketId] = useState("BTC");
-  const [watchlist, setWatchlist] = useState(() => {
-    const saved = localStorage.getItem("rayla-watchlist");
-    return saved ? JSON.parse(saved) : marketSeeds;
+ const [watchlist, setWatchlist] = useState(() => {
+  const saved = localStorage.getItem("rayla-watchlist");
+  if (!saved) return marketSeeds;
+
+  const parsed = JSON.parse(saved).map((item) => ({
+    ...item,
+    type: item.type || (item.tvSymbol?.includes("BINANCE") || item.tvSymbol?.includes("USDT") ? "crypto" : "stock"),
+  }));
+
+  const seen = new Set();
+  return parsed.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
   });
+});
   useEffect(() => {
   localStorage.setItem("rayla-watchlist", JSON.stringify(watchlist));
 }, [watchlist]);
   const [intelLoading, setIntelLoading] = useState(false);
-  const [hotColdReport, setHotColdReport] = useState(null);
+  const [hotColdReport, setHotColdReport] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null");
+    } catch {
+      return null;
+    }
+  });
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
   const [activeTab, setActiveTab] = useState("home");
@@ -734,6 +801,7 @@ export default function App() {
   const [trades, setTrades] = useState([]);
   const [raylaUserCount, setRaylaUserCount] = useState(0);
   const [toast, setToast] = useState(null);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
@@ -750,19 +818,21 @@ export default function App() {
   useEffect(() => { fetchRaylaUserCount(); }, []);
 
   useEffect(() => {
-    if (activeTab !== "intel" || hotColdReport !== null) return;
+    if (hotColdReport !== null) return;
     setIntelLoading(true);
     fetch("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/daily-intel")
       .then(r => r.json())
       .then(data => {
-        setHotColdReport({ stockHot: data.stockHot || [], stockCold: data.stockCold || [], cryptoHot: data.cryptoHot || null, cryptoCold: data.cryptoCold || null });
+        const report = { stockHot: data.stockHot || [], stockCold: data.stockCold || [], cryptoHot: data.cryptoHot || null, cryptoCold: data.cryptoCold || null };
+        sessionStorage.setItem("rayla-intel-report", JSON.stringify(report));
+        setHotColdReport(report);
         setIntelLoading(false);
       })
       .catch(() => {
         setHotColdReport({ stockHot: [], stockCold: [], cryptoHot: null, cryptoCold: null });
         setIntelLoading(false);
       });
-  }, [activeTab]);
+  }, []);
 
   useEffect(() => {
     if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
@@ -778,6 +848,9 @@ export default function App() {
       const { data: tradesData, error: tradesError } = await supabase.from("trades").select("*").eq("user_id", currentUser.id).order("created_at", { ascending: false });
       if (tradesError) { console.error(tradesError); return; }
       setTrades(tradesData);
+      if (!localStorage.getItem("rayla-visited")) {
+        setShowTutorial(true);
+      }
       setEquitySourceLabel("Equity based on logged trades");
     }
     loadUserAndTrades();
@@ -885,12 +958,14 @@ export default function App() {
     setRaylaUserCount(uniqueUsers.size);
   }
 
+  const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
   function handleAddSymbol(overrideSymbol) {
     
-  const raw = (overrideSymbol || newSymbol).trim();
+  const raw = (typeof overrideSymbol === "string" ? overrideSymbol : overrideSymbol?.symbol || newSymbol).trim();
   if (!raw) return;
 
-  const upper = raw.toUpperCase();
+  const upper = ({ TRON: "TRX" }[raw.toUpperCase()] || raw.toUpperCase());
+  const selectedResult = typeof overrideSymbol === "object" ? overrideSymbol : null;
 
   const exchangeMap = {
     SPY: "AMEX:SPY",
@@ -929,16 +1004,16 @@ export default function App() {
     return;
   }
 
-  setWatchlist((prev) => [
-    ...prev,
-    {
-      id,
-      label: id,
-      tvSymbol,
-      fallbackPrice: "0.00",
-      fallbackChange: "0.0%",
-    },
-  ]);
+  const isCrypto = CRYPTO_SYMBOL_SET.has(id) || tvSymbol.includes("USDT") || tvSymbol.includes("BINANCE");
+
+  setWatchlist((prev) => [...prev, {
+    id,
+    label: id,
+    tvSymbol,
+    type: isCrypto ? "crypto" : "stock",
+    fallbackPrice: "--",
+    fallbackChange: "--",
+  }]);
 
   setSelectedMarketId(id);
   setNewSymbol("");
@@ -954,7 +1029,9 @@ export default function App() {
   const marketItems = watchlist.map((item) => {
     const fallbackPrice = Number(String(item.fallbackPrice).replace(/,/g, ""));
     const fallbackChange = Number(String(item.fallbackChange).replace("%", ""));
-    return { ...item, priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
+    return { ...item,
+          fallbackPrice: "--",
+          fallbackChange: "--", priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
   });
 
   if (!session) return <Login onLogin={() => window.location.reload()} />;
@@ -969,6 +1046,11 @@ export default function App() {
 
   return (
     <div className="appShell">
+      {showTutorial && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#0b1017" }}>
+          <Tutorial onDone={() => { localStorage.setItem("rayla-visited", "true"); setShowTutorial(false); }} />
+        </div>
+      )}
       <nav className="desktopSidebar">
         <div className="desktopSidebarBrand">Rayla</div>
         <div className={`desktopSidebarTotalR ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
@@ -990,7 +1072,6 @@ export default function App() {
         <div className="topbar">
           <div>
             <p className="eyebrow">Rayla</p>
-            {user?.email === "davis.tovey@gmail.com" && <div style={{ fontSize: "12px", opacity: 0.7 }}>Users: {raylaUserCount}</div>}
             <div className={`portfolioValue ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
               {parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R
             </div>
@@ -1170,7 +1251,7 @@ export default function App() {
               <div className="card">
                 <h3>Market Intel</h3>
                 <div className="card" style={{ marginTop: 24 }}>
-                  <h4>Ask Rayla about any stock or crypto</h4>
+                  <h4>Ask Rayla About The Market</h4>
                   <form onSubmit={async e => {
                     e.preventDefault();
                     const question = e.target.elements.raylaq.value.trim();
@@ -1178,13 +1259,20 @@ export default function App() {
                     setIsRaylaLoading(true);
                     setRaylaResponse("");
                     try {
-                      const res = await fetch("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/daily-intel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+                      const res = await fetchWithTimeout("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/daily-intel", { 
+                        method: "POST", 
+                        headers: { 
+                          "Content-Type": "application/json",
+                          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+                        }, 
+                        body: JSON.stringify({ question }) 
+                      });
                       const data = await res.json();
                       setIsRaylaLoading(false);
                       setRaylaResponse(data.error ? data.error : data.answer || "No response.");
                     } catch { setIsRaylaLoading(false); setRaylaResponse("API error."); }
                   }} style={{ marginBottom: 16 }}>
-                    <input name="raylaq" type="text" placeholder="e.g. Is NVDA a good buy? Should I short AAPL?" style={{ flex: 1, marginRight: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }} autoComplete="off" disabled={isRaylaLoading} />
+                    <input name="raylaq" type="text" placeholder="e.g. Is NVDA hot or cold today? What's the signal on BTC?" style={{ flex: 1, marginRight: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }} autoComplete="off" disabled={isRaylaLoading} />
                     <button type="submit" disabled={isRaylaLoading} style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Ask Rayla</button>
                   </form>
                   {isRaylaLoading && <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 8 }}>Thinking...</div>}
@@ -1240,6 +1328,7 @@ export default function App() {
                     showToast("Name updated.", "success");
                     window.location.reload();
                   }}>Save Name</button>
+                  <button className="ghostButton" type="button" onClick={() => setShowTutorial(true)}>View Tutorial</button>
                   <button className="ghostButton" type="button" onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }}>Sign Out</button>
                   <div className="listRow"><div><div className="listTitle">Trades Logged</div><div className="listSubtext">{trades.length}</div></div></div>
                   <div className="listRow"><div><div className="listTitle">Win Rate</div><div className="listSubtext">{winRate}</div></div></div>

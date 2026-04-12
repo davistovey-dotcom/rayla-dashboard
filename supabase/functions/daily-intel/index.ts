@@ -59,7 +59,7 @@ const CRYPTO_UNIVERSE = [
   { symbol: "ADA", name: "Cardano", yahoo: "ADA-USD", query: "Cardano crypto" },
   { symbol: "AVAX", name: "Avalanche", yahoo: "AVAX-USD", query: "Avalanche crypto" },
   { symbol: "LINK", name: "Chainlink", yahoo: "LINK-USD", query: "Chainlink crypto" },
-  { symbol: "MATIC", name: "Polygon", yahoo: "MATIC-USD", query: "Polygon crypto" },
+  { symbol: "DOT", name: "Polkadot", yahoo: "DOT-USD", query: "Polkadot crypto" },
 ];
 
 const NEWS_QUERY_MAP: Record<string, string[]> = {
@@ -475,6 +475,7 @@ async function fetchNewsWithFallbacks(
   gnewsDebug: string[] = []
 ): Promise<NormalizedArticle[]> {
   try {
+    await new Promise(r => setTimeout(r, 300));
     const today = new Date();
     const from = new Date(today);
     from.setDate(from.getDate() - 3);
@@ -482,23 +483,54 @@ async function fetchNewsWithFallbacks(
     const toStr = today.toISOString().split("T")[0];
     const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromStr}&to=${toStr}&token=${apiKey}`;
     const res = await fetch(url);
-    if (!res.ok) { gnewsDebug?.push?.(`Finnhub news failed ${res.status} for ${symbol}`); return []; }
-    const data = await res.json();
-    const articles = Array.isArray(data) ? data : [];
-    const normalized = articles.filter((a: any) => a.headline && a.url).slice(0, 1).map((a: any) => ({
-      title: a.headline || "No title",
-      description: a.summary || "No summary available",
-      image: a.image || "",
-      url: a.url || "#",
-      source: { name: a.source || "Finnhub" },
-      publishedAt: a.datetime ? new Date(a.datetime * 1000).toISOString() : "",
-    }));
-    gnewsDebug?.push?.(`Finnhub news for ${symbol}: ${normalized.length} articles`);
-    return normalized;
+    if (!res.ok) { gnewsDebug?.push?.(`Finnhub news failed ${res.status} for ${symbol}`); }
+    else {
+      const data = await res.json();
+      const articles = Array.isArray(data) ? data : [];
+      const normalized = articles.filter((a: any) => a.headline && a.url).slice(0, 1).map((a: any) => ({
+        title: a.headline || "No title",
+        description: a.summary || "No summary available",
+        image: a.image || "",
+        url: a.url || "#",
+        source: { name: a.source || "Finnhub" },
+        publishedAt: a.datetime ? new Date(a.datetime * 1000).toISOString() : "",
+      }));
+      if (normalized.length > 0) {
+        gnewsDebug?.push?.(`Finnhub news for ${symbol}: ${normalized.length} articles`);
+        return normalized;
+      }
+    }
   } catch (err) {
-    gnewsDebug?.push?.(`exception for ${symbol}: ${String(err)}`);
-    return [];
+    gnewsDebug?.push?.(`Finnhub exception for ${symbol}: ${String(err)}`);
   }
+
+  // Fallback: NewsData.io
+  try {
+    const NEWSDATA_KEY = Deno.env.get("NEWSDATA_API_KEY");
+    const query = type === "crypto" ? name : `${name} stock`;
+    const url = `https://newsdata.io/api/1/news?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query)}&language=en&size=1`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      const articles = data?.results || [];
+      if (articles.length > 0) {
+        const a = articles[0];
+        gnewsDebug?.push?.(`NewsData fallback for ${symbol}: 1 article`);
+        return [{
+          title: a.title || "No title",
+          description: a.description || a.content || "No summary available",
+          image: a.image_url || "",
+          url: a.link || "#",
+          source: { name: a.source_id || "NewsData" },
+          publishedAt: a.pubDate || "",
+        }];
+      }
+    }
+  } catch (err) {
+    gnewsDebug?.push?.(`NewsData exception for ${symbol}: ${String(err)}`);
+  }
+
+  return [];
 }
 
 
@@ -733,10 +765,12 @@ serve(async (req) => {
 
    // Ask Rayla endpoint
   if (req.method === "POST") {
-    const { question } = await req.json();
+  console.log("POST HIT");
+  const { question } = await req.json();
 
-    const OPENAI_KEY = Deno.env.get("OPENAIKEY") || "";
-    if (!OPENAI_KEY) throw new Error("Missing OPENAIKEY");
+
+    const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+    if (!ANTHROPIC_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
 
     const intel = await getLatestMarketIntel();
 
@@ -782,8 +816,6 @@ serve(async (req) => {
 
 Context: ${signalContext}`;
 
-   const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
-    if (!ANTHROPIC_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
 
     const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -803,7 +835,22 @@ Context: ${signalContext}`;
     });
 
     const aiData = await aiRes.json();
+
+    console.log("Anthropic raw response:", aiData);
+
+    if (!aiRes.ok) {
+      console.error("Anthropic error:", aiData);
+      return new Response(
+        JSON.stringify({ error: aiData?.error?.message || "AI request failed." }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
+
     const answer = aiData?.content?.[0]?.text || "Signal unavailable.";
+
 
     return new Response(
       JSON.stringify({ answer }),
@@ -823,6 +870,7 @@ Context: ${signalContext}`;
 
     // 5) Crypto quotes
     const cryptoQuotes = await fetchFinnhubQuotes(CRYPTO_UNIVERSE, "crypto", FINNHUB_API_KEY);
+    
     const cryptoAvgChange =
       cryptoQuotes.length > 0
         ? cryptoQuotes.reduce((sum, item) => sum + item.dayChangePct, 0) / cryptoQuotes.length
@@ -841,19 +889,30 @@ Context: ${signalContext}`;
     if (!existingRes.ok) throw new Error(`Supabase fetch daily_intel_reports failed: ${existingRes.status}`);
     const existing = await existingRes.json();
     if (existing.length > 0) {
-      console.log(`[intel] Returned cached daily intel for ${today}`);
-      return new Response(JSON.stringify({
-        ok: true,
-        report_date: today,
-        stockHot: existing[0].stock_hot,
-        stockCold: existing[0].stock_cold,
-        cryptoHot: existing[0].crypto_hot,
-        cryptoCold: existing[0].crypto_cold,
-        source: "cache"
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      const cached = existing[0];
+      const isValid =
+  Array.isArray(cached.stock_hot) && cached.stock_hot.length > 0 &&
+  Array.isArray(cached.stock_cold) && cached.stock_cold.length > 0 &&
+  cached.crypto_hot?.symbol &&
+  cached.crypto_hot?.change !== "+0.00%" &&
+  cached.stock_hot.some(s => s.change !== "+0.00%" && s.score !== 0);
+
+      if (isValid) {
+        console.log(`[intel] Returned cached daily intel for ${today}`);
+        return new Response(JSON.stringify({
+          ok: true,
+          report_date: today,
+          stockHot: cached.stock_hot,
+          stockCold: cached.stock_cold,
+          cryptoHot: cached.crypto_hot,
+          cryptoCold: cached.crypto_cold,
+          source: "cache"
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
+      }
+      console.log(`[intel] Cached report for ${today} is invalid, recomputing.`);
     }
     console.log(`[intel] No cached report for ${today}, computing fresh report.`);
 
@@ -886,10 +945,40 @@ Context: ${signalContext}`;
           .filter((x) => x.symbol && x.name);
       }
 
-    const stockQuotes = await fetchFinnhubQuotes(sp500, "stock", FINNHUB_API_KEY);
+    // Use Massive API for fast batch stock quotes
+const MASSIVE_KEY = Deno.env.get("POLYGON_API_KEY");
+let stockQuotes: QuoteData[] = [];
 
-    console.log(`S&P 500 constituents: ${sp500.length}`);
-    console.log(`Finnhub quotes returned: ${stockQuotes.length}`);
+try {
+  // Fetch in batches of 100 (Massive limit per request)
+  const batches = [];
+  for (let i = 0; i < sp500.length; i += 100) {
+    batches.push(sp500.slice(i, i + 100));
+  }
+
+  for (const batch of batches) {
+    const tickers = batch.map(s => s.symbol).join(",");
+    const url = `https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${encodeURIComponent(tickers)}&apiKey=${MASSIVE_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    for (const ticker of data?.tickers || []) {
+      const sp = sp500.find(s => s.symbol === ticker.ticker);
+      if (!sp) continue;
+      const price = ticker.day?.c || ticker.lastTrade?.p || ticker.prevDay?.c || 0;
+      const prevClose = ticker.prevDay?.c || 0;
+      const dayChangePct = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+      stockQuotes.push({ symbol: ticker.ticker, name: sp.name, dayChangePct, price });
+    }
+  }
+  console.log(`Massive stock quotes returned: ${stockQuotes.length}`);
+} catch (err) {
+  console.error("Massive stock fetch failed, falling back to Finnhub:", err);
+  stockQuotes = await fetchFinnhubQuotes(sp500, "stock", FINNHUB_API_KEY);
+}
+
+    
+    
 
     let stockCandidates: QuoteData[] = [];
 
@@ -906,16 +995,20 @@ Context: ${signalContext}`;
       }));
     }
 
-    console.log("[DEBUG] Number of S&P 500 stock candidates for scoring:", stockCandidates.length);
-    console.log("[DEBUG] Example stock symbols scanned:", stockCandidates.slice(0, 10).map(x => x.symbol).join(", "), "...", stockCandidates.slice(-10).map(x => x.symbol).join(", "));
+    
+    
  
+// Step 1: rank ALL stocks by price movement (cheap, no API calls)
+const rankedStocks = [...stockCandidates].sort(
+  (a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct)
+);
 
-        // 4) Fetch news + score stock candidates (news BEFORE scoring)
-        const topMovers = [...stockCandidates]
-          .sort((a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct))
-          .slice(0, 30);
+// Step 2: take top 50 for news enrichment ONLY
+const topCandidates = rankedStocks.slice(0, 50);
 
-        const scoredStocksRaw = await mapWithConcurrency(topMovers, 6, async (candidate) => {
+// Step 3: score those with news
+const scoredStocksRaw = await mapWithConcurrency(topCandidates, 6, async (candidate) => {
+
           const news = await fetchNewsWithFallbacks(
             candidate.symbol,
             candidate.name,
@@ -1006,24 +1099,6 @@ const cryptoCold = [...scoredCrypto].sort((a, b) => a.score - b.score).find((ite
 // Select AFTER all candidates are scored
 
 
-
-
-
-
-
-console.log("[intel] Hot candidates selected:", stockHot.map(a => a.symbol));
-console.log("[intel] Cold candidates selected:", stockCold.map(a => a.symbol));
-console.log("[intel] Crypto hot:", cryptoHot?.symbol);
-console.log("[intel] Crypto cold:", cryptoCold?.symbol);
-
-    
-
-    console.log("FINAL INTEL BEFORE SAVE:", JSON.stringify({
-    stockHot,
-    stockCold,
-    cryptoHot,
-    cryptoCold,
-  }, null, 2));
 
     const payload = {
       report_date: today,
