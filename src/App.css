@@ -20,6 +20,7 @@ html, body, #root {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  background: #0b1017;
 }
 
 body {
@@ -28,6 +29,7 @@ body {
   background: linear-gradient(180deg, #0b1017, #0f1722);
   color: var(--text);
   padding-bottom: 0;
+  -webkit-fill-available: #0b1017;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -565,7 +567,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   display: none;
   justify-content: space-around;
   align-items: center;
-  padding: 10px 8px 30px;
+  padding: 10px 8px max(30px, env(safe-area-inset-bottom));
   background: rgba(11,16,23,0.96);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
