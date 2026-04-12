@@ -780,9 +780,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 @media (max-width: 600px) {
   html { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
-  body { padding-bottom: 200px; }
+  body { padding-bottom: 300px; }
 
-  .appShell { padding: env(safe-area-inset-top) 10px 100px; max-width: 100vw; overflow-x: hidden; }
+  .appShell { padding: 0 10px 100px; max-width: 100vw; overflow-x: hidden; }
 
   .topbar { flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
 
