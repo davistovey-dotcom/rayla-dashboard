@@ -794,6 +794,7 @@ export default function App() {
   const [chartRange, setChartRange] = useState("ALL");
   const [displayName, setDisplayName] = useState("");
   const [session, setSession] = useState(null);
+const [authLoading, setAuthLoading] = useState(true);
   const [lastAnalyzedCount, setLastAnalyzedCount] = useState(-1);
   const [showNoNewTrades, setShowNoNewTrades] = useState(false);
   const [coachSummary, setCoachSummary] = useState(null);
@@ -810,10 +811,20 @@ export default function App() {
   function showToast(message, type = "success") { setToast({ message, type }); setTimeout(() => setToast(null), 3500); }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, sessionData) => { setSession(sessionData); });
-    return () => { listener.subscription.unsubscribe(); };
-  }, []);
+  supabase.auth.getSession().then(({ data }) => {
+    setSession(data.session);
+    setAuthLoading(false);
+  });
+
+  const { data: listener } = supabase.auth.onAuthStateChange((_event, sessionData) => {
+    setSession(sessionData);
+    setAuthLoading(false);
+  });
+
+  return () => {
+    listener.subscription.unsubscribe();
+  };
+}, []);
 
   useEffect(() => { fetchRaylaUserCount(); }, []);
 
@@ -1034,7 +1045,7 @@ export default function App() {
           fallbackChange: "--", priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
   });
 
-  if (!session) return <Login onLogin={() => window.location.reload()} />;
+  
 
   const navTabs = [
     { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
@@ -1044,13 +1055,16 @@ export default function App() {
     { id: "intel", icon: <Brain size={18} />, label: "Intel" },
   ];
 
-  return (
+if (!session) return <Login onLogin={() => window.location.reload()} />;
+
+    return (
     <div className="appShell">
       {showTutorial && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#0b1017" }}>
           <Tutorial onDone={() => { localStorage.setItem("rayla-visited", "true"); setShowTutorial(false); }} />
         </div>
       )}
+      
       <nav className="desktopSidebar">
         <div className="desktopSidebarBrand">Rayla</div>
         <div className={`desktopSidebarTotalR ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
