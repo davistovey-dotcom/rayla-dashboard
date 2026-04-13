@@ -1068,17 +1068,20 @@ useEffect(() => {
     { id: "intel", icon: <Brain size={18} />, label: "Intel" },
   ];
 
+if (showSplash) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "#0b1017", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px" }}>
+      <div id="splash-logo" style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", opacity: 0, transform: "translateY(20px)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>Rayla</div>
+      <div id="splash-tag" style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", opacity: 0, transition: "opacity 0.8s ease 0.5s" }}>Trading redefined with AI</div>
+      <button onClick={() => setShowSplash(false)} id="splash-btn" style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", opacity: 0, transition: "opacity 0.8s ease 0.9s" }}>Enter</button>
+    </div>
+  );
+}
+
 if (!session) return <Login onLogin={() => window.location.reload()} />;
 
-
-{showSplash && (
-  <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "#0b1017", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px" }}>
-    <div id="splash-logo" style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", opacity: 0, transform: "translateY(20px)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>Rayla</div>
-    <div id="splash-tag" style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", opacity: 0, transition: "opacity 0.8s ease 0.5s" }}>Trading redefined with AI</div>
-    <button onClick={() => setShowSplash(false)} id="splash-btn" style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", opacity: 0, transition: "opacity 0.8s ease 0.9s" }}>Enter</button>
-  </div>
-)}
-    return (
+return (
+  
     <div className="appShell">
       {showTutorial && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#0b1017" }}>
