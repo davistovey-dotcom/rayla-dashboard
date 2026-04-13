@@ -803,6 +803,7 @@ const [authLoading, setAuthLoading] = useState(true);
   const [raylaUserCount, setRaylaUserCount] = useState(0);
   const [toast, setToast] = useState(null);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [tradeView, setTradeView] = useState("recent");
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
@@ -848,6 +849,18 @@ const [authLoading, setAuthLoading] = useState(true);
   useEffect(() => {
     if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
   }, [user]);
+
+useEffect(() => {
+  if (!showSplash) return;
+  setTimeout(() => {
+    const logo = document.getElementById("splash-logo");
+    const tag = document.getElementById("splash-tag");
+    const btn = document.getElementById("splash-btn");
+    if (logo) { logo.style.opacity = "1"; logo.style.transform = "translateY(0)"; }
+    if (tag) tag.style.opacity = "1";
+    if (btn) btn.style.opacity = "1";
+  }, 100);
+}, [showSplash]);
 
   useEffect(() => {
     async function loadUserAndTrades() {
@@ -1057,6 +1070,14 @@ const [authLoading, setAuthLoading] = useState(true);
 
 if (!session) return <Login onLogin={() => window.location.reload()} />;
 
+
+{showSplash && (
+  <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "#0b1017", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px" }}>
+    <div id="splash-logo" style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", opacity: 0, transform: "translateY(20px)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>Rayla</div>
+    <div id="splash-tag" style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", opacity: 0, transition: "opacity 0.8s ease 0.5s" }}>Trading redefined with AI</div>
+    <button onClick={() => setShowSplash(false)} id="splash-btn" style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", opacity: 0, transition: "opacity 0.8s ease 0.9s" }}>Enter</button>
+  </div>
+)}
     return (
     <div className="appShell">
       {showTutorial && (
@@ -1064,7 +1085,7 @@ if (!session) return <Login onLogin={() => window.location.reload()} />;
           <Tutorial onDone={() => { localStorage.setItem("rayla-visited", "true"); setShowTutorial(false); }} />
         </div>
       )}
-      
+
       <nav className="desktopSidebar">
         <div className="desktopSidebarBrand">Rayla</div>
         <div className={`desktopSidebarTotalR ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
