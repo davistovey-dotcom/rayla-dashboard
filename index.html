@@ -1,5 +1,14 @@
 <!doctype html>
 <html lang="en">
+  <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for(let registration of registrations) {
+        registration.unregister();
+      }
+    });
+  }
+</script>
   <head>
     <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#0b1017" />
