@@ -1071,9 +1071,15 @@ useEffect(() => {
 if (showSplash) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "#0b1017", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px" }}>
-      <div id="splash-logo" style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", opacity: 0, transform: "translateY(20px)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>Rayla</div>
-      <div id="splash-tag" style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", opacity: 0, transition: "opacity 0.8s ease 0.5s" }}>Trading redefined with AI</div>
-      <button onClick={() => setShowSplash(false)} id="splash-btn" style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", opacity: 0, transition: "opacity 0.8s ease 0.9s" }}>Enter</button>
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+      <div style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", animation: "fadeUp 0.8s ease 0.1s forwards", opacity: 0 }}>Rayla</div>
+      <div style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", animation: "fadeUp 0.8s ease 0.5s forwards", opacity: 0 }}>Trading redefined with AI</div>
+      <button onClick={() => setShowSplash(false)} style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", animation: "fadeUp 0.8s ease 0.9s forwards", opacity: 0 }}>Enter</button>
     </div>
   );
 }
