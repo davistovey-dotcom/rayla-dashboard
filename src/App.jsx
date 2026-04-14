@@ -803,7 +803,6 @@ const [authLoading, setAuthLoading] = useState(true);
   const [raylaUserCount, setRaylaUserCount] = useState(0);
   const [toast, setToast] = useState(null);
   const [showTutorial, setShowTutorial] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
   const [tradeView, setTradeView] = useState("recent");
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
@@ -850,17 +849,7 @@ const [authLoading, setAuthLoading] = useState(true);
     if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
   }, [user]);
 
-useEffect(() => {
-  if (!showSplash) return;
-  setTimeout(() => {
-    const logo = document.getElementById("splash-logo");
-    const tag = document.getElementById("splash-tag");
-    const btn = document.getElementById("splash-btn");
-    if (logo) { logo.style.opacity = "1"; logo.style.transform = "translateY(0)"; }
-    if (tag) tag.style.opacity = "1";
-    if (btn) btn.style.opacity = "1";
-  }, 100);
-}, [showSplash]);
+
 
   useEffect(() => {
     async function loadUserAndTrades() {
@@ -1068,25 +1057,15 @@ useEffect(() => {
     { id: "intel", icon: <Brain size={18} />, label: "Intel" },
   ];
 
-if (showSplash) {
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "#0b1017", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px" }}>
-      <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-      <div style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", animation: "fadeUp 0.8s ease 0.1s forwards", opacity: 0 }}>Rayla</div>
-      <div style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", animation: "fadeUp 0.8s ease 0.5s forwards", opacity: 0 }}>Trading redefined with AI</div>
-      <button onClick={() => setShowSplash(false)} style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", animation: "fadeUp 0.8s ease 0.9s forwards", opacity: 0 }}>Enter</button>
-    </div>
-  );
-}
 
-if (!session) return <Login onLogin={() => window.location.reload()} />;
+
+
+if (!session) return <Login onLogin={() => setShowSplash(false)} />;
+
 
 return (
+
+  
   
     <div className="appShell">
       {showTutorial && (
