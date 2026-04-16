@@ -442,7 +442,7 @@ useEffect(() => {
             <div className="marketWatchLabel">
               {quotes[item.id]?.price != null
                 ? quotes[item.id].price.toFixed(2)
-                : item.priceText}
+                : "..."}
             </div>
             <div className="marketWatchSymbol">{item.id}</div>
           </div>
@@ -454,7 +454,7 @@ useEffect(() => {
             >
               {quotes[item.id]?.change != null
                 ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
-                : item.changeText}
+                : "..."}
             </div>
             <span
               onClick={(e) => {
@@ -470,6 +470,8 @@ useEffect(() => {
       ))}
     </div>
   );
+
+
 
   return (
     <Card title="Live Market" className="marketCard">
@@ -757,6 +759,85 @@ function CoachAskBox({ trades }) {
   );
 }
 
+function SubscriptionCard() {
+  const [promoCode, setPromoCode] = useState("");
+  const [promoApplied, setPromoApplied] = useState(false);
+
+  const VALID_CODES = { "RAYLA5": 5, "RAYLAFREE": 20 };
+
+  function handleApply() {
+    const code = promoCode.trim().toUpperCase();
+    if (VALID_CODES[code]) {
+      setPromoApplied(code);
+      setPromoCode("");
+    } else {
+      alert("Invalid promo code.");
+    }
+  }
+
+  const trialDays = 14;
+  const trialEnd = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="cardHeader"><h2>Subscription</h2></div>
+      <div className="cardBody">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>Current plan</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>Rayla</div>
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999, background: "rgba(74,222,128,0.1)", color: "#4ade80" }}>Free trial</div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <span style={{ fontSize: 13, color: "#7f8ea3" }}>Trial ends</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{trialEnd}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 13, color: "#7f8ea3" }}>Then</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>
+              {promoApplied === "RAYLAFREE" ? (
+                <span style={{ color: "#4ade80" }}>Free</span>
+              ) : promoApplied === "RAYLA5" ? (
+                <><span style={{ textDecoration: "line-through", color: "#7f8ea3", marginRight: 6 }}>$20.00</span><span style={{ color: "#4ade80" }}>$15.00 / month</span></>
+              ) : "$20.00 / month"}
+            </span>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 999, height: 4 }}>
+            <div style={{ background: "#4ade80", borderRadius: 999, height: 4, width: "100%" }} />
+          </div>
+          <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 6 }}>{trialDays} days remaining in trial</div>
+        </div>
+        {!promoApplied && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 6 }}>Promo code</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                className="authInput"
+                placeholder="Enter code"
+                value={promoCode}
+                onChange={e => setPromoCode(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleApply(); }}
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="ghostButton" onClick={handleApply}>Apply</button>
+            </div>
+          </div>
+        )}
+        {promoApplied && (
+          <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(74,222,128,0.07)", border: "1px solid rgba(74,222,128,0.15)", fontSize: 13, color: "#4ade80" }}>
+            ✓ Promo code applied — {promoApplied === "RAYLAFREE" ? "first month free" : "$5 off per month"}
+          </div>
+        )}
+        <button type="button" className="ghostButton" style={{ width: "100%" }}>Manage subscription</button>
+        <div style={{ fontSize: 12, color: "#7f8ea3", textAlign: "center", marginTop: 10 }}>Subscription feature coming soon</div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [selectedMarketId, setSelectedMarketId] = useState("BTC");
  const [watchlist, setWatchlist] = useState(() => {
@@ -778,6 +859,13 @@ export default function App() {
   useEffect(() => {
   localStorage.setItem("rayla-watchlist", JSON.stringify(watchlist));
 }, [watchlist]);
+
+useEffect(() => {
+  if (watchlist.length > 0 && !watchlist.find(item => item.id === selectedMarketId)) {
+    setSelectedMarketId(watchlist[0].id);
+  }
+}, [watchlist]);
+
   const [intelLoading, setIntelLoading] = useState(false);
   const [hotColdReport, setHotColdReport] = useState(() => {
     try {
@@ -867,7 +955,7 @@ const [authLoading, setAuthLoading] = useState(true);
       setEquitySourceLabel("Equity based on logged trades");
     }
     loadUserAndTrades();
-  }, []);
+  }, [session]);
 
   const recentTrades = trades.slice(0, 5);
 
@@ -1043,8 +1131,7 @@ const [authLoading, setAuthLoading] = useState(true);
     const fallbackPrice = Number(String(item.fallbackPrice).replace(/,/g, ""));
     const fallbackChange = Number(String(item.fallbackChange).replace("%", ""));
     return { ...item,
-          fallbackPrice: "--",
-          fallbackChange: "--", priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
+      priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
   });
 
   
@@ -1062,6 +1149,23 @@ const [authLoading, setAuthLoading] = useState(true);
 
 if (!session) return <Login onLogin={() => setShowSplash(false)} />;
 
+async function handleDeleteAccount() {
+  const confirmDelete = window.confirm(
+    "Are you sure you want to delete your account? This will permanently delete all your data and cannot be undone."
+  );
+
+  if (!confirmDelete) return;
+
+  const { error } = await supabase.functions.invoke("delete-account");
+
+  if (error) {
+    alert("Error deleting account");
+    return;
+  }
+
+  alert("Account deleted");
+  window.location.reload();
+}
 
 return (
 
@@ -1333,34 +1437,40 @@ return (
           </div>
         )}
 
-        {activeTab === "profile" && (
-          <div className="mainGrid">
-            <div className="span12">
-              <div className="card profileCard">
-                <h3>Profile</h3>
-                <div className="list">
-                  <div className="listRow">
-                    <div>
-                      <input className="authInput" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-                      <div className="listSubtext">{user?.email || "No email found"}</div>
-                    </div>
-                  </div>
-                  <button className="ghostButton" type="button" onClick={async () => {
-                    const { error } = await supabase.auth.updateUser({ data: { display_name: displayName } });
-                    if (error) { showToast("Could not save name.", "error"); return; }
-                    showToast("Name updated.", "success");
-                    window.location.reload();
-                  }}>Save Name</button>
-                  <button className="ghostButton" type="button" onClick={() => setShowTutorial(true)}>View Tutorial</button>
-                  <button className="ghostButton" type="button" onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }}>Sign Out</button>
-                  <div className="listRow"><div><div className="listTitle">Trades Logged</div><div className="listSubtext">{trades.length}</div></div></div>
-                  <div className="listRow"><div><div className="listTitle">Win Rate</div><div className="listSubtext">{winRate}</div></div></div>
-                  <div className="listRow"><div><div className="listTitle">Average R</div><div className="listSubtext">{avgR}</div></div></div>
-                </div>
-              </div>
+       {activeTab === "profile" && (
+  <div className="mainGrid">
+    <div className="span12">
+      <div className="card profileCard">
+        <h3>Profile</h3>
+        <div className="list">
+          <div className="listRow">
+            <div>
+              <input className="authInput" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+              <div className="listSubtext">{user?.email || "No email found"}</div>
             </div>
           </div>
-        )}
+          <button className="ghostButton" type="button" onClick={async () => {
+            const { error } = await supabase.auth.updateUser({ data: { display_name: displayName } });
+            if (error) { showToast("Could not save name.", "error"); return; }
+            showToast("Name updated.", "success");
+            window.location.reload();
+          }}>Save Name</button>
+          <button className="ghostButton" type="button" onClick={() => setShowTutorial(true)}>View Tutorial</button>
+          <button className="ghostButton" type="button" onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }}>Sign Out</button>
+          <button className="ghostButton" type="button" onClick={handleDeleteAccount}>
+            Delete Account
+          </button>
+          <div className="listRow"><div><div className="listTitle">Trades Logged</div><div className="listSubtext">{trades.length}</div></div></div>
+          <div className="listRow"><div><div className="listTitle">Win Rate</div><div className="listSubtext">{winRate}</div></div></div>
+          <div className="listRow"><div><div className="listTitle">Average R</div><div className="listSubtext">{avgR}</div></div></div>
+        </div>
+      </div>
+      <SubscriptionCard />
+    </div>
+  </div>
+)}
+
+
 
         <div className="mobileNav">
           {navTabs.map(tab => (

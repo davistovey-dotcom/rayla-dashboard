@@ -73,6 +73,8 @@ function SplashScreen({ onEnter }) {
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [loading, setLoading] = useState(false);
   const [screen, setScreen] = useState("splash");
   const [splashReady, setSplashReady] = useState(false);
@@ -103,15 +105,35 @@ export default function Login({ onLogin }) {
   }
 
   async function handleSignUp() {
-    if (!email.trim() || !password.trim()) { alert("Enter your email and create a password first."); return; }
-    if (password.length < 6) { alert("Password must be at least 6 characters."); return; }
-    setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    setLoading(false);
-    if (error) { alert(`${error.code || "no_code"}: ${error.message}`); return; }
-    alert("Account created. Now sign in.");
-    onLogin?.(data);
+  if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
+    alert("Enter your email, password, and confirm your password first.");
+    return;
   }
+
+  if (password.length < 6) {
+    alert("Password must be at least 6 characters.");
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    alert("Passwords do not match.");
+    return;
+  }
+
+  setLoading(true);
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  setLoading(false);
+
+  if (error) {
+    alert(`${error.code || "no_code"}: ${error.message}`);
+    return;
+  }
+
+  alert("Account created. Check your email to verify your account.");
+  setIsCreatingAccount(false);
+  setPassword("");
+  setConfirmPassword("");
+}
 
   async function handleSignIn() {
     if (!email.trim() || !password.trim()) { alert("Enter your email and password first."); return; }
@@ -135,9 +157,51 @@ export default function Login({ onLogin }) {
           <label className="authLabel">Email</label>
           <input className="authInput" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
           <label className="authLabel">Password</label>
-          <input className="authInput" type="password" placeholder="Minimum 6 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button className="authPrimaryButton" onClick={handleSignIn} disabled={loading}>{loading ? "Loading..." : "Sign In"}</button>
-          <button className="authSecondaryButton" onClick={handleSignUp} disabled={loading}>Create Account</button>
+<input
+  className="authInput"
+  type="password"
+  placeholder="Minimum 6 characters"
+  value={password}
+  onChange={(e) => setPassword(e.target.value)}
+/>
+
+{isCreatingAccount && (
+  <>
+    <label className="authLabel">Confirm Password</label>
+    <input
+      className="authInput"
+      type="password"
+      placeholder="Retype your password"
+      value={confirmPassword}
+      onChange={(e) => setConfirmPassword(e.target.value)}
+    />
+  </>
+)}
+          <button
+  className="authPrimaryButton"
+  onClick={isCreatingAccount ? handleSignUp : handleSignIn}
+  disabled={loading}
+>
+  {loading ? "Loading..." : isCreatingAccount ? "Create Account" : "Sign In"}
+</button>
+          <button
+  className="authSecondaryButton"
+  onClick={() => {
+    if (isCreatingAccount) {
+      setIsCreatingAccount(false);
+      setPassword("");
+      setConfirmPassword("");
+    } else {
+      setIsCreatingAccount(true);
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+    }
+  }}
+  disabled={loading}
+>
+  {isCreatingAccount ? "Back to Sign In" : "Create Account"}
+</button>
         </div>
       </div>
     </div>

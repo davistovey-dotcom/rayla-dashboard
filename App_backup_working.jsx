@@ -498,15 +498,7 @@ const bestSetup = Object.entries(
     action = "Keep executing the same setups consistently.";
   }
 
-  if (bestSetup) {
-    action += ` Double down on ${bestSetup[0]} — that’s where your edge is forming.`;
-  }
-
-    return `${diagnosis} ${action} ${
-      bestSetup
-        ? ""
-        : "You need at least 2 trades in the same setup before I can identify a real edge."
-    }`;
+    return `${diagnosis} ${action} ${bestSetup ? `Double down on ${bestSetup[0]} — that’s where your edge is forming.` : "You need at least 2 trades in the same setup before I can identify a real edge."} Market idea: Watch ${trades[0]?.asset || "your main asset"} — look for ${bestSetup ? bestSetup[0] : "high-quality"} setups based on momentum.`;
     };
 
   const [tradeForm, setTradeForm] = useState({
