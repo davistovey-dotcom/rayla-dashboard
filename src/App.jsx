@@ -886,47 +886,6 @@ useEffect(() => {
   }
 }, [watchlist]);
 
-const watchlistSymbolsKey = watchlist.map((item) => item.id).sort().join("|");
-
-useEffect(() => {
-  if (!watchlist.length) return;
-
-  async function fetchSimulationQuotes() {
-    try {
-      const symbols = watchlist.map((item) => ({
-        symbol: item.id,
-        type: item.type || "stock",
-      }));
-      const res = await fetchWithTimeout("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/market-data", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ symbols }),
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) return;
-
-      setSimulationQuotes((prev) => {
-        const next = { ...prev };
-        Object.entries(data.quotes || {}).forEach(([symbol, quote]) => {
-          if (quote?.price != null) next[symbol] = quote;
-        });
-        sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
-        return next;
-      });
-    } catch (error) {
-      console.error("simulation quote fetch failed:", error);
-    }
-  }
-
-  fetchSimulationQuotes();
-  const interval = setInterval(fetchSimulationQuotes, 30000);
-  return () => clearInterval(interval);
-}, [watchlistSymbolsKey]);
-
   const [intelLoading, setIntelLoading] = useState(false);
   const [hotColdReport, setHotColdReport] = useState(() => {
     try {
@@ -962,13 +921,29 @@ useEffect(() => {
       return {};
     }
   });
+  const [simulationAsset, setSimulationAsset] = useState(null);
   const [simulationDirection, setSimulationDirection] = useState("long");
   const [simulationAmount, setSimulationAmount] = useState("");
   const [simulationStopLoss, setSimulationStopLoss] = useState("");
   const [simulationTakeProfit, setSimulationTakeProfit] = useState("");
+  const [simulationSearchQuery, setSimulationSearchQuery] = useState("");
+  const [simulationSearchResults, setSimulationSearchResults] = useState([]);
   const [simulationPosition, setSimulationPosition] = useState(null);
   const [simulationClosedTrade, setSimulationClosedTrade] = useState(null);
   const [simulationNow, setSimulationNow] = useState(Date.now());
+  const simulationTrackedAssets = [
+    ...watchlist,
+    ...(simulationAsset ? [simulationAsset] : []),
+    ...(simulationPosition && simulationAsset?.id !== simulationPosition.asset ? [{
+      id: simulationPosition.asset,
+      label: simulationPosition.label || simulationPosition.asset,
+      tvSymbol: simulationPosition.tvSymbol,
+      type: simulationPosition.type || "stock",
+      fallbackPrice: "--",
+      fallbackChange: "--",
+    }] : []),
+  ];
+  const simulationSymbolsKey = [...new Set(simulationTrackedAssets.map((item) => item.id))].sort().join("|");
   const [raylaUserCount, setRaylaUserCount] = useState(0);
   const [toast, setToast] = useState(null);
   const [showTooltip, setShowTooltip] = useState(null);
@@ -983,6 +958,45 @@ useEffect(() => {
     const interval = setInterval(() => setSimulationNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [simulationPosition]);
+
+  useEffect(() => {
+    if (!simulationTrackedAssets.length) return;
+
+    async function fetchSimulationQuotes() {
+      try {
+        const symbols = simulationTrackedAssets.map((item) => ({
+          symbol: item.id,
+          type: item.type || "stock",
+        }));
+        const res = await fetchWithTimeout("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/market-data", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ symbols }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) return;
+
+        setSimulationQuotes((prev) => {
+          const next = { ...prev };
+          Object.entries(data.quotes || {}).forEach(([symbol, quote]) => {
+            if (quote?.price != null) next[symbol] = quote;
+          });
+          sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
+          return next;
+        });
+      } catch (error) {
+        console.error("simulation quote fetch failed:", error);
+      }
+    }
+
+    fetchSimulationQuotes();
+    const interval = setInterval(fetchSimulationQuotes, 30000);
+    return () => clearInterval(interval);
+  }, [simulationSymbolsKey]);
 
   function showToast(message, type = "success") { setToast({ message, type }); setTimeout(() => setToast(null), 3500); }
 
@@ -1321,7 +1335,7 @@ useEffect(() => {
 
   function handleOpenSimulationTrade() {
     const amount = Number.parseFloat(simulationAmount);
-    const entryPrice = getSimulationPrice(selectedMarketId);
+    const entryPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
     const stopLoss = Number.parseFloat(simulationStopLoss);
     const takeProfit = Number.parseFloat(simulationTakeProfit);
 
@@ -1360,7 +1374,10 @@ useEffect(() => {
 
     setSimulationClosedTrade(null);
     setSimulationPosition({
-      asset: selectedMarketId,
+      asset: selectedSimulationItem.id,
+      label: selectedSimulationItem.label,
+      tvSymbol: selectedSimulationItem.tvSymbol,
+      type: selectedSimulationItem.type,
       direction: simulationDirection,
       amount,
       entryPrice,
@@ -1407,13 +1424,11 @@ useEffect(() => {
   }
 
   const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
-  function handleAddSymbol(overrideSymbol) {
-    
-  const raw = (typeof overrideSymbol === "string" ? overrideSymbol : overrideSymbol?.symbol || newSymbol).trim();
-  if (!raw) return;
+  function buildMarketAsset(rawOrResult) {
+  const raw = (typeof rawOrResult === "string" ? rawOrResult : rawOrResult?.symbol || "").trim();
+  if (!raw) return null;
 
   const upper = ({ TRON: "TRX" }[raw.toUpperCase()] || raw.toUpperCase());
-  const selectedResult = typeof overrideSymbol === "object" ? overrideSymbol : null;
 
   const exchangeMap = {
     SPY: "AMEX:SPY",
@@ -1442,6 +1457,26 @@ useEffect(() => {
 
   const id = upper.includes(":") ? upper.split(":").pop() : upper;
   const tvSymbol = upper.includes(":") ? upper : (exchangeMap[upper] || `NASDAQ:${upper}`);
+  const isCrypto = CRYPTO_SYMBOL_SET.has(id) || tvSymbol.includes("USDT") || tvSymbol.includes("BINANCE");
+
+  return {
+    id,
+    label: typeof rawOrResult === "object" ? rawOrResult.description || id : id,
+    tvSymbol,
+    type: isCrypto ? "crypto" : "stock",
+    fallbackPrice: "--",
+    fallbackChange: "--",
+  };
+}
+
+  function handleAddSymbol(overrideSymbol) {
+    
+  const raw = (typeof overrideSymbol === "string" ? overrideSymbol : overrideSymbol?.symbol || newSymbol).trim();
+  if (!raw) return;
+
+  const nextAsset = buildMarketAsset(overrideSymbol || raw);
+  const id = nextAsset.id;
+  const tvSymbol = nextAsset.tvSymbol;
 
   const alreadyExists = watchlist.some(
     (item) => item.id === id || item.tvSymbol === tvSymbol
@@ -1452,16 +1487,7 @@ useEffect(() => {
     return;
   }
 
-  const isCrypto = CRYPTO_SYMBOL_SET.has(id) || tvSymbol.includes("USDT") || tvSymbol.includes("BINANCE");
-
-  setWatchlist((prev) => [...prev, {
-    id,
-    label: id,
-    tvSymbol,
-    type: isCrypto ? "crypto" : "stock",
-    fallbackPrice: "--",
-    fallbackChange: "--",
-  }]);
+  setWatchlist((prev) => [...prev, nextAsset]);
 
   setSelectedMarketId(id);
   setNewSymbol("");
@@ -1481,7 +1507,30 @@ useEffect(() => {
       priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
   });
 
-  const selectedSimulationItem = marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
+  async function handleSimulationSearchChange(value) {
+    setSimulationSearchQuery(value);
+    if (value.length < 1) {
+      setSimulationSearchResults([]);
+      return;
+    }
+    try {
+      const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(value) + "&token=" + import.meta.env.VITE_FINNHUB_KEY);
+      const data = await res.json();
+      setSimulationSearchResults((data.result || []).slice(0, 6));
+    } catch {
+      setSimulationSearchResults([]);
+    }
+  }
+
+  function handleSelectSimulationAsset(result) {
+    const nextAsset = buildMarketAsset(result);
+    if (!nextAsset) return;
+    setSimulationAsset(nextAsset);
+    setSimulationSearchQuery(nextAsset.id);
+    setSimulationSearchResults([]);
+  }
+
+  const selectedSimulationItem = simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
   const simulationChartSrc = selectedSimulationItem
     ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedSimulationItem.tvSymbol)}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
     : "";
@@ -2442,12 +2491,44 @@ return (
                       )}
                     </div>
 
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type="text"
+                        value={simulationSearchQuery}
+                        onChange={(e) => handleSimulationSearchChange(e.target.value)}
+                        placeholder="Search any asset for simulation"
+                        className="authInput"
+                        disabled={!!simulationPosition}
+                      />
+                      {simulationSearchResults.length > 0 && !simulationPosition && (
+                        <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, width: "100%", maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
+                          {simulationSearchResults.map((result) => (
+                            <div
+                              key={result.symbol}
+                              onClick={() => handleSelectSimulationAsset(result)}
+                              style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                            >
+                              <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{result.symbol}</span>
+                              <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{result.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, alignItems: "end" }}>
                       <select
                         className="authInput"
-                        value={selectedMarketId}
-                        onChange={(e) => setSelectedMarketId(e.target.value)}
+                        value={simulationAsset ? "" : selectedMarketId}
+                        onChange={(e) => {
+                          setSimulationAsset(null);
+                          setSimulationSearchQuery("");
+                          setSimulationSearchResults([]);
+                          setSelectedMarketId(e.target.value);
+                        }}
+                        disabled={!!simulationPosition}
                       >
+                        <option value="">Watchlist assets</option>
                         {marketItems.map((item) => (
                           <option key={item.id} value={item.id}>{item.id}</option>
                         ))}
@@ -2456,6 +2537,7 @@ return (
                         className="authInput"
                         value={simulationDirection}
                         onChange={(e) => setSimulationDirection(e.target.value)}
+                        disabled={!!simulationPosition}
                       >
                         <option value="long">Buy / Long</option>
                         <option value="short">Sell / Short</option>
@@ -2467,6 +2549,7 @@ return (
                         step="0.01"
                         value={simulationAmount}
                         onChange={(e) => setSimulationAmount(e.target.value)}
+                        disabled={!!simulationPosition}
                       />
                       <input
                         className="authInput"
@@ -2475,6 +2558,7 @@ return (
                         step="0.01"
                         value={simulationStopLoss}
                         onChange={(e) => setSimulationStopLoss(e.target.value)}
+                        disabled={!!simulationPosition}
                       />
                       <input
                         className="authInput"
@@ -2483,6 +2567,7 @@ return (
                         step="0.01"
                         value={simulationTakeProfit}
                         onChange={(e) => setSimulationTakeProfit(e.target.value)}
+                        disabled={!!simulationPosition}
                       />
                       <button
                         type="button"
