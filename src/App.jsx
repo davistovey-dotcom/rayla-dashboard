@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
-import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList } from "lucide-react";
+import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, TrendingUp, Target, Gamepad2 } from "lucide-react";
 import { Tutorial } from "./Login";
 
 
@@ -13,6 +13,10 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(timeout));
 }
+
+const SUPABASE_FUNCTIONS_BASE_URL = "https://uoxzzhtnzmsolvcykynu.functions.supabase.co";
+const DAILY_INTEL_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
+const ASK_RAYLA_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/ask-rayla`;
 
 const marketSeeds = [
   { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
@@ -26,6 +30,115 @@ const fallbackEquity = [100, 101.5, 100.7, 102.1, 103.4, 102.8, 104.6, 105.2];
 
 const SETUP_OPTIONS = ["rejection","breakout","pullback","reversal","range"];
 const SESSION_OPTIONS = ["Asia","London","New York","After Hours"];
+
+function parseTradeResult(value) {
+  const parsed = Number.parseFloat(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMetric(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function buildTradeStats(trades) {
+  const safeTrades = Array.isArray(trades) ? trades : [];
+  const results = safeTrades.map((trade) => ({
+    ...trade,
+    resultValue: parseTradeResult(trade?.result_r),
+    assetName: String(trade?.asset || "Unknown").toUpperCase(),
+    setupName: String(trade?.setup || "").trim(),
+  }));
+
+  const wins = results.filter((trade) => trade.resultValue > 0);
+  const losses = results.filter((trade) => trade.resultValue < 0);
+  const totalTrades = results.length;
+  const totalR = results.reduce((sum, trade) => sum + trade.resultValue, 0);
+  const winRate = totalTrades ? (wins.length / totalTrades) * 100 : 0;
+  const avgR = totalTrades ? totalR / totalTrades : 0;
+  const averageWin = wins.length
+    ? wins.reduce((sum, trade) => sum + trade.resultValue, 0) / wins.length
+    : 0;
+  const averageLoss = losses.length
+    ? losses.reduce((sum, trade) => sum + trade.resultValue, 0) / losses.length
+    : 0;
+  const maxLoss = losses.length
+    ? Math.min(...losses.map((trade) => trade.resultValue))
+    : 0;
+  const largestWin = wins.length
+    ? Math.max(...wins.map((trade) => trade.resultValue))
+    : 0;
+
+  const summarizeGroup = (key) => {
+    const groups = {};
+
+    results.forEach((trade) => {
+      const rawName = key === "setupName" ? trade.setupName : trade.assetName;
+      if (!rawName) return;
+      if (!groups[rawName]) {
+        groups[rawName] = { name: rawName, trades: 0, wins: 0, totalR: 0 };
+      }
+      groups[rawName].trades += 1;
+      groups[rawName].totalR += trade.resultValue;
+      if (trade.resultValue > 0) groups[rawName].wins += 1;
+    });
+
+    return Object.values(groups)
+      .map((group) => ({
+        name: group.name,
+        trades: group.trades,
+        winRate: group.trades ? roundMetric((group.wins / group.trades) * 100, 1) : 0,
+        avgR: group.trades ? roundMetric(group.totalR / group.trades) : 0,
+        totalR: roundMetric(group.totalR),
+      }))
+      .sort((a, b) => {
+        if (b.avgR !== a.avgR) return b.avgR - a.avgR;
+        if (b.totalR !== a.totalR) return b.totalR - a.totalR;
+        return b.trades - a.trades;
+      });
+  };
+
+  const setupStats = summarizeGroup("setupName");
+  const assetStats = summarizeGroup("assetName");
+
+  let recentLossStreak = 0;
+  for (const trade of results) {
+    if (trade.resultValue < 0) recentLossStreak += 1;
+    else break;
+  }
+
+  return {
+    totalTrades,
+    winRate: roundMetric(winRate, 1),
+    avgR: roundMetric(avgR),
+    totalR: roundMetric(totalR),
+    averageWin: roundMetric(averageWin),
+    averageLoss: roundMetric(averageLoss),
+    maxLoss: roundMetric(maxLoss),
+    largestWin: roundMetric(largestWin),
+    bestSetup: setupStats[0] || null,
+    worstSetup: setupStats[setupStats.length - 1] || null,
+    bestAsset: assetStats[0] || null,
+    worstAsset: assetStats[assetStats.length - 1] || null,
+    recentLossStreak,
+  };
+}
+
+function buildAskRaylaContext({ trades, userLevel, selectedMarketId }) {
+  return {
+    userLevel,
+    selectedMarketId,
+    stats: buildTradeStats(trades),
+    recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
+      asset: trade?.asset || "",
+      setup: trade?.setup || "",
+      session: trade?.session || "",
+      resultR: roundMetric(parseTradeResult(trade?.result_r)),
+      direction: trade?.direction || "",
+      createdAt: trade?.created_at || trade?.entry_time || null,
+    })),
+  };
+}
 
 function buildCoachReport(trades) {
   if (!trades || trades.length === 0) return null;
@@ -625,116 +738,22 @@ function IntelAssetCard({ item }) {
   );
 }
 
-function getAnswerFromReport(r, question) {
-  const ql = question.toLowerCase().trim();
-
-  if (ql.includes("best setup") || ql.includes("strongest") || ql.includes("best edge")) {
-    return r.bestCombo
-      ? `Your strongest edge right now is ${r.bestCombo.setup} on ${r.bestCombo.asset}. That's giving you about ${r.bestCombo.avgR.toFixed(2)}R per trade with a ${r.bestCombo.winRate.toFixed(0)}% win rate across ${r.bestCombo.trades} trades. That's the area I'd trust most until the data says otherwise.`
-      : "You need at least 2 trades in the same setup before I can confidently tell you what your strongest edge is.";
-  }
-
-  if (ql.includes("win rate")) {
-    return `Your win rate is ${r.winRate.toFixed(1)}% across ${r.trades} trades. That's useful, but I'd care just as much about your average R and whether your edge is repeatable.`;
-  }
-
-  if (ql.includes("avg r") || ql.includes("average r")) {
-    return `Your average R is ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R per trade. That's a strong number if you can keep repeating it with discipline and not drift into lower-quality setups.`;
-  }
-
-  if (ql.includes("overtrading")) {
-    return r.trades >= 5 && r.winRate < 50
-      ? "Possibly. A win rate under 50% with at least 5 trades can be a sign you're forcing setups or trading too often. I'd tighten your standards and make sure you're only taking your cleanest looks."
-      : "Not necessarily. I don't see clear proof of overtrading just from that question alone. Keep logging trades and watch whether your lower-quality setups are dragging your results down.";
-  }
-
-  if (ql.includes("worst") || ql.includes("weak")) {
-
-  // WORST ASSET
-  if (ql.includes("asset") || ql.includes("stock") || ql.includes("coin")) {
-    const worstAsset = r.assetStats[r.assetStats.length - 1];
-    return worstAsset
-      ? `Your weakest asset right now is ${worstAsset.asset}. It's averaging ${worstAsset.avgR.toFixed(2)}R with a ${worstAsset.winRate.toFixed(0)}% win rate over ${worstAsset.trades} trades. That might be something to either study deeper or cut back on.`
-      : "Not enough data yet to clearly identify your weakest asset.";
-  }
-
-  // WORST SETUP (default)
-  const worstSetup = r.setupStats[r.setupStats.length - 1];
-  return worstSetup
-    ? `Your weakest setup right now is ${worstSetup.setup}. It's averaging ${worstSetup.avgR.toFixed(2)}R with a ${worstSetup.winRate.toFixed(0)}% win rate over ${worstSetup.trades} trades. That's the first place I'd tighten up.`
-    : "Not enough data yet to clearly identify your weakest setup.";
-}
-
-  if (
-    ql.includes("improve") ||
-    ql.includes("better") ||
-    ql.includes("fix") ||
-    ql.includes("work on") ||
-    ql.includes("what can i do better") ||
-    ql.includes("how do i get better")
-  ) {
-    const improveParts = [];
-
-    if (r.warnings.length > 0) {
-      improveParts.push(`The biggest thing to improve right now is this: ${r.warnings[0]}`);
-    }
-
-    if (r.actions.length > 0) {
-      improveParts.push(`My biggest recommendation would be: ${r.actions[0]}`);
-    }
-
-    if (r.setupStats.length > 1) {
-      const worst = r.setupStats[r.setupStats.length - 1];
-      if (worst && worst.avgR < 0) {
-        improveParts.push(`Also, your ${worst.setup} setup is underperforming. That's an area I'd either tighten up hard or cut back on until you understand why it's lagging.`);
-      }
-    }
-
-    if (improveParts.length === 0) {
-      improveParts.push("Right now there isn't one glaring weakness in your data. The main goal is to stay selective, keep logging everything, and keep pressing your strongest edge instead of getting random.");
-    }
-
-    return improveParts.join(" ");
-  }
-
-  if (ql.includes("focus") || ql.includes("should i")) {
-    return r.actions[0]
-      ? `If I were you, I'd focus here next: ${r.actions[0]}`
-      : "Keep logging trades consistently, stay selective, and review your edge every week.";
-  }
-
-  return `You're doing solid overall. Right now you're at a ${r.winRate.toFixed(1)}% win rate across ${r.trades} trades, averaging ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R per trade.
-
-The biggest bright spot is ${
-    r.bestCombo
-      ? `${r.bestCombo.setup} on ${r.bestCombo.asset}, which looks like your strongest edge so far.`
-      : "that you're still building enough data to identify your strongest edge."
-  }
-
-${
-    r.warnings.length > 0
-      ? `The main thing I'd watch is ${r.warnings[0]}`
-      : "There aren't any major red flags showing up right now."
-  }
-
-${
-    r.actions.length > 0
-      ? `If I were coaching you directly, I'd tell you to do this next: ${r.actions[0]}`
-      : ""
-  }`;
-}
-
-function CoachAskBox({ trades }) {
+function CoachAskBox({ trades, onAskRayla, isLoading }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
 
-  function handleAsk() {
+  async function handleAsk() {
     const q = question.trim();
     if (!q) return;
     const r = buildCoachReport(trades);
     if (!r) { setAnswer("No trades logged yet. Start logging trades first."); setQuestion(""); return; }
-    setAnswer(getAnswerFromReport(r, q));
-    setQuestion("");
+    try {
+      const nextAnswer = await onAskRayla(q);
+      setAnswer(nextAnswer);
+      setQuestion("");
+    } catch (error) {
+      setAnswer(`API error: ${error?.message || "unknown error"}`);
+    }
   }
 
   return (
@@ -750,8 +769,9 @@ function CoachAskBox({ trades }) {
             style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleAsk(); }}
+            disabled={isLoading}
           />
-          <button type="button" style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }} onClick={handleAsk}>Ask</button>
+          <button type="button" style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }} onClick={handleAsk} disabled={isLoading}>{isLoading ? "Thinking..." : "Ask"}</button>
         </div>
         {answer && <div style={{ marginTop: 12, fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>{answer}</div>}
       </div>
@@ -866,6 +886,47 @@ useEffect(() => {
   }
 }, [watchlist]);
 
+const watchlistSymbolsKey = watchlist.map((item) => item.id).sort().join("|");
+
+useEffect(() => {
+  if (!watchlist.length) return;
+
+  async function fetchSimulationQuotes() {
+    try {
+      const symbols = watchlist.map((item) => ({
+        symbol: item.id,
+        type: item.type || "stock",
+      }));
+      const res = await fetchWithTimeout("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/market-data", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ symbols }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) return;
+
+      setSimulationQuotes((prev) => {
+        const next = { ...prev };
+        Object.entries(data.quotes || {}).forEach(([symbol, quote]) => {
+          if (quote?.price != null) next[symbol] = quote;
+        });
+        sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
+        return next;
+      });
+    } catch (error) {
+      console.error("simulation quote fetch failed:", error);
+    }
+  }
+
+  fetchSimulationQuotes();
+  const interval = setInterval(fetchSimulationQuotes, 30000);
+  return () => clearInterval(interval);
+}, [watchlistSymbolsKey]);
+
   const [intelLoading, setIntelLoading] = useState(false);
   const [hotColdReport, setHotColdReport] = useState(() => {
     try {
@@ -876,25 +937,52 @@ useEffect(() => {
   });
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
+  const [aiInput, setAiInput] = useState("");
   const [activeTab, setActiveTab] = useState("home");
-  const [newSymbol, setNewSymbol] = useState("");
+    const [newSymbol, setNewSymbol] = useState("");
   const [user, setUser] = useState(null);
   const [chartRange, setChartRange] = useState("ALL");
   const [displayName, setDisplayName] = useState("");
   const [session, setSession] = useState(null);
-const [authLoading, setAuthLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
+  const [userLevel, setUserLevel] = useState("beginner");
+    const [showBeginnerTutorial, setShowBeginnerTutorial] = useState(false);
+  const [beginnerTutorialView, setBeginnerTutorialView] = useState("menu");
+    const [beginnerTutorialStep, setBeginnerTutorialStep] = useState(0);
+  const [authLoading, setAuthLoading] = useState(true);
   const [lastAnalyzedCount, setLastAnalyzedCount] = useState(-1);
   const [showNoNewTrades, setShowNoNewTrades] = useState(false);
   const [coachSummary, setCoachSummary] = useState(null);
   const [equitySourceLabel, setEquitySourceLabel] = useState("No trades yet. Add your first trade.");
   const [trades, setTrades] = useState([]);
+  const [simulationQuotes, setSimulationQuotes] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("rayla-market-quotes") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [simulationDirection, setSimulationDirection] = useState("long");
+  const [simulationAmount, setSimulationAmount] = useState("");
+  const [simulationStopLoss, setSimulationStopLoss] = useState("");
+  const [simulationTakeProfit, setSimulationTakeProfit] = useState("");
+  const [simulationPosition, setSimulationPosition] = useState(null);
+  const [simulationClosedTrade, setSimulationClosedTrade] = useState(null);
+  const [simulationNow, setSimulationNow] = useState(Date.now());
   const [raylaUserCount, setRaylaUserCount] = useState(0);
   const [toast, setToast] = useState(null);
+  const [showTooltip, setShowTooltip] = useState(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
   });
+
+  useEffect(() => {
+    if (!simulationPosition) return;
+    const interval = setInterval(() => setSimulationNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [simulationPosition]);
 
   function showToast(message, type = "success") { setToast({ message, type }); setTimeout(() => setToast(null), 3500); }
 
@@ -914,12 +1002,38 @@ const [authLoading, setAuthLoading] = useState(true);
   };
 }, []);
 
+      useEffect(() => {
+        async function loadProfile() {
+          const { data: { user } } = await supabase.auth.getUser();
+
+          if (!user) return;
+
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("user_level")
+            .eq("id", user.id)
+            .single();
+
+          if (error) {
+            console.error("Error loading profile:", error);
+            return;
+          }
+
+          setProfile(data);
+          setUserLevel(data.user_level || "beginner");
+
+          console.log("USER LEVEL:", data.user_level);
+        }
+
+        loadProfile();
+      }, []);
+
   useEffect(() => { fetchRaylaUserCount(); }, []);
 
   useEffect(() => {
     if (hotColdReport !== null) return;
     setIntelLoading(true);
-    fetch("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/daily-intel")
+    fetch(DAILY_INTEL_URL)
       .then(r => r.json())
       .then(data => {
         const report = { stockHot: data.stockHot || [], stockCold: data.stockCold || [], cryptoHot: data.cryptoHot || null, cryptoCold: data.cryptoCold || null };
@@ -957,7 +1071,8 @@ const [authLoading, setAuthLoading] = useState(true);
     loadUserAndTrades();
   }, [session]);
 
-  const recentTrades = trades.slice(0, 5);
+    const recentTrades = trades.slice(0, 5);
+    const isBeginner = userLevel === "beginner";
 
   const topEdges = Object.values(
     trades.reduce((acc, trade) => {
@@ -1002,6 +1117,80 @@ const [authLoading, setAuthLoading] = useState(true);
     showToast("Trade logged.", "success");
   }
 
+  async function handleUserLevelChange(level) {
+        if (!user) {
+          showToast("No user loaded.", "error");
+          return;
+        }
+
+        const { error } = await supabase
+          .from("profiles")
+          .update({ user_level: level })
+          .eq("id", user.id);
+
+        if (error) {
+          console.error("USER LEVEL SAVE ERROR:", error);
+          showToast("Could not save user level.", "error");
+          return;
+        }
+
+        setUserLevel(level);
+        setProfile((prev) => ({ ...(prev || {}), user_level: level }));
+        showToast("User level updated.", "success");
+      }
+
+  async function requestRaylaAnswer(question) {
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion) return "Question is required.";
+
+    const response = await fetchWithTimeout(
+      ASK_RAYLA_URL,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          question: trimmedQuestion,
+          context: buildAskRaylaContext({
+            trades,
+            userLevel,
+            selectedMarketId,
+          }),
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok && !data?.answer) {
+      throw new Error(data?.error || `Request failed with status ${response.status}`);
+    }
+
+    return data?.answer || data?.error || "No response.";
+  }
+
+  async function handleAskRaylaQuestion(question, { clearInput = false } = {}) {
+    if (!question.trim()) return;
+
+    setIsRaylaLoading(true);
+    setRaylaResponse("");
+
+    try {
+      const answer = await requestRaylaAnswer(question);
+      setRaylaResponse(answer);
+      if (clearInput) setAiInput("");
+      return answer;
+    } catch (error) {
+      const message = `API error: ${error?.message || "unknown error"}`;
+      setRaylaResponse(message);
+      throw error;
+    } finally {
+      setIsRaylaLoading(false);
+    }
+  }
+
   async function handleScreenshotUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1034,6 +1223,164 @@ const [authLoading, setAuthLoading] = useState(true);
     const { error } = await supabase.from("trades").delete().eq("id", tradeId);
     if (error) { console.error("DELETE ERROR:", error); showToast("Could not delete trade: " + error.message, "error"); return; }
     setTrades((prev) => prev.filter((trade) => trade.id !== tradeId));
+  }
+
+  function getSimulationPrice(assetId) {
+    const livePrice = simulationQuotes[assetId]?.price;
+    if (livePrice != null) return livePrice;
+    const item = marketItems.find((marketItem) => marketItem.id === assetId);
+    return Number.isFinite(item?.priceValue) ? item.priceValue : null;
+  }
+
+  function calculateSimulationPnL(position, currentPrice) {
+    if (!position || !Number.isFinite(currentPrice)) return { profitLoss: 0, rMultiple: 0 };
+    const movePct = position.direction === "long"
+      ? (currentPrice - position.entryPrice) / position.entryPrice
+      : (position.entryPrice - currentPrice) / position.entryPrice;
+    const profitLoss = position.amount * movePct;
+    const rMultiple = position.plannedRisk > 0 ? profitLoss / position.plannedRisk : 0;
+    return { profitLoss, rMultiple };
+  }
+
+  function formatTimeInTrade(openedAt) {
+    if (!openedAt) return "--";
+    const elapsedMs = Math.max(0, simulationNow - openedAt);
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  }
+
+  function buildSimulationCloseFeedback(position, exitPrice, profitLoss, rMultiple, durationMs) {
+    const durationMinutes = durationMs / 60000;
+    const isWin = profitLoss > 0;
+    const isLoss = profitLoss < 0;
+    const tinyGain = isWin && rMultiple < 0.25;
+    const strongWinner = isWin && rMultiple >= 1.5;
+    const heldLongEnough = durationMinutes >= 5;
+    const veryQuickTrade = durationMinutes < 2;
+    const smallLoss = isLoss && Math.abs(rMultiple) <= 0.25;
+
+    if (strongWinner) {
+      return `Strong follow-through on that ${position.direction} in ${position.asset}. You let the move work from ${formatCompactPrice(position.entryPrice)} to ${formatCompactPrice(exitPrice)} and got paid ${rMultiple.toFixed(2)}R for staying with it.`;
+    }
+
+    if (isWin && heldLongEnough) {
+      return `Good patience here. You gave that ${position.direction} enough time to develop and the exit shows controlled execution instead of rushing the close.`;
+    }
+
+    if (tinyGain && veryQuickTrade) {
+      return `You locked in a green trade, but it was a very quick exit for a small gain. Make sure you are not cutting winners short before the move has real room to expand.`;
+    }
+
+    if (isWin) {
+      return `Solid paper trade. You stayed on the right side of the move and closed it with a clean gain instead of letting it drift back on you.`;
+    }
+
+    if (smallLoss && veryQuickTrade) {
+      return `Good protection. You kept the loss small and got out quickly, which is exactly what disciplined damage control should look like.`;
+    }
+
+    if (isLoss) {
+      return `Controlled loss. It did not work, but the rep still matters because you respected risk and closed it before the damage got out of hand.`;
+    }
+
+    return `Flat result overall. The main win here is practicing clean decision-making around entry, management, and exit.`;
+  }
+
+  function finalizeSimulationTrade(exitPrice, exitReason = "Manual Close") {
+    if (!simulationPosition) return;
+
+    const { profitLoss, rMultiple } = calculateSimulationPnL(simulationPosition, exitPrice);
+    const closedAt = Date.now();
+    const durationMs = Math.max(0, closedAt - simulationPosition.openedAt);
+    const feedback = buildSimulationCloseFeedback(
+      simulationPosition,
+      exitPrice,
+      profitLoss,
+      rMultiple,
+      durationMs
+    );
+
+    setSimulationClosedTrade({
+      ...simulationPosition,
+      closedAt,
+      durationMs,
+      exitPrice,
+      exitReason,
+      profitLoss,
+      rMultiple,
+      feedback,
+    });
+    setSimulationPosition(null);
+  }
+
+  function handleOpenSimulationTrade() {
+    const amount = Number.parseFloat(simulationAmount);
+    const entryPrice = getSimulationPrice(selectedMarketId);
+    const stopLoss = Number.parseFloat(simulationStopLoss);
+    const takeProfit = Number.parseFloat(simulationTakeProfit);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showToast("Enter a valid amount to simulate.", "warning");
+      return;
+    }
+
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+      showToast("Live price is not available for this asset yet.", "warning");
+      return;
+    }
+
+    if (!Number.isFinite(stopLoss) || !Number.isFinite(takeProfit)) {
+      showToast("Enter a valid stop loss and take profit.", "warning");
+      return;
+    }
+
+    const longSetupValid = simulationDirection === "long" && stopLoss < entryPrice && takeProfit > entryPrice;
+    const shortSetupValid = simulationDirection === "short" && stopLoss > entryPrice && takeProfit < entryPrice;
+
+    if (!longSetupValid && !shortSetupValid) {
+      showToast("For longs: stop below entry and target above. For shorts: stop above entry and target below.", "warning");
+      return;
+    }
+
+    const riskPerUnit = simulationDirection === "long"
+      ? entryPrice - stopLoss
+      : stopLoss - entryPrice;
+    const plannedRisk = amount * (riskPerUnit / entryPrice);
+
+    if (!Number.isFinite(plannedRisk) || plannedRisk <= 0) {
+      showToast("Planned risk must be greater than zero.", "warning");
+      return;
+    }
+
+    setSimulationClosedTrade(null);
+    setSimulationPosition({
+      asset: selectedMarketId,
+      direction: simulationDirection,
+      amount,
+      entryPrice,
+      stopLoss,
+      takeProfit,
+      riskPerUnit,
+      plannedRisk,
+      openedAt: Date.now(),
+    });
+  }
+
+  function handleCloseSimulationTrade() {
+    if (!simulationPosition) return;
+
+    const currentPrice = getSimulationPrice(simulationPosition.asset);
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+      showToast("Current price is not available yet.", "warning");
+      return;
+    }
+    finalizeSimulationTrade(currentPrice, "Manual Close");
   }
 
   function runAIAnalysis() {
@@ -1134,15 +1481,50 @@ const [authLoading, setAuthLoading] = useState(true);
       priceValue: fallbackPrice, changeValue: fallbackChange, priceText: formatCompactPrice(fallbackPrice), changeText: formatPctChange(fallbackChange) };
   });
 
+  const selectedSimulationItem = marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
+  const simulationChartSrc = selectedSimulationItem
+    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedSimulationItem.tvSymbol)}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
+    : "";
+  const selectedSimulationPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
+  const openPositionCurrentPrice = simulationPosition ? getSimulationPrice(simulationPosition.asset) : null;
+  const openPositionMetrics = simulationPosition && Number.isFinite(openPositionCurrentPrice)
+    ? calculateSimulationPnL(simulationPosition, openPositionCurrentPrice)
+    : { profitLoss: 0, rMultiple: 0 };
+
+  useEffect(() => {
+    if (!simulationPosition || !Number.isFinite(openPositionCurrentPrice)) return;
+
+    if (simulationPosition.direction === "long") {
+      if (openPositionCurrentPrice <= simulationPosition.stopLoss) {
+        finalizeSimulationTrade(simulationPosition.stopLoss, "Stopped Out");
+        return;
+      }
+      if (openPositionCurrentPrice >= simulationPosition.takeProfit) {
+        finalizeSimulationTrade(simulationPosition.takeProfit, "Target Hit");
+      }
+      return;
+    }
+
+    if (openPositionCurrentPrice >= simulationPosition.stopLoss) {
+      finalizeSimulationTrade(simulationPosition.stopLoss, "Stopped Out");
+      return;
+    }
+    if (openPositionCurrentPrice <= simulationPosition.takeProfit) {
+      finalizeSimulationTrade(simulationPosition.takeProfit, "Target Hit");
+    }
+  }, [simulationPosition, openPositionCurrentPrice]);
+
   
 
   const navTabs = [
-    { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
-    { id: "trades", icon: <PlusSquare size={18} />, label: "Trades" },
-    { id: "market", icon: <ClipboardList size={18} />, label: "Market" },
-    { id: "ai", icon: <Brain size={18} />, label: "AI Coach" },
-    { id: "intel", icon: <Brain size={18} />, label: "Intel" },
-  ];
+  { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
+  { id: "trades", icon: <PlusSquare size={18} />, label: "Trades" },
+  { id: "market", icon: <TrendingUp size={18} />, label: "Market" },
+  { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
+  { id: "ask", icon: <Brain size={18} />, label: "Ask Rayla" },
+  { id: "ai", icon: <Target size={18} />, label: "AI Coach" },
+  { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
+];
 
 
 
@@ -1178,6 +1560,431 @@ return (
         </div>
       )}
 
+              {showBeginnerTutorial && (
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.72)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999,
+                    padding: 20
+                  }}
+                  onClick={() => setShowBeginnerTutorial(false)}
+                >
+                  <div
+                    className="card"
+                    style={{
+                      width: "100%",
+                      maxWidth: 760,
+                      maxHeight: "85vh",
+                      overflowY: "auto",
+                      border: "1px solid rgba(255,255,255,0.1)"
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="cardHeader" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <h2>
+                        {beginnerTutorialView === "menu" && "Beginner Help"}
+                        {beginnerTutorialView === "basics" && "Investing & Stock Trading Basics"}
+                        {beginnerTutorialView === "app" && "How To Use Beginner Rayla"}
+                      </h2>
+                      <button
+                        type="button"
+                        className="ghostButton"
+                        onClick={() => setShowBeginnerTutorial(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="cardBody">
+                      {beginnerTutorialView === "menu" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                          <div style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.7 }}>
+                            What do you want help with?
+                          </div>
+
+                          {/* BASICS CARD */}
+                          <div
+                            onClick={() => {
+                              setBeginnerTutorialStep(0);
+                              setBeginnerTutorialView("basics");
+                            }}
+                            style={{
+                              padding: 18,
+                              borderRadius: 14,
+                              background: "rgba(124,196,255,0.08)",
+                              border: "1px solid rgba(124,196,255,0.2)",
+                              cursor: "pointer"
+                            }}
+                          >
+                            <div style={{ fontSize: 28, marginBottom: 6 }}>📚</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0", marginBottom: 4 }}>
+                              Learn Investing Basics
+                            </div>
+                            <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                              Quick, simple explanations of trading, stocks, and how everything works.
+                            </div>
+                          </div>
+
+                          {/* APP CARD */}
+                          <div
+                            onClick={() => {
+                              setBeginnerTutorialStep(0);
+                              setBeginnerTutorialView("app");
+                            }}
+                            style={{
+                              padding: 18,
+                              borderRadius: 14,
+                              background: "rgba(255,255,255,0.05)",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                              cursor: "pointer"
+                            }}
+                          >
+                            <div style={{ fontSize: 28, marginBottom: 6 }}>📱</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0", marginBottom: 4 }}>
+                              Learn How to Use Rayla
+                            </div>
+                            <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                              Walk through the beginner version of the app step by step.
+                            </div>
+                          </div>
+
+                        </div>
+                      )}
+
+                                      {beginnerTutorialView === "basics" && (
+                                <div
+                                    key={`${beginnerTutorialView}-${beginnerTutorialStep}`}
+                                    style={{
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: 16,
+                                      animation: "fadeSlideIn 0.25s ease"
+                                    }}
+                                  >           
+                                                    <div style={{ marginBottom: 6 }}>
+                            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>
+                              Step {beginnerTutorialStep + 1} of 11
+                            </div>
+                            <div
+                              style={{
+                                width: "100%",
+                                height: 8,
+                                borderRadius: 999,
+                                background: "rgba(255,255,255,0.08)",
+                                overflow: "hidden"
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${((beginnerTutorialStep + 1) / 11) * 100}%`,
+                                  height: "100%",
+                                  background: "#7CC4FF",
+                                  borderRadius: 999,
+                                  transition: "width 0.25s ease"
+                                }}
+                              />
+                            </div>
+                          </div>
+                          {beginnerTutorialStep === 0 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>💰</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>What is Investing?</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Investing means putting your money into something so it can grow over time.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 1 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>🏢</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>What is a Stock?</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                A stock means you own a small piece of a company.
+                                <br /><br />
+                                If the company grows, your money can grow too.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 2 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>📈</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>What is Trading?</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Trading is buying and selling more often to make money from price movement.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 3 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>🎯</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Win Rate</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Win rate is the percent of your trades that were winners.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 4 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>📊</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Result</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Result shows how much you made or lost on a trade.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 5 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>⚠️</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Risk</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Risk is how much you could lose if a trade goes wrong.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 6 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>🧠</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>The Real Goal</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                You do not need to be perfect.
+                                <br /><br />
+                                Focus on learning, staying consistent, and improving over time.
+                              </div>
+                            </>
+                          )}
+
+
+                          {beginnerTutorialStep === 7 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>🔤</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Tickers & Assets</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                A ticker is the short name for an asset.
+                                <br /><br />
+                                Examples:
+                                <br />
+                                AAPL = Apple
+                                <br />
+                                TSLA = Tesla
+                                <br />
+                                BTC = Bitcoin
+                                <br /><br />
+                                These are what you buy and sell.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 8 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>📈</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Reading the Market</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                When prices go up → buyers are stronger.
+                                <br />
+                                When prices go down → sellers are stronger.
+                                <br /><br />
+                                You’re watching movement and deciding when to enter and exit.
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 9 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>📊</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Equity Curve</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Your equity curve shows how your results are changing over time.
+                                <br /><br />
+                                Up = you're improving  
+                                Down = something needs adjusting
+                              </div>
+                            </>
+                          )}
+
+                          {beginnerTutorialStep === 10 && (
+                            <>
+                              <div style={{ fontSize: 40 }}>🤝</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>You’re Not Alone</div>
+                              <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                Rayla is here to answer all of your questions about investing and trading.
+                              </div>
+                            </>
+                          )}
+
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={() => {
+                                if (beginnerTutorialStep === 0) {
+                                  setBeginnerTutorialView("menu");
+                                } else {
+                                  setBeginnerTutorialStep(prev => prev - 1);
+                                }
+                              }}
+                            >
+                              Back
+                            </button>
+
+                            {beginnerTutorialStep < 10 ? (
+                              <button
+                                type="button"
+                                className="ghostButton"
+                                onClick={() => setBeginnerTutorialStep(prev => prev + 1)}
+                              >
+                                Next
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ghostButton"
+                                onClick={() => {
+                                  setShowBeginnerTutorial(false);
+                                  setActiveTab("ai");
+                                }}
+                              >
+                                Go to Ask Rayla
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {beginnerTutorialView === "app" && (
+  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>
+        Beginner Rayla Walkthrough
+      </div>
+      <div
+        style={{
+          width: "100%",
+          height: 8,
+          borderRadius: 999,
+          background: "rgba(255,255,255,0.08)",
+          overflow: "hidden"
+        }}
+      >
+        <div
+          style={{
+            width:
+              beginnerTutorialStep === 0 ? "25%" :
+              beginnerTutorialStep === 1 ? "50%" :
+              beginnerTutorialStep === 2 ? "75%" :
+              "100%",
+            height: "100%",
+            background: "#7CC4FF",
+            borderRadius: 999,
+            transition: "width 0.25s ease"
+          }}
+        />
+      </div>
+    </div>
+
+    {beginnerTutorialStep === 0 && (
+      <>
+        <div style={{ fontSize: 40 }}>🏠</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Your Home Screen</div>
+        <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+          This beginner version of Rayla is designed to keep things simple, clean, and easy to follow.
+        </div>
+      </>
+    )}
+
+    {beginnerTutorialStep === 1 && (
+      <>
+        <div style={{ fontSize: 40 }}>📊</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Your Main Numbers</div>
+        <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+          <strong>Trades Taken:</strong> how many trades you have logged.
+          <br />
+          <strong>Trades Won:</strong> the percent of your trades that were positive.
+          <br />
+          <strong>Average Result:</strong> how your trades are doing on average.
+          <br />
+          <strong>Overall Progress:</strong> your total progress across all logged trades.
+        </div>
+      </>
+    )}
+
+    {beginnerTutorialStep === 2 && (
+      <>
+        <div style={{ fontSize: 40 }}>📈</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Your Tools</div>
+        <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+          <strong>Equity Curve:</strong> shows how your results are moving over time.
+          <br />
+          <strong>Live Market:</strong> lets you quickly watch assets and charts.
+          <br />
+          <strong>Recent Trades:</strong> helps you track what you’ve been doing.
+        </div>
+      </>
+    )}
+
+    {beginnerTutorialStep === 3 && (
+      <>
+        <div style={{ fontSize: 40 }}>🚀</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>As You Improve</div>
+        <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
+          As you get more comfortable, you can switch to Intermediate or Experienced in your profile to unlock more detail.
+        </div>
+      </>
+    )}
+
+    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+      <button
+        type="button"
+        className="ghostButton"
+        onClick={() => {
+          if (beginnerTutorialStep === 0) {
+            setBeginnerTutorialView("menu");
+          } else {
+            setBeginnerTutorialStep(prev => prev - 1);
+          }
+        }}
+      >
+        Back
+      </button>
+
+      {beginnerTutorialStep < 3 ? (
+        <button
+          type="button"
+          className="ghostButton"
+          onClick={() => setBeginnerTutorialStep(prev => prev + 1)}
+        >
+          Next
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="ghostButton"
+          onClick={() => setBeginnerTutorialView("menu")}
+        >
+          Done
+        </button>
+      )}
+    </div>
+
+  </div>
+)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
       <nav className="desktopSidebar">
         <div className="desktopSidebarBrand">Rayla</div>
         <div className={`desktopSidebarTotalR ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
@@ -1209,20 +2016,272 @@ return (
         {activeTab === "home" && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 12, marginBottom: 18 }}>
-              {[
-                { label: "Trades", value: trades.length },
-                { label: "Win Rate", value: trades.length ? `${((trades.filter(t => parseFloat(t.result_r) > 0).length / trades.length) * 100).toFixed(1)}%` : "0%", tone: trades.length && (trades.filter(t => parseFloat(t.result_r) > 0).length / trades.length) >= 0.5 ? "positive" : "negative" },
-                { label: "Avg R", value: trades.length ? `${(trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length) >= 0 ? "+" : ""}${(trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length).toFixed(2)}R` : "0R", tone: trades.length && trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length >= 0 ? "positive" : "negative" },
-                { label: "Total R", value: `${parseFloat(totalR) >= 0 ? "+" : ""}${totalR}R`, tone: parseFloat(totalR) >= 0 ? "positive" : "negative" },
-                { label: "Avg Win", value: trades.filter(t => parseFloat(t.result_r) > 0).length ? `+${(trades.filter(t => parseFloat(t.result_r) > 0).reduce((s,t) => s + parseFloat(t.result_r), 0) / trades.filter(t => parseFloat(t.result_r) > 0).length).toFixed(2)}R` : "--", tone: "positive" },
-                { label: "Avg Loss", value: trades.filter(t => parseFloat(t.result_r) < 0).length ? `-${Math.abs(trades.filter(t => parseFloat(t.result_r) < 0).reduce((s,t) => s + parseFloat(t.result_r), 0) / trades.filter(t => parseFloat(t.result_r) < 0).length).toFixed(2)}R` : "--", tone: "negative" },
-              ].map(item => (
-                <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "14px 16px", boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }}>
-                  <div style={{ fontSize: 11, color: "#94a6bb", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>{item.label}</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: item.tone === "positive" ? "#4ade80" : item.tone === "negative" ? "#f87171" : "#f3f7fc" }}>{item.value}</div>
+                            {(isBeginner
+                ? [
+                    { label: "Trades Taken", value: trades.length },
+                    {
+                    label: "Trades Won",
+                    value: trades.length
+                      ? `${((trades.filter(t => parseFloat(t.result_r) > 0).length / trades.length) * 100).toFixed(1)}%`
+                      : "0%",
+                    tone:
+                      trades.length &&
+                      (trades.filter(t => parseFloat(t.result_r) > 0).length / trades.length) >= 0.5
+                        ? "positive"
+                        : "negative",
+                    tooltipKey: "winrate"
+                  },
+                    {
+                      label: "Average Result",
+                      value: trades.length
+                        ? `${(trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length) >= 0 ? "+" : ""}${(trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length).toFixed(2)}R`
+                        : "0R",
+                      tone:
+                        trades.length &&
+                        trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length >= 0
+                          ? "positive"
+                          : "negative",
+                      tooltipKey: "avgres"
+                    },
+                    {
+                      label: "Overall Progress",
+                      value: `${parseFloat(totalR) >= 0 ? "+" : ""}${totalR}R`,
+                      tone: parseFloat(totalR) >= 0 ? "positive" : "negative",
+                      tooltipKey: "totalr"
+                    }
+                  ]
+                : [
+                    { label: "Trades", value: trades.length },
+                    {
+                      label: "Win Rate",
+                      value: trades.length
+                        ? `${((trades.filter(t => parseFloat(t.result_r) > 0).length / trades.length) * 100).toFixed(1)}%`
+                        : "0%",
+                      tone:
+                        trades.length &&
+                        (trades.filter(t => parseFloat(t.result_r) > 0).length / trades.length) >= 0.5
+                          ? "positive"
+                          : "negative"
+                    },
+                    {
+                      label: "Avg R",
+                      value: trades.length
+                        ? `${(trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length) >= 0 ? "+" : ""}${(trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length).toFixed(2)}R`
+                        : "0R",
+                      tone:
+                        trades.length &&
+                        trades.reduce((s,t) => s + parseFloat(t.result_r||0), 0) / trades.length >= 0
+                          ? "positive"
+                          : "negative"
+                    },
+                    {
+                      label: "Total R",
+                      value: `${parseFloat(totalR) >= 0 ? "+" : ""}${totalR}R`,
+                      tone: parseFloat(totalR) >= 0 ? "positive" : "negative"
+                    },
+                    {
+                      label: "Avg Win",
+                      value: trades.filter(t => parseFloat(t.result_r) > 0).length
+                        ? `+${(trades.filter(t => parseFloat(t.result_r) > 0).reduce((s,t) => s + parseFloat(t.result_r), 0) / trades.filter(t => parseFloat(t.result_r) > 0).length).toFixed(2)}R`
+                        : "--",
+                      tone: "positive"
+                    },
+                    {
+                      label: "Avg Loss",
+                      value: trades.filter(t => parseFloat(t.result_r) < 0).length
+                        ? `-${Math.abs(trades.filter(t => parseFloat(t.result_r) < 0).reduce((s,t) => s + parseFloat(t.result_r), 0) / trades.filter(t => parseFloat(t.result_r) < 0).length).toFixed(2)}R`
+                        : "--",
+                      tone: "negative"
+                    }
+                  ]
+              ).map(item => (
+                <div
+                  key={item.label}
+                  onClick={() => {
+                    if (isBeginner && item.tooltipKey) {
+                      setShowTooltip(item.tooltipKey);
+                    }
+                  }}
+                  style={{
+                    background: "rgba(18,26,38,0.86)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: 16,
+                    padding: "14px 16px",
+                    boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
+                    cursor: isBeginner && item.tooltipKey ? "pointer" : "default"
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: "#94a6bb", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    {item.label}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: item.tone === "positive" ? "#4ade80" : item.tone === "negative" ? "#f87171" : "#f3f7fc" }}>
+                    {item.value}
+                  </div>
                 </div>
               ))}
             </div>
+
+            {showTooltip === "winrate" && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 9999
+                }}
+                onClick={() => setShowTooltip(null)}
+              >
+                <div
+                  className="card"
+                  style={{ maxWidth: 400 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="cardHeader">
+                    <h2>Win Rate</h2>
+                  </div>
+
+                  <div className="cardBody" style={{ lineHeight: 1.7 }}>
+                    Win rate is the percentage of your trades that were winners.
+                    <br /><br />
+                    Example:
+                    <br />
+                    If you took 10 trades and 6 were profitable, your win rate is 60%.
+                    <br /><br />
+                    Higher doesn’t always mean better — what matters is how much you make vs lose.
+                  </div>
+
+                  <button
+                    className="ghostButton"
+                    onClick={() => setShowTooltip(null)}
+                    style={{ marginTop: 10 }}
+                  >
+                    Got it
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {showTooltip === "avgres" && (
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999
+                  }}
+                  onClick={() => setShowTooltip(null)}
+                >
+                  <div
+                    className="card"
+                    style={{ maxWidth: 400 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="cardHeader">
+                      <h2>Average Result</h2>
+                    </div>
+
+                    <div className="cardBody" style={{ lineHeight: 1.7 }}>
+                      Average Result shows how your trades are doing on average.
+                      <br /><br />
+                      Example:
+                      <br />
+                      If your trades average +0.50R, that means each trade is making half of your risk on average.
+                      <br /><br />
+                      A positive number is good. A negative number means your average trade is losing.
+                    </div>
+
+                    <button
+                      className="ghostButton"
+                      onClick={() => setShowTooltip(null)}
+                      style={{ marginTop: 10 }}
+                    >
+                      Got it
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {showTooltip === "totalr" && (
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999
+                  }}
+                  onClick={() => setShowTooltip(null)}
+                >
+                  <div
+                    className="card"
+                    style={{ maxWidth: 400 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="cardHeader">
+                      <h2>Overall Progress</h2>
+                    </div>
+
+                    <div className="cardBody" style={{ lineHeight: 1.7 }}>
+                      Overall Progress shows your total performance across all trades.
+                      <br /><br />
+                      It’s measured in R (risk units), not dollars.
+                      <br /><br />
+                      Example:
+                      <br />
+                      +5R means you’ve gained 5 times your risk.
+                      <br />
+                      -3R means you’ve lost 3 times your risk.
+                      <br /><br />
+                      This is one of the most important numbers to track your progress over time.
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                      <button
+                        className="ghostButton"
+                        onClick={() => setShowTooltip(null)}
+                      >
+                        Got it
+                      </button>
+
+                      <button
+                        className="ghostButton"
+                        onClick={() => {
+                          setShowTooltip(null);
+                          setActiveTab("ai");
+                          setTimeout(() => {
+                            setAiInput("Explain my win rate and how I can improve it");
+                          }, 100);
+                        }}
+                      >
+                        Ask Rayla
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+                        {isBeginner && (
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            onClick={() => {
+                              setBeginnerTutorialView("menu");
+                              setBeginnerTutorialStep(0);
+                              setShowBeginnerTutorial(true);
+                            }}
+                          >
+                            Beginner Help
+                          </button>
+                        </div>
+                      )}
             <div className="mainGrid">
               <div className="span6">
                 <EquityCurveCard equitySeries={filteredEquitySeries} sourceLabel={equitySourceLabel} chartRange={chartRange} setChartRange={setChartRange} />
@@ -1234,69 +2293,65 @@ return (
                 <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />
               </div>
               <div className="span4">
-                <div className="card" style={{ height: "100%" }}>
-                  <div className="cardHeader"><h2>Top Edges</h2></div>
-                  <div className="cardBody">
-                    <div className="list">
-                      {topEdges.map((edge, index) => (
-                        <div className="listRow" key={edge.name}>
-                          <div>
-                            <div className="listTitle">{index + 1}. {edge.name}</div>
-                            <div className="listSubtext">{edge.trades} trades</div>
-                          </div>
-                          <div className="pill">{edge.avgR}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 16, paddingTop: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 12 }}>Quick Log</div>
-                      <form onSubmit={async (e) => {
-                        e.preventDefault();
-                        if (!user) { showToast("No user loaded.", "error"); return; }
-                        const fd = new FormData(e.target);
-                        const asset = fd.get("ql_asset")?.trim();
-                        const result = fd.get("ql_result")?.trim();
-                        const setup = fd.get("ql_setup")?.trim();
-                        if (!asset || !result) { showToast("Asset and result are required.", "warning"); return; }
-                        const { data, error } = await supabase.from("trades").insert([{ user_id: user.id, asset, result_r: Number(result), setup: setup || "", entry_price: 0, entry_size: 0, entry_time: new Date().toISOString() }]).select().single();
-                        if (error) { showToast(error.message, "error"); return; }
-                        setTrades((prev) => [data, ...prev]);
-                        e.target.reset();
-                        showToast("Trade logged.", "success");
-                      }} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        <input name="ql_asset" className="authInput" placeholder="Asset (BTC, AAPL)" />
-                        <input name="ql_result" className="authInput" placeholder="Result (R)" type="number" step="0.1" />
-                        <select name="ql_setup" className="authInput">
-                          <option value="">Setup (optional)</option>
-                          {SETUP_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <button type="submit" className="ghostButton">Log Trade</button>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="span4">
-                {(() => {
-                  const r = buildCoachReport(trades);
-                  if (!r) return (
-                    <div className="card" style={{ height: "100%" }}>
-                      <div className="cardHeader"><h2>Coach Insights</h2></div>
-                      <div className="cardBody"><div style={{ fontSize: 13, color: "#7f8ea3" }}>Log trades to unlock coach insights.</div></div>
-                    </div>
-                  );
-                  return (
-                    <div className="card" style={{ height: "100%", borderColor: "rgba(124,196,255,0.2)" }}>
-                      <div className="cardHeader"><h2>Coach Insights</h2></div>
-                      <div className="cardBody">
-                        <div style={{ fontSize: 13, color: "#e2e8f0", lineHeight: 1.7 }}>{`Win Rate: ${r.winRate.toFixed(1)}% · Avg R: ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R · ${r.trades} trades`}</div>
-                        {r.bestCombo && <div style={{ marginTop: 8, fontSize: 13, color: "#e2e8f0", lineHeight: 1.7 }}>{`Strongest edge: ${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)}R avg`}</div>}
-                        {r.warnings.length > 0 && <div style={{ marginTop: 8, fontSize: 13, color: "#fbbf24", lineHeight: 1.7 }}>{r.warnings[0]}</div>}
-                        {r.actions.length > 0 && <div style={{ marginTop: 8, fontSize: 13, color: "#7CC4FF", lineHeight: 1.7 }}>{`Next: ${r.actions[0]}`}</div>}
-                      </div>
-                    </div>
-                  );
-                })()}
+                              {!isBeginner && (
+                              <>
+                                <div className="span4">
+                                  <div className="card" style={{ height: "100%" }}>
+                                    <div className="cardHeader"><h2>Top Edges</h2></div>
+                                    <div className="cardBody">
+                                      <div className="list">
+                                        {topEdges.map((edge, index) => (
+                                          <div className="listRow" key={edge.name}>
+                                            <div>
+                                              <div className="listTitle">{index + 1}. {edge.name}</div>
+                                              <div className="listSubtext">{edge.trades} trades</div>
+                                            </div>
+                                            <div className="pill">{edge.avgR}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="span4">
+                                  {(() => {
+                                    const r = buildCoachReport(trades);
+                                    if (!r) return (
+                                      <div className="card" style={{ height: "100%" }}>
+                                        <div className="cardHeader"><h2>Coach Insights</h2></div>
+                                        <div className="cardBody"><div style={{ fontSize: 13, color: "#7f8ea3" }}>Log trades to unlock coach insights.</div></div>
+                                      </div>
+                                    );
+                                    return (
+                                      <div className="card" style={{ height: "100%", borderColor: "rgba(124,196,255,0.2)" }}>
+                                        <div className="cardHeader"><h2>Coach Insights</h2></div>
+                                        <div className="cardBody">
+                                          <div style={{ fontSize: 13, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                            {`Win Rate: ${r.winRate.toFixed(1)}% · Avg R: ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R · ${r.trades} trades`}
+                                          </div>
+                                          {r.bestCombo && (
+                                            <div style={{ marginTop: 8, fontSize: 13, color: "#e2e8f0", lineHeight: 1.7 }}>
+                                              {`Strongest edge: ${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)}R avg`}
+                                            </div>
+                                          )}
+                                          {r.warnings.length > 0 && (
+                                            <div style={{ marginTop: 8, fontSize: 13, color: "#fbbf24", lineHeight: 1.7 }}>
+                                              {r.warnings[0]}
+                                            </div>
+                                          )}
+                                          {r.actions.length > 0 && (
+                                            <div style={{ marginTop: 8, fontSize: 13, color: "#7CC4FF", lineHeight: 1.7 }}>
+                                              {`Next: ${r.actions[0]}`}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </>
+                            )}
               </div>
             </div>
           </>
@@ -1363,11 +2418,317 @@ return (
           </div>
         )}
 
+        {activeTab === "simulation" && (
+          <div className="mainGrid">
+            <div className="span12">
+              <div className="card">
+                <div className="cardHeader">
+                  <h2>Simulation</h2>
+                </div>
+                <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                    Practice trading with fake money and simulated outcomes.
+                  </div>
+
+                  <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                        Trade Controls
+                      </div>
+                      {simulationPosition && (
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 999, padding: "5px 10px" }}>
+                          Position Open
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, alignItems: "end" }}>
+                      <select
+                        className="authInput"
+                        value={selectedMarketId}
+                        onChange={(e) => setSelectedMarketId(e.target.value)}
+                      >
+                        {marketItems.map((item) => (
+                          <option key={item.id} value={item.id}>{item.id}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="authInput"
+                        value={simulationDirection}
+                        onChange={(e) => setSimulationDirection(e.target.value)}
+                      >
+                        <option value="long">Buy / Long</option>
+                        <option value="short">Sell / Short</option>
+                      </select>
+                      <input
+                        className="authInput"
+                        placeholder="Amount ($)"
+                        type="number"
+                        step="0.01"
+                        value={simulationAmount}
+                        onChange={(e) => setSimulationAmount(e.target.value)}
+                      />
+                      <input
+                        className="authInput"
+                        placeholder="Stop loss"
+                        type="number"
+                        step="0.01"
+                        value={simulationStopLoss}
+                        onChange={(e) => setSimulationStopLoss(e.target.value)}
+                      />
+                      <input
+                        className="authInput"
+                        placeholder="Take profit"
+                        type="number"
+                        step="0.01"
+                        value={simulationTakeProfit}
+                        onChange={(e) => setSimulationTakeProfit(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="ghostButton"
+                        onClick={handleOpenSimulationTrade}
+                        disabled={!selectedSimulationItem || !!simulationPosition}
+                        style={simulationPosition ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                      >
+                        {simulationPosition ? "Trade Active" : "Open Trade"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
+                    <div style={{ fontSize: 13, color: "#e2e8f0" }}>
+                      {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                      Current price: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>
+                        {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                      Live Chart
+                    </div>
+                  <div className="tradingviewFrameWrapFull" style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" }}>
+                    {selectedSimulationItem ? (
+                      <iframe
+                        key={`${selectedSimulationItem.tvSymbol}-simulation`}
+                        title={`${selectedSimulationItem.id} simulation chart`}
+                        className="tradingviewFrame"
+                        src={simulationChartSrc}
+                      />
+                    ) : null}
+                  </div>
+                  </div>
+
+                  {simulationPosition && (
+                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                          Open Position
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 999, padding: "5px 10px" }}>
+                            Live
+                          </div>
+                          <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                            Time in trade: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{formatTimeInTrade(simulationPosition.openedAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            {simulationPosition.asset}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Direction</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0", textTransform: "capitalize" }}>
+                            {simulationPosition.direction}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Entry Price</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            ${formatCompactPrice(simulationPosition.entryPrice)}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Stop Loss</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#f87171" }}>
+                            ${formatCompactPrice(simulationPosition.stopLoss)}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Take Profit</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#4ade80" }}>
+                            ${formatCompactPrice(simulationPosition.takeProfit)}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Current Price</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            {openPositionCurrentPrice != null ? `$${formatCompactPrice(openPositionCurrentPrice)}` : "--"}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Unrealized P/L</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: openPositionMetrics.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                            {`${openPositionMetrics.profitLoss >= 0 ? "+" : ""}$${openPositionMetrics.profitLoss.toFixed(2)}`}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Unrealized R</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: openPositionMetrics.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                            {`${openPositionMetrics.rMultiple >= 0 ? "+" : ""}${openPositionMetrics.rMultiple.toFixed(2)}R`}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Planned Risk</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            ${simulationPosition.plannedRisk.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <button type="button" className="ghostButton" onClick={handleCloseSimulationTrade}>
+                          Close Trade
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {simulationClosedTrade && (
+                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 12 }}>
+                        Closed Trade
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            {simulationClosedTrade.asset}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.exitReason === "Target Hit" ? "#4ade80" : simulationClosedTrade.exitReason === "Stopped Out" ? "#f87171" : "#e2e8f0" }}>
+                            {simulationClosedTrade.exitReason}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Realized P/L</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                            {`${simulationClosedTrade.profitLoss >= 0 ? "+" : ""}$${simulationClosedTrade.profitLoss.toFixed(2)}`}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Realized R</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                            {`${simulationClosedTrade.rMultiple >= 0 ? "+" : ""}${simulationClosedTrade.rMultiple.toFixed(2)}R`}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Price</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            ${formatCompactPrice(simulationClosedTrade.exitPrice)}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Planned Risk</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                            ${simulationClosedTrade.plannedRisk.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 14, fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
+                        {simulationClosedTrade.feedback}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <CoachAskBox trades={trades} />
+              <CoachAskBox trades={trades} onAskRayla={requestRaylaAnswer} isLoading={isRaylaLoading} />
               <AICoachTab trades={trades} onRunAnalysis={runAIAnalysis} showNoNewTrades={showNoNewTrades} coachSummary={coachSummary} />
+            </div>
+          </div>
+        )}
+
+        {activeTab === "ask" && (
+          <div className="card">
+            <div className="cardHeader">
+              <h2>Ask Rayla</h2>
+            </div>
+
+            <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+              <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                Ask anything about trading, your performance, the market, or the Rayla app.
+              </div>
+
+              <textarea
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
+                placeholder="Ask Rayla anything..."
+                style={{
+                  width: "100%",
+                  minHeight: 100,
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(0,0,0,0.2)",
+                  color: "#e2e8f0",
+                  padding: 10,
+                  fontSize: 14,
+                  resize: "none"
+                }}
+              />
+
+              {isRaylaLoading && (
+                <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                  Rayla is thinking...
+                </div>
+              )}
+
+              <button
+                className="ghostButton"
+                onClick={async () => {
+                try {
+                  await handleAskRaylaQuestion(aiInput, { clearInput: true });
+                } catch (err) {
+                  console.error("ASK RAYLA FETCH ERROR:", err);
+                }
+              }}
+              >
+                Ask Rayla
+              </button>
+
+              {raylaResponse && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: 12,
+                    borderRadius: 10,
+                    background: "rgba(124,196,255,0.08)",
+                    border: "1px solid rgba(124,196,255,0.2)",
+                    fontSize: 14,
+                    lineHeight: 1.6
+                  }}
+                >
+                  {raylaResponse}
+                </div>
+              )}
+
             </div>
           </div>
         )}
@@ -1383,21 +2744,12 @@ return (
                     e.preventDefault();
                     const question = e.target.elements.raylaq.value.trim();
                     if (!question) return;
-                    setIsRaylaLoading(true);
-                    setRaylaResponse("");
                     try {
-                      const res = await fetchWithTimeout("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/daily-intel", { 
-                        method: "POST", 
-                        headers: { 
-                          "Content-Type": "application/json",
-                          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-                        }, 
-                        body: JSON.stringify({ question }) 
-                      });
-                      const data = await res.json();
-                      setIsRaylaLoading(false);
-                      setRaylaResponse(data.error ? data.error : data.answer || "No response.");
-                    } catch { setIsRaylaLoading(false); setRaylaResponse("API error."); }
+                      await handleAskRaylaQuestion(question);
+                      e.target.reset();
+                    } catch {
+                      setRaylaResponse("API error.");
+                    }
                   }} style={{ marginBottom: 16 }}>
                     <input name="raylaq" type="text" placeholder="e.g. Is NVDA hot or cold today? What's the signal on BTC?" style={{ flex: 1, marginRight: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }} autoComplete="off" disabled={isRaylaLoading} />
                     <button type="submit" disabled={isRaylaLoading} style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Ask Rayla</button>
@@ -1447,6 +2799,49 @@ return (
             <div>
               <input className="authInput" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
               <div className="listSubtext">{user?.email || "No email found"}</div>
+                            <div style={{ marginTop: 16 }}>
+                <div className="listSubtext" style={{ marginBottom: 8 }}>
+                  User Level
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="ghostButton"
+                    onClick={() => handleUserLevelChange("beginner")}
+                    style={{
+                      border: userLevel === "beginner" ? "1px solid #7CC4FF" : undefined,
+                      background: userLevel === "beginner" ? "rgba(124,196,255,0.12)" : undefined
+                    }}
+                  >
+                    Beginner
+                  </button>
+
+                  <button
+                    type="button"
+                    className="ghostButton"
+                    onClick={() => handleUserLevelChange("intermediate")}
+                    style={{
+                      border: userLevel === "intermediate" ? "1px solid #7CC4FF" : undefined,
+                      background: userLevel === "intermediate" ? "rgba(124,196,255,0.12)" : undefined
+                    }}
+                  >
+                    Intermediate
+                  </button>
+
+                  <button
+                    type="button"
+                    className="ghostButton"
+                    onClick={() => handleUserLevelChange("experienced")}
+                    style={{
+                      border: userLevel === "experienced" ? "1px solid #7CC4FF" : undefined,
+                      background: userLevel === "experienced" ? "rgba(124,196,255,0.12)" : undefined
+                    }}
+                  >
+                    Experienced
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
           <button className="ghostButton" type="button" onClick={async () => {

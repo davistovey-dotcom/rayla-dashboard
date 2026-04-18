@@ -10,6 +10,12 @@ entrypoint = "./functions/daily-intel/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/daily-intel/*.html" ]
 
+[functions.ask-rayla]
+enabled = true
+verify_jwt = false
+import_map = "./functions/ask-rayla/deno.json"
+entrypoint = "./functions/ask-rayla/index.ts"
+
 
 [functions.delete-account]
 enabled = true

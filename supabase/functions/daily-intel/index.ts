@@ -766,10 +766,212 @@ serve(async (req) => {
    // Ask Rayla endpoint
   if (req.method === "POST") {
   console.log("POST HIT");
-  const { question } = await req.json();
+  const { question, context } = await req.json();
+
+  const q = (question || "").toLowerCase().trim();
+
+  const classifyPrompt = `Classify this user request into exactly one category.
+
+Categories:
+- concept = general trading or finance explanation, definition, or how something works
+- personal_coaching = advice based on the user's own trades, performance, risk, habits, or behavior
+- market_asset = question about a specific stock, crypto, asset, or market outlook
+- app_help = question about Rayla features, tabs, uploads, logging, dashboard, or app usage
+
+Reply with only one word:
+concept
+personal_coaching
+market_asset
+app_help
+
+User question: ${question}
+`;
+
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+if (!ANTHROPIC_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
+
+const classifyRes = await fetch("https://api.anthropic.com/v1/messages", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": ANTHROPIC_KEY,
+    "anthropic-version": "2023-06-01",
+  },
+  body: JSON.stringify({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 20,
+    messages: [
+      { role: "user", content: classifyPrompt },
+    ],
+  }),
+});
+
+const classifyData = await classifyRes.json();
+
+console.log("CLASSIFY STATUS:", classifyRes.status);
+console.log("CLASSIFY DATA:", JSON.stringify(classifyData));
+console.log("QUESTION:", question);
+
+if (!classifyRes.ok) {
+  return new Response(
+    JSON.stringify({ error: classifyData?.error?.message || "Classification failed." }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
+const route =
+  (classifyData?.content?.[0]?.text || "concept").trim().toLowerCase();
+  console.log("ROUTE:", route);
+
+const isGeneralTradingQuestion = [
+  "risk",
+  "risk management",
+  "position size",
+  "position sizing",
+  "stop loss",
+  "stops",
+  "manage risk",
+  "psychology",
+  "discipline",
+  "overtrading",
+  "revenge trade",
+  "revenge trading",
+  "fomo",
+  "journal",
+  "journaling",
+  "consistency",
+  "how should i trade",
+  "how do i trade",
+  "how should i manage risk",
+  "max loss",
+  "what is max loss",
+  "loss",
+  "cut losses",
+  "how much can i lose",
+  "risk per trade",
+  "position risk",
+].some(term => q.includes(term));
+
+if (route === "concept" || route === "personal_coaching") {
+  
+const systemPrompt = `You are Rayla, a smart trading coach.
+Sound human, natural, and direct.
+
+User context:
+${context ? JSON.stringify(context) : "No user data available"}
+
+Adapt to user level:
+- Beginner: use simple language and explain clearly.
+- Intermediate: be practical and clear.
+- Experienced: be sharper and more technical.
+
+Rules:
+- Answer the user's actual question.
+- Use the provided context when helpful.
+- Do not invent facts or stats.
+- Do not ask follow-up questions.
+- Keep it concise.
+- Use plain everyday language.
+- Avoid trading jargon and textbook wording.
+- Prefer short, direct sentences.
+- Keep the tone calm and confident.
+- Do not use dramatic or fear-based language.
+- When explaining a concept, explain it naturally like you're talking to a person.
+
+Formatting rules (STRICT — must follow exactly):
+- Do NOT use markdown symbols (#, ##, **, -, etc.)
+- Do NOT use headings or titles
+- Use plain text only
+- Use bullet points with this symbol: •
+- Separate sections with a blank line
+- Keep everything clean and easy to read on mobile
+
+Example format:
+
+Max loss is the most you lose on a single trade.
+
+In your case:
+• Max loss: 0R  
+• Trades: 27  
+• Win rate: 100%
+
+Why this matters:
+• Shows your worst-case trade  
+• Helps control downside  
+• Keeps risk consistent
+
+Keep responses structured like this.
+
+Good example:
+"Max loss is just the most you're willing to lose on a trade before you get out. You decide that before entering so one bad trade doesn't do too much damage."
+
+Bad example:
+"Maximum drawdown refers to the peak-to-trough decline of an investment."
+
+Answer the user's actual question, not just the nearest generic risk topic.`;
 
 
-    const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": ANTHROPIC_KEY,
+    "anthropic-version": "2023-06-01",
+  },
+  body: JSON.stringify({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 220,
+    system: systemPrompt,
+    messages: [
+      { role: "user", content: question },
+    ],
+  }),
+});
+
+  const aiData = await aiRes.json();
+
+  if (!aiRes.ok) {
+    return new Response(
+      JSON.stringify({ error: aiData?.error?.message || "AI request failed." }),
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
+      }
+    );
+  }
+
+  let answer = aiData?.content?.[0]?.text || "No response.";
+
+answer = answer
+  .replace(/^#{1,6}\s+/gm, "")
+  .replace(/\*\*(.+?)\*\*/g, "$1")
+  .replace(/\*(.+?)\*/g, "$1")
+  .replace(/^(\d+)\.\s+/gm, "• ")
+  .replace(/^[-–—]\s+/gm, "• ")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();;
+
+  return new Response(
+    JSON.stringify({ answer }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
     if (!ANTHROPIC_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
 
     const intel = await getLatestMarketIntel();
@@ -849,7 +1051,16 @@ Context: ${signalContext}`;
       );
     }
 
-    const answer = aiData?.content?.[0]?.text || "Signal unavailable.";
+    let answer = aiData?.content?.[0]?.text || "Signal unavailable.";
+
+    answer = answer
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/^(\d+)\.\s+/gm, "• ")
+      .replace(/^[-–—]\s+/gm, "• ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
 
     return new Response(

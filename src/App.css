@@ -891,3 +891,14 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     flex-shrink: 0;
   }
 }
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
