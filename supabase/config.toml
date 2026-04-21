@@ -16,6 +16,11 @@ verify_jwt = false
 import_map = "./functions/ask-rayla/deno.json"
 entrypoint = "./functions/ask-rayla/index.ts"
 
+[functions.market-data]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/market-data/index.ts"
+
 
 [functions.delete-account]
 enabled = true
