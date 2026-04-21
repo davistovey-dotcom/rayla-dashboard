@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
@@ -14,9 +14,81 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
     .finally(() => clearTimeout(timeout));
 }
 
+function getTvSymbol(asset) {
+  if (asset?.tvSymbol) return asset.tvSymbol;
+  if (asset?.type === "crypto") return `BINANCE:${asset.id}USDT`;
+
+  const nyseOverrides = new Set(["LUV", "BA", "JNJ", "KO"]);
+  if (asset?.type === "stock" && nyseOverrides.has(asset.id)) {
+    return `NYSE:${asset.id}`;
+  }
+
+  return `NASDAQ:${asset?.id || ""}`;
+}
+
+function normalizeSearchResult(result) {
+  const symbol = String(result?.symbol || "").trim().toUpperCase();
+  const description = String(result?.description || symbol).trim();
+  const exchange = String(result?.exchange || result?.mic || "").trim().toUpperCase();
+  const explicitOverrides = {
+    SPY: "AMEX:SPY",
+    QQQ: "NASDAQ:QQQ",
+    DIA: "AMEX:DIA",
+    IWM: "AMEX:IWM",
+    BTC: "BINANCE:BTCUSDT",
+    ETH: "BINANCE:ETHUSDT",
+    SOL: "BINANCE:SOLUSDT",
+    XRP: "BINANCE:XRPUSDT",
+    DOGE: "BINANCE:DOGEUSDT",
+    ADA: "BINANCE:ADAUSDT",
+    AVAX: "BINANCE:AVAXUSDT",
+    LINK: "BINANCE:LINKUSDT",
+    NRG: "NYSE:NRG",
+    KO: "NYSE:KO",
+    DIS: "NYSE:DIS",
+    BA: "NYSE:BA",
+    JPM: "NYSE:JPM",
+    XOM: "NYSE:XOM",
+    WMT: "NYSE:WMT",
+    NKE: "NYSE:NKE",
+    MCD: "NYSE:MCD",
+    GS: "NYSE:GS",
+  };
+
+  let tvSymbol = explicitOverrides[symbol];
+  if (!tvSymbol) {
+    const isCrypto = CRYPTO_SYMBOL_SET.has(symbol) || exchange.includes("CRYPTO");
+    if (isCrypto) tvSymbol = `BINANCE:${symbol}USDT`;
+    else if (exchange.includes("NYSE")) tvSymbol = `NYSE:${symbol}`;
+    else if (exchange.includes("NASDAQ")) tvSymbol = `NASDAQ:${symbol}`;
+    else tvSymbol = getTvSymbol({ id: symbol, type: "stock" });
+  }
+
+  return {
+    ...result,
+    symbol,
+    description,
+    exchange,
+    tvSymbol,
+  };
+}
+
 const SUPABASE_FUNCTIONS_BASE_URL = "https://uoxzzhtnzmsolvcykynu.functions.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_04NvzUT6Q6gGu7nZslKQwg_mu1D6G3A";
 const DAILY_INTEL_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
 const ASK_RAYLA_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/ask-rayla`;
+const SIMULATION_STARTING_BALANCE = 10000;
+const SIMULATION_STORAGE_KEYS = {
+  tradeHistory: "rayla_sim_trade_history",
+  closedTrade: "rayla_sim_closed_trade",
+  openPosition: "rayla_sim_open_position",
+  balance: "rayla_sim_balance",
+  guidedDraft: "rayla_sim_guided_draft",
+};
+const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
+  completed: "rayla_first_trade_onboarding_completed",
+  autoStarted: "rayla_first_trade_onboarding_autostarted",
+};
 
 const marketSeeds = [
   { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
@@ -30,6 +102,52 @@ const fallbackEquity = [100, 101.5, 100.7, 102.1, 103.4, 102.8, 104.6, 105.2];
 
 const SETUP_OPTIONS = ["rejection","breakout","pullback","reversal","range"];
 const SESSION_OPTIONS = ["Asia","London","New York","After Hours"];
+const SIMULATION_TUTORIAL_SECTIONS = [
+  {
+    key: "controls",
+    title: "Trade Controls",
+    description: "Search an asset, choose long or short, and enter the size you want to simulate before opening a paper trade.",
+  },
+  {
+    key: "risk",
+    title: "Risk Inputs",
+    description: "Stop loss and take profit help Rayla track your risk plan and auto-close trades when price reaches those levels.",
+  },
+  {
+    key: "account",
+    title: "Simulation Account",
+    description: "This is your paper account snapshot. It shows your simulated balance, total P/L, and how many trades you have closed.",
+  },
+  {
+    key: "chart",
+    title: "Live Chart",
+    description: "Use the chart to watch price behavior while your paper trade is open and compare your trade idea to the market in real time.",
+  },
+  {
+    key: "open-position",
+    title: "Open Position Panel",
+    description: "This panel tracks your live paper trade with unrealized P/L, unrealized R, current price, and your planned risk levels.",
+  },
+  {
+    key: "summary",
+    title: "Trade Summary",
+    description: "After a trade closes, Rayla gives you a coaching summary with outcome, grade, insight, and a clear next step.",
+  },
+  {
+    key: "history",
+    title: "Trade History",
+    description: "Your recent simulation trades stay here so you can review how your execution and decision-making are evolving over time.",
+  },
+];
+const NAV_TABS = [
+  { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
+  { id: "trades", icon: <PlusSquare size={18} />, label: "Trades" },
+  { id: "market", icon: <TrendingUp size={18} />, label: "Market" },
+  { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
+  { id: "ask", icon: <Brain size={18} />, label: "Ask Rayla" },
+  { id: "ai", icon: <Target size={18} />, label: "AI Coach" },
+  { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
+];
 
 function parseTradeResult(value) {
   const parsed = Number.parseFloat(value ?? 0);
@@ -39,6 +157,33 @@ function parseTradeResult(value) {
 function roundMetric(value, digits = 2) {
   const factor = 10 ** digits;
   return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function readSimulationStorage(key, fallback, validate) {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const parsed = JSON.parse(raw);
+    return validate && !validate(parsed) ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSimulationStorage(key, value) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage write failures so simulation never crashes.
+  }
+}
+
+function averageNumber(values) {
+  const safeValues = values.filter((value) => Number.isFinite(value));
+  if (!safeValues.length) return 0;
+  return safeValues.reduce((sum, value) => sum + value, 0) / safeValues.length;
 }
 
 function buildTradeStats(trades) {
@@ -491,7 +636,7 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
   const symbolsKey = items.map((item) => item.id).sort().join("|");
   const selectedItem = items.find((item) => item.id === selectedId) || items[0];
   const iframeSrc = selectedItem
-    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedItem.tvSymbol)}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
+    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(getTvSymbol(selectedItem))}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
     : "";
 
 
@@ -509,7 +654,7 @@ useEffect(() => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          'apikey': SUPABASE_PUBLISHABLE_KEY
         },
         body: JSON.stringify({ symbols }),
       });
@@ -600,8 +745,8 @@ useEffect(() => {
             try {
               const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(val) + "&token=" + import.meta.env.VITE_FINNHUB_KEY);
               const data = await res.json();
-              
-              setSearchResults((data.result || []).slice(0, 6));
+
+              setSearchResults((data.result || []).slice(0, 6).map(normalizeSearchResult));
             } catch { setSearchResults([]); }
           }}
           onKeyDown={(e) => {
@@ -631,7 +776,7 @@ useEffect(() => {
           <div className="tradingviewFrameWrap">
             {selectedItem ? (
               <iframe
-                key={selectedItem.tvSymbol}
+                key={getTvSymbol(selectedItem)}
                 title={`${selectedItem.id} chart`}
                 className="tradingviewFrame"
                 src={iframeSrc}
@@ -644,7 +789,7 @@ useEffect(() => {
           <div className="tradingviewFrameWrapFull">
             {selectedItem ? (
               <iframe
-                key={selectedItem.tvSymbol + "_full"}
+                key={getTvSymbol(selectedItem) + "_full"}
                 title={`${selectedItem.id} chart full`}
                 className="tradingviewFrame"
                 src={iframeSrc}
@@ -678,7 +823,7 @@ function getScoreLabel(score) {
   return { label: "Neutral", cls: "neutral" };
 }
 
-function IntelAssetCard({ item }) {
+function IntelAssetCard({ item, onTrySimulation = null }) {
   if (!item) return null;
   const { label, cls } = getScoreLabel(item.score);
   const changePos = !item.change?.startsWith("-");
@@ -733,6 +878,20 @@ function IntelAssetCard({ item }) {
             {article.description && <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.4, marginTop: 4 }}>{article.description?.slice(0, 120)}...</div>}
           </div>
         </a>
+      )}
+      {onTrySimulation && (
+        <div style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTrySimulation(item);
+            }}
+          >
+            Try in Simulation
+          </button>
+        </div>
       )}
     </div>
   );
@@ -859,6 +1018,7 @@ function SubscriptionCard() {
 }
 
 export default function App() {
+    console.log("APP RENDERING");
   const [selectedMarketId, setSelectedMarketId] = useState("BTC");
  const [watchlist, setWatchlist] = useState(() => {
   const saved = localStorage.getItem("rayla-watchlist");
@@ -928,9 +1088,62 @@ useEffect(() => {
   const [simulationTakeProfit, setSimulationTakeProfit] = useState("");
   const [simulationSearchQuery, setSimulationSearchQuery] = useState("");
   const [simulationSearchResults, setSimulationSearchResults] = useState([]);
-  const [simulationPosition, setSimulationPosition] = useState(null);
-  const [simulationClosedTrade, setSimulationClosedTrade] = useState(null);
+  const [simulationPosition, setSimulationPosition] = useState(() =>
+    readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.openPosition,
+      null,
+      (value) => value === null || (typeof value === "object" && !Array.isArray(value))
+    )
+  );
+  const [simulationClosedTrade, setSimulationClosedTrade] = useState(() =>
+    readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.closedTrade,
+      null,
+      (value) => value === null || (typeof value === "object" && !Array.isArray(value))
+    )
+  );
+  const [simulatedBalance, setSimulatedBalance] = useState(() =>
+    readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.balance,
+      SIMULATION_STARTING_BALANCE,
+      (value) => Number.isFinite(value)
+    )
+  );
+  const [simulationTradeHistory, setSimulationTradeHistory] = useState(() =>
+    readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.tradeHistory,
+      [],
+      (value) => Array.isArray(value)
+    )
+  );
+  const [guidedSimulationDraft, setGuidedSimulationDraft] = useState(() =>
+    readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.guidedDraft,
+      null,
+      (value) => value === null || (typeof value === "object" && !Array.isArray(value))
+    )
+  );
+  const [activeGuidedSimulation, setActiveGuidedSimulation] = useState(null);
+  const [showSimulationHelp, setShowSimulationHelp] = useState(false);
+  const [isSimulationTutorialOpen, setIsSimulationTutorialOpen] = useState(false);
+  const [activeSimulationTutorialStep, setActiveSimulationTutorialStep] = useState(0);
+  const [selectedSimulationInfoKey, setSelectedSimulationInfoKey] = useState(null);
+  const [hasCompletedFirstTradeOnboarding, setHasCompletedFirstTradeOnboarding] = useState(() =>
+    readSimulationStorage(
+      FIRST_TRADE_ONBOARDING_STORAGE_KEYS.completed,
+      null,
+      (value) => value === null || typeof value === "boolean"
+    )
+  );
+  const [hasAttemptedFirstTradeOnboardingAutoStart, setHasAttemptedFirstTradeOnboardingAutoStart] = useState(() =>
+    readSimulationStorage(
+      FIRST_TRADE_ONBOARDING_STORAGE_KEYS.autoStarted,
+      false,
+      (value) => typeof value === "boolean"
+    )
+  );
   const [simulationNow, setSimulationNow] = useState(Date.now());
+  const simulationSectionRefs = useRef({});
   const simulationTrackedAssets = [
     ...watchlist,
     ...(simulationAsset ? [simulationAsset] : []),
@@ -960,6 +1173,47 @@ useEffect(() => {
   }, [simulationPosition]);
 
   useEffect(() => {
+    writeSimulationStorage(SIMULATION_STORAGE_KEYS.tradeHistory, simulationTradeHistory);
+  }, [simulationTradeHistory]);
+
+  useEffect(() => {
+    writeSimulationStorage(SIMULATION_STORAGE_KEYS.closedTrade, simulationClosedTrade);
+  }, [simulationClosedTrade]);
+
+  useEffect(() => {
+    writeSimulationStorage(SIMULATION_STORAGE_KEYS.openPosition, simulationPosition);
+  }, [simulationPosition]);
+
+  useEffect(() => {
+    writeSimulationStorage(SIMULATION_STORAGE_KEYS.balance, simulatedBalance);
+  }, [simulatedBalance]);
+
+  useEffect(() => {
+    writeSimulationStorage(SIMULATION_STORAGE_KEYS.guidedDraft, guidedSimulationDraft);
+  }, [guidedSimulationDraft]);
+
+  useEffect(() => {
+    writeSimulationStorage(FIRST_TRADE_ONBOARDING_STORAGE_KEYS.completed, hasCompletedFirstTradeOnboarding);
+  }, [hasCompletedFirstTradeOnboarding]);
+
+  useEffect(() => {
+    writeSimulationStorage(FIRST_TRADE_ONBOARDING_STORAGE_KEYS.autoStarted, hasAttemptedFirstTradeOnboardingAutoStart);
+  }, [hasAttemptedFirstTradeOnboardingAutoStart]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const storedCompletion = window.localStorage.getItem(FIRST_TRADE_ONBOARDING_STORAGE_KEYS.completed);
+    if (storedCompletion != null) return;
+
+    const isTrueFirstVisit = !window.localStorage.getItem("rayla-visited");
+    if (!isTrueFirstVisit) return;
+
+    window.localStorage.setItem("rayla-visited", "true");
+    setHasCompletedFirstTradeOnboarding(false);
+  }, []);
+
+  useEffect(() => {
     if (!simulationTrackedAssets.length) return;
 
     async function fetchSimulationQuotes() {
@@ -972,7 +1226,7 @@ useEffect(() => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            "apikey": SUPABASE_PUBLISHABLE_KEY,
           },
           body: JSON.stringify({ symbols }),
         });
@@ -1247,19 +1501,24 @@ useEffect(() => {
   }
 
   function calculateSimulationPnL(position, currentPrice) {
-    if (!position || !Number.isFinite(currentPrice)) return { profitLoss: 0, rMultiple: 0 };
+    if (!position || !Number.isFinite(currentPrice)) return { profitLoss: 0, rMultiple: null };
     const movePct = position.direction === "long"
       ? (currentPrice - position.entryPrice) / position.entryPrice
       : (position.entryPrice - currentPrice) / position.entryPrice;
     const profitLoss = position.amount * movePct;
-    const rMultiple = position.plannedRisk > 0 ? profitLoss / position.plannedRisk : 0;
+    const rMultiple = position.plannedRisk > 0 ? profitLoss / position.plannedRisk : null;
     return { profitLoss, rMultiple };
   }
 
   function formatTimeInTrade(openedAt) {
     if (!openedAt) return "--";
     const elapsedMs = Math.max(0, simulationNow - openedAt);
-    const totalSeconds = Math.floor(elapsedMs / 1000);
+    return formatSimulationDuration(elapsedMs);
+  }
+
+  function formatSimulationDuration(durationMs) {
+    const safeDurationMs = Math.max(0, durationMs || 0);
+    const totalSeconds = Math.floor(safeDurationMs / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
@@ -1269,15 +1528,236 @@ useEffect(() => {
     return `${seconds}s`;
   }
 
-  function buildSimulationCloseFeedback(position, exitPrice, profitLoss, rMultiple, durationMs) {
+  function buildSimulationTradeSummary(position, profitLoss, rMultiple, durationMs) {
     const durationMinutes = durationMs / 60000;
+    const hasRiskPlan = Number.isFinite(rMultiple);
     const isWin = profitLoss > 0;
     const isLoss = profitLoss < 0;
-    const tinyGain = isWin && rMultiple < 0.25;
-    const strongWinner = isWin && rMultiple >= 1.5;
+    const tinyWinner = isWin && ((hasRiskPlan && rMultiple < 0.5) || (!hasRiskPlan && durationMinutes < 2));
+    const strongWinner = isWin && ((hasRiskPlan && rMultiple >= 1) || (!hasRiskPlan && durationMinutes >= 5));
+    const heldTooLongLoss = isLoss && ((hasRiskPlan && rMultiple <= -1 && durationMinutes >= 5) || (!hasRiskPlan && durationMinutes >= 10));
+
+    if (strongWinner) {
+      return {
+        outcomeLabel: "Good trade",
+        coachingInsight: `You stayed patient on that ${position.direction} and let the move pay you. This is the kind of follow-through that good trade management is built on.`,
+      };
+    }
+
+    if (tinyWinner) {
+      return {
+        outcomeLabel: "Cut too early",
+        coachingInsight: `You finished green, but the reward was light for the time and risk you took. Make sure you are giving winning trades enough room to prove themselves.`,
+      };
+    }
+
+    if (heldTooLongLoss) {
+      return {
+        outcomeLabel: "Held too long",
+        coachingInsight: `This one stayed open long enough to do real damage without improving. When a trade stops earning the right to stay open, tighter management usually helps.`,
+      };
+    }
+
+    if (isLoss) {
+      return {
+        outcomeLabel: "Controlled loss",
+        coachingInsight: `Not every setup works, and this one did not. The win here is keeping the loss contained and treating it like a rep instead of a setback.`,
+      };
+    }
+
+    return {
+      outcomeLabel: "Managed trade",
+      coachingInsight: `The result was decent, but the bigger win is practicing consistent execution. Clean decisions stack up over time.`,
+    };
+  }
+
+  function buildSimulationExecutionGrade(position, profitLoss, rMultiple, durationMs, exitReason) {
+    const durationMinutes = durationMs / 60000;
+    const hasRiskPlan = Number.isFinite(rMultiple);
+    const isWin = profitLoss > 0;
+    const isLoss = profitLoss < 0;
+
+    if (
+      (hasRiskPlan && rMultiple >= 2) ||
+      (isWin && exitReason === "Target Hit" && durationMinutes >= 5)
+    ) {
+      return {
+        executionGrade: "A",
+        executionGradeLabel: "Strong execution",
+      };
+    }
+
+    if (
+      (hasRiskPlan && rMultiple >= 1) ||
+      (isWin && durationMinutes >= 3)
+    ) {
+      return {
+        executionGrade: "B",
+        executionGradeLabel: "Solid execution",
+      };
+    }
+
+    if (
+      (hasRiskPlan && rMultiple <= -1 && durationMinutes >= 5) ||
+      (isLoss && durationMinutes >= 10 && !hasRiskPlan)
+    ) {
+      return {
+        executionGrade: "D",
+        executionGradeLabel: "Poor management",
+      };
+    }
+
+    return {
+      executionGrade: "C",
+      executionGradeLabel: "Needs work",
+    };
+  }
+
+  function buildSimulationNextStep(position, profitLoss, rMultiple, durationMs, exitReason, outcomeLabel, executionGrade) {
+    const durationMinutes = durationMs / 60000;
+    const hasRiskPlan = Number.isFinite(rMultiple);
+    const isWin = profitLoss > 0;
+    const isLoss = profitLoss < 0;
+
+    if (executionGrade === "A") {
+      return "Next time, focus on repeating this process.";
+    }
+
+    if (outcomeLabel === "Cut too early" || (isWin && hasRiskPlan && rMultiple < 0.5)) {
+      return "Next time, let strong winners breathe a little longer.";
+    }
+
+    if (executionGrade === "D" || outcomeLabel === "Held too long") {
+      return "Next time, cut weak trades sooner.";
+    }
+
+    if (isLoss && exitReason === "Stopped Out") {
+      return "Next time, stay consistent with your risk plan and be ready for the next setup.";
+    }
+
+    if (isLoss && durationMinutes >= 5) {
+      return "Next time, protect capital faster when the setup weakens.";
+    }
+
+    return "Next time, keep managing the trade with the same level of discipline.";
+  }
+
+  function buildSimulationTraderProfile(simulationTradeHistory) {
+    const trades = Array.isArray(simulationTradeHistory) ? simulationTradeHistory : [];
+    const totalTrades = trades.length;
+    const wins = trades.filter((trade) => trade.profitLoss > 0);
+    const losses = trades.filter((trade) => trade.profitLoss < 0);
+    const longTrades = trades.filter((trade) => trade.direction === "long");
+    const shortTrades = trades.filter((trade) => trade.direction === "short");
+    const longWins = longTrades.filter((trade) => trade.profitLoss > 0);
+    const shortWins = shortTrades.filter((trade) => trade.profitLoss > 0);
+    const rTrades = trades.filter((trade) => Number.isFinite(trade.rMultiple));
+
+    const assetStats = Object.values(
+      trades.reduce((acc, trade) => {
+        const asset = String(trade.asset || "Unknown").toUpperCase();
+        if (!acc[asset]) {
+          acc[asset] = { asset, trades: 0, wins: 0, totalProfitLoss: 0 };
+        }
+        acc[asset].trades += 1;
+        acc[asset].totalProfitLoss += trade.profitLoss || 0;
+        if ((trade.profitLoss || 0) > 0) acc[asset].wins += 1;
+        return acc;
+      }, {})
+    ).map((entry) => ({
+      ...entry,
+      winRate: entry.trades ? (entry.wins / entry.trades) * 100 : 0,
+      avgProfitLoss: entry.trades ? entry.totalProfitLoss / entry.trades : 0,
+    })).sort((a, b) => {
+      if (b.avgProfitLoss !== a.avgProfitLoss) return b.avgProfitLoss - a.avgProfitLoss;
+      return b.winRate - a.winRate;
+    });
+
+    return {
+      totalTrades,
+      winRate: totalTrades ? (wins.length / totalTrades) * 100 : 0,
+      avgProfitLoss: averageNumber(trades.map((trade) => trade.profitLoss)),
+      avgRMultiple: rTrades.length ? averageNumber(rTrades.map((trade) => trade.rMultiple)) : null,
+      avgDurationMs: averageNumber(trades.map((trade) => trade.durationMs)),
+      longTradeCount: longTrades.length,
+      shortTradeCount: shortTrades.length,
+      longWinRate: longTrades.length ? (longWins.length / longTrades.length) * 100 : 0,
+      shortWinRate: shortTrades.length ? (shortWins.length / shortTrades.length) * 100 : 0,
+      averageWinnerDurationMs: wins.length ? averageNumber(wins.map((trade) => trade.durationMs)) : 0,
+      averageLoserDurationMs: losses.length ? averageNumber(losses.map((trade) => trade.durationMs)) : 0,
+      cutWinnersEarlyCount: trades.filter((trade) => trade.outcomeLabel === "Cut too early").length,
+      heldLosersTooLongCount: trades.filter((trade) => trade.outcomeLabel === "Held too long").length,
+      strongExecutionCount: trades.filter((trade) => trade.executionGrade === "A" || trade.executionGrade === "B").length,
+      poorManagementCount: trades.filter((trade) => trade.executionGrade === "D").length,
+      bestAsset: assetStats[0]?.asset || null,
+      worstAsset: assetStats[assetStats.length - 1]?.asset || null,
+    };
+  }
+
+  function buildSimulationSessionInsights(profile) {
+    if (!profile || profile.totalTrades < 1) return null;
+
+    const longBias = profile.longTradeCount > profile.shortTradeCount
+      ? "You lean long more often than short."
+      : profile.shortTradeCount > profile.longTradeCount
+        ? "You lean short more often than long."
+        : "Your long and short exposure is balanced right now.";
+
+    const directionBias = profile.longTradeCount === 0 && profile.shortTradeCount === 0
+      ? "No clear direction bias yet."
+      : profile.longWinRate > profile.shortWinRate + 10
+        ? "Your long setups are working better than your shorts."
+        : profile.shortWinRate > profile.longWinRate + 10
+          ? "Your short setups are outperforming your longs right now."
+          : longBias;
+
+    const primaryStrength = profile.strongExecutionCount >= Math.ceil(profile.totalTrades * 0.5)
+      ? "Execution strength: you are stacking more solid trades than messy ones."
+      : profile.winRate >= 55
+        ? "Result strength: your simulation win rate is holding up well."
+        : profile.bestAsset
+          ? `Asset strength: ${profile.bestAsset} has been your cleanest market so far.`
+          : "Strength: you are building reps and collecting usable data.";
+
+    const primaryWeakness = profile.cutWinnersEarlyCount >= 2
+      ? "Main weakness: you are cutting winners early more often than you should."
+      : profile.heldLosersTooLongCount >= 2
+        ? "Main weakness: some losing trades are staying open too long."
+        : profile.poorManagementCount >= 2
+          ? "Main weakness: trade management is slipping when positions go against you."
+          : "Main weakness: your edge is still forming, so consistency matters most.";
+
+    const executionPattern = profile.averageLoserDurationMs > profile.averageWinnerDurationMs * 1.25 && profile.averageLoserDurationMs > 0
+      ? "Execution pattern: losers are lasting longer than winners, which can drag your session quality down."
+      : profile.averageWinnerDurationMs > profile.averageLoserDurationMs * 1.25 && profile.averageWinnerDurationMs > 0
+        ? "Execution pattern: your better trades are getting more room to work, which is a healthy sign."
+        : "Execution pattern: your hold times are fairly balanced across winners and losers.";
+
+    const marketFitNote = profile.bestAsset && profile.worstAsset && profile.bestAsset !== profile.worstAsset
+      ? `Market fit: you are reading ${profile.bestAsset} better than ${profile.worstAsset} right now.`
+      : profile.bestAsset
+        ? `Market fit: ${profile.bestAsset} is giving you the clearest feedback so far.`
+        : "Market fit: keep logging trades so Rayla can spot your best environment.";
+
+    return {
+      primaryStrength,
+      primaryWeakness,
+      directionBias,
+      executionPattern,
+      marketFitNote,
+    };
+  }
+
+  function buildSimulationCloseFeedback(position, exitPrice, profitLoss, rMultiple, durationMs) {
+    const durationMinutes = durationMs / 60000;
+    const hasRiskPlan = Number.isFinite(rMultiple);
+    const isWin = profitLoss > 0;
+    const isLoss = profitLoss < 0;
+    const tinyGain = isWin && hasRiskPlan && rMultiple < 0.25;
+    const strongWinner = isWin && hasRiskPlan && rMultiple >= 1.5;
     const heldLongEnough = durationMinutes >= 5;
     const veryQuickTrade = durationMinutes < 2;
-    const smallLoss = isLoss && Math.abs(rMultiple) <= 0.25;
+    const smallLoss = isLoss && hasRiskPlan && Math.abs(rMultiple) <= 0.25;
 
     if (strongWinner) {
       return `Strong follow-through on that ${position.direction} in ${position.asset}. You let the move work from ${formatCompactPrice(position.entryPrice)} to ${formatCompactPrice(exitPrice)} and got paid ${rMultiple.toFixed(2)}R for staying with it.`;
@@ -1312,6 +1792,28 @@ useEffect(() => {
     const { profitLoss, rMultiple } = calculateSimulationPnL(simulationPosition, exitPrice);
     const closedAt = Date.now();
     const durationMs = Math.max(0, closedAt - simulationPosition.openedAt);
+    const summary = buildSimulationTradeSummary(
+      simulationPosition,
+      profitLoss,
+      rMultiple,
+      durationMs
+    );
+    const executionGrade = buildSimulationExecutionGrade(
+      simulationPosition,
+      profitLoss,
+      rMultiple,
+      durationMs,
+      exitReason
+    );
+    const nextStep = buildSimulationNextStep(
+      simulationPosition,
+      profitLoss,
+      rMultiple,
+      durationMs,
+      exitReason,
+      summary.outcomeLabel,
+      executionGrade.executionGrade
+    );
     const feedback = buildSimulationCloseFeedback(
       simulationPosition,
       exitPrice,
@@ -1320,24 +1822,37 @@ useEffect(() => {
       durationMs
     );
 
-    setSimulationClosedTrade({
+    const closedTrade = {
       ...simulationPosition,
+      guided: !!simulationPosition.guided,
+      guidedId: simulationPosition.guidedId || null,
       closedAt,
       durationMs,
       exitPrice,
       exitReason,
       profitLoss,
       rMultiple,
+      outcomeLabel: summary.outcomeLabel,
+      executionGrade: executionGrade.executionGrade,
+      executionGradeLabel: executionGrade.executionGradeLabel,
+      coachingInsight: summary.coachingInsight,
+      nextStep,
       feedback,
-    });
+    };
+
+    setSimulationClosedTrade(closedTrade);
+    setSimulatedBalance((prev) => prev + profitLoss);
+    setSimulationTradeHistory((prev) => [closedTrade, ...prev]);
     setSimulationPosition(null);
   }
 
   function handleOpenSimulationTrade() {
     const amount = Number.parseFloat(simulationAmount);
     const entryPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
-    const stopLoss = Number.parseFloat(simulationStopLoss);
-    const takeProfit = Number.parseFloat(simulationTakeProfit);
+    const parsedStopLoss = Number.parseFloat(simulationStopLoss);
+    const parsedTakeProfit = Number.parseFloat(simulationTakeProfit);
+    const stopLoss = Number.isFinite(parsedStopLoss) ? parsedStopLoss : null;
+    const takeProfit = Number.isFinite(parsedTakeProfit) ? parsedTakeProfit : null;
 
     if (!Number.isFinite(amount) || amount <= 0) {
       showToast("Enter a valid amount to simulate.", "warning");
@@ -1349,28 +1864,28 @@ useEffect(() => {
       return;
     }
 
-    if (!Number.isFinite(stopLoss) || !Number.isFinite(takeProfit)) {
-      showToast("Enter a valid stop loss and take profit.", "warning");
-      return;
+    if (stopLoss != null) {
+      const stopLossValid = simulationDirection === "long" ? stopLoss < entryPrice : stopLoss > entryPrice;
+      if (!stopLossValid) {
+        showToast("For longs: stop below entry. For shorts: stop above entry.", "warning");
+        return;
+      }
     }
 
-    const longSetupValid = simulationDirection === "long" && stopLoss < entryPrice && takeProfit > entryPrice;
-    const shortSetupValid = simulationDirection === "short" && stopLoss > entryPrice && takeProfit < entryPrice;
-
-    if (!longSetupValid && !shortSetupValid) {
-      showToast("For longs: stop below entry and target above. For shorts: stop above entry and target below.", "warning");
-      return;
+    if (takeProfit != null) {
+      const takeProfitValid = simulationDirection === "long" ? takeProfit > entryPrice : takeProfit < entryPrice;
+      if (!takeProfitValid) {
+        showToast("For longs: target above entry. For shorts: target below entry.", "warning");
+        return;
+      }
     }
 
-    const riskPerUnit = simulationDirection === "long"
-      ? entryPrice - stopLoss
-      : stopLoss - entryPrice;
-    const plannedRisk = amount * (riskPerUnit / entryPrice);
-
-    if (!Number.isFinite(plannedRisk) || plannedRisk <= 0) {
-      showToast("Planned risk must be greater than zero.", "warning");
-      return;
-    }
+    const riskPerUnit = stopLoss == null
+      ? null
+      : simulationDirection === "long"
+        ? entryPrice - stopLoss
+        : stopLoss - entryPrice;
+    const plannedRisk = riskPerUnit == null ? null : amount * (riskPerUnit / entryPrice);
 
     setSimulationClosedTrade(null);
     setSimulationPosition({
@@ -1378,6 +1893,8 @@ useEffect(() => {
       label: selectedSimulationItem.label,
       tvSymbol: selectedSimulationItem.tvSymbol,
       type: selectedSimulationItem.type,
+      guided: !!activeGuidedSimulation,
+      guidedId: activeGuidedSimulation?.id || null,
       direction: simulationDirection,
       amount,
       entryPrice,
@@ -1387,6 +1904,9 @@ useEffect(() => {
       plannedRisk,
       openedAt: Date.now(),
     });
+    if (activeGuidedSimulation) {
+      setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "position-open" } : prev));
+    }
   }
 
   function handleCloseSimulationTrade() {
@@ -1424,7 +1944,7 @@ useEffect(() => {
   }
 
   const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
-  function buildMarketAsset(rawOrResult) {
+function buildMarketAsset(rawOrResult) {
   const raw = (typeof rawOrResult === "string" ? rawOrResult : rawOrResult?.symbol || "").trim();
   if (!raw) return null;
 
@@ -1456,12 +1976,17 @@ useEffect(() => {
   };
 
   const id = upper.includes(":") ? upper.split(":").pop() : upper;
-  const tvSymbol = upper.includes(":") ? upper : (exchangeMap[upper] || `NASDAQ:${upper}`);
+  const tvSymbol = typeof rawOrResult === "object" && rawOrResult?.tvSymbol
+    ? rawOrResult.tvSymbol
+    : upper.includes(":")
+      ? upper
+      : (exchangeMap[upper] || `NASDAQ:${upper}`);
   const isCrypto = CRYPTO_SYMBOL_SET.has(id) || tvSymbol.includes("USDT") || tvSymbol.includes("BINANCE");
 
   return {
     id,
     label: typeof rawOrResult === "object" ? rawOrResult.description || id : id,
+    exchange: typeof rawOrResult === "object" ? rawOrResult.exchange || "" : "",
     tvSymbol,
     type: isCrypto ? "crypto" : "stock",
     fallbackPrice: "--",
@@ -1516,7 +2041,7 @@ useEffect(() => {
     try {
       const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(value) + "&token=" + import.meta.env.VITE_FINNHUB_KEY);
       const data = await res.json();
-      setSimulationSearchResults((data.result || []).slice(0, 6));
+      setSimulationSearchResults((data.result || []).slice(0, 6).map(normalizeSearchResult));
     } catch {
       setSimulationSearchResults([]);
     }
@@ -1530,53 +2055,394 @@ useEffect(() => {
     setSimulationSearchResults([]);
   }
 
+  function handleTryIntelInSimulation(item) {
+    if (!item?.symbol) return;
+
+    const resolvedTvSymbol = item.tvSymbol || buildMarketAsset(item.symbol)?.tvSymbol;
+    const nextAsset = buildMarketAsset({
+      symbol: item.symbol,
+      description: item.name || item.symbol,
+      tvSymbol: resolvedTvSymbol,
+    });
+    const upperSymbol = String(item.symbol).toUpperCase();
+    const draft = {
+      source: "market-intel",
+      guided: true,
+      status: "draft",
+      id: crypto.randomUUID(),
+      asset: upperSymbol,
+      label: item.name || item.symbol,
+      tvSymbol: resolvedTvSymbol,
+      type: CRYPTO_SYMBOL_SET.has(upperSymbol) ? "crypto" : "stock",
+      direction: item.score < 0 ? "short" : "long",
+      thesis: item.summary || "",
+      createdAt: Date.now(),
+    };
+
+    setGuidedSimulationDraft(draft);
+    if (nextAsset) {
+      setSimulationAsset(nextAsset);
+    }
+    setSimulationSearchQuery(upperSymbol);
+    setSimulationSearchResults([]);
+    setSimulationDirection(draft.direction);
+    setActiveTab("simulation");
+  }
+
+  useEffect(() => {
+    if (!guidedSimulationDraft) return;
+
+    const nextAsset = buildMarketAsset({
+      symbol: guidedSimulationDraft.asset,
+      description: guidedSimulationDraft.label || guidedSimulationDraft.asset,
+      tvSymbol: guidedSimulationDraft.tvSymbol,
+    });
+
+    if (nextAsset) {
+      setSimulationAsset(nextAsset);
+    }
+    setSimulationSearchQuery(guidedSimulationDraft.asset || "");
+    setSimulationDirection(guidedSimulationDraft.direction || "long");
+  }, [guidedSimulationDraft]);
+
+  useEffect(() => {
+    if (
+      !activeGuidedSimulation ||
+      simulationPosition ||
+      activeGuidedSimulation.step === "position-open" ||
+      activeGuidedSimulation.step === "trade-closed"
+    ) {
+      return;
+    }
+
+    const isReadyToOpen = Boolean(simulationAmount && simulationStopLoss && simulationTakeProfit);
+    const nextStep = isReadyToOpen ? "ready-to-open" : "review-controls";
+    if (activeGuidedSimulation.step !== nextStep) {
+      setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: nextStep } : prev));
+    }
+  }, [activeGuidedSimulation, simulationAmount, simulationStopLoss, simulationTakeProfit, simulationPosition]);
+
+  const isActiveGuidedTradeClosed =
+    !!simulationClosedTrade &&
+    !!activeGuidedSimulation &&
+    simulationClosedTrade.guided &&
+    simulationClosedTrade.guidedId &&
+    simulationClosedTrade.guidedId === activeGuidedSimulation.id;
+
+  useEffect(() => {
+    if (!isActiveGuidedTradeClosed || activeGuidedSimulation?.step === "trade-closed") return;
+    setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "trade-closed" } : prev));
+  }, [isActiveGuidedTradeClosed, activeGuidedSimulation]);
+
+  const guidedSimulationTips = [];
+  if (activeGuidedSimulation) {
+    if (!simulationAmount) {
+      guidedSimulationTips.push("Enter how much you want to simulate before opening the trade.");
+    }
+    if (!simulationStopLoss) {
+      guidedSimulationTips.push("Add a stop loss so Rayla can measure your risk.");
+    }
+    if (!simulationTakeProfit) {
+      guidedSimulationTips.push("Add a take profit so you define where you want to get paid.");
+    }
+    if (simulationStopLoss && simulationTakeProfit) {
+      guidedSimulationTips.push("Good — you now have a defined risk plan.");
+    }
+    guidedSimulationTips.push(
+      activeGuidedSimulation.direction === "short"
+        ? "You are planning a short trade, so your stop should usually be above entry and target below."
+        : "You are planning a long trade, so your stop should usually be below entry and target above."
+    );
+  }
+
   const selectedSimulationItem = simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
   const simulationChartSrc = selectedSimulationItem
-    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedSimulationItem.tvSymbol)}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
+    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(getTvSymbol(selectedSimulationItem))}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
     : "";
   const selectedSimulationPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
   const openPositionCurrentPrice = simulationPosition ? getSimulationPrice(simulationPosition.asset) : null;
   const openPositionMetrics = simulationPosition && Number.isFinite(openPositionCurrentPrice)
     ? calculateSimulationPnL(simulationPosition, openPositionCurrentPrice)
-    : { profitLoss: 0, rMultiple: 0 };
+    : { profitLoss: 0, rMultiple: null };
+  const simulationTotalPnL = simulatedBalance - SIMULATION_STARTING_BALANCE;
+  const simulationTraderProfile = useMemo(
+    () => buildSimulationTraderProfile(simulationTradeHistory),
+    [simulationTradeHistory]
+  );
+  const simulationSessionInsights = useMemo(
+    () => buildSimulationSessionInsights(simulationTraderProfile),
+    [simulationTraderProfile]
+  );
+  const simulationTutorialSteps = useMemo(
+    () =>
+      SIMULATION_TUTORIAL_SECTIONS.filter((step) => {
+        if (step.key === "open-position") return !!simulationPosition;
+        if (step.key === "summary") return !!simulationClosedTrade;
+        return true;
+      }),
+    [simulationPosition, simulationClosedTrade]
+  );
+  const activeSimulationTutorialConfig = isSimulationTutorialOpen
+    ? simulationTutorialSteps[activeSimulationTutorialStep] || simulationTutorialSteps[0] || null
+    : null;
+  const activeSimulationInfoKey = isSimulationTutorialOpen
+    ? activeSimulationTutorialConfig?.key || null
+    : selectedSimulationInfoKey;
 
   useEffect(() => {
     if (!simulationPosition || !Number.isFinite(openPositionCurrentPrice)) return;
 
     if (simulationPosition.direction === "long") {
-      if (openPositionCurrentPrice <= simulationPosition.stopLoss) {
+      if (simulationPosition.stopLoss != null && openPositionCurrentPrice <= simulationPosition.stopLoss) {
         finalizeSimulationTrade(simulationPosition.stopLoss, "Stopped Out");
         return;
       }
-      if (openPositionCurrentPrice >= simulationPosition.takeProfit) {
+      if (simulationPosition.takeProfit != null && openPositionCurrentPrice >= simulationPosition.takeProfit) {
         finalizeSimulationTrade(simulationPosition.takeProfit, "Target Hit");
       }
       return;
     }
 
-    if (openPositionCurrentPrice >= simulationPosition.stopLoss) {
+    if (simulationPosition.stopLoss != null && openPositionCurrentPrice >= simulationPosition.stopLoss) {
       finalizeSimulationTrade(simulationPosition.stopLoss, "Stopped Out");
       return;
     }
-    if (openPositionCurrentPrice <= simulationPosition.takeProfit) {
+    if (simulationPosition.takeProfit != null && openPositionCurrentPrice <= simulationPosition.takeProfit) {
       finalizeSimulationTrade(simulationPosition.takeProfit, "Target Hit");
     }
   }, [simulationPosition, openPositionCurrentPrice]);
 
+  useEffect(() => {
+    if (!isSimulationTutorialOpen) return;
+    if (!simulationTutorialSteps.length) {
+      setIsSimulationTutorialOpen(false);
+      return;
+    }
+    if (activeSimulationTutorialStep > simulationTutorialSteps.length - 1) {
+      setActiveSimulationTutorialStep(simulationTutorialSteps.length - 1);
+    }
+  }, [isSimulationTutorialOpen, activeSimulationTutorialStep, simulationTutorialSteps]);
+
+  useEffect(() => {
+    if (
+      activeTab !== "simulation" ||
+      showTutorial ||
+      isSimulationTutorialOpen ||
+      hasCompletedFirstTradeOnboarding !== false ||
+      hasAttemptedFirstTradeOnboardingAutoStart
+    ) {
+      return;
+    }
+
+    setHasAttemptedFirstTradeOnboardingAutoStart(true);
+    openSimulationWalkthrough();
+  }, [
+    activeTab,
+    showTutorial,
+    isSimulationTutorialOpen,
+    hasCompletedFirstTradeOnboarding,
+    hasAttemptedFirstTradeOnboardingAutoStart,
+  ]);
+
+  function openSimulationWalkthrough() {
+    setHasAttemptedFirstTradeOnboardingAutoStart(true);
+    setSelectedSimulationInfoKey(null);
+    setIsSimulationTutorialOpen(true);
+    setActiveSimulationTutorialStep(0);
+  }
+
+  function closeSimulationWalkthrough() {
+    setIsSimulationTutorialOpen(false);
+    setActiveSimulationTutorialStep(0);
+  }
+
+  function markFirstTradeOnboardingComplete() {
+    setHasCompletedFirstTradeOnboarding(true);
+    setHasAttemptedFirstTradeOnboardingAutoStart(true);
+  }
+
+  function handleSkipFirstTradeOnboarding() {
+    markFirstTradeOnboardingComplete();
+    closeSimulationWalkthrough();
+  }
+
+  function goToNextSimulationStep() {
+    if (activeSimulationTutorialStep >= simulationTutorialSteps.length - 1) {
+      markFirstTradeOnboardingComplete();
+      closeSimulationWalkthrough();
+      return;
+    }
+    setActiveSimulationTutorialStep((prev) => prev + 1);
+  }
+
+  function goToPreviousSimulationStep() {
+    setActiveSimulationTutorialStep((prev) => Math.max(0, prev - 1));
+  }
+
+  function handleSimulationInfoToggle(key) {
+    if (isSimulationTutorialOpen) return;
+    setSelectedSimulationInfoKey((prev) => (prev === key ? null : key));
+  }
+
+  function getSimulationSectionMeta(key) {
+    return SIMULATION_TUTORIAL_SECTIONS.find((section) => section.key === key) || null;
+  }
+
+  function setSimulationSectionRef(key) {
+    return (node) => {
+      if (node) simulationSectionRefs.current[key] = node;
+      else delete simulationSectionRefs.current[key];
+    };
+  }
+
+  function getSimulationSectionStyle(key, baseStyle = {}) {
+    const isHighlighted = activeSimulationInfoKey === key;
+    return {
+      ...baseStyle,
+      position: "relative",
+      zIndex: isHighlighted ? 2 : 0,
+      boxShadow: isHighlighted ? "0 0 0 2px rgba(124,196,255,0.22)" : baseStyle.boxShadow,
+      border: isHighlighted
+        ? "1px solid rgba(124,196,255,0.35)"
+        : baseStyle.border,
+      transition: "box-shadow 160ms ease, border-color 160ms ease",
+    };
+  }
+
+  function renderSimulationInfoButton(key, label = "What is this?") {
+    return (
+      <button
+        type="button"
+        className="ghostButton"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleSimulationInfoToggle(key);
+        }}
+        style={{ padding: "6px 10px", fontSize: 12, opacity: activeSimulationInfoKey === key ? 1 : 0.8 }}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  function renderSimulationInfoCard(key) {
+    const meta = getSimulationSectionMeta(key);
+    if (!meta || activeSimulationInfoKey !== key || isSimulationTutorialOpen) return null;
+
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          marginTop: 12,
+          padding: 14,
+          borderRadius: 14,
+          background: "rgba(11,16,23,0.96)",
+          border: "1px solid rgba(124,196,255,0.24)",
+          boxShadow: "0 12px 32px rgba(0,0,0,0.24)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+          {meta.title}
+        </div>
+        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+          {meta.description}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={() => setSelectedSimulationInfoKey(null)}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSimulationWalkthroughCard() {
+    if (!isSimulationTutorialOpen || !activeSimulationTutorialConfig) return null;
+
+    const isLastStep = activeSimulationTutorialStep >= simulationTutorialSteps.length - 1;
+
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "absolute",
+          top: 18,
+          right: 18,
+          width: "min(360px, calc(100% - 36px))",
+          padding: 14,
+          borderRadius: 14,
+          background: "rgba(11,16,23,0.96)",
+          border: "1px solid rgba(124,196,255,0.24)",
+          boxShadow: "0 12px 32px rgba(0,0,0,0.24)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          zIndex: 3,
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7CC4FF" }}>
+          Step {activeSimulationTutorialStep + 1} of {simulationTutorialSteps.length}
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+          {activeSimulationTutorialConfig.title}
+        </div>
+        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+          {activeSimulationTutorialConfig.description}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={handleSkipFirstTradeOnboarding}
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={goToPreviousSimulationStep}
+            disabled={activeSimulationTutorialStep === 0}
+            style={activeSimulationTutorialStep === 0 ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={goToNextSimulationStep}
+          >
+            {isLastStep ? "Done" : "Next"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    if (!isSimulationTutorialOpen || !activeSimulationTutorialConfig?.key) return;
+
+    const targetNode = simulationSectionRefs.current[activeSimulationTutorialConfig.key];
+    if (!targetNode) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      targetNode.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isSimulationTutorialOpen, activeSimulationTutorialConfig]);
+
   
-
-  const navTabs = [
-  { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
-  { id: "trades", icon: <PlusSquare size={18} />, label: "Trades" },
-  { id: "market", icon: <TrendingUp size={18} />, label: "Market" },
-  { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
-  { id: "ask", icon: <Brain size={18} />, label: "Ask Rayla" },
-  { id: "ai", icon: <Target size={18} />, label: "AI Coach" },
-  { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
-];
-
-
-
 
 if (!session) return <Login onLogin={() => setShowSplash(false)} />;
 
@@ -1587,15 +2453,58 @@ async function handleDeleteAccount() {
 
   if (!confirmDelete) return;
 
-  const { error } = await supabase.functions.invoke("delete-account");
+  try {
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
 
-  if (error) {
-    alert("Error deleting account");
-    return;
+    const accessToken = currentSession?.access_token;
+    if (!accessToken) {
+      throw new Error("No active session found.");
+    }
+
+    const { data, error } = await supabase.functions.invoke("delete-account", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    console.log("[delete-account] invoke_result", {
+      invokeError: error?.message || null,
+      data,
+    });
+
+    if (error) {
+      throw new Error(error.message || "Delete account failed.");
+    }
+
+    if (!data?.ok) {
+      const detailSuffix = data?.details ? ` (${data.details})` : "";
+      throw new Error(`Delete account failed [${data?.stage || "unknown"}]: ${data?.error || "Unknown error"}${detailSuffix}`);
+    }
+
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+    if (signOutError) {
+      console.error("[delete-account] local_sign_out_failed_after_success", signOutError.message || signOutError);
+    }
+
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setTrades([]);
+    setHotColdReport(null);
+    setRaylaResponse("");
+    localStorage.removeItem("rayla_sim_trade_history");
+    localStorage.removeItem("rayla_sim_closed_trade");
+    localStorage.removeItem("rayla_sim_open_position");
+    localStorage.removeItem("rayla_sim_balance");
+    sessionStorage.removeItem("rayla-intel-report");
+    showToast(data?.message || "Account deleted successfully.", "success");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Delete account failed.";
+    console.error("[delete-account] frontend_failure", error);
+    showToast(message, "error");
   }
-
-  alert("Account deleted");
-  window.location.reload();
 }
 
 return (
@@ -2039,7 +2948,7 @@ return (
         <div className={`desktopSidebarTotalR ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
           {parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R
         </div>
-        {navTabs.map(tab => (
+        {NAV_TABS.map(tab => (
           <button key={tab.id} className={`desktopSidebarBtn ${activeTab === tab.id ? "active" : ""}`} onClick={() => { setActiveTab(tab.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
             {tab.icon}{tab.label}
           </button>
@@ -2474,21 +3383,180 @@ return (
                 <div className="cardHeader">
                   <h2>Simulation</h2>
                 </div>
-                <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 18, position: "relative" }}>
+                  {isSimulationTutorialOpen && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "rgba(11,16,23,0.72)",
+                        borderRadius: 16,
+                        zIndex: 1,
+                      }}
+                    />
+                  )}
+                  {renderSimulationWalkthroughCard()}
+
+                  {guidedSimulationDraft && (
+                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                        Guided First Trade
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", lineHeight: 1.35 }}>
+                        {guidedSimulationDraft.label || guidedSimulationDraft.asset} • {guidedSimulationDraft.direction === "short" ? "Short" : "Long"}
+                      </div>
+                      {guidedSimulationDraft.thesis ? (
+                        <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.65 }}>
+                          {guidedSimulationDraft.thesis}
+                        </div>
+                      ) : null}
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        {!activeGuidedSimulation ? (
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            style={{ background: "rgba(124,196,255,0.18)", borderColor: "rgba(124,196,255,0.38)", color: "#f8fafc", fontWeight: 700 }}
+                            onClick={() => {
+                              if (!guidedSimulationDraft) return;
+                              setActiveGuidedSimulation({
+                                id: guidedSimulationDraft.id,
+                                asset: guidedSimulationDraft.asset,
+                                label: guidedSimulationDraft.label,
+                                direction: guidedSimulationDraft.direction,
+                                thesis: guidedSimulationDraft.thesis || "",
+                                step: "review-controls",
+                                startedAt: Date.now(),
+                              });
+                              setGuidedSimulationDraft(null);
+                              showToast("Guided trade started.", "success");
+                            }}
+                          >
+                            Start Guided Trade
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            disabled
+                            style={{ opacity: 0.5, cursor: "not-allowed" }}
+                          >
+                            Guided Trade Active
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="ghostButton"
+                          onClick={() => {
+                            setGuidedSimulationDraft(null);
+                            setSimulationAsset(null);
+                            setSimulationSearchQuery("");
+                            setSimulationDirection("long");
+                            setSimulationSearchResults([]);
+                          }}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeGuidedSimulation && (
+                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                          Guided Mode Active
+                        </div>
+                        <div style={{ padding: "4px 10px", borderRadius: 999, background: activeGuidedSimulation.step === "trade-closed" ? "rgba(74,222,128,0.14)" : activeGuidedSimulation.step === "position-open" ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.08)", border: activeGuidedSimulation.step === "trade-closed" ? "1px solid rgba(74,222,128,0.22)" : "1px solid rgba(124,196,255,0.22)", fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: activeGuidedSimulation.step === "trade-closed" ? "#4ade80" : "#dbeafe" }}>
+                          {activeGuidedSimulation.step === "ready-to-open"
+                            ? "Ready To Open"
+                            : activeGuidedSimulation.step === "position-open"
+                              ? "Position Open"
+                              : activeGuidedSimulation.step === "trade-closed"
+                                ? "Trade Closed"
+                                : "Review Controls"}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 13, color: activeGuidedSimulation.step === "trade-closed" ? "#86efac" : "#cbd5e1", lineHeight: 1.6 }}>
+                        {activeGuidedSimulation.step === "ready-to-open"
+                          ? "Your trade plan is defined. Open the trade when you're ready."
+                          : activeGuidedSimulation.step === "position-open"
+                            ? "The guided trade is live. Let the plan play out and manage it with discipline."
+                            : activeGuidedSimulation.step === "trade-closed"
+                              ? "Nice — the trade is closed. Review the result and finish the guided flow below."
+                              : "Set up the trade idea before you open anything."}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", lineHeight: 1.35 }}>
+                        {activeGuidedSimulation.label || activeGuidedSimulation.asset} • {activeGuidedSimulation.direction === "short" ? "Short" : "Long"}
+                      </div>
+                      {activeGuidedSimulation.thesis ? (
+                        <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.65 }}>
+                          {activeGuidedSimulation.thesis}
+                        </div>
+                      ) : null}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {guidedSimulationTips.map((tip) => (
+                          <div key={tip} style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
+                            • {tip}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+                        How to use Simulation
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="ghostButton"
+                          onClick={openSimulationWalkthrough}
+                        >
+                          {hasCompletedFirstTradeOnboarding ? "Replay Guided First Trade" : "Start Guided First Trade"}
+                        </button>
+                        <button
+                          type="button"
+                          className="ghostButton"
+                          onClick={() => setShowSimulationHelp((prev) => !prev)}
+                        >
+                          {showSimulationHelp ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                    </div>
+                    {showSimulationHelp && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                        <div>1. Search and select an asset</div>
+                        <div>2. Choose Long (buy) or Short (sell)</div>
+                        <div>3. Enter your position size (how much you want to simulate)</div>
+                        <div>4. Set your Stop Loss (where you will exit if wrong)</div>
+                        <div>5. Set your Take Profit (where you will exit if right)</div>
+                        <div>6. Click “Open Trade”</div>
+                        <div>7. Watch your P/L update live</div>
+                        <div>8. Close manually or let stop/target auto-close</div>
+                        <div>9. Review feedback and your trade history</div>
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{ fontSize: 13, color: "#94a3b8" }}>
                     Practice trading with fake money and simulated outcomes.
                   </div>
 
-                  <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade Controls
                       </div>
-                      {simulationPosition && (
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 999, padding: "5px 10px" }}>
-                          Position Open
-                        </div>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {renderSimulationInfoButton("controls")}
+                        {simulationPosition && (
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 999, padding: "5px 10px" }}>
+                            Position Open
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div style={{ position: "relative" }}>
@@ -2553,7 +3621,7 @@ return (
                       />
                       <input
                         className="authInput"
-                        placeholder="Stop loss"
+                        placeholder="Stop loss (optoinal)"
                         type="number"
                         step="0.01"
                         value={simulationStopLoss}
@@ -2562,7 +3630,7 @@ return (
                       />
                       <input
                         className="authInput"
-                        placeholder="Take profit"
+                        placeholder="Take profit (optional)"
                         type="number"
                         step="0.01"
                         value={simulationTakeProfit}
@@ -2579,6 +3647,10 @@ return (
                         {simulationPosition ? "Trade Active" : "Open Trade"}
                       </button>
                     </div>
+                    <div ref={setSimulationSectionRef("risk")} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", fontSize: 12, color: "#94a3b8" }}>
+                      {renderSimulationInfoButton("risk", "Risk help")}
+                    </div>
+                    {renderSimulationInfoCard("risk")}
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
@@ -2592,29 +3664,125 @@ return (
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                      Live Chart
+                  <div ref={setSimulationSectionRef("account")} style={getSimulationSectionStyle("account", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                        Account
+                      </div>
+                      {renderSimulationInfoButton("account")}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Simulated Balance</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#e2e8f0" }}>
+                          ${simulatedBalance.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Total P/L</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: simulationTotalPnL >= 0 ? "#4ade80" : "#f87171" }}>
+                          {`${simulationTotalPnL >= 0 ? "+" : ""}$${simulationTotalPnL.toFixed(2)}`}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Closed Trades</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#e2e8f0" }}>
+                          {simulationTradeHistory.length}
+                        </div>
+                      </div>
+                    </div>
+                    {renderSimulationInfoCard("account")}
+                  </div>
+
+                  <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                        Session Coach
+                      </div>
+                      <div style={{ fontSize: 12, color: "#cbd5e1" }}>
+                        {simulationTraderProfile.totalTrades} simulation trades
+                      </div>
+                    </div>
+
+                    {simulationTraderProfile.totalTrades < 5 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                          Warming Up
+                        </div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          Complete 5 simulation trades to unlock your trader profile and insights.
+                        </div>
+                        <div style={{ fontSize: 13, color: "#7CC4FF", fontWeight: 600 }}>
+                          {`${simulationTraderProfile.totalTrades} / 5 trades logged`}
+                        </div>
+                      </div>
+                    ) : simulationSessionInsights ? (
+                      <>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Win Rate</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                              {`${simulationTraderProfile.winRate.toFixed(1)}%`}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg P/L</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: simulationTraderProfile.avgProfitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                              {`${simulationTraderProfile.avgProfitLoss >= 0 ? "+" : ""}$${simulationTraderProfile.avgProfitLoss.toFixed(2)}`}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg R</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: simulationTraderProfile.avgRMultiple == null ? "#e2e8f0" : simulationTraderProfile.avgRMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                              {simulationTraderProfile.avgRMultiple == null ? "--" : `${simulationTraderProfile.avgRMultiple >= 0 ? "+" : ""}${simulationTraderProfile.avgRMultiple.toFixed(2)}R`}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Duration</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                              {formatSimulationDuration(simulationTraderProfile.avgDurationMs)}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {[simulationSessionInsights.primaryStrength, simulationSessionInsights.primaryWeakness, simulationSessionInsights.directionBias, simulationSessionInsights.executionPattern, simulationSessionInsights.marketFitNote].filter(Boolean).slice(0, 5).map((insight) => (
+                            <div key={insight} style={{ fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
+                              • {insight}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+
+                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 10 })}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                        Live Chart
+                      </div>
+                      {renderSimulationInfoButton("chart")}
                     </div>
                   <div className="tradingviewFrameWrapFull" style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" }}>
                     {selectedSimulationItem ? (
                       <iframe
-                        key={`${selectedSimulationItem.tvSymbol}-simulation`}
+                        key={`${getTvSymbol(selectedSimulationItem)}-simulation`}
                         title={`${selectedSimulationItem.id} simulation chart`}
                         className="tradingviewFrame"
                         src={simulationChartSrc}
                       />
                     ) : null}
                   </div>
+                  {renderSimulationInfoCard("chart")}
                   </div>
 
                   {simulationPosition && (
-                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div ref={setSimulationSectionRef("open-position")} style={getSimulationSectionStyle("open-position", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Open Position
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {renderSimulationInfoButton("open-position")}
                           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 999, padding: "5px 10px" }}>
                             Live
                           </div>
@@ -2645,13 +3813,13 @@ return (
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Stop Loss</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: "#f87171" }}>
-                            ${formatCompactPrice(simulationPosition.stopLoss)}
+                            {simulationPosition.stopLoss != null ? `$${formatCompactPrice(simulationPosition.stopLoss)}` : "--"}
                           </div>
                         </div>
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Take Profit</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: "#4ade80" }}>
-                            ${formatCompactPrice(simulationPosition.takeProfit)}
+                            {simulationPosition.takeProfit != null ? `$${formatCompactPrice(simulationPosition.takeProfit)}` : "--"}
                           </div>
                         </div>
                         <div>
@@ -2668,14 +3836,14 @@ return (
                         </div>
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Unrealized R</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: openPositionMetrics.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
-                            {`${openPositionMetrics.rMultiple >= 0 ? "+" : ""}${openPositionMetrics.rMultiple.toFixed(2)}R`}
+                          <div style={{ fontSize: 18, fontWeight: 700, color: openPositionMetrics.rMultiple == null ? "#e2e8f0" : openPositionMetrics.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                            {openPositionMetrics.rMultiple == null ? "--" : `${openPositionMetrics.rMultiple >= 0 ? "+" : ""}${openPositionMetrics.rMultiple.toFixed(2)}R`}
                           </div>
                         </div>
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Planned Risk</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                            ${simulationPosition.plannedRisk.toFixed(2)}
+                            {simulationPosition.plannedRisk != null ? `$${simulationPosition.plannedRisk.toFixed(2)}` : "--"}
                           </div>
                         </div>
                       </div>
@@ -2684,19 +3852,109 @@ return (
                           Close Trade
                         </button>
                       </div>
+                      {activeGuidedSimulation && (
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          Guided trade is live — manage it according to your plan.
+                        </div>
+                      )}
+                      {renderSimulationInfoCard("open-position")}
                     </div>
                   )}
 
                   {simulationClosedTrade && (
-                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 12 }}>
-                        Closed Trade
+                    <div ref={setSimulationSectionRef("summary")} style={getSimulationSectionStyle("summary", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" })}>
+                      {isActiveGuidedTradeClosed && (
+                        <div style={{ marginBottom: 14, padding: 14, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                              Guided First Trade Complete
+                            </div>
+                            <div style={{ padding: "4px 10px", borderRadius: 999, background: "rgba(74,222,128,0.14)", border: "1px solid rgba(74,222,128,0.22)", fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#4ade80" }}>
+                              Completed
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", lineHeight: 1.4 }}>
+                            {simulationClosedTrade.asset}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
+                              • You completed your first guided simulation trade.
+                            </div>
+                            <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
+                              • {simulationClosedTrade.profitLoss > 0
+                                ? "Nice job — this one closed green."
+                                : simulationClosedTrade.profitLoss < 0
+                                  ? "That one did not work, which is normal. The win is completing the process with a review."
+                                  : "That trade finished flat, which still counts as completing the process with a review."}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
+                              • {simulationClosedTrade.executionGrade === "A" || simulationClosedTrade.executionGrade === "B"
+                                ? "Your execution was solid for this rep."
+                                : "The goal now is learning what to tighten up on the next rep."}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
+                              • Review the summary below, then either try another simulation or replay guided mode later.
+                            </div>
+                          </div>
+                          <div>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              style={{ background: "rgba(124,196,255,0.18)", borderColor: "rgba(124,196,255,0.38)", color: "#f8fafc", fontWeight: 700 }}
+                              onClick={() => {
+                                setActiveGuidedSimulation(null);
+                                setHasCompletedFirstTradeOnboarding(true);
+                                setHasAttemptedFirstTradeOnboardingAutoStart(true);
+                                showToast("Guided first trade complete.", "success");
+                              }}
+                            >
+                              Finish Guided Trade
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                          Trade Summary
+                        </div>
+                        {renderSimulationInfoButton("summary")}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 42, height: 42, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", background: simulationClosedTrade.executionGrade === "A" ? "rgba(74,222,128,0.14)" : simulationClosedTrade.executionGrade === "B" ? "rgba(124,196,255,0.14)" : simulationClosedTrade.executionGrade === "C" ? "rgba(255,255,255,0.08)" : "rgba(248,113,113,0.14)", border: simulationClosedTrade.executionGrade === "A" ? "1px solid rgba(74,222,128,0.24)" : simulationClosedTrade.executionGrade === "B" ? "1px solid rgba(124,196,255,0.24)" : simulationClosedTrade.executionGrade === "C" ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(248,113,113,0.24)", fontSize: 20, fontWeight: 800, color: simulationClosedTrade.executionGrade === "D" ? "#f87171" : "#e2e8f0" }}>
+                            {simulationClosedTrade.executionGrade}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 2 }}>Execution Grade</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+                              {simulationClosedTrade.executionGradeLabel}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
                         <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Outcome</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                            {simulationClosedTrade.outcomeLabel}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Profit/Loss</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                            {`${simulationClosedTrade.profitLoss >= 0 ? "+" : ""}$${simulationClosedTrade.profitLoss.toFixed(2)}`}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>R Multiple</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.rMultiple == null ? "#e2e8f0" : simulationClosedTrade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                            {simulationClosedTrade.rMultiple == null ? "--" : `${simulationClosedTrade.rMultiple >= 0 ? "+" : ""}${simulationClosedTrade.rMultiple.toFixed(2)}R`}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Time in Trade</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                            {simulationClosedTrade.asset}
+                            {formatSimulationDuration(simulationClosedTrade.durationMs)}
                           </div>
                         </div>
                         <div>
@@ -2705,36 +3963,73 @@ return (
                             {simulationClosedTrade.exitReason}
                           </div>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Realized P/L</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
-                            {`${simulationClosedTrade.profitLoss >= 0 ? "+" : ""}$${simulationClosedTrade.profitLoss.toFixed(2)}`}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Realized R</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: simulationClosedTrade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
-                            {`${simulationClosedTrade.rMultiple >= 0 ? "+" : ""}${simulationClosedTrade.rMultiple.toFixed(2)}R`}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Price</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                            ${formatCompactPrice(simulationClosedTrade.exitPrice)}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Planned Risk</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                            ${simulationClosedTrade.plannedRisk.toFixed(2)}
-                          </div>
-                        </div>
                       </div>
-                      <div style={{ marginTop: 14, fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
-                        {simulationClosedTrade.feedback}
-                      </div>
+                    <div style={{ marginTop: 14, fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
+                      {simulationClosedTrade.coachingInsight}
                     </div>
-                  )}
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                      {simulationClosedTrade.nextStep}
+                    </div>
+                    {renderSimulationInfoCard("summary")}
+                  </div>
+                )}
+
+                  <div ref={setSimulationSectionRef("history")} style={getSimulationSectionStyle("history", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                        Trade History
+                      </div>
+                      {renderSimulationInfoButton("history")}
+                    </div>
+                    {simulationTradeHistory.length ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {simulationTradeHistory.slice(0, 8).map((trade, index) => (
+                          <div
+                            key={`${trade.asset}-${trade.closedAt || index}`}
+                            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                          >
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.asset}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Direction</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0", textTransform: "capitalize" }}>{trade.direction}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Entry Price</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(trade.entryPrice)}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Price</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(trade.exitPrice)}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Profit/Loss</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: trade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                                {`${trade.profitLoss >= 0 ? "+" : ""}$${trade.profitLoss.toFixed(2)}`}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>R Multiple</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: trade.rMultiple == null ? "#e2e8f0" : trade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                                {trade.rMultiple == null ? "--" : `${trade.rMultiple >= 0 ? "+" : ""}${trade.rMultiple.toFixed(2)}R`}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Reason</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.exitReason}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                        No closed simulation trades yet.
+                      </div>
+                    )}
+                    {renderSimulationInfoCard("history")}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2855,7 +4150,7 @@ return (
                           <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
                         </div>
-                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} />)}
+                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} onTrySimulation={handleTryIntelInSimulation} />)}
                       </div>
                     ))}
                     {[["Hot Crypto", "#ef4444", hotColdReport.cryptoHot], ["Cold Crypto", "#7CC4FF", hotColdReport.cryptoCold]].map(([label, color, item]) => (
@@ -2864,7 +4159,7 @@ return (
                           <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
                         </div>
-                        {item && <IntelAssetCard item={item} />}
+                        {item && <IntelAssetCard item={item} onTrySimulation={handleTryIntelInSimulation} />}
                       </div>
                     ))}
                   </>
@@ -2953,7 +4248,7 @@ return (
 
 
         <div className="mobileNav">
-          {navTabs.map(tab => (
+          {NAV_TABS.map(tab => (
             <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => { setActiveTab(tab.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
               {tab.icon}<span>{tab.label}</span>
             </button>

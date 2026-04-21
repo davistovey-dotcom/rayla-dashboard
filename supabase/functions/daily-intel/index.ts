@@ -720,8 +720,8 @@ function buildFallbackArticle(item: any, query: string): NormalizedArticle {
     }
 
 async function getLatestMarketIntel() {
-  const PROJECT_URL = Deno.env.get("PROJECT_URL");
-  const SERVICE_KEY = Deno.env.get("SERVICE_ROLE_KEY");
+  const PROJECT_URL = Deno.env.get("SUPABASE_URL");
+  const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   const res = await fetch(
     `${PROJECT_URL}/rest/v1/daily_intel_reports?order=report_date.desc&limit=1`,
@@ -1072,9 +1072,9 @@ Context: ${signalContext}`;
 
   try {
     
-    const PROJECT_URL = Deno.env.get("PROJECT_URL");
+    const PROJECT_URL = Deno.env.get("SUPABASE_URL");
     const FINNHUB_API_KEY = Deno.env.get("FINNHUB_API_KEY") || "";
-    const SERVICE_KEY = Deno.env.get("SERVICE_ROLE_KEY");
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!FINNHUB_API_KEY) throw new Error("Missing FINNHUB_API_KEY");
     if (!PROJECT_URL) throw new Error("Missing PROJECT_URL");
     if (!SERVICE_KEY) throw new Error("Missing SERVICE_ROLE_KEY");
