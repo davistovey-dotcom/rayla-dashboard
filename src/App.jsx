@@ -1860,6 +1860,7 @@ useEffect(() => {
   const [tradeChartMode, setTradeChartMode] = useState("line");
   const [tradeChartLastUpdated, setTradeChartLastUpdated] = useState(null);
   const [tradeChartRefreshTick, setTradeChartRefreshTick] = useState(0);
+  const [tradeViewMode, setTradeViewMode] = useState("asset");
   const [alpacaOrderForm, setAlpacaOrderForm] = useState({
     symbol: "",
     side: "buy",
@@ -2890,7 +2891,7 @@ useEffect(() => {
     if (activeTab !== "trades") return;
     const interval = setInterval(() => {
       setTradeChartRefreshTick((prev) => prev + 1);
-    }, 30000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [activeTab]);
 
@@ -6018,6 +6019,59 @@ return (
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Positions
                         </div>
+                        {alpacaPositions.length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ fontSize: 10, color: "#7f8ea3", letterSpacing: "0.4px" }}>Select asset to view</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                              <button
+                                type="button"
+                                onClick={() => setTradeViewMode("portfolio")}
+                                style={{
+                                  padding: "4px 11px",
+                                  borderRadius: 7,
+                                  border: "1px solid",
+                                  borderColor: tradeViewMode === "portfolio" ? "rgba(96,165,250,0.6)" : "rgba(255,255,255,0.1)",
+                                  background: tradeViewMode === "portfolio" ? "rgba(96,165,250,0.14)" : "transparent",
+                                  color: tradeViewMode === "portfolio" ? "#93c5fd" : "#7f8ea3",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Portfolio
+                              </button>
+                              {alpacaPositions.map((pos) => {
+                                const isSelected = tradeViewMode === "asset" && tradePanelSymbol === pos.symbol;
+                                return (
+                                  <button
+                                    key={pos.symbol}
+                                    type="button"
+                                    onClick={() => {
+                                      setAlpacaOrderForm((prev) => ({ ...prev, symbol: pos.symbol }));
+                                      setAlpacaAssetSearchResults([]);
+                                      setAlpacaAssetSearchError("");
+                                      setAlpacaAssetSearchOpen(false);
+                                      setTradeViewMode("asset");
+                                    }}
+                                    style={{
+                                      padding: "4px 11px",
+                                      borderRadius: 7,
+                                      border: "1px solid",
+                                      borderColor: isSelected ? "rgba(124,196,255,0.55)" : "rgba(255,255,255,0.1)",
+                                      background: isSelected ? "rgba(124,196,255,0.13)" : "transparent",
+                                      color: isSelected ? "#d7efff" : "#94a3b8",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {pos.symbol}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {alpacaPositions.length ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                             {alpacaPositions.map((position) => (
@@ -6029,6 +6083,7 @@ return (
                                   setAlpacaAssetSearchResults([]);
                                   setAlpacaAssetSearchError("");
                                   setAlpacaAssetSearchOpen(false);
+                                  setTradeViewMode("asset");
                                 }}
                                 style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", cursor: "pointer", textAlign: "left", width: "100%", transition: "border-color 160ms ease, background 160ms ease, transform 160ms ease" }}
                                 onMouseEnter={(e) => {
@@ -6087,7 +6142,7 @@ return (
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                   <div style={{ display: "flex", gap: 5 }}>
-                                    {[["line", "Line"], ["bars", "Bars"], ["portfolio", "Portfolio"]].map(([mode, label]) => (
+                                    {[["line", "Line"], ["bars", "Bars"]].map(([mode, label]) => (
                                       <button
                                         key={mode}
                                         type="button"
@@ -6127,7 +6182,7 @@ return (
                                   const axisStyle = { stroke: "rgba(255,255,255,0.12)", strokeWidth: "0.4" };
                                   const gridStyle = { stroke: "rgba(255,255,255,0.05)", strokeWidth: "0.5" };
 
-                                  if (tradeChartMode === "portfolio") {
+                                  if (tradeViewMode === "portfolio") {
                                     const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
                                     const portfolioLines = alpacaPositions.map((pos, pi) => {
                                       const q = getKnownStockQuoteData(pos.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
@@ -6165,9 +6220,20 @@ return (
                                             return <polyline key={symbol} points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />;
                                           })}
                                           {portfolioLines.map(({ symbol, series, color }) => {
-                                            const lastV = series[series.length - 1];
-                                            const ly = Math.max(8, Math.min(vy(lastV), 110));
-                                            return <text key={symbol} x={xR + 2} y={ly + 1.5} fontSize="5" fill={color} fontFamily="monospace">{symbol}</text>;
+                                            const n = series.length;
+                                            const lastV = series[n - 1];
+                                            const dotX = xL + chartW;
+                                            const dotY = Math.max(8, Math.min(vy(lastV), 110));
+                                            return (
+                                              <g key={symbol}>
+                                                <circle cx={dotX} cy={dotY} r="3.5" fill={color} opacity="0.2">
+                                                  <animate attributeName="r" values="2;5.5;2" dur="2s" repeatCount="indefinite" />
+                                                  <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
+                                                </circle>
+                                                <circle cx={dotX} cy={dotY} r="2" fill={color} />
+                                                <text x={dotX + 3} y={dotY + 1.5} fontSize="5" fill={color} fontFamily="monospace">{symbol}</text>
+                                              </g>
+                                            );
                                           })}
                                         </svg>
                                       </div>
@@ -6229,6 +6295,24 @@ return (
                                               </g>
                                             );
                                           })}
+                                          {(() => {
+                                            const lastBar = rawBars[rawBars.length - 1];
+                                            const lastClose = Number(lastBar.close);
+                                            const dotX = vx(rawBars.length - 1);
+                                            const dotY = vy(lastClose);
+                                            const dotColor = lastClose >= Number(lastBar.open ?? lastClose) ? "#4ade80" : "#f87171";
+                                            const priceLabel = formatCompactPrice(tradePanelQuote?.price ?? lastClose);
+                                            return (
+                                              <g>
+                                                <circle cx={dotX} cy={dotY} r="4" fill={dotColor} opacity="0.15">
+                                                  <animate attributeName="r" values="2.5;6;2.5" dur="1.8s" repeatCount="indefinite" />
+                                                  <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
+                                                </circle>
+                                                <circle cx={dotX} cy={dotY} r="2.2" fill={dotColor} />
+                                                <text x={dotX} y={Math.max(9, dotY - 4)} textAnchor="middle" fontSize="5.5" fill="#e2e8f0" fontFamily="monospace" fontWeight="bold">{priceLabel}</text>
+                                              </g>
+                                            );
+                                          })()}
                                         </svg>
                                       </div>
                                     );
@@ -6269,6 +6353,21 @@ return (
                                         ))}
                                         <polyline points={pts} fill="none" stroke="rgba(124,196,255,0.42)" strokeWidth="1.15" strokeLinejoin="round" strokeLinecap="round" />
                                         <polyline points={pts} fill="none" stroke="#d7efff" strokeWidth="1.55" strokeLinejoin="round" strokeLinecap="round" />
+                                        {(() => {
+                                          const dotX = vx(n - 1);
+                                          const dotY = vy(series[n - 1]);
+                                          const priceLabel = formatCompactPrice(tradePanelQuote?.price ?? series[n - 1]);
+                                          return (
+                                            <g>
+                                              <circle cx={dotX} cy={dotY} r="4" fill="#60a5fa" opacity="0.15">
+                                                <animate attributeName="r" values="2.5;6.5;2.5" dur="1.8s" repeatCount="indefinite" />
+                                                <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
+                                              </circle>
+                                              <circle cx={dotX} cy={dotY} r="2.2" fill="#d7efff" />
+                                              <text x={dotX} y={Math.max(9, dotY - 4)} textAnchor="middle" fontSize="5.5" fill="#e2e8f0" fontFamily="monospace" fontWeight="bold">{priceLabel}</text>
+                                            </g>
+                                          );
+                                        })()}
                                       </svg>
                                     </div>
                                   );
