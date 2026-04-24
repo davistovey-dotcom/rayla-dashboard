@@ -1629,11 +1629,7 @@ useEffect(() => {
 
     const visibleSlots = Math.max(1, Math.floor((containerWidth + gap) / (minCardWidth + gap)));
     const overflowsVisibleWidth = sortedItems.length > visibleSlots;
-    const wantsAutoScroll = sortedItems.length >= 8
-      ? true
-      : sortedItems.length >= 6
-        ? overflowsVisibleWidth
-        : false;
+    const wantsAutoScroll = sortedItems.length >= 5;
     const shouldScroll = wantsAutoScroll && overflowsVisibleWidth;
     setHomeMarketCarouselCanScroll(shouldScroll);
     setHomeMarketCarouselSpeed(sortedItems.length >= 8 ? 0.02 : 0.01);
