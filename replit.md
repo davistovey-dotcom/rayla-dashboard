@@ -22,6 +22,11 @@ Rayla is a React + Vite trading journal, simulation, coaching, and market intell
 - Trade journal and brokerage trade log synced to Supabase
 - AI coaching via `ask-rayla` edge function
 - Daily market intel via `daily-intel` edge function
+- **Live Market chart** in Trade tab powered by `lightweight-charts` v5 (Line + Candlestick modes, price scale, time scale, crosshair, dashed live-price line, 10s auto-refresh); Portfolio view uses a custom SVG multi-line normalized % chart
+
+## Chart Architecture (Trade Tab)
+- `src/TradeChart.jsx` — standalone component wrapping `lightweight-charts` v5. Accepts `bars` (OHLC array), `mode` ("line"|"candlestick"), `latestPrice`. Handles ResizeObserver, series lifecycle, and a dashed price line at the latest quote.
+- Portfolio view (multi-asset normalized % change) remains as a custom SVG in `App.jsx`.
 
 ## Running Locally
 ```bash

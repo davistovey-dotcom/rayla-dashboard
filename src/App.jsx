@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
+import TradeChart from "./TradeChart";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, TrendingUp, Target, Gamepad2 } from "lucide-react";
 import { Tutorial } from "./Login";
 
@@ -6142,7 +6143,7 @@ return (
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                   <div style={{ display: "flex", gap: 5 }}>
-                                    {[["line", "Line"], ["bars", "Bars"]].map(([mode, label]) => (
+                                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
                                       <button
                                         key={mode}
                                         type="button"
@@ -6170,208 +6171,80 @@ return (
                                     </div>
                                   )}
                                 </div>
-                                {tradeMarketChartLoading && tradeMarketDisplaySeries.length < 2 ? (
-                                  <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)", fontSize: 12, color: "#94a3b8", lineHeight: 1.6, minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                    Loading chart...
-                                  </div>
-                                ) : (() => {
-                                  const xL = 44, xR = 216, yT = 5, yB = 108;
+                                {tradeViewMode === "portfolio" ? (() => {
+                                  const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
+                                  const xL = 10, xR = 195, yT = 5, yB = 108;
                                   const chartW = xR - xL;
                                   const chartH = yB - yT;
-                                  const chartBox = { height: 200, borderRadius: 12, background: "linear-gradient(180deg,rgba(255,255,255,0.028) 0%,rgba(255,255,255,0.012) 100%)", border: "1px solid rgba(255,255,255,0.06)", padding: "8px 4px 4px 4px" };
-                                  const axisStyle = { stroke: "rgba(255,255,255,0.12)", strokeWidth: "0.4" };
-                                  const gridStyle = { stroke: "rgba(255,255,255,0.05)", strokeWidth: "0.5" };
-
-                                  if (tradeViewMode === "portfolio") {
-                                    const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
-                                    const portfolioLines = alpacaPositions.map((pos, pi) => {
-                                      const q = getKnownStockQuoteData(pos.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
-                                      const raw = buildFallbackMiniChartSeries(q, pos);
-                                      const base = raw[0] || 1;
-                                      return { symbol: pos.symbol, series: raw.map((v) => ((v - base) / base) * 100), color: palette[pi % palette.length] };
-                                    });
-                                    const allVals = portfolioLines.flatMap((l) => l.series).filter(Number.isFinite);
-                                    if (allVals.length < 2) return (
-                                      <div style={{ ...chartBox, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>No positions to display</div>
-                                    );
-                                    const pMin = Math.min(...allVals), pMax = Math.max(...allVals);
-                                    const pPad = (pMax - pMin) * 0.12 || 0.5;
-                                    const pLo = pMin - pPad, pHi = pMax + pPad;
-                                    const vy = (v) => yB - ((v - pLo) / (pHi - pLo || 1)) * chartH;
-                                    const ySteps = [pHi, (pHi + pLo) / 2, pLo];
-                                    return (
-                                      <div style={chartBox}>
-                                        <svg viewBox="0 0 220 130" style={{ width: "100%", height: "100%" }}>
-                                          {ySteps.map((price, i) => {
-                                            const y = vy(price);
-                                            return (
-                                              <g key={i}>
-                                                <line x1={xL} y1={y} x2={xR} y2={y} {...gridStyle} />
-                                                <text x={xL - 2} y={y + 1.5} textAnchor="end" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{price >= 0 ? "+" : ""}{price.toFixed(1)}%</text>
-                                              </g>
-                                            );
-                                          })}
-                                          <line x1={xL} y1={yT} x2={xL} y2={yB} {...axisStyle} />
-                                          <line x1={xL} y1={yB} x2={xR} y2={yB} {...axisStyle} />
-                                          {portfolioLines.map(({ symbol, series, color }) => {
-                                            const n = series.length;
-                                            if (n < 2) return null;
-                                            const pts = series.map((v, i) => `${xL + (i / (n - 1)) * chartW},${vy(v)}`).join(" ");
-                                            return <polyline key={symbol} points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />;
-                                          })}
-                                          {portfolioLines.map(({ symbol, series, color }) => {
-                                            const n = series.length;
-                                            const lastV = series[n - 1];
-                                            const dotX = xL + chartW;
-                                            const dotY = Math.max(8, Math.min(vy(lastV), 110));
-                                            return (
-                                              <g key={symbol}>
-                                                <circle cx={dotX} cy={dotY} r="3.5" fill={color} opacity="0.2">
-                                                  <animate attributeName="r" values="2;5.5;2" dur="2s" repeatCount="indefinite" />
-                                                  <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
-                                                </circle>
-                                                <circle cx={dotX} cy={dotY} r="2" fill={color} />
-                                                <text x={dotX + 3} y={dotY + 1.5} fontSize="5" fill={color} fontFamily="monospace">{symbol}</text>
-                                              </g>
-                                            );
-                                          })}
-                                        </svg>
-                                      </div>
-                                    );
-                                  }
-
-                                  if (tradeChartMode === "bars") {
-                                    const rawBars = extractChartBars(tradeMarketChart);
-                                    if (rawBars.length < 2) return (
-                                      <div style={{ ...chartBox, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
-                                        {tradeMarketChartLoading ? "Loading..." : "No bar data"}
-                                      </div>
-                                    );
-                                    const closes = rawBars.map((b) => Number(b.close));
-                                    const highs = rawBars.map((b) => Number(b.high ?? b.close));
-                                    const lows = rawBars.map((b) => Number(b.low ?? b.close));
-                                    const allP = [...closes, ...highs, ...lows].filter(Number.isFinite);
-                                    const pMin = Math.min(...allP), pMax = Math.max(...allP);
-                                    const pPad = (pMax - pMin) * 0.08 || pMax * 0.02 || 1;
-                                    const pLo = pMin - pPad, pHi = pMax + pPad;
-                                    const n = rawBars.length;
-                                    const vy = (v) => yB - ((Number(v) - pLo) / (pHi - pLo || 1)) * chartH;
-                                    const vx = (i) => xL + (i / (n - 1 || 1)) * chartW;
-                                    const barW = Math.max(0.6, Math.min(3, chartW / n * 0.5));
-                                    const yLabels = Array.from({ length: 4 }, (_, i) => ({ y: yT + chartH * (i / 3), price: pHi - (pHi - pLo) * (i / 3) }));
-                                    const xIndices = [0, Math.floor(n * 0.33), Math.floor(n * 0.66), n - 1];
-                                    const xLabels = xIndices.map((idx) => {
-                                      const bar = rawBars[idx];
-                                      const t = bar?.time ? new Date(bar.time) : null;
-                                      return { x: vx(idx), label: t ? t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "" };
-                                    });
-                                    return (
-                                      <div style={chartBox}>
-                                        <svg viewBox="0 0 220 130" style={{ width: "100%", height: "100%" }}>
-                                          {yLabels.map(({ y, price }, i) => (
-                                            <g key={i}>
-                                              <line x1={xL} y1={y} x2={xR} y2={y} {...gridStyle} />
-                                              <text x={xL - 2} y={y + 1.5} textAnchor="end" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{formatCompactPrice(price)}</text>
-                                            </g>
-                                          ))}
-                                          <line x1={xL} y1={yT} x2={xL} y2={yB} {...axisStyle} />
-                                          <line x1={xL} y1={yB} x2={xR} y2={yB} {...axisStyle} />
-                                          {xLabels.map(({ x, label }, i) => (
-                                            <text key={i} x={x} y={yB + 9} textAnchor="middle" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{label}</text>
-                                          ))}
-                                          {rawBars.map((bar, i) => {
-                                            const x = vx(i);
-                                            const open = Number(bar.open ?? bar.close);
-                                            const close = Number(bar.close);
-                                            const high = Number(bar.high ?? close);
-                                            const low = Number(bar.low ?? close);
-                                            const isUp = close >= open;
-                                            const color = isUp ? "#4ade80" : "#f87171";
-                                            return (
-                                              <g key={i}>
-                                                <line x1={x} y1={vy(high)} x2={x} y2={vy(low)} stroke={color} strokeWidth="0.7" opacity="0.8" />
-                                                <line x1={x - barW} y1={vy(open)} x2={x} y2={vy(open)} stroke={color} strokeWidth="0.9" />
-                                                <line x1={x} y1={vy(close)} x2={x + barW} y2={vy(close)} stroke={color} strokeWidth="0.9" />
-                                              </g>
-                                            );
-                                          })}
-                                          {(() => {
-                                            const lastBar = rawBars[rawBars.length - 1];
-                                            const lastClose = Number(lastBar.close);
-                                            const dotX = vx(rawBars.length - 1);
-                                            const dotY = vy(lastClose);
-                                            const dotColor = lastClose >= Number(lastBar.open ?? lastClose) ? "#4ade80" : "#f87171";
-                                            const priceLabel = formatCompactPrice(tradePanelQuote?.price ?? lastClose);
-                                            return (
-                                              <g>
-                                                <circle cx={dotX} cy={dotY} r="4" fill={dotColor} opacity="0.15">
-                                                  <animate attributeName="r" values="2.5;6;2.5" dur="1.8s" repeatCount="indefinite" />
-                                                  <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
-                                                </circle>
-                                                <circle cx={dotX} cy={dotY} r="2.2" fill={dotColor} />
-                                                <text x={dotX} y={Math.max(9, dotY - 4)} textAnchor="middle" fontSize="5.5" fill="#e2e8f0" fontFamily="monospace" fontWeight="bold">{priceLabel}</text>
-                                              </g>
-                                            );
-                                          })()}
-                                        </svg>
-                                      </div>
-                                    );
-                                  }
-
-                                  const series = tradeMarketDisplaySeries;
-                                  const n = series.length;
-                                  if (n < 2) return (
-                                    <div style={{ ...chartBox, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>No data</div>
+                                  const portfolioLines = alpacaPositions.map((pos, pi) => {
+                                    const q = getKnownStockQuoteData(pos.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+                                    const raw = buildFallbackMiniChartSeries(q, pos);
+                                    const base = raw[0] || 1;
+                                    return { symbol: pos.symbol, series: raw.map((v) => ((v - base) / base) * 100), color: palette[pi % palette.length] };
+                                  });
+                                  const allVals = portfolioLines.flatMap((l) => l.series).filter(Number.isFinite);
+                                  if (allVals.length < 2) return (
+                                    <div style={{ height: 260, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>No positions to display</div>
                                   );
-                                  const pMin = Math.min(...series), pMax = Math.max(...series);
-                                  const pPad = (pMax - pMin) * 0.1 || pMax * 0.03 || 1;
+                                  const pMin = Math.min(...allVals), pMax = Math.max(...allVals);
+                                  const pPad = (pMax - pMin) * 0.14 || 0.5;
                                   const pLo = pMin - pPad, pHi = pMax + pPad;
                                   const vy = (v) => yB - ((v - pLo) / (pHi - pLo || 1)) * chartH;
-                                  const vx = (i) => xL + (i / (n - 1 || 1)) * chartW;
-                                  const pts = series.map((v, i) => `${vx(i)},${vy(v)}`).join(" ");
-                                  const yLabels = Array.from({ length: 4 }, (_, i) => ({ y: yT + chartH * (i / 3), price: pHi - (pHi - pLo) * (i / 3) }));
-                                  const bars = Array.isArray(tradeMarketChart?.bars) ? tradeMarketChart.bars : [];
-                                  const xIndices = [0, Math.floor(n * 0.33), Math.floor(n * 0.66), n - 1];
-                                  const xLabels = xIndices.map((idx) => {
-                                    const bar = bars[Math.min(idx, bars.length - 1)];
-                                    const t = bar?.time ? new Date(bar.time) : null;
-                                    return { x: vx(idx), label: t ? t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "" };
+                                  const ySteps = Array.from({ length: 4 }, (_, i) => {
+                                    const ratio = i / 3;
+                                    return { y: yT + chartH * ratio, val: pHi - (pHi - pLo) * ratio };
                                   });
                                   return (
-                                    <div style={chartBox}>
-                                      <svg viewBox="0 0 220 130" style={{ width: "100%", height: "100%" }}>
-                                        {yLabels.map(({ y, price }, i) => (
+                                    <div style={{ height: 260, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "10px 6px 6px 6px" }}>
+                                      <svg viewBox="0 0 210 120" style={{ width: "100%", height: "100%" }}>
+                                        {ySteps.map(({ y, val }, i) => (
                                           <g key={i}>
-                                            <line x1={xL} y1={y} x2={xR} y2={y} {...gridStyle} />
-                                            <text x={xL - 2} y={y + 1.5} textAnchor="end" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{formatCompactPrice(price)}</text>
+                                            <line x1={xL} y1={y} x2={xR} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
+                                            <text x={xL - 1} y={y + 1.5} textAnchor="end" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{val >= 0 ? "+" : ""}{val.toFixed(1)}%</text>
                                           </g>
                                         ))}
-                                        <line x1={xL} y1={yT} x2={xL} y2={yB} {...axisStyle} />
-                                        <line x1={xL} y1={yB} x2={xR} y2={yB} {...axisStyle} />
-                                        {xLabels.map(({ x, label }, i) => (
-                                          <text key={i} x={x} y={yB + 9} textAnchor="middle" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{label}</text>
-                                        ))}
-                                        <polyline points={pts} fill="none" stroke="rgba(124,196,255,0.42)" strokeWidth="1.15" strokeLinejoin="round" strokeLinecap="round" />
-                                        <polyline points={pts} fill="none" stroke="#d7efff" strokeWidth="1.55" strokeLinejoin="round" strokeLinecap="round" />
-                                        {(() => {
-                                          const dotX = vx(n - 1);
-                                          const dotY = vy(series[n - 1]);
-                                          const priceLabel = formatCompactPrice(tradePanelQuote?.price ?? series[n - 1]);
+                                        <line x1={xL} y1={yT} x2={xL} y2={yB} stroke="rgba(255,255,255,0.1)" strokeWidth="0.4" />
+                                        <line x1={xL} y1={yB} x2={xR} y2={yB} stroke="rgba(255,255,255,0.1)" strokeWidth="0.4" />
+                                        {portfolioLines.map(({ symbol, series, color }) => {
+                                          const n = series.length;
+                                          if (n < 2) return null;
+                                          const pts = series.map((v, i) => `${xL + (i / (n - 1)) * chartW},${vy(v)}`).join(" ");
+                                          return <polyline key={symbol} points={pts} fill="none" stroke={color} strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />;
+                                        })}
+                                        {portfolioLines.map(({ symbol, series, color }) => {
+                                          const n = series.length;
+                                          const lastV = series[n - 1];
+                                          const dotX = xL + chartW;
+                                          const dotY = Math.max(8, Math.min(vy(lastV), yB - 2));
                                           return (
-                                            <g>
-                                              <circle cx={dotX} cy={dotY} r="4" fill="#60a5fa" opacity="0.15">
-                                                <animate attributeName="r" values="2.5;6.5;2.5" dur="1.8s" repeatCount="indefinite" />
-                                                <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
+                                            <g key={symbol}>
+                                              <circle cx={dotX} cy={dotY} r="3" fill={color} opacity="0.25">
+                                                <animate attributeName="r" values="2;5;2" dur="2s" repeatCount="indefinite" />
+                                                <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
                                               </circle>
-                                              <circle cx={dotX} cy={dotY} r="2.2" fill="#d7efff" />
-                                              <text x={dotX} y={Math.max(9, dotY - 4)} textAnchor="middle" fontSize="5.5" fill="#e2e8f0" fontFamily="monospace" fontWeight="bold">{priceLabel}</text>
+                                              <circle cx={dotX} cy={dotY} r="2" fill={color} />
+                                              <text x={dotX + 3} y={dotY + 1.8} fontSize="5.5" fill={color} fontFamily="monospace" fontWeight="bold">{symbol}</text>
                                             </g>
                                           );
-                                        })()}
+                                        })}
                                       </svg>
                                     </div>
                                   );
-                                })()}
+                                })() : (
+                                  <div style={{ height: 260, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                    {tradeMarketChartLoading && extractChartBars(tradeMarketChart).length < 2 ? (
+                                      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                                        Loading chart...
+                                      </div>
+                                    ) : (
+                                      <TradeChart
+                                        bars={extractChartBars(tradeMarketChart)}
+                                        mode={tradeChartMode}
+                                        latestPrice={tradePanelQuote?.price}
+                                      />
+                                    )}
+                                  </div>
+                                )}
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                                   <div>
                                     <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Qty Held</div>
