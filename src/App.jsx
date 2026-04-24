@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
-import TradeChart from "./TradeChart";
+import RaylaChart from "./components/RaylaChart";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, TrendingUp, Target, Gamepad2 } from "lucide-react";
 import { Tutorial } from "./Login";
 
@@ -6237,10 +6237,10 @@ return (
                                         Loading chart...
                                       </div>
                                     ) : (
-                                      <TradeChart
+                                      <RaylaChart
                                         bars={extractChartBars(tradeMarketChart)}
                                         mode={tradeChartMode}
-                                        latestPrice={tradePanelQuote?.price}
+                                        currentPrice={tradePanelQuote?.price}
                                       />
                                     )}
                                   </div>

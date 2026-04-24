@@ -7,47 +7,72 @@ import {
   LineStyle,
 } from "lightweight-charts";
 
-export default function TradeChart({ bars, mode, latestPrice }) {
+const DARK_THEME = {
+  background: "transparent",
+  text: "#7f8ea3",
+  grid: "rgba(255,255,255,0.04)",
+  border: "rgba(255,255,255,0.08)",
+  crosshair: "rgba(124,196,255,0.35)",
+  labelBg: "#1e293b",
+  lineColor: "#60a5fa",
+  candleUp: "#26a69a",
+  candleDown: "#ef5350",
+  priceLineColor: "rgba(96,165,250,0.75)",
+};
+
+function parseBars(bars) {
+  const seen = new Set();
+  return (bars || [])
+    .map((b) => ({ ...b, _t: Math.floor(new Date(b.time).getTime() / 1000) }))
+    .filter((b) => {
+      if (!Number.isFinite(b._t) || !Number.isFinite(Number(b.close))) return false;
+      if (seen.has(b._t)) return false;
+      seen.add(b._t);
+      return true;
+    })
+    .sort((a, z) => a._t - z._t);
+}
+
+export default function RaylaChart({
+  bars,
+  mode = "line",
+  height = 260,
+  currentPrice,
+}) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const priceLineRef = useRef(null);
+  const t = DARK_THEME;
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
 
-    const chart = createChart(containerRef.current, {
+    const chart = createChart(el, {
       layout: {
-        background: { color: "transparent" },
-        textColor: "#7f8ea3",
+        background: { color: t.background },
+        textColor: t.text,
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)" },
+        vertLines: { color: t.grid },
+        horzLines: { color: t.grid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: {
-          color: "rgba(124,196,255,0.35)",
-          style: LineStyle.Dashed,
-          labelBackgroundColor: "#1e293b",
-        },
-        horzLine: {
-          color: "rgba(124,196,255,0.35)",
-          style: LineStyle.Dashed,
-          labelBackgroundColor: "#1e293b",
-        },
+        vertLine: { color: t.crosshair, style: LineStyle.Dashed, labelBackgroundColor: t.labelBg },
+        horzLine: { color: t.crosshair, style: LineStyle.Dashed, labelBackgroundColor: t.labelBg },
       },
       rightPriceScale: {
-        borderColor: "rgba(255,255,255,0.08)",
-        textColor: "#7f8ea3",
+        borderColor: t.border,
+        textColor: t.text,
         scaleMargins: { top: 0.08, bottom: 0.08 },
       },
       leftPriceScale: { visible: false },
       timeScale: {
-        borderColor: "rgba(255,255,255,0.08)",
-        textColor: "#7f8ea3",
+        borderColor: t.border,
+        textColor: t.text,
         timeVisible: true,
         secondsVisible: false,
         fixLeftEdge: true,
@@ -60,8 +85,8 @@ export default function TradeChart({ bars, mode, latestPrice }) {
         horzTouchDrag: false,
         vertTouchDrag: false,
       },
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
+      width: el.clientWidth,
+      height: el.clientHeight,
     });
 
     chartRef.current = chart;
@@ -74,7 +99,7 @@ export default function TradeChart({ bars, mode, latestPrice }) {
         });
       }
     });
-    ro.observe(containerRef.current);
+    ro.observe(el);
 
     return () => {
       ro.disconnect();
@@ -87,7 +112,7 @@ export default function TradeChart({ bars, mode, latestPrice }) {
 
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart || !Array.isArray(bars) || bars.length < 2) return;
+    if (!chart) return;
 
     if (seriesRef.current) {
       try { chart.removeSeries(seriesRef.current); } catch (_) {}
@@ -95,27 +120,18 @@ export default function TradeChart({ bars, mode, latestPrice }) {
       priceLineRef.current = null;
     }
 
-    const seen = new Set();
-    const deduped = bars
-      .map((b) => ({ ...b, _t: Math.floor(new Date(b.time).getTime() / 1000) }))
-      .filter((b) => {
-        if (!Number.isFinite(b._t) || !Number.isFinite(Number(b.close))) return false;
-        if (seen.has(b._t)) return false;
-        seen.add(b._t);
-        return true;
-      })
-      .sort((a, b) => a._t - b._t);
-
+    const deduped = parseBars(bars);
     if (deduped.length < 2) return;
 
+    let series;
     if (mode === "candlestick") {
-      const series = chart.addSeries(CandlestickSeries, {
-        upColor: "#26a69a",
-        downColor: "#ef5350",
-        borderUpColor: "#26a69a",
-        borderDownColor: "#ef5350",
-        wickUpColor: "#26a69a",
-        wickDownColor: "#ef5350",
+      series = chart.addSeries(CandlestickSeries, {
+        upColor: t.candleUp,
+        downColor: t.candleDown,
+        borderUpColor: t.candleUp,
+        borderDownColor: t.candleDown,
+        wickUpColor: t.candleUp,
+        wickDownColor: t.candleDown,
         priceLineVisible: false,
       });
       series.setData(
@@ -127,43 +143,40 @@ export default function TradeChart({ bars, mode, latestPrice }) {
           close: Number(b.close),
         }))
       );
-      seriesRef.current = series;
     } else {
-      const series = chart.addSeries(LineSeries, {
-        color: "#60a5fa",
+      series = chart.addSeries(LineSeries, {
+        color: t.lineColor,
         lineWidth: 2,
         priceLineVisible: false,
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: 4,
-        crosshairMarkerBackgroundColor: "#60a5fa",
-        crosshairMarkerBorderColor: "#1e293b",
+        crosshairMarkerBackgroundColor: t.lineColor,
+        crosshairMarkerBorderColor: t.labelBg,
       });
-      series.setData(
-        deduped.map((b) => ({ time: b._t, value: Number(b.close) }))
-      );
-      seriesRef.current = series;
+      series.setData(deduped.map((b) => ({ time: b._t, value: Number(b.close) })));
     }
 
+    seriesRef.current = series;
     chart.timeScale().fitContent();
   }, [bars, mode]);
 
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || !Number.isFinite(latestPrice)) return;
+    if (!series || !Number.isFinite(currentPrice)) return;
 
     if (priceLineRef.current) {
       try { series.removePriceLine(priceLineRef.current); } catch (_) {}
     }
 
     priceLineRef.current = series.createPriceLine({
-      price: latestPrice,
-      color: "rgba(96,165,250,0.75)",
+      price: currentPrice,
+      color: t.priceLineColor,
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: true,
       title: "",
     });
-  }, [latestPrice]);
+  }, [currentPrice]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
