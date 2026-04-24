@@ -5953,7 +5953,7 @@ return (
                 </div>
               )}
 
-              <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card" style={{ marginBottom: 16, overflow: "visible" }}>
                 <div className="cardHeader"><h2>Alpaca Paper Trading</h2></div>
                 <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
@@ -6371,7 +6371,7 @@ return (
                                     </div>
                                   ) : null}
                             {alpacaAssetSearchOpen && (
-                              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, maxHeight: 220, overflowY: "auto" }}>
+                              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, maxHeight: 220, overflowY: "auto" }}>
                                 {alpacaAssetSearchLoading ? (
                                   <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
                                     Searching tradable Alpaca assets...
