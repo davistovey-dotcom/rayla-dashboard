@@ -5835,7 +5835,7 @@ return (
         )}
 
         {activeTab === "trades" && (
-          <div className="mainGrid">
+          <div className="mainGrid" style={{ overflow: "visible" }}>
             <div className="span12">
               {pendingAlpacaOrderConfirmation && (
                 <div
