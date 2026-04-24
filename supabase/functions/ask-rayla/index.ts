@@ -8,6 +8,19 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama3-70b-8192";
+const RAYLA_GROQ_SYSTEM_PROMPT = `You are Rayla, a confident trading coach inside a simulation app.
+
+Rules:
+- Be concise and decisive
+- No generic disclaimers
+- Do NOT say "I can't give financial advice"
+- Give 2–3 clear options
+- Use bullet points
+- Tie guidance to user behavior
+- Speak like a coach, not a lawyer`;
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -96,24 +109,31 @@ function cleanupAnswerText(text: string) {
     .trim();
 }
 
-async function generateCoachingAnswer(anthropicKey: string, question: string, context: any) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+async function generateCoachingAnswer(groqKey: string, question: string, context: any) {
+  const userInput = `${buildSystemPrompt(context)}
+
+User question:
+${question}`;
+
+  const response = await fetch(GROQ_CHAT_URL, {
     method: "POST",
     headers: {
+      "Authorization": `Bearer ${groqKey}`,
       "Content-Type": "application/json",
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      system: buildSystemPrompt(context),
+      model: GROQ_MODEL,
       messages: [
         {
+          role: "system",
+          content: RAYLA_GROQ_SYSTEM_PROMPT,
+        },
+        {
           role: "user",
-          content: question,
+          content: userInput,
         },
       ],
+      temperature: 0.7,
     }),
   });
 
@@ -123,7 +143,7 @@ async function generateCoachingAnswer(anthropicKey: string, question: string, co
     throw new Error(data?.error?.message || "AI request failed.");
   }
 
-  return data?.content?.[0]?.text || "No response.";
+  return data?.choices?.[0]?.message?.content || "No response.";
 }
 
 serve(async (req) => {
@@ -145,8 +165,8 @@ serve(async (req) => {
       return jsonResponse({ ok: false, error: "Question is required." }, 400);
     }
 
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY") || "";
-    if (!anthropicKey) {
+    const groqKey = Deno.env.get("GROQ_API_KEY") || "";
+    if (!groqKey) {
       return jsonResponse(
         {
           ok: true,
@@ -158,7 +178,7 @@ serve(async (req) => {
     }
 
     try {
-      const rawAnswer = await generateCoachingAnswer(anthropicKey, question, context);
+      const rawAnswer = await generateCoachingAnswer(groqKey, question, context);
       const answer = cleanupAnswerText(rawAnswer);
 
       return jsonResponse({

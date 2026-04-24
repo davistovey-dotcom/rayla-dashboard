@@ -9,6 +9,19 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama3-70b-8192";
+const RAYLA_GROQ_SYSTEM_PROMPT = `You are Rayla, a confident trading coach inside a simulation app.
+
+Rules:
+- Be concise and decisive
+- No generic disclaimers
+- Do NOT say "I can't give financial advice"
+- Give 2–3 clear options
+- Use bullet points
+- Tie guidance to user behavior
+- Speak like a coach, not a lawyer`;
+
 type RawArticle = {
   title?: string;
   description?: string;
@@ -787,22 +800,22 @@ app_help
 User question: ${question}
 `;
 
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
-if (!ANTHROPIC_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
+const GROQ_KEY = Deno.env.get("GROQ_API_KEY") || "";
+if (!GROQ_KEY) throw new Error("Missing GROQ_API_KEY");
 
-const classifyRes = await fetch("https://api.anthropic.com/v1/messages", {
+const classifyRes = await fetch(GROQ_CHAT_URL, {
   method: "POST",
   headers: {
+    "Authorization": `Bearer ${GROQ_KEY}`,
     "Content-Type": "application/json",
-    "x-api-key": ANTHROPIC_KEY,
-    "anthropic-version": "2023-06-01",
   },
   body: JSON.stringify({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 20,
+    model: GROQ_MODEL,
     messages: [
+      { role: "system", content: RAYLA_GROQ_SYSTEM_PROMPT },
       { role: "user", content: classifyPrompt },
     ],
+    temperature: 0.7,
   }),
 });
 
@@ -826,7 +839,7 @@ if (!classifyRes.ok) {
 }
 
 const route =
-  (classifyData?.content?.[0]?.text || "concept").trim().toLowerCase();
+  (classifyData?.choices?.[0]?.message?.content || "concept").trim().toLowerCase();
   console.log("ROUTE:", route);
 
 const isGeneralTradingQuestion = [
@@ -917,20 +930,20 @@ Bad example:
 Answer the user's actual question, not just the nearest generic risk topic.`;
 
 
-const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+const aiRes = await fetch(GROQ_CHAT_URL, {
   method: "POST",
   headers: {
+    "Authorization": `Bearer ${GROQ_KEY}`,
     "Content-Type": "application/json",
-    "x-api-key": ANTHROPIC_KEY,
-    "anthropic-version": "2023-06-01",
   },
   body: JSON.stringify({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 220,
-    system: systemPrompt,
+    model: GROQ_MODEL,
     messages: [
+      { role: "system", content: RAYLA_GROQ_SYSTEM_PROMPT },
+      { role: "user", content: systemPrompt },
       { role: "user", content: question },
     ],
+    temperature: 0.7,
   }),
 });
 
@@ -949,7 +962,7 @@ const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
     );
   }
 
-  let answer = aiData?.content?.[0]?.text || "No response.";
+  let answer = aiData?.choices?.[0]?.message?.content || "No response.";
 
 answer = answer
   .replace(/^#{1,6}\s+/gm, "")
@@ -972,7 +985,7 @@ answer = answer
   );
 }
 
-    if (!ANTHROPIC_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
+    if (!GROQ_KEY) throw new Error("Missing GROQ_API_KEY");
 
     const intel = await getLatestMarketIntel();
 
@@ -1019,29 +1032,29 @@ answer = answer
 Context: ${signalContext}`;
 
 
-    const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+    const aiRes = await fetch(GROQ_CHAT_URL, {
       method: "POST",
       headers: {
+        "Authorization": `Bearer ${GROQ_KEY}`,
         "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 150,
-        system: systemPrompt,
+        model: GROQ_MODEL,
         messages: [
+          { role: "system", content: RAYLA_GROQ_SYSTEM_PROMPT },
+          { role: "user", content: systemPrompt },
           { role: "user", content: question },
         ],
+        temperature: 0.7,
       }),
     });
 
     const aiData = await aiRes.json();
 
-    console.log("Anthropic raw response:", aiData);
+    console.log("Groq raw response:", aiData);
 
     if (!aiRes.ok) {
-      console.error("Anthropic error:", aiData);
+      console.error("Groq error:", aiData);
       return new Response(
         JSON.stringify({ error: aiData?.error?.message || "AI request failed." }),
         {
@@ -1051,7 +1064,7 @@ Context: ${signalContext}`;
       );
     }
 
-    let answer = aiData?.content?.[0]?.text || "Signal unavailable.";
+    let answer = aiData?.choices?.[0]?.message?.content || "Signal unavailable.";
 
     answer = answer
       .replace(/^#{1,6}\s+/gm, "")
