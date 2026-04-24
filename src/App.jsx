@@ -3,10 +3,33 @@ import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
 import TradeChart from "./TradeChart";
-import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, TrendingUp, Target, Gamepad2 } from "lucide-react";
+import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2 } from "lucide-react";
 import { Tutorial } from "./Login";
 
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
+const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
+  { symbol: "BTC", description: "Bitcoin", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "ETH", description: "Ethereum", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "SOL", description: "Solana", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "XRP", description: "XRP", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "DOGE", description: "Dogecoin", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "BNB", description: "BNB", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "ADA", description: "Cardano", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "AVAX", description: "Avalanche", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "LINK", description: "Chainlink", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "MATIC", description: "Polygon", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "DOT", description: "Polkadot", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "UNI", description: "Uniswap", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "ATOM", description: "Cosmos", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "LTC", description: "Litecoin", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "BCH", description: "Bitcoin Cash", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "ALGO", description: "Algorand", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "NEAR", description: "NEAR Protocol", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "FTM", description: "Fantom", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "SAND", description: "The Sandbox", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "MANA", description: "Decentraland", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "TRX", description: "TRON", exchange: "CRYPTO", type: "crypto" },
+];
 
 function normalizeCryptoAssetId(rawSymbol) {
   const raw = String(rawSymbol || "").trim().toUpperCase();
@@ -122,6 +145,79 @@ function normalizeSearchResult(result) {
   };
 }
 
+function rankSupportedSearchResult(result, query) {
+  const normalizedQuery = String(query || "").trim().toUpperCase();
+  const symbol = String(result?.symbol || "").trim().toUpperCase();
+  const description = String(result?.description || "").trim().toUpperCase();
+  if (symbol === normalizedQuery) return 0;
+  if (description === normalizedQuery) return 1;
+  if (symbol.startsWith(normalizedQuery)) return 2;
+  if (description.startsWith(normalizedQuery)) return 3;
+  if (symbol.includes(normalizedQuery)) return 4;
+  if (description.includes(normalizedQuery)) return 5;
+  return 6;
+}
+
+const supportedSearchCache = new Map();
+
+async function searchRaylaSupportedAssets(query, alpacaConnected) {
+  const normalizedQuery = String(query || "").trim().toUpperCase();
+  if (!normalizedQuery) return [];
+
+  const cacheKey = `${alpacaConnected ? "alpaca" : "local"}:${normalizedQuery}`;
+  if (supportedSearchCache.has(cacheKey)) {
+    return supportedSearchCache.get(cacheKey);
+  }
+
+  const cryptoResults = SUPPORTED_CRYPTO_SEARCH_ASSETS
+    .filter((asset) => (
+      asset.symbol.includes(normalizedQuery)
+      || asset.description.toUpperCase().includes(normalizedQuery)
+    ))
+    .map(normalizeSearchResult);
+
+  let stockResults = [];
+  if (alpacaConnected) {
+    try {
+      const { data, error } = await supabase.functions.invoke("alpaca-assets", {
+        body: { query: normalizedQuery },
+      });
+
+      if (!error && data?.ok && Array.isArray(data.assets)) {
+        stockResults = data.assets.map((asset) => normalizeSearchResult({
+          symbol: asset.symbol,
+          description: asset.name,
+          exchange: asset.exchange,
+          type: "stock",
+        }));
+      }
+    } catch {
+      stockResults = [];
+    }
+  }
+
+  const merged = [...stockResults, ...cryptoResults];
+  const seen = new Set();
+  const results = merged
+    .filter((result) => {
+      const key = `${result.symbol}:${result.type || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => {
+      const rankDelta = rankSupportedSearchResult(a, normalizedQuery) - rankSupportedSearchResult(b, normalizedQuery);
+      if (rankDelta !== 0) return rankDelta;
+      const symbolLengthDelta = Math.abs(String(a.symbol || "").length - normalizedQuery.length) - Math.abs(String(b.symbol || "").length - normalizedQuery.length);
+      if (symbolLengthDelta !== 0) return symbolLengthDelta;
+      return String(a.symbol || "").localeCompare(String(b.symbol || ""));
+    })
+    .slice(0, 6);
+
+  supportedSearchCache.set(cacheKey, results);
+  return results;
+}
+
 const SUPABASE_FUNCTIONS_BASE_URL = "https://uoxzzhtnzmsolvcykynu.functions.supabase.co";
 const DAILY_INTEL_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
 const ASK_RAYLA_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/ask-rayla`;
@@ -187,8 +283,7 @@ const SIMULATION_TUTORIAL_SECTIONS = [
 ];
 const NAV_TABS = [
   { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
-  { id: "trades", icon: <PlusSquare size={18} />, label: "Trade" },
-  { id: "market", icon: <TrendingUp size={18} />, label: "Market" },
+  { id: "trades", icon: <PlusSquare size={18} />, label: "My Trades" },
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
   { id: "ask", icon: <Brain size={18} />, label: "Ask Rayla" },
   { id: "ai", icon: <Target size={18} />, label: "Analysis" },
@@ -1370,7 +1465,7 @@ function BrokerTradeLogCard({ trades, isLoading, onRefresh }) {
   );
 }
 
-function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSymbol, onAddSymbol, fullPage = false }) {
+function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSymbol, onAddSymbol, fullPage = false, alpacaConnected = false }) {
   const [quotes, setQuotes] = useState(() => {
   try {
     return JSON.parse(sessionStorage.getItem("rayla-market-quotes") || "{}");
@@ -1379,11 +1474,20 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
   }
 });
   const [searchResults, setSearchResults] = useState([]);
+  const [marketChart, setMarketChart] = useState(null);
+  const [marketChartLoading, setMarketChartLoading] = useState(false);
+  const [marketChartMode, setMarketChartMode] = useState("candlestick");
+  const [marketChartRange, setMarketChartRange] = useState("1D");
+  const [marketChartLastUpdated, setMarketChartLastUpdated] = useState(null);
+  const marketSearchTimeoutRef = useRef(null);
+  const homeMarketCarouselRef = useRef(null);
+  const homeMarketCarouselDirectionRef = useRef(1);
+  const [homeMarketCarouselPaused, setHomeMarketCarouselPaused] = useState(false);
+  const [homeMarketCarouselCardWidth, setHomeMarketCarouselCardWidth] = useState(null);
+  const [homeMarketCarouselCanScroll, setHomeMarketCarouselCanScroll] = useState(false);
+  const [homeMarketCarouselSpeed, setHomeMarketCarouselSpeed] = useState(0.02);
   const symbolsKey = items.map((item) => item.id).sort().join("|");
   const selectedItem = items.find((item) => item.id === selectedId) || items[0];
-  const iframeSrc = selectedItem
-    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(getTvSymbol(selectedItem))}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
-    : "";
 
   function getBestSearchMatch(query) {
     const normalizedQuery = String(query || "").trim().toUpperCase();
@@ -1437,46 +1541,254 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [symbolsKey]);
 
+useEffect(() => {
+  if (!selectedItem) {
+    setMarketChart(null);
+    setMarketChartLoading(false);
+    return;
+  }
+
+  let isCancelled = false;
+  setMarketChart((prev) => (prev?.symbol === selectedItem.id ? prev : null));
+  setMarketChartLoading(true);
+
+  async function fetchMarketChart() {
+    try {
+      const { data, error } = await supabase.functions.invoke("market-data", {
+        body: {
+          chartSymbol: selectedItem.id,
+          chartType: selectedItem.type || "stock",
+          chartRange: marketChartRange,
+        },
+      });
+
+      if (isCancelled || error || !data?.ok) return;
+
+      const nextChart = data.chart || null;
+      const nextBars = extractChartBars(nextChart);
+      if (nextChart && nextBars.length >= 2) {
+        setMarketChart({
+          ...nextChart,
+          symbol: nextChart.symbol || selectedItem.id,
+        });
+        setMarketChartLastUpdated(new Date());
+        return;
+      }
+
+      setMarketChart({
+        symbol: selectedItem.id,
+        range: marketChartRange,
+        bars: [],
+      });
+    } catch {
+      // Keep the current market view stable if chart fetch fails.
+    } finally {
+      if (!isCancelled) setMarketChartLoading(false);
+    }
+  }
+
+  fetchMarketChart();
+  const interval = marketChartRange === "1D"
+    ? setInterval(fetchMarketChart, 10000)
+    : null;
+
+  return () => {
+    isCancelled = true;
+    if (interval) clearInterval(interval);
+  };
+}, [selectedItem?.id, selectedItem?.type, marketChartRange]);
+
+useEffect(() => {
+  if (fullPage) return undefined;
+
+  function handlePointerDown(event) {
+    if (homeMarketCarouselRef.current?.contains(event.target)) return;
+    setHomeMarketCarouselPaused(false);
+  }
+
+  document.addEventListener("pointerdown", handlePointerDown);
+  return () => document.removeEventListener("pointerdown", handlePointerDown);
+}, [fullPage]);
+
+  const sortedItems = [...items].sort((a, b) => a.id.localeCompare(b.id));
+
+useEffect(() => {
+  if (fullPage || !homeMarketCarouselRef.current) return undefined;
+
+  const gap = 8;
+  const minCardWidth = 154;
+
+  function syncHomeCarouselLayout() {
+    const containerWidth = homeMarketCarouselRef.current?.clientWidth || 0;
+    if (!containerWidth || !sortedItems.length) {
+      setHomeMarketCarouselCardWidth(null);
+      setHomeMarketCarouselCanScroll(false);
+      setHomeMarketCarouselSpeed(0.02);
+      return;
+    }
+
+    const visibleSlots = Math.max(1, Math.floor((containerWidth + gap) / (minCardWidth + gap)));
+    const overflowsVisibleWidth = sortedItems.length > visibleSlots;
+    const wantsAutoScroll = sortedItems.length >= 8
+      ? true
+      : sortedItems.length >= 6
+        ? overflowsVisibleWidth
+        : false;
+    const shouldScroll = wantsAutoScroll && overflowsVisibleWidth;
+    setHomeMarketCarouselCanScroll(shouldScroll);
+    setHomeMarketCarouselSpeed(sortedItems.length >= 8 ? 0.02 : 0.01);
+
+    if (shouldScroll) {
+      setHomeMarketCarouselCardWidth(minCardWidth);
+      return;
+    }
+
+    const expandedWidth = Math.max(
+      minCardWidth,
+      Math.floor((containerWidth - gap * Math.max(sortedItems.length - 1, 0)) / sortedItems.length)
+    );
+    setHomeMarketCarouselCardWidth(expandedWidth);
+  }
+
+  syncHomeCarouselLayout();
+  const observer = new ResizeObserver(syncHomeCarouselLayout);
+  observer.observe(homeMarketCarouselRef.current);
+  return () => observer.disconnect();
+}, [fullPage, sortedItems.length]);
+
+useEffect(() => {
+  if (fullPage || homeMarketCarouselPaused || !homeMarketCarouselCanScroll || !homeMarketCarouselRef.current) {
+    return undefined;
+  }
+
+  const wrapper = homeMarketCarouselRef.current;
+  let frameId = null;
+  let lastTime = performance.now();
+  homeMarketCarouselDirectionRef.current = 1;
+
+  const tick = (now) => {
+    const maxScroll = Math.max(0, wrapper.scrollWidth - wrapper.clientWidth);
+    if (maxScroll <= 0) return;
+
+    const elapsed = now - lastTime;
+    lastTime = now;
+    const nextScrollLeft = wrapper.scrollLeft + (elapsed * homeMarketCarouselSpeed * homeMarketCarouselDirectionRef.current);
+
+    if (nextScrollLeft >= maxScroll) {
+      wrapper.scrollLeft = maxScroll;
+      homeMarketCarouselDirectionRef.current = -1;
+    } else if (nextScrollLeft <= 0) {
+      wrapper.scrollLeft = 0;
+      homeMarketCarouselDirectionRef.current = 1;
+    } else {
+      wrapper.scrollLeft = nextScrollLeft;
+    }
+
+    frameId = window.requestAnimationFrame(tick);
+  };
+
+  frameId = window.requestAnimationFrame(tick);
+  return () => {
+    if (frameId) window.cancelAnimationFrame(frameId);
+  };
+}, [fullPage, homeMarketCarouselPaused, homeMarketCarouselCanScroll, homeMarketCarouselSpeed, sortedItems.length]);
+
   const WatchlistItems = () => (
-    <div className="marketWatchlist">
-      {[...items].sort((a, b) => a.id.localeCompare(b.id)).map((item) => (
-        <button
-          type="button"
-          key={item.id}
-          className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
-          onClick={() => onSelect(item.id)}
+    !fullPage ? (
+      <div
+        className={`marketWatchlistCarouselWrap ${homeMarketCarouselPaused ? "paused" : ""}`}
+        ref={homeMarketCarouselRef}
+      >
+        <div
+          className={`marketWatchlist marketWatchlistCarousel ${homeMarketCarouselPaused ? "paused" : ""} ${homeMarketCarouselCanScroll ? "scrolling" : "filled"}`}
         >
-          <div className="marketWatchLeft">
-            <div className="marketWatchLabel">
-              {quotes[item.id]?.price != null
-                ? quotes[item.id].price.toFixed(2)
-                : "..."}
-            </div>
-            <div className="marketWatchSymbol">{item.id}</div>
-          </div>
-          <div className="marketWatchRight">
-            <div
-              className={`marketWatchChange ${
-                (quotes[item.id]?.change ?? item.changeValue) < 0 ? "negative" : "positive"
-              }`}
-            >
-              {quotes[item.id]?.change != null
-                ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
-                : "..."}
-            </div>
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove(item.id);
+          {sortedItems.map((item, index) => (
+            <button
+              type="button"
+              key={`${item.id}-${index}`}
+              className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
+              style={homeMarketCarouselCardWidth ? { width: homeMarketCarouselCardWidth, minWidth: homeMarketCarouselCardWidth } : undefined}
+              onClick={() => {
+                setHomeMarketCarouselPaused(true);
+                onSelect(item.id);
               }}
-              style={{ marginLeft: "8px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
             >
-              ×
-            </span>
-          </div>
-        </button>
-      ))}
-    </div>
+              <div className="marketWatchLeft">
+                <div className="marketWatchLabel">
+                  {quotes[item.id]?.price != null
+                    ? quotes[item.id].price.toFixed(2)
+                    : "..."}
+                </div>
+                <div className="marketWatchSymbol">{item.id}</div>
+              </div>
+              <div className="marketWatchRight">
+                <div
+                  className={`marketWatchChange ${
+                    (quotes[item.id]?.change ?? item.changeValue) < 0 ? "negative" : "positive"
+                  }`}
+                >
+                  {quotes[item.id]?.change != null
+                    ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
+                    : "..."}
+                </div>
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(item.id);
+                  }}
+                  style={{ marginLeft: "8px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
+                >
+                  ×
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : (
+      <div className="marketWatchlist">
+        {sortedItems.map((item, index) => (
+          <button
+            type="button"
+            key={`${item.id}-${index}`}
+            className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
+            onClick={() => {
+              setHomeMarketCarouselPaused(true);
+              onSelect(item.id);
+            }}
+          >
+            <div className="marketWatchLeft">
+              <div className="marketWatchLabel">
+                {quotes[item.id]?.price != null
+                  ? quotes[item.id].price.toFixed(2)
+                  : "..."}
+              </div>
+              <div className="marketWatchSymbol">{item.id}</div>
+            </div>
+            <div className="marketWatchRight">
+              <div
+                className={`marketWatchChange ${
+                  (quotes[item.id]?.change ?? item.changeValue) < 0 ? "negative" : "positive"
+                }`}
+              >
+                {quotes[item.id]?.change != null
+                  ? `${quotes[item.id].change >= 0 ? "+" : ""}${quotes[item.id].change.toFixed(2)}%`
+                  : "..."}
+              </div>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item.id);
+                }}
+                style={{ marginLeft: "8px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
+              >
+                ×
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    )
   );
 
 
@@ -1491,19 +1803,20 @@ useEffect(() => {
           onChange={async (e) => {
             const val = e.target.value;
             setNewSymbol(val);
+            if (marketSearchTimeoutRef.current) clearTimeout(marketSearchTimeoutRef.current);
             if (val.length < 1) { setSearchResults([]); return; }
-            try {
-              const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(val) + "&token=" + import.meta.env.VITE_FINNHUB_KEY);
-              const data = await res.json();
-
-              setSearchResults((data.result || []).slice(0, 6).map(normalizeSearchResult));
-            } catch { setSearchResults([]); }
+            marketSearchTimeoutRef.current = setTimeout(async () => {
+              try {
+                const results = await searchRaylaSupportedAssets(val, alpacaConnected);
+                setSearchResults(results);
+              } catch {
+                setSearchResults([]);
+              }
+            }, 120);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              const bestMatch = getBestSearchMatch(newSymbol);
-              onAddSymbol(bestMatch || newSymbol);
-              setSearchResults([]);
+              e.preventDefault();
             }
           }}
           placeholder="Search symbol (AAPL, BTC, NRG)"
@@ -1538,27 +1851,165 @@ useEffect(() => {
 
         {!fullPage && (
           <div className="tradingviewFrameWrap">
-            {selectedItem ? (
-              <iframe
-                key={getTvSymbol(selectedItem)}
-                title={`${selectedItem.id} chart`}
-                className="tradingviewFrame"
-                src={iframeSrc}
-              />
-            ) : null}
+            <div style={{ width: "100%", height: "100%", minHeight: 320, background: "#0d1117", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px 0 12px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
+                      <button
+                        key={range}
+                        type="button"
+                        onClick={() => setMarketChartRange(range)}
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 6,
+                          border: "1px solid",
+                          borderColor: marketChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                          background: marketChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
+                          color: marketChartRange === range ? "#d7efff" : "#7f8ea3",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setMarketChartMode(mode)}
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 6,
+                          border: "1px solid",
+                          borderColor: marketChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                          background: marketChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
+                          color: marketChartMode === mode ? "#d7efff" : "#7f8ea3",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {marketChartLastUpdated && (
+                  <div style={{ fontSize: 10, color: "#7f8ea3" }}>
+                    Updated {marketChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                )}
+              </div>
+            <div style={{ width: "100%", height: "100%", minHeight: 320, background: "#0d1117", paddingTop: 10 }}>
+              {selectedItem && (marketChartLoading && extractChartBars(marketChart).length < 2) ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                  Loading chart...
+                </div>
+              ) : selectedItem && extractChartBars(marketChart).length < 2 ? (
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                  <div>Chart unavailable</div>
+                  <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                </div>
+              ) : selectedItem ? (
+                <TradeChart
+                  bars={extractChartBars(marketChart)}
+                  mode={marketChartMode}
+                  latestPrice={quotes[selectedItem.id]?.price}
+                  assetSymbol={selectedItem.id}
+                  assetName={selectedItem.description || selectedItem.name || selectedItem.id}
+                />
+              ) : null}
+            </div>
+            </div>
           </div>
         )}
 
         {fullPage && (
           <div className="tradingviewFrameWrapFull">
-            {selectedItem ? (
-              <iframe
-                key={getTvSymbol(selectedItem) + "_full"}
-                title={`${selectedItem.id} chart full`}
-                className="tradingviewFrame"
-                src={iframeSrc}
-              />
-            ) : null}
+            <div style={{ width: "100%", height: "100%", minHeight: 420, background: "#0d1117", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px 0 12px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
+                      <button
+                        key={range}
+                        type="button"
+                        onClick={() => setMarketChartRange(range)}
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 6,
+                          border: "1px solid",
+                          borderColor: marketChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                          background: marketChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
+                          color: marketChartRange === range ? "#d7efff" : "#7f8ea3",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setMarketChartMode(mode)}
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 6,
+                          border: "1px solid",
+                          borderColor: marketChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                          background: marketChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
+                          color: marketChartMode === mode ? "#d7efff" : "#7f8ea3",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {marketChartLastUpdated && (
+                  <div style={{ fontSize: 10, color: "#7f8ea3" }}>
+                    Updated {marketChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                )}
+              </div>
+            <div style={{ width: "100%", height: "100%", minHeight: 420, background: "#0d1117", paddingTop: 10 }}>
+              {selectedItem && (marketChartLoading && extractChartBars(marketChart).length < 2) ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                  Loading chart...
+                </div>
+              ) : selectedItem && extractChartBars(marketChart).length < 2 ? (
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                  <div>Chart unavailable</div>
+                  <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                </div>
+              ) : selectedItem ? (
+                <TradeChart
+                  bars={extractChartBars(marketChart)}
+                  mode={marketChartMode}
+                  latestPrice={quotes[selectedItem.id]?.price}
+                  assetSymbol={selectedItem.id}
+                  assetName={selectedItem.description || selectedItem.name || selectedItem.id}
+                />
+              ) : null}
+            </div>
+            </div>
           </div>
         )}
 
@@ -1858,10 +2309,17 @@ useEffect(() => {
   const [alpacaAssetQuotes, setAlpacaAssetQuotes] = useState({});
   const [tradeMarketChart, setTradeMarketChart] = useState(null);
   const [tradeMarketChartLoading, setTradeMarketChartLoading] = useState(false);
-  const [tradeChartMode, setTradeChartMode] = useState("line");
+  const [tradeChartMode, setTradeChartMode] = useState("candlestick");
+  const [tradeChartRange, setTradeChartRange] = useState("1D");
   const [tradeChartLastUpdated, setTradeChartLastUpdated] = useState(null);
   const [tradeChartRefreshTick, setTradeChartRefreshTick] = useState(0);
   const [tradeViewMode, setTradeViewMode] = useState("asset");
+  const [simulationLiveChart, setSimulationLiveChart] = useState(null);
+  const [simulationLiveChartLoading, setSimulationLiveChartLoading] = useState(false);
+  const [simulationLiveChartRefreshTick, setSimulationLiveChartRefreshTick] = useState(0);
+  const [simulationLiveChartMode, setSimulationLiveChartMode] = useState("candlestick");
+  const [simulationLiveChartRange, setSimulationLiveChartRange] = useState("1D");
+  const [simulationLiveChartLastUpdated, setSimulationLiveChartLastUpdated] = useState(null);
   const [alpacaOrderForm, setAlpacaOrderForm] = useState({
     symbol: "",
     side: "buy",
@@ -1900,6 +2358,11 @@ useEffect(() => {
   const tradePanelQuote = tradePanelSymbol
     ? getKnownStockQuoteData(tradePanelSymbol, simulationQuotes, marketItems, alpacaAssetQuotes)
     : null;
+  const tradePanelCurrentPrice = Number.isFinite(tradePanelQuote?.price)
+    ? Number(tradePanelQuote.price)
+    : Number.isFinite(tradePanelMatchingPosition?.currentPrice)
+      ? Number(tradePanelMatchingPosition.currentPrice)
+      : null;
   const tradePanelAsset = tradePanelSymbol
     ? watchlist.find((item) => item.id === tradePanelSymbol)
       || buildMarketAsset({
@@ -1944,6 +2407,7 @@ useEffect(() => {
   const [simulationUseExitPrice, setSimulationUseExitPrice] = useState(true);
   const [simulationSearchQuery, setSimulationSearchQuery] = useState("");
   const [simulationSearchResults, setSimulationSearchResults] = useState([]);
+  const simulationSearchTimeoutRef = useRef(null);
   const [simulationScenarioQuotes, setSimulationScenarioQuotes] = useState({});
   const [simulationScenarioSeries, setSimulationScenarioSeries] = useState({});
   const [simulationScenarioAnchors, setSimulationScenarioAnchors] = useState({});
@@ -2838,7 +3302,7 @@ useEffect(() => {
           body: {
             chartSymbol: tradePanelSymbol,
             chartType: tradePanelAsset.type || "stock",
-            chartRange: "1D",
+            chartRange: tradeChartRange,
           },
         });
 
@@ -2851,7 +3315,7 @@ useEffect(() => {
         console.log("TRADE MINI CHART DATA", {
           chartSymbol: tradePanelSymbol,
           chartType: tradePanelAsset.type || "stock",
-          chartRange: "1D",
+          chartRange: tradeChartRange,
           rawChart: nextChart,
           extractedSeries: extractChartCloseSeries(nextChart),
         });
@@ -2870,7 +3334,7 @@ useEffect(() => {
             ? prev
             : {
                 symbol: tradePanelSymbol,
-                range: "1D",
+                range: tradeChartRange,
                 bars: [],
               }
         ));
@@ -2886,15 +3350,15 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, alpacaAccount, tradePanelSymbol, tradePanelAsset, tradeChartRefreshTick]);
+  }, [activeTab, alpacaAccount, tradePanelSymbol, tradePanelAsset, tradeChartRange, tradeChartRefreshTick]);
 
   useEffect(() => {
-    if (activeTab !== "trades") return;
+    if (activeTab !== "trades" || tradeChartRange !== "1D") return;
     const interval = setInterval(() => {
       setTradeChartRefreshTick((prev) => prev + 1);
     }, 10000);
     return () => clearInterval(interval);
-  }, [activeTab]);
+  }, [activeTab, tradeChartRange]);
 
   useEffect(() => {
   supabase.auth.getSession().then(({ data }) => {
@@ -4155,17 +4619,19 @@ function buildMarketAsset(rawOrResult) {
     if (simulationAsset && value.trim().toUpperCase() !== simulationAsset.id) {
       setSimulationAsset(null);
     }
+    if (simulationSearchTimeoutRef.current) clearTimeout(simulationSearchTimeoutRef.current);
     if (value.length < 1) {
       setSimulationSearchResults([]);
       return;
     }
-    try {
-      const res = await fetch("https://finnhub.io/api/v1/search?q=" + encodeURIComponent(value) + "&token=" + import.meta.env.VITE_FINNHUB_KEY);
-      const data = await res.json();
-      setSimulationSearchResults((data.result || []).slice(0, 6).map(normalizeSearchResult));
-    } catch {
-      setSimulationSearchResults([]);
-    }
+    simulationSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const results = await searchRaylaSupportedAssets(value, Boolean(alpacaAccount));
+        setSimulationSearchResults(results);
+      } catch {
+        setSimulationSearchResults([]);
+      }
+    }, 120);
   }
 
   function handleSelectSimulationAsset(result) {
@@ -4338,13 +4804,72 @@ function buildMarketAsset(rawOrResult) {
 
   const selectedSimulationItem = simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
   const previousSelectedSimulationAssetIdRef = useRef(simulationAsset?.id || null);
-  const simulationChartSrc = selectedSimulationItem
-    ? `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(getTvSymbol(selectedSimulationItem))}&interval=15&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&studies=%5B%5D`
-    : "";
   const selectedSimulationPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
+  const simulationLiveChartBars = extractChartBars(simulationLiveChart);
   const selectedScenarioSeries = selectedSimulationItem
     ? simulationScenarioSeries[selectedSimulationItem.id] || []
     : [];
+
+  useEffect(() => {
+    if (simulationMode !== "live" || !selectedSimulationItem) {
+      setSimulationLiveChart(null);
+      setSimulationLiveChartLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setSimulationLiveChart((prev) => (prev?.symbol === selectedSimulationItem.id ? prev : null));
+    setSimulationLiveChartLoading(true);
+
+    async function fetchSimulationLiveChart() {
+      try {
+        const { data, error } = await supabase.functions.invoke("market-data", {
+          body: {
+            chartSymbol: selectedSimulationItem.id,
+            chartType: selectedSimulationItem.type || "stock",
+            chartRange: simulationLiveChartRange,
+          },
+        });
+
+        if (isCancelled || error || !data?.ok) return;
+
+        const nextChart = data.chart || null;
+        const nextBars = extractChartBars(nextChart);
+        if (nextChart && nextBars.length >= 2) {
+          setSimulationLiveChart({
+            ...nextChart,
+            symbol: nextChart.symbol || selectedSimulationItem.id,
+          });
+          setSimulationLiveChartLastUpdated(new Date());
+          return;
+        }
+
+        setSimulationLiveChart({
+          symbol: selectedSimulationItem.id,
+          range: simulationLiveChartRange,
+          bars: [],
+        });
+      } catch {
+        // Keep the current live simulation chart stable if the latest fetch fails.
+      } finally {
+        if (!isCancelled) setSimulationLiveChartLoading(false);
+      }
+    }
+
+    fetchSimulationLiveChart();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [simulationMode, selectedSimulationItem?.id, selectedSimulationItem?.type, simulationLiveChartRange, simulationLiveChartRefreshTick]);
+
+  useEffect(() => {
+    if (simulationMode !== "live" || !selectedSimulationItem || simulationLiveChartRange !== "1D") return;
+    const interval = setInterval(() => {
+      setSimulationLiveChartRefreshTick((prev) => prev + 1);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [simulationMode, selectedSimulationItem?.id, simulationLiveChartRange]);
 
   const scenarioHistoryCount = 12;
   const scenarioNowX = 14;
@@ -5763,7 +6288,7 @@ return (
                 <EquityCurveCard equitySeries={filteredEquitySeries} sourceLabel={equitySourceLabel} chartRange={chartRange} setChartRange={setChartRange} />
               </div>
               <div className="span6">
-                <MarketCard items={marketItems} selectedId={selectedMarketId} onSelect={setSelectedMarketId} onRemove={handleRemoveSymbol} newSymbol={newSymbol} setNewSymbol={setNewSymbol} onAddSymbol={handleAddSymbol} />
+                <MarketCard items={marketItems} selectedId={selectedMarketId} onSelect={setSelectedMarketId} onRemove={handleRemoveSymbol} newSymbol={newSymbol} setNewSymbol={setNewSymbol} onAddSymbol={handleAddSymbol} alpacaConnected={Boolean(alpacaAccount)} />
               </div>
               <div className="span4">
                 <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />
@@ -6103,7 +6628,7 @@ return (
                                   </div>
                                 </div>
                                 <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                                  Qty {position.qty} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(position.currentPrice)} • Value {formatCurrency(position.marketValue)}
+                                  Qty {position.qty} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(tradePanelSymbol === position.symbol && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
                                 </div>
                               </button>
                             ))}
@@ -6131,7 +6656,7 @@ return (
                                   <div>
                                     <div style={{ fontSize: 17, fontWeight: 700, color: "#e2e8f0" }}>{tradePanelSymbol}</div>
                                     <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                                      {tradePanelQuote?.price != null ? formatCurrency(tradePanelQuote.price) : "--"}
+                                      {Number.isFinite(tradePanelCurrentPrice) ? formatCurrency(tradePanelCurrentPrice) : "--"}
                                       {tradePanelQuote?.change != null ? ` · ${tradePanelQuote.change >= 0 ? "+" : ""}${tradePanelQuote.change.toFixed(2)}%` : ""}
                                     </div>
                                   </div>
@@ -6142,28 +6667,53 @@ return (
                                   ) : null}
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                                  <div style={{ display: "flex", gap: 5 }}>
-                                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                                      <button
-                                        key={mode}
-                                        type="button"
-                                        onClick={() => setTradeChartMode(mode)}
-                                        style={{
-                                          padding: "3px 9px",
-                                          borderRadius: 6,
-                                          border: "1px solid",
-                                          borderColor: tradeChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                          background: tradeChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
-                                          color: tradeChartMode === mode ? "#d7efff" : "#7f8ea3",
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                          cursor: "pointer",
-                                          letterSpacing: "0.5px",
-                                        }}
-                                      >
-                                        {label}
-                                      </button>
-                                    ))}
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                      {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
+                                        <button
+                                          key={range}
+                                          type="button"
+                                          onClick={() => setTradeChartRange(range)}
+                                          style={{
+                                            padding: "3px 9px",
+                                            borderRadius: 6,
+                                            border: "1px solid",
+                                            borderColor: tradeChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                            background: tradeChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
+                                            color: tradeChartRange === range ? "#d7efff" : "#7f8ea3",
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            cursor: "pointer",
+                                            letterSpacing: "0.5px",
+                                          }}
+                                        >
+                                          {range}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                      {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                                        <button
+                                          key={mode}
+                                          type="button"
+                                          onClick={() => setTradeChartMode(mode)}
+                                          style={{
+                                            padding: "3px 9px",
+                                            borderRadius: 6,
+                                            border: "1px solid",
+                                            borderColor: tradeChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                            background: tradeChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
+                                            color: tradeChartMode === mode ? "#d7efff" : "#7f8ea3",
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            cursor: "pointer",
+                                            letterSpacing: "0.5px",
+                                          }}
+                                        >
+                                          {label}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                   {tradeChartLastUpdated && (
                                     <div style={{ fontSize: 10, color: "#7f8ea3" }}>
@@ -6236,11 +6786,18 @@ return (
                                       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
                                         Loading chart...
                                       </div>
+                                    ) : extractChartBars(tradeMarketChart).length < 2 ? (
+                                      <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                                        <div>Chart unavailable</div>
+                                        <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                                      </div>
                                     ) : (
                                       <TradeChart
                                         bars={extractChartBars(tradeMarketChart)}
                                         mode={tradeChartMode}
-                                        latestPrice={tradePanelQuote?.price}
+                                        latestPrice={tradePanelCurrentPrice}
+                                        assetSymbol={tradePanelSymbol}
+                                        assetName={tradePanelAsset?.description || tradePanelAsset?.name || tradePanelSymbol}
                                       />
                                     )}
                                   </div>
@@ -6286,7 +6843,9 @@ return (
                           if (!selectedSymbol) return null;
 
                           const matchingPosition = alpacaPositions.find((position) => position.symbol === selectedSymbol) || null;
-                          const selectedOrderAssetPrice = getKnownStockQuotePrice(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+                          const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && selectedSymbol === tradePanelSymbol
+                            ? tradePanelCurrentPrice
+                            : getKnownStockQuotePrice(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                           const currentPositionPrice = Number.isFinite(selectedOrderAssetPrice)
                             ? selectedOrderAssetPrice
                             : matchingPosition?.currentPrice;
@@ -6337,7 +6896,9 @@ return (
                         <form onSubmit={handleSubmitAlpacaOrder} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                           <div style={{ position: "relative" }}>
                             {(() => {
-                              const selectedOrderAssetPrice = getKnownStockQuotePrice(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+                              const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && String(alpacaOrderForm.symbol || "").trim().toUpperCase() === tradePanelSymbol
+                                ? tradePanelCurrentPrice
+                                : getKnownStockQuotePrice(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                               return (
                                 <>
                             <input
@@ -6534,14 +7095,6 @@ return (
               )}
               {tradeView === "recent" && <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />}
               {tradeView === "all" && <RecentTradesCard recentTrades={trades} onDeleteTrade={handleDeleteTrade} />}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "market" && (
-          <div className="mainGrid">
-            <div className="span12">
-              <MarketCard items={marketItems} selectedId={selectedMarketId} onSelect={setSelectedMarketId} onRemove={handleRemoveSymbol} newSymbol={newSymbol} setNewSymbol={setNewSymbol} onAddSymbol={handleAddSymbol} fullPage={true} />
             </div>
           </div>
         )}
@@ -6834,6 +7387,11 @@ return (
                         type="text"
                         value={simulationSearchQuery}
                         onChange={(e) => handleSimulationSearchChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                          }
+                        }}
                         placeholder="Search any asset for simulation"
                         className="authInput"
                       />
@@ -7256,6 +7814,61 @@ return (
                             </button>
                           </>
                         )}
+                        {simulationMode === "live" && (
+                          <>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
+                                  <button
+                                    key={range}
+                                    type="button"
+                                    className="ghostButton"
+                                    onClick={() => setSimulationLiveChartRange(range)}
+                                    style={{
+                                      padding: "3px 9px",
+                                      fontSize: 10,
+                                      borderRadius: 6,
+                                      borderColor: simulationLiveChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                      background: simulationLiveChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
+                                      color: simulationLiveChartRange === range ? "#d7efff" : "#7f8ea3",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.5px",
+                                    }}
+                                  >
+                                    {range}
+                                  </button>
+                                ))}
+                              </div>
+                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                                  <button
+                                    key={mode}
+                                    type="button"
+                                    className="ghostButton"
+                                    onClick={() => setSimulationLiveChartMode(mode)}
+                                    style={{
+                                      padding: "3px 9px",
+                                      fontSize: 10,
+                                      borderRadius: 6,
+                                      borderColor: simulationLiveChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                      background: simulationLiveChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
+                                      color: simulationLiveChartMode === mode ? "#d7efff" : "#7f8ea3",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.5px",
+                                    }}
+                                  >
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            {simulationLiveChartLastUpdated && (
+                              <div style={{ fontSize: 10, color: "#7f8ea3" }}>
+                                Updated {simulationLiveChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                            )}
+                          </>
+                        )}
                         {renderSimulationInfoButton("chart")}
                       </div>
                     </div>
@@ -7390,12 +8003,27 @@ return (
                         </div>
                       </div>
                     ) : selectedSimulationItem ? (
-                      <iframe
-                        key={`${getTvSymbol(selectedSimulationItem)}-simulation`}
-                        title={`${selectedSimulationItem.id} simulation chart`}
-                        className="tradingviewFrame"
-                        src={simulationChartSrc}
-                      />
+                      <div style={{ height: 440, minHeight: 440, background: "#0d1117", paddingBottom: 10 }}>
+                        {simulationLiveChartLoading && simulationLiveChartBars.length < 2 ? (
+                          <div style={{ minHeight: 440, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                            Loading chart...
+                          </div>
+                        ) : simulationLiveChartBars.length < 2 ? (
+                          <div style={{ minHeight: 440, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                            <div>Chart unavailable</div>
+                            <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                          </div>
+                        ) : (
+                          <TradeChart
+                            bars={simulationLiveChartBars}
+                            mode={simulationLiveChartMode}
+                            latestPrice={selectedSimulationPrice}
+                            assetSymbol={selectedSimulationItem.id}
+                            assetName={selectedSimulationItem.description || selectedSimulationItem.name || selectedSimulationItem.id}
+                            height={440}
+                          />
+                        )}
+                      </div>
                     ) : null}
                   </div>
                   {renderSimulationInfoCard("chart")}

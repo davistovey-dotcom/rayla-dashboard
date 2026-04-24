@@ -292,8 +292,8 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 /* Dashboard — desktop: watchlist left column, chart right */
 .marketLayoutDash {
-  display: grid;
-  grid-template-columns: 160px 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   align-items: stretch;
   width: 100%;
@@ -301,9 +301,49 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 .marketLayoutDash .marketWatchlist {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 8px;
   min-width: 0;
+}
+
+.marketWatchlistCarouselWrap {
+  width: 100%;
+  overflow: hidden;
+}
+
+.marketWatchlistCarouselWrap:not(.paused) {
+  cursor: default;
+}
+
+.marketWatchlistCarouselWrap.paused {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+}
+
+.marketWatchlistCarouselWrap.paused::-webkit-scrollbar {
+  display: none;
+}
+
+.marketWatchlistCarousel {
+  flex-wrap: nowrap;
+  width: 100%;
+  padding-bottom: 2px;
+}
+
+.marketWatchlistCarousel.filled {
+  justify-content: stretch;
+}
+
+.marketWatchlistCarousel .marketWatchRow {
+  min-width: 154px;
+  flex: 0 0 auto;
+}
+
+.marketWatchlistCarousel.filled .marketWatchRow {
+  flex: 1 1 0;
 }
 
 /* Full market tab — desktop: chart on top, watchlist wraps below */
@@ -342,13 +382,16 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   }
 
   .marketLayoutDash {
-    grid-template-columns: 120px 1fr;
     gap: 10px;
   }
 
   .marketLayoutDash .marketWatchRow {
     padding: 8px 10px;
     font-size: 11px;
+  }
+
+  .marketWatchlistCarousel .marketWatchRow {
+    min-width: 132px;
   }
 
   .marketLayoutDash .tradingviewFrameWrap {
@@ -376,14 +419,13 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
-    overflow-x: auto;
     gap: 8px;
     padding-bottom: 4px;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
   }
 
-  .marketLayoutDash .marketWatchlist::-webkit-scrollbar { display: none; }
+  .marketWatchlistCarousel {
+    animation-duration: 34s;
+  }
 
   .marketLayoutDash .marketWatchRow {
     min-width: 90px;
@@ -901,4 +943,61 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes tradeChartPulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0.42;
+  }
+  70% {
+    transform: translate(-50%, -50%) scale(2.2);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.2);
+    opacity: 0;
+  }
+}
+
+.tradeChartPulse {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(96,165,250,0.3);
+  pointer-events: none;
+  animation: tradeChartPulse 1.8s ease-out infinite;
+  transition: left 220ms ease, top 220ms ease;
+}
+
+.tradeChartDot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #7cc4ff;
+  border: 2px solid #0d1117;
+  box-shadow: 0 0 0 1px rgba(124,196,255,0.18), 0 0 18px rgba(96,165,250,0.22);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: left 220ms ease, top 220ms ease, box-shadow 220ms ease;
+}
+
+.tradeChartPriceTag {
+  position: absolute;
+  right: 10px;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(8,12,18,0.92);
+  border: 1px solid rgba(124,196,255,0.22);
+  color: #d7efff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  pointer-events: none;
+  transition: top 220ms ease;
+  box-shadow: 0 10px 24px rgba(2,6,23,0.28);
 }

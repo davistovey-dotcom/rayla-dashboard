@@ -43,6 +43,36 @@ function getChartConfig(range = "1D") {
   const now = new Date();
   const end = now.toISOString();
 
+  if (range === "MAX") {
+    return {
+      stockTimeframe: "1Month",
+      cryptoTimeframe: "1Month",
+      start: new Date(now.getTime() - 20 * 365 * 24 * 60 * 60 * 1000).toISOString(),
+      end,
+      limit: 240,
+    };
+  }
+
+  if (range === "5Y") {
+    return {
+      stockTimeframe: "1Week",
+      cryptoTimeframe: "1Week",
+      start: new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString(),
+      end,
+      limit: 270,
+    };
+  }
+
+  if (range === "1Y") {
+    return {
+      stockTimeframe: "1Day",
+      cryptoTimeframe: "1Day",
+      start: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+      end,
+      limit: 366,
+    };
+  }
+
   if (range === "1W") {
     return {
       stockTimeframe: "1Hour",
