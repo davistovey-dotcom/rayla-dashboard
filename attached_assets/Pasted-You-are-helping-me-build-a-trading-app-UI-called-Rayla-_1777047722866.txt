@@ -1,0 +1,132 @@
+You are helping me build a trading app UI called Rayla.
+
+This is a React app.
+
+IMPORTANT:
+You ONLY have access to the code I paste below.
+Do NOT assume anything outside of it.
+
+----------------------------------------
+WHAT RAYLA IS
+----------------------------------------
+
+Rayla is a trading + investing app.
+
+The Trade tab shows:
+- current positions
+- live market data
+- a mini chart for the selected asset
+
+We recently built a lightweight chart (SVG) to replace TradingView.
+
+----------------------------------------
+YOUR TASK
+----------------------------------------
+
+You are upgrading the mini chart UI inside the Trade tab.
+
+You must MODIFY the existing code I provide.
+Do NOT rewrite the entire file.
+Do NOT create a new architecture.
+
+----------------------------------------
+DATA YOU RECEIVE
+----------------------------------------
+
+The chart uses this data:
+
+chart.bars = [
+  {
+    time,
+    open,
+    high,
+    low,
+    close,
+    volume
+  }
+]
+
+This data is already working.
+
+----------------------------------------
+STRICT RULES
+----------------------------------------
+
+DO NOT:
+- Add TradingView
+- Change backend
+- Add heavy chart libraries
+- Break existing logic
+- Touch unrelated parts of the UI
+
+ONLY modify the chart section.
+
+----------------------------------------
+WHAT TO BUILD
+----------------------------------------
+
+Upgrade the chart with:
+
+1. AXES
+- Add X-axis (time)
+- Add Y-axis (price)
+- Keep clean and minimal
+- Format time nicely (HH:MM)
+
+2. CHART TOGGLE
+- Add toggle buttons:
+  "Line" and "Bars"
+
+Line:
+- Use existing line chart
+
+Bars:
+- Draw OHLC bars:
+  - vertical line = high → low
+  - mark open/close
+- Color:
+  - Green if close >= open
+  - Red if close < open
+
+3. LAST UPDATED
+- Show:
+  Last updated: [time]
+- Use current time when data refreshes
+
+4. AUTO REFRESH
+- Refresh data every ~30 seconds
+- Do not spam
+
+5. PORTFOLIO MODE
+- Add a selector option called "Portfolio"
+
+Behavior:
+- Combine all assets into one chart
+- Normalize each asset:
+  start at 0%
+  show % change over time
+
+- Render multiple lines (one per asset)
+
+----------------------------------------
+IMPORTANT
+----------------------------------------
+
+- Keep everything lightweight (SVG)
+- Keep code readable
+- Extend existing logic, do NOT replace it
+- If this is too large:
+  → ONLY implement axes + chart toggle first
+
+----------------------------------------
+OUTPUT
+----------------------------------------
+
+Return ONLY the updated code.
+Do not explain.
+Do not summarize.
+Just give the modified code.
+
+----------------------------------------
+CODE TO MODIFY BELOW
+----------------------------------------
