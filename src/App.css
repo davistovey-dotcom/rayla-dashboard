@@ -311,20 +311,23 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   overflow: hidden;
 }
 
-.marketWatchlistCarouselWrap:not(.paused) {
-  cursor: default;
-}
-
-.marketWatchlistCarouselWrap.paused {
+.marketWatchlistCarouselWrap.scrollable {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  cursor: grab;
 }
 
-.marketWatchlistCarouselWrap.paused::-webkit-scrollbar {
+.marketWatchlistCarouselWrap.scrollable::-webkit-scrollbar {
   display: none;
+}
+
+.marketWatchlistCarouselWrap:not(.paused) {
+  cursor: default;
+}
+
+.marketWatchlistCarouselWrap.scrollable.paused {
+  cursor: grab;
 }
 
 .marketWatchlistCarousel {
@@ -815,6 +818,15 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .appShellInner {
     margin-left: 200px;
   }
+}
+
+.askRaylaHeadline {
+  font-family: inherit;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  line-height: 1.02;
+  color: #7CC4FF;
 }
 
 /* ── Mobile ── */

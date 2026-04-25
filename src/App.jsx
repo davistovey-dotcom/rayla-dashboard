@@ -233,6 +233,7 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
   completed: "rayla_first_trade_onboarding_completed",
   autoStarted: "rayla_first_trade_onboarding_autostarted",
 };
+const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 
 const marketSeeds = [
   { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
@@ -286,9 +287,236 @@ const NAV_TABS = [
   { id: "trades", icon: <PlusSquare size={18} />, label: "My Trades" },
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
   { id: "ask", icon: <Brain size={18} />, label: "Ask Rayla" },
-  { id: "ai", icon: <Target size={18} />, label: "Analysis" },
+  { id: "ai", icon: <Target size={18} />, label: "Performance Analysis" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
+const ASK_RAYLA_SUGGESTIONS = [
+  "Explain this chart",
+  "What is a stop loss?",
+  "How risky is this trade?",
+  "Teach me trading basics",
+  "Why did this trade lose money?",
+  "What should I watch before entering?",
+];
+
+const RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS = [
+  {
+    key: "experience",
+    title: "Markets experience",
+    prompt: "What best matches your experience so far?",
+    options: ["brand new", "some experience", "active trader"],
+  },
+  {
+    key: "familiarity",
+    title: "Term familiarity",
+    prompt: "How comfortable are you with charts, risk, and order terms?",
+    options: ["not very", "somewhat comfortable", "very comfortable"],
+  },
+  {
+    key: "goal",
+    title: "Main goal",
+    prompt: "What do you want Rayla to help you with most right now?",
+    options: ["learn the basics", "improve execution", "analyze performance", "build investing confidence"],
+  },
+];
+
+function createDefaultRaylaAdaptiveState() {
+  return {
+    onboardingCompleted: false,
+    onboardingAnswers: {},
+    interactions: {
+      questionCount: 0,
+      confusionCount: 0,
+      advancedCount: 0,
+      recentQuestions: [],
+    },
+  };
+}
+
+function isRaylaConfusionQuestion(question) {
+  const normalized = String(question || "").toLowerCase();
+  return [
+    "i don't understand",
+    "i dont understand",
+    "confused",
+    "simpler",
+    "simplify",
+    "explain again",
+    "what does that mean",
+    "break that down",
+    "too complex",
+    "lost me",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+function isRaylaAdvancedQuestion(question) {
+  const normalized = String(question || "").toLowerCase();
+  return [
+    "risk reward",
+    "risk/reward",
+    "drawdown",
+    "liquidity",
+    "execution",
+    "position sizing",
+    "thesis",
+    "probability",
+    "correlation",
+    "timeframe alignment",
+    "market structure",
+    "invalid",
+    "r-multiple",
+    "expectancy",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+function buildNextRaylaAdaptiveState(state, question) {
+  const nextState = state || createDefaultRaylaAdaptiveState();
+  const trimmedQuestion = String(question || "").trim();
+  if (!trimmedQuestion) return nextState;
+
+  return {
+    ...nextState,
+    interactions: {
+      questionCount: (nextState.interactions?.questionCount || 0) + 1,
+      confusionCount: (nextState.interactions?.confusionCount || 0) + (isRaylaConfusionQuestion(trimmedQuestion) ? 1 : 0),
+      advancedCount: (nextState.interactions?.advancedCount || 0) + (isRaylaAdvancedQuestion(trimmedQuestion) ? 1 : 0),
+      recentQuestions: [
+        trimmedQuestion,
+        ...((nextState.interactions?.recentQuestions || []).slice(0, 5)),
+      ],
+    },
+  };
+}
+
+function buildRaylaAdaptiveProfile({
+  adaptiveState,
+  currentQuestion,
+  trades,
+  simulationTradeHistory,
+  selectedMarketId,
+}) {
+  const nextState = adaptiveState || createDefaultRaylaAdaptiveState();
+  const answers = nextState.onboardingAnswers || {};
+  const interactions = nextState.interactions || {};
+  const simulationProfile = {
+    totalTrades: Array.isArray(simulationTradeHistory) ? simulationTradeHistory.length : 0,
+  };
+  const coachReport = buildCoachReport(trades || []);
+  const currentQuestionIsConfused = isRaylaConfusionQuestion(currentQuestion);
+  const currentQuestionIsAdvanced = isRaylaAdvancedQuestion(currentQuestion);
+
+  let complexityScore = 0;
+
+  if (answers.experience === "brand new") complexityScore -= 2;
+  if (answers.experience === "some experience") complexityScore += 0;
+  if (answers.experience === "active trader") complexityScore += 2;
+
+  if (answers.familiarity === "not very") complexityScore -= 2;
+  if (answers.familiarity === "somewhat comfortable") complexityScore += 0;
+  if (answers.familiarity === "very comfortable") complexityScore += 2;
+
+  if ((interactions.questionCount || 0) >= 6) complexityScore += 1;
+  if ((interactions.advancedCount || 0) >= 3) complexityScore += 2;
+  if ((simulationProfile?.totalTrades || 0) >= 5) complexityScore += 1;
+  if ((coachReport?.trades || 0) >= 5) complexityScore += 1;
+  if ((interactions.confusionCount || 0) >= 2) complexityScore -= 2;
+  if (currentQuestionIsConfused) complexityScore -= 3;
+  if (currentQuestionIsAdvanced) complexityScore += 2;
+
+  const explanationDepth = currentQuestionIsConfused || complexityScore <= -1
+    ? "simple"
+    : complexityScore >= 4
+      ? "advanced"
+      : "balanced";
+
+  const guidanceNotes = [];
+  if (explanationDepth === "simple") {
+    guidanceNotes.push("Use plain language, short steps, and define terms only when needed.");
+    guidanceNotes.push("Assume the user may want simpler framing right now.");
+  } else if (explanationDepth === "advanced") {
+    guidanceNotes.push("The user likely understands the basics, so avoid repeating beginner definitions unless asked.");
+    guidanceNotes.push("It is okay to be a bit more technical and connect ideas across execution, risk, and market structure.");
+  } else {
+    guidanceNotes.push("Use a balanced explanation depth with clear reasoning and light jargon.");
+  }
+
+  if (answers.goal === "learn the basics") {
+    guidanceNotes.push("Bias toward teaching-first explanations and concrete examples.");
+  } else if (answers.goal === "improve execution") {
+    guidanceNotes.push("Bias toward actionable execution feedback and trade management details.");
+  } else if (answers.goal === "analyze performance") {
+    guidanceNotes.push("Bias toward pattern recognition, review, and performance framing.");
+  }
+
+  return {
+    onboardingCompleted: !!nextState.onboardingCompleted,
+    onboardingAnswers: answers,
+    selectedMarketId,
+    questionCount: interactions.questionCount || 0,
+    confusionCount: interactions.confusionCount || 0,
+    advancedCount: interactions.advancedCount || 0,
+    explanationDepth,
+    currentQuestionIsConfused,
+    currentQuestionIsAdvanced,
+    guidanceNotes,
+  };
+}
+
+function renderRaylaMessageContent(content) {
+  const text = String(content || "").trim();
+  if (!text) return null;
+
+  return text.split(/\n\s*\n/).map((block, blockIndex) => {
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    const segments = [];
+    let paragraphLines = [];
+    let bulletItems = [];
+
+    function flushParagraph() {
+      if (!paragraphLines.length) return;
+      segments.push(
+        <p key={`p-${blockIndex}-${segments.length}`} style={{ margin: 0, lineHeight: 1.7 }}>
+          {paragraphLines.join(" ")}
+        </p>
+      );
+      paragraphLines = [];
+    }
+
+    function flushBullets() {
+      if (!bulletItems.length) return;
+      segments.push(
+        <ul
+          key={`ul-${blockIndex}-${segments.length}`}
+          style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}
+        >
+          {bulletItems.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
+        </ul>
+      );
+      bulletItems = [];
+    }
+
+    lines.forEach((line) => {
+      if (/^[-•*]\s+/.test(line)) {
+        flushParagraph();
+        bulletItems.push(line.replace(/^[-•*]\s+/, ""));
+      } else {
+        flushBullets();
+        paragraphLines.push(line);
+      }
+    });
+
+    flushParagraph();
+    flushBullets();
+
+    return (
+      <div key={blockIndex} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {segments}
+      </div>
+    );
+  });
+}
 
 function parseTradeResult(value) {
   const parsed = Number.parseFloat(value ?? 0);
@@ -607,10 +835,34 @@ function buildTradeStats(trades) {
   };
 }
 
-function buildAskRaylaContext({ trades, userLevel, selectedMarketId }) {
+function buildChartExplainContext({ symbol, assetName, assetType, range, bars, currentPrice }) {
+  const normalizedBars = (Array.isArray(bars) ? bars : [])
+    .filter((bar) => bar && Number.isFinite(Number(bar.close)) && Number(bar.close) > 0)
+    .slice(-30)
+    .map((bar) => ({
+      time: bar.time || bar.t || null,
+      open: Number(bar.open),
+      high: Number(bar.high),
+      low: Number(bar.low),
+      close: Number(bar.close),
+      volume: Number.isFinite(Number(bar.volume)) ? Number(bar.volume) : null,
+    }));
+
   return {
-    userLevel,
+    symbol: String(symbol || "").toUpperCase(),
+    assetName: assetName || symbol || "",
+    assetType: assetType || "stock",
+    timeframe: range || "1D",
+    currentPrice: Number.isFinite(Number(currentPrice)) ? Number(currentPrice) : null,
+    recentBars: normalizedBars,
+  };
+}
+
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null }) {
+  return {
     selectedMarketId,
+    adaptiveProfile,
+    chartContext,
     stats: buildTradeStats(trades),
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
@@ -1465,7 +1717,7 @@ function BrokerTradeLogCard({ trades, isLoading, onRefresh }) {
   );
 }
 
-function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSymbol, onAddSymbol, fullPage = false, alpacaConnected = false }) {
+function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSymbol, onAddSymbol, fullPage = false, alpacaConnected = false, onAskChart = null }) {
   const [quotes, setQuotes] = useState(() => {
   try {
     return JSON.parse(sessionStorage.getItem("rayla-market-quotes") || "{}");
@@ -1482,12 +1734,33 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
   const marketSearchTimeoutRef = useRef(null);
   const homeMarketCarouselRef = useRef(null);
   const homeMarketCarouselDirectionRef = useRef(1);
+  const homeMarketCarouselPointerStateRef = useRef(null);
+  const homeMarketCarouselSuppressClickRef = useRef(false);
   const [homeMarketCarouselPaused, setHomeMarketCarouselPaused] = useState(false);
   const [homeMarketCarouselCardWidth, setHomeMarketCarouselCardWidth] = useState(null);
   const [homeMarketCarouselCanScroll, setHomeMarketCarouselCanScroll] = useState(false);
-  const [homeMarketCarouselSpeed, setHomeMarketCarouselSpeed] = useState(0.02);
+  const [homeMarketCarouselSpeed, setHomeMarketCarouselSpeed] = useState(0.45);
   const symbolsKey = items.map((item) => item.id).sort().join("|");
   const selectedItem = items.find((item) => item.id === selectedId) || items[0];
+  const selectedChartBars = extractChartBars(marketChart);
+  const selectedQuotePrice = selectedItem ? quotes[selectedItem.id]?.price : null;
+
+  function handleExplainChartClick() {
+    const context = buildChartExplainContext({
+      symbol: selectedItem?.id,
+      assetName: selectedItem?.description || selectedItem?.name || selectedItem?.id,
+      assetType: selectedItem?.type || "stock",
+      range: marketChartRange,
+      bars: selectedChartBars,
+      currentPrice: selectedQuotePrice,
+    });
+
+    if (!selectedItem || typeof onAskChart !== "function") return;
+    onAskChart({
+      question: "Explain this chart",
+      chartContext: context,
+    });
+  }
 
   function getBestSearchMatch(query) {
     const normalizedQuery = String(query || "").trim().toUpperCase();
@@ -1623,19 +1896,18 @@ useEffect(() => {
     if (!containerWidth || !sortedItems.length) {
       setHomeMarketCarouselCardWidth(null);
       setHomeMarketCarouselCanScroll(false);
-      setHomeMarketCarouselSpeed(0.02);
+      setHomeMarketCarouselSpeed(0.45);
       return;
     }
 
     const visibleSlots = Math.max(1, Math.floor((containerWidth + gap) / (minCardWidth + gap)));
-    const overflowsVisibleWidth = sortedItems.length > visibleSlots;
     const wantsAutoScroll = sortedItems.length >= 5;
-    const shouldScroll = wantsAutoScroll && overflowsVisibleWidth;
+    const shouldScroll = wantsAutoScroll;
     setHomeMarketCarouselCanScroll(shouldScroll);
-    setHomeMarketCarouselSpeed(sortedItems.length >= 8 ? 0.02 : 0.01);
+    setHomeMarketCarouselSpeed(0.45);
 
     if (shouldScroll) {
-      setHomeMarketCarouselCardWidth(minCardWidth);
+      setHomeMarketCarouselCardWidth(Math.max(minCardWidth, Math.floor(containerWidth / 4.5)));
       return;
     }
 
@@ -1659,16 +1931,16 @@ useEffect(() => {
 
   const wrapper = homeMarketCarouselRef.current;
   let frameId = null;
-  let lastTime = performance.now();
   homeMarketCarouselDirectionRef.current = 1;
 
-  const tick = (now) => {
+  const tick = () => {
     const maxScroll = Math.max(0, wrapper.scrollWidth - wrapper.clientWidth);
-    if (maxScroll <= 0) return;
+    if (maxScroll <= 0) {
+      frameId = window.requestAnimationFrame(tick);
+      return;
+    }
 
-    const elapsed = now - lastTime;
-    lastTime = now;
-    const nextScrollLeft = wrapper.scrollLeft + (elapsed * homeMarketCarouselSpeed * homeMarketCarouselDirectionRef.current);
+    const nextScrollLeft = wrapper.scrollLeft + (homeMarketCarouselSpeed * homeMarketCarouselDirectionRef.current);
 
     if (nextScrollLeft >= maxScroll) {
       wrapper.scrollLeft = maxScroll;
@@ -1692,8 +1964,65 @@ useEffect(() => {
   const WatchlistItems = () => (
     !fullPage ? (
       <div
-        className={`marketWatchlistCarouselWrap ${homeMarketCarouselPaused ? "paused" : ""}`}
+        className={`marketWatchlistCarouselWrap ${homeMarketCarouselCanScroll ? "scrollable" : ""} ${homeMarketCarouselPaused ? "paused" : ""}`}
         ref={homeMarketCarouselRef}
+        onWheel={(event) => {
+          if (!homeMarketCarouselCanScroll || !homeMarketCarouselRef.current) return;
+          const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+          if (!delta) return;
+          event.preventDefault();
+          homeMarketCarouselRef.current.scrollLeft += delta;
+        }}
+        onPointerDown={(event) => {
+          if (!homeMarketCarouselCanScroll || !homeMarketCarouselRef.current) return;
+          homeMarketCarouselSuppressClickRef.current = false;
+          homeMarketCarouselPointerStateRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startScrollLeft: homeMarketCarouselRef.current.scrollLeft,
+            dragged: false,
+            captured: false,
+          };
+        }}
+        onPointerMove={(event) => {
+          const state = homeMarketCarouselPointerStateRef.current;
+          if (!state || !homeMarketCarouselRef.current || state.pointerId !== event.pointerId) return;
+          const deltaX = event.clientX - state.startX;
+          if (!state.dragged && Math.abs(deltaX) >= 4) {
+            state.dragged = true;
+            homeMarketCarouselSuppressClickRef.current = true;
+            if (!state.captured) {
+              try {
+                homeMarketCarouselRef.current.setPointerCapture(event.pointerId);
+                state.captured = true;
+              } catch (_) {}
+            }
+          }
+          if (!state.dragged) return;
+          homeMarketCarouselRef.current.scrollLeft = state.startScrollLeft - deltaX;
+        }}
+        onPointerUp={(event) => {
+          const state = homeMarketCarouselPointerStateRef.current;
+          if (!state || !homeMarketCarouselRef.current || state.pointerId !== event.pointerId) return;
+          if (state.captured) {
+            try {
+              homeMarketCarouselRef.current.releasePointerCapture(event.pointerId);
+            } catch (_) {}
+          }
+          homeMarketCarouselPointerStateRef.current = null;
+          if (state.dragged) {
+            window.setTimeout(() => {
+              homeMarketCarouselSuppressClickRef.current = false;
+            }, 0);
+          } else {
+            homeMarketCarouselSuppressClickRef.current = false;
+          }
+        }}
+        onPointerCancel={(event) => {
+          if (homeMarketCarouselPointerStateRef.current?.pointerId !== event.pointerId) return;
+          homeMarketCarouselPointerStateRef.current = null;
+          homeMarketCarouselSuppressClickRef.current = false;
+        }}
       >
         <div
           className={`marketWatchlist marketWatchlistCarousel ${homeMarketCarouselPaused ? "paused" : ""} ${homeMarketCarouselCanScroll ? "scrolling" : "filled"}`}
@@ -1704,7 +2033,14 @@ useEffect(() => {
               key={`${item.id}-${index}`}
               className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
               style={homeMarketCarouselCardWidth ? { width: homeMarketCarouselCardWidth, minWidth: homeMarketCarouselCardWidth } : undefined}
-              onClick={() => {
+              onClick={(event) => {
+                console.log("HOME CAROUSEL CLICK", item);
+                if (homeMarketCarouselSuppressClickRef.current) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  homeMarketCarouselSuppressClickRef.current = false;
+                  return;
+                }
                 setHomeMarketCarouselPaused(true);
                 onSelect(item.id);
               }}
@@ -1903,6 +2239,30 @@ useEffect(() => {
                   </div>
                 )}
               </div>
+            {selectedItem && (
+              <div style={{ display: "flex", justifyContent: "flex-start", padding: "8px 12px 0 12px" }}>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleExplainChartClick();
+                  }}
+                  style={{
+                    padding: "7px 12px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(124,196,255,0.28)",
+                    background: "rgba(124,196,255,0.08)",
+                    color: "#d7efff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Ask Rayla → Explain this chart
+                </button>
+              </div>
+            )}
             <div style={{ width: "100%", height: "100%", minHeight: 320, background: "#0d1117", paddingTop: 10 }}>
               {selectedItem && (marketChartLoading && extractChartBars(marketChart).length < 2) ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
@@ -1985,6 +2345,30 @@ useEffect(() => {
                   </div>
                 )}
               </div>
+            {selectedItem && (
+              <div style={{ display: "flex", justifyContent: "flex-start", padding: "8px 12px 0 12px" }}>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleExplainChartClick();
+                  }}
+                  style={{
+                    padding: "7px 12px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(124,196,255,0.28)",
+                    background: "rgba(124,196,255,0.08)",
+                    color: "#d7efff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Ask Rayla → Explain this chart
+                </button>
+              </div>
+            )}
             <div style={{ width: "100%", height: "100%", minHeight: 420, background: "#0d1117", paddingTop: 10 }}>
               {selectedItem && (marketChartLoading && extractChartBars(marketChart).length < 2) ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
@@ -2246,7 +2630,7 @@ export default function App() {
     return true;
   });
 });
-  useEffect(() => {
+useEffect(() => {
   localStorage.setItem("rayla-watchlist", JSON.stringify(watchlist));
 }, [watchlist]);
 
@@ -2279,6 +2663,14 @@ useEffect(() => {
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
   const [aiInput, setAiInput] = useState("");
+  const [raylaChatMessages, setRaylaChatMessages] = useState([]);
+  const [chartExplainPopupOpen, setChartExplainPopupOpen] = useState(false);
+  const [chartExplainPopupContext, setChartExplainPopupContext] = useState(null);
+  const [chartExplainPopupMessages, setChartExplainPopupMessages] = useState([]);
+  const [chartExplainPopupInput, setChartExplainPopupInput] = useState("");
+  const [chartExplainPopupLoading, setChartExplainPopupLoading] = useState(false);
+  const [chartExplainPopupPosition, setChartExplainPopupPosition] = useState({ x: 24, y: 96 });
+  const [chartExplainPopupIsMobile, setChartExplainPopupIsMobile] = useState(() => window.innerWidth < 768);
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
     stepIndex: 0,
@@ -2331,6 +2723,17 @@ useEffect(() => {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
+  const [raylaAdaptiveState, setRaylaAdaptiveState] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(RAYLA_ADAPTIVE_STORAGE_KEY) || "null");
+      return stored ? { ...createDefaultRaylaAdaptiveState(), ...stored } : createDefaultRaylaAdaptiveState();
+    } catch {
+      return createDefaultRaylaAdaptiveState();
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem(RAYLA_ADAPTIVE_STORAGE_KEY, JSON.stringify(raylaAdaptiveState));
+  }, [raylaAdaptiveState]);
     const [showBeginnerTutorial, setShowBeginnerTutorial] = useState(false);
   const [beginnerTutorialView, setBeginnerTutorialView] = useState("menu");
     const [beginnerTutorialStep, setBeginnerTutorialStep] = useState(0);
@@ -2489,10 +2892,28 @@ useEffect(() => {
   const activeCapitalGuideQuestion = capitalGuideState.active
     ? capitalGuideQuestions[capitalGuideState.stepIndex] || null
     : null;
+  const askRaylaHasMessages = raylaChatMessages.length > 0;
+  const raylaAdaptiveOnboardingStep = raylaAdaptiveState.onboardingCompleted
+    ? -1
+    : RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS.findIndex((question) => !raylaAdaptiveState.onboardingAnswers?.[question.key]);
+  const activeRaylaAdaptiveQuestion = raylaAdaptiveOnboardingStep >= 0
+    ? RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS[raylaAdaptiveOnboardingStep]
+    : null;
+  const raylaAdaptiveProfile = useMemo(() => buildRaylaAdaptiveProfile({
+    adaptiveState: raylaAdaptiveState,
+    currentQuestion: aiInput,
+    trades,
+    simulationTradeHistory,
+    selectedMarketId,
+  }), [raylaAdaptiveState, aiInput, trades, simulationTradeHistory, selectedMarketId]);
   const simulationSymbolsKey = [...new Set(simulationTrackedAssets.map((item) => item.id))].sort().join("|");
   const hasActiveLiveSimulationTrade = simulationPositions.some((position) => (position.marketMode || "live") === "live");
   const [raylaUserCount, setRaylaUserCount] = useState(0);
   const [toast, setToast] = useState(null);
+  const askRaylaThreadRef = useRef(null);
+  const chartExplainPopupThreadRef = useRef(null);
+  const chartExplainPopupWindowRef = useRef(null);
+  const chartExplainPopupDragStateRef = useRef(null);
   const [showTooltip, setShowTooltip] = useState(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
@@ -3449,9 +3870,74 @@ useEffect(() => {
       });
   }, []);
 
+useEffect(() => {
+  if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
+}, [user]);
+
   useEffect(() => {
-    if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
-  }, [user]);
+    if (!askRaylaHasMessages || !askRaylaThreadRef.current) return;
+    askRaylaThreadRef.current.scrollTop = askRaylaThreadRef.current.scrollHeight;
+  }, [askRaylaHasMessages, raylaChatMessages, capitalGuideResult, activeCapitalGuideQuestion]);
+
+  useEffect(() => {
+    if (!chartExplainPopupOpen || !chartExplainPopupThreadRef.current) return;
+    chartExplainPopupThreadRef.current.scrollTop = chartExplainPopupThreadRef.current.scrollHeight;
+  }, [chartExplainPopupOpen, chartExplainPopupMessages]);
+
+  useEffect(() => {
+    function handleResize() {
+      setChartExplainPopupIsMobile(window.innerWidth < 768);
+      if (!chartExplainPopupWindowRef.current) return;
+      const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
+      const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+      const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+      setChartExplainPopupPosition((prev) => ({
+        x: Math.min(Math.max(12, prev.x), maxX),
+        y: Math.min(Math.max(12, prev.y), maxY),
+      }));
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!chartExplainPopupOpen || chartExplainPopupIsMobile || !chartExplainPopupWindowRef.current) return;
+    const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
+    const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+    const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+    setChartExplainPopupPosition((prev) => ({
+      x: Math.min(Math.max(12, prev.x), maxX),
+      y: Math.min(Math.max(12, prev.y), maxY),
+    }));
+  }, [chartExplainPopupOpen, chartExplainPopupIsMobile]);
+
+  useEffect(() => {
+    function handlePointerMove(event) {
+      const dragState = chartExplainPopupDragStateRef.current;
+      if (!dragState || chartExplainPopupIsMobile || !chartExplainPopupWindowRef.current) return;
+      const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
+      const nextX = event.clientX - dragState.offsetX;
+      const nextY = event.clientY - dragState.offsetY;
+      const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+      const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+      setChartExplainPopupPosition({
+        x: Math.min(Math.max(12, nextX), maxX),
+        y: Math.min(Math.max(12, nextY), maxY),
+      });
+    }
+
+    function handlePointerUp() {
+      chartExplainPopupDragStateRef.current = null;
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [chartExplainPopupIsMobile]);
 
 
 
@@ -3549,9 +4035,31 @@ useEffect(() => {
         showToast("User level updated.", "success");
       }
 
-  async function requestRaylaAnswer(question) {
+  function handleRaylaAdaptiveOnboardingAnswer(questionKey, answer) {
+    setRaylaAdaptiveState((prev) => {
+      const nextAnswers = {
+        ...(prev?.onboardingAnswers || {}),
+        [questionKey]: answer,
+      };
+      return {
+        ...(prev || createDefaultRaylaAdaptiveState()),
+        onboardingCompleted: RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS.every((question) => nextAnswers[question.key]),
+        onboardingAnswers: nextAnswers,
+      };
+    });
+  }
+
+  async function requestRaylaAnswer(question, extraContext = null) {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion) return "Question is required.";
+    const nextAdaptiveState = buildNextRaylaAdaptiveState(raylaAdaptiveState, trimmedQuestion);
+    const adaptiveProfile = buildRaylaAdaptiveProfile({
+      adaptiveState: nextAdaptiveState,
+      currentQuestion: trimmedQuestion,
+      trades,
+      simulationTradeHistory,
+      selectedMarketId,
+    });
 
     function buildCapitalGuideUserContext() {
       const simulationProfile = buildSimulationTraderProfile(simulationTradeHistory);
@@ -3577,10 +4085,12 @@ useEffect(() => {
         if (loggedCoachReport?.bestCombo) {
           notes.push(`Your logged trades show the clearest results when you stay focused instead of spreading attention too widely.`);
         }
+      }
 
-        if (userLevel === "beginner") {
-          notes.push("Your current Rayla level is beginner, so I am leaning toward clearer and easier-to-manage directions.");
-        }
+      if (adaptiveProfile.explanationDepth === "simple") {
+        notes.push("Right now I am leaning toward clearer, simpler explanations because your recent questions suggest that is the better fit.");
+      } else if (adaptiveProfile.explanationDepth === "advanced") {
+        notes.push("Your recent questions suggest you already understand the basics, so I am leaning a bit more advanced.");
       }
 
       return {
@@ -3716,7 +4226,9 @@ useEffect(() => {
 
       if (!currentStep) {
         setCapitalGuideState({ active: false, stepIndex: 0, answers: {} });
+        setRaylaAdaptiveState(nextAdaptiveState);
       } else if (!parsedAnswer) {
+        setRaylaAdaptiveState(nextAdaptiveState);
         return `${currentStep.prompt} Options: ${currentStep.options.join(", ")}.`;
       } else {
         const nextAnswers = {
@@ -3727,6 +4239,7 @@ useEffect(() => {
 
         if (nextStepIndex >= capitalGuideQuestions.length) {
           setCapitalGuideState({ active: false, stepIndex: 0, answers: {} });
+          setRaylaAdaptiveState(nextAdaptiveState);
           return buildCapitalGuideResponse(nextAnswers);
         }
 
@@ -3735,6 +4248,7 @@ useEffect(() => {
           stepIndex: nextStepIndex,
           answers: nextAnswers,
         });
+        setRaylaAdaptiveState(nextAdaptiveState);
         return capitalGuideQuestions[nextStepIndex].prompt;
       }
     }
@@ -3742,6 +4256,7 @@ useEffect(() => {
     if (isCapitalGuideIntent(trimmedQuestion)) {
       setCapitalGuideResult(null);
       setCapitalGuideState({ active: true, stepIndex: 0, answers: {} });
+      setRaylaAdaptiveState(nextAdaptiveState);
       return capitalGuideQuestions[0].prompt;
     }
 
@@ -3759,8 +4274,9 @@ useEffect(() => {
           question: trimmedQuestion,
           context: buildAskRaylaContext({
             trades,
-            userLevel,
             selectedMarketId,
+            adaptiveProfile,
+            chartContext: extraContext?.chartContext || null,
           }),
         }),
       }
@@ -3772,27 +4288,117 @@ useEffect(() => {
       throw new Error(data?.error || `Request failed with status ${response.status}`);
     }
 
+    setRaylaAdaptiveState(nextAdaptiveState);
     return data?.answer || data?.error || "No response.";
   }
 
-  async function handleAskRaylaQuestion(question, { clearInput = false } = {}) {
+  async function handleAskRaylaQuestion(question, { clearInput = false, useChat = false, extraContext = null } = {}) {
     if (!question.trim()) return;
+
+    const trimmedQuestion = question.trim();
+    const pendingMessageId = useChat ? crypto.randomUUID() : null;
+
+    if (useChat) {
+      setRaylaChatMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: trimmedQuestion,
+        },
+        {
+          id: pendingMessageId,
+          role: "assistant",
+          content: "",
+          loading: true,
+        },
+      ]);
+    }
 
     setIsRaylaLoading(true);
     setRaylaResponse("");
 
     try {
-      const answer = await requestRaylaAnswer(question);
+      const answer = await requestRaylaAnswer(trimmedQuestion, extraContext);
       setRaylaResponse(answer);
+      if (useChat) {
+        setRaylaChatMessages((prev) => prev.map((message) => (
+          message.id === pendingMessageId
+            ? { ...message, content: answer, loading: false }
+            : message
+        )));
+      }
       if (clearInput) setAiInput("");
       return answer;
     } catch (error) {
       const message = `API error: ${error?.message || "unknown error"}`;
       setRaylaResponse(message);
+      if (useChat) {
+        setRaylaChatMessages((prev) => prev.map((item) => (
+          item.id === pendingMessageId
+            ? { ...item, content: message, loading: false }
+            : item
+        )));
+      }
       throw error;
     } finally {
       setIsRaylaLoading(false);
     }
+  }
+
+  async function handleChartExplainPopupQuestion(question, chartContext, { resetThread = false } = {}) {
+    const trimmedQuestion = String(question || "").trim();
+    if (!trimmedQuestion) return;
+
+    const nextContext = chartContext || chartExplainPopupContext;
+    if (!nextContext) return;
+
+    const pendingMessageId = crypto.randomUUID();
+    const nextUserMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: trimmedQuestion,
+    };
+    const loadingMessage = {
+      id: pendingMessageId,
+      role: "assistant",
+      content: "",
+      loading: true,
+    };
+
+    setChartExplainPopupOpen(true);
+    setChartExplainPopupContext(nextContext);
+    setChartExplainPopupLoading(true);
+    setChartExplainPopupInput("");
+    setChartExplainPopupMessages((prev) => resetThread ? [nextUserMessage, loadingMessage] : [...prev, nextUserMessage, loadingMessage]);
+
+    try {
+      const answer = await requestRaylaAnswer(trimmedQuestion, { chartContext: nextContext });
+      setChartExplainPopupMessages((prev) => prev.map((message) => (
+        message.id === pendingMessageId
+          ? { ...message, content: answer, loading: false }
+          : message
+      )));
+      return answer;
+    } catch (error) {
+      const message = `API error: ${error?.message || "unknown error"}`;
+      setChartExplainPopupMessages((prev) => prev.map((entry) => (
+        entry.id === pendingMessageId
+          ? { ...entry, content: message, loading: false, error: true }
+          : entry
+      )));
+      return message;
+    } finally {
+      setChartExplainPopupLoading(false);
+    }
+  }
+
+  function openChartExplainPopup(chartContext, initialQuestion = "Explain this chart") {
+    setChartExplainPopupContext(chartContext);
+    setChartExplainPopupMessages([]);
+    setChartExplainPopupInput("");
+    setChartExplainPopupOpen(true);
+    handleChartExplainPopupQuestion(initialQuestion, chartContext, { resetThread: true });
   }
 
   function handleTryCapitalGuideInScenario(direction) {
@@ -5952,7 +6558,7 @@ return (
         <div style={{ fontSize: 40 }}>🚀</div>
         <div style={{ fontSize: 18, fontWeight: 700 }}>As You Improve</div>
         <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
-          As you get more comfortable, you can switch to Intermediate or Experienced in your profile to unlock more detail.
+          As you get more comfortable, Rayla will automatically adjust and give you more depth when your questions and behavior show you are ready for it.
         </div>
       </>
     )}
@@ -6000,9 +6606,6 @@ return (
 
       <nav className="desktopSidebar">
         <div className="desktopSidebarBrand">Rayla</div>
-        <div className={`desktopSidebarTotalR ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
-          {parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R
-        </div>
         {NAV_TABS.map(tab => (
           <button key={tab.id} className={`desktopSidebarBtn ${activeTab === tab.id ? "active" : ""}`} onClick={() => { setActiveTab(tab.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
             {tab.icon}{tab.label}
@@ -6016,15 +6619,14 @@ return (
       </nav>
 
       <div className="appShellInner">
-        <div className="topbar">
-          <div>
-            <p className="eyebrow">Rayla</p>
-            <div className={`portfolioValue ${parseFloat(totalR) >= 0 ? "positive" : "negative"}`}>
-              {parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R
+        {!(activeTab === "ask" && !askRaylaHasMessages) && (
+          <div className="topbar">
+            <div>
+              <p className="eyebrow">Rayla</p>
+              <p className="subheading">Trading clarity, practice, and performance in one place.</p>
             </div>
-            <p className="subheading">Total Performance</p>
           </div>
-        </div>
+        )}
 
         {activeTab === "home" && (
           <>
@@ -6284,7 +6886,19 @@ return (
                 <EquityCurveCard equitySeries={filteredEquitySeries} sourceLabel={equitySourceLabel} chartRange={chartRange} setChartRange={setChartRange} />
               </div>
               <div className="span6">
-                <MarketCard items={marketItems} selectedId={selectedMarketId} onSelect={setSelectedMarketId} onRemove={handleRemoveSymbol} newSymbol={newSymbol} setNewSymbol={setNewSymbol} onAddSymbol={handleAddSymbol} alpacaConnected={Boolean(alpacaAccount)} />
+                <MarketCard
+                  items={marketItems}
+                  selectedId={selectedMarketId}
+                  onSelect={setSelectedMarketId}
+                  onRemove={handleRemoveSymbol}
+                  newSymbol={newSymbol}
+                  setNewSymbol={setNewSymbol}
+                  onAddSymbol={handleAddSymbol}
+                  alpacaConnected={Boolean(alpacaAccount)}
+                  onAskChart={({ question, chartContext }) => {
+                    openChartExplainPopup(chartContext, question);
+                  }}
+                />
               </div>
               <div className="span4">
                 <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />
@@ -6711,13 +7325,43 @@ return (
                                       ))}
                                     </div>
                                   </div>
-                                  {tradeChartLastUpdated && (
-                                    <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                                      Updated {tradeChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                    </div>
-                                  )}
+                                {tradeChartLastUpdated && (
+                                  <div style={{ fontSize: 10, color: "#7f8ea3" }}>
+                                    Updated {tradeChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </div>
+                                )}
+                              </div>
+                              {tradePanelSymbol && tradeViewMode !== "portfolio" && (
+                                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const chartContext = buildChartExplainContext({
+                                        symbol: tradePanelSymbol,
+                                        assetName: tradePanelAsset?.description || tradePanelAsset?.name || tradePanelSymbol,
+                                        assetType: tradePanelAsset?.type || "stock",
+                                        range: tradeChartRange,
+                                        bars: extractChartBars(tradeMarketChart),
+                                        currentPrice: tradePanelCurrentPrice,
+                                      });
+                                      openChartExplainPopup(chartContext, "Explain this chart");
+                                    }}
+                                    style={{
+                                      padding: "7px 12px",
+                                      borderRadius: 999,
+                                      border: "1px solid rgba(124,196,255,0.28)",
+                                      background: "rgba(124,196,255,0.08)",
+                                      color: "#d7efff",
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Ask Rayla → Explain this chart
+                                  </button>
                                 </div>
-                                {tradeViewMode === "portfolio" ? (() => {
+                              )}
+                              {tradeViewMode === "portfolio" ? (() => {
                                   const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
                                   const xL = 10, xR = 195, yT = 5, yB = 108;
                                   const chartW = xR - xL;
@@ -8318,6 +8962,30 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: "#f3f7fc" }}>Performance Analysis</div>
+                  <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>Review your edge, discipline, and progress in one place.</div>
+                </div>
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 14,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(18,26,38,0.72)",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
+                    minWidth: 96,
+                    textAlign: "right",
+                  }}
+                >
+                  <div style={{ fontSize: 10, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 4 }}>
+                    Total R
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: parseFloat(totalR) >= 0 ? "#4ade80" : "#f87171" }}>
+                    {parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R
+                  </div>
+                </div>
+              </div>
               <CoachAskBox trades={trades} onAskRayla={requestRaylaAnswer} isLoading={isRaylaLoading} />
               <AICoachTab trades={trades} onRunAnalysis={runAIAnalysis} showNoNewTrades={showNoNewTrades} coachSummary={coachSummary} />
             </div>
@@ -8325,144 +8993,408 @@ return (
         )}
 
         {activeTab === "ask" && (
-          <div className="card">
-            <div className="cardHeader">
-              <h2>Ask Rayla</h2>
-            </div>
-
-            <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-
-              <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                Ask anything about trading, your performance, the market, or the Rayla app.
-              </div>
-              {capitalGuideState.active && (
-                <div style={{ fontSize: 12, color: "#7CC4FF", lineHeight: 1.5 }}>
-                  Capital Guide is active. Answer the current question to keep going.
-                </div>
-              )}
-              {activeCapitalGuideQuestion && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
-                    Choose the best fit for this step:
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {activeCapitalGuideQuestion.options.map((option) => (
-                      <button
-                        key={`${activeCapitalGuideQuestion.key}-${option}`}
-                        type="button"
-                        className="ghostButton"
-                        disabled={isRaylaLoading}
-                        onClick={async () => {
-                          try {
-                            await handleAskRaylaQuestion(option, { clearInput: true });
-                          } catch (err) {
-                            console.error("CAPITAL GUIDE OPTION ERROR:", err);
-                          }
-                        }}
-                        style={{
-                          padding: "8px 12px",
-                          fontSize: 12,
-                          color: "#e2e8f0",
-                          borderColor: "rgba(124,196,255,0.2)",
-                          background: "rgba(124,196,255,0.08)",
-                        }}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <textarea
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                placeholder="Ask Rayla anything..."
+          <div
+            className={askRaylaHasMessages ? "card" : undefined}
+            style={{
+              minHeight: askRaylaHasMessages ? "calc(100vh - 170px)" : "calc(100vh - 120px)",
+              display: "flex",
+              flexDirection: "column",
+              padding: askRaylaHasMessages ? 0 : 0,
+              overflow: "hidden",
+              background: askRaylaHasMessages ? undefined : "transparent",
+              border: askRaylaHasMessages ? undefined : "none",
+              boxShadow: askRaylaHasMessages ? undefined : "none",
+            }}
+          >
+            {!askRaylaHasMessages ? (
+              <div
                 style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textAlign: "center",
+                  gap: 22,
+                  maxWidth: 920,
                   width: "100%",
-                  minHeight: 100,
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(0,0,0,0.2)",
-                  color: "#e2e8f0",
-                  padding: 10,
-                  fontSize: 14,
-                  resize: "none"
+                  margin: "0 auto",
+                  padding: "48px 16px 56px 16px",
                 }}
-              />
-
-              {isRaylaLoading && (
-                <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                  Rayla is thinking...
-                </div>
-              )}
-
-              <button
-                className="ghostButton"
-                onClick={async () => {
-                try {
-                  await handleAskRaylaQuestion(aiInput, { clearInput: true });
-                } catch (err) {
-                  console.error("ASK RAYLA FETCH ERROR:", err);
-                }
-              }}
               >
-                Ask Rayla
-              </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div className="askRaylaHeadline">
+                    Ask Rayla anything
+                  </div>
+                  <div style={{ fontSize: 16, color: "#94a3b8", lineHeight: 1.7 }}>
+                    Understand trades, charts, risk, and strategy in seconds.
+                  </div>
+                </div>
 
-              {raylaResponse && (
                 <div
                   style={{
-                    marginTop: 10,
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "flex-end",
+                    gap: 10,
                     padding: 12,
-                    borderRadius: 10,
-                    background: "rgba(124,196,255,0.08)",
-                    border: "1px solid rgba(124,196,255,0.2)",
-                    fontSize: 14,
-                    lineHeight: 1.6
+                    borderRadius: 22,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(8,12,18,0.92)",
+                    boxShadow: "0 18px 54px rgba(0,0,0,0.22)",
                   }}
                 >
-                  {raylaResponse}
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#94a3b8",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <PlusSquare size={16} />
+                  </div>
+                  <textarea
+                    value={aiInput}
+                    onChange={(e) => setAiInput(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (!aiInput.trim() || isRaylaLoading) return;
+                        try {
+                          await handleAskRaylaQuestion(aiInput, { clearInput: true, useChat: true });
+                        } catch (err) {
+                          console.error("ASK RAYLA FETCH ERROR:", err);
+                        }
+                      }
+                    }}
+                    placeholder="Ask anything"
+                    style={{
+                      flex: 1,
+                      minHeight: 58,
+                      maxHeight: 180,
+                      borderRadius: 12,
+                      border: "none",
+                      background: "transparent",
+                      color: "#e2e8f0",
+                      padding: "8px 10px",
+                      fontSize: 15,
+                      resize: "none",
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="ghostButton"
+                    disabled={!aiInput.trim() || isRaylaLoading}
+                    onClick={async () => {
+                      try {
+                        await handleAskRaylaQuestion(aiInput, { clearInput: true, useChat: true });
+                      } catch (err) {
+                        console.error("ASK RAYLA FETCH ERROR:", err);
+                      }
+                    }}
+                    style={{
+                      alignSelf: "stretch",
+                      minWidth: 58,
+                      borderRadius: 14,
+                      background: !aiInput.trim() || isRaylaLoading ? "rgba(255,255,255,0.06)" : "#7CC4FF",
+                      color: !aiInput.trim() || isRaylaLoading ? "#7f8ea3" : "#0b1017",
+                      borderColor: !aiInput.trim() || isRaylaLoading ? "rgba(255,255,255,0.08)" : "rgba(124,196,255,0.35)",
+                      fontWeight: 800,
+                    }}
+                  >
+                    ↑
+                  </button>
                 </div>
-              )}
-              {capitalGuideResult?.directions?.length ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {capitalGuideResult.directions.map((direction) => (
-                    <div
-                      key={direction.id}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+                  {ASK_RAYLA_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="ghostButton"
+                      disabled={isRaylaLoading}
+                      onClick={async () => {
+                        try {
+                          await handleAskRaylaQuestion(suggestion, { clearInput: true, useChat: true });
+                        } catch (err) {
+                          console.error("ASK RAYLA SUGGESTION ERROR:", err);
+                        }
+                      }}
                       style={{
-                        padding: 12,
-                        borderRadius: 10,
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8,
+                        padding: "10px 14px",
+                        borderRadius: 999,
+                        color: "#dbeafe",
+                        background: "rgba(124,196,255,0.08)",
+                        borderColor: "rgba(124,196,255,0.18)",
+                        fontSize: 12,
                       }}
                     >
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{direction.title}</div>
-                      <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>{direction.body}</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{direction.fit}</div>
-                      <div>
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+
+                {!raylaAdaptiveState.onboardingCompleted && activeRaylaAdaptiveQuestion ? (
+                  <div
+                    style={{
+                      width: "100%",
+                      maxWidth: 720,
+                      padding: 12,
+                      borderRadius: 14,
+                      background: "rgba(124,196,255,0.05)",
+                      border: "1px solid rgba(124,196,255,0.12)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                      textAlign: "left",
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: "#7CC4FF", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700 }}>
+                      Rayla onboarding
+                    </div>
+                    <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                      {activeRaylaAdaptiveQuestion.prompt}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {activeRaylaAdaptiveQuestion.options.map((option) => (
                         <button
+                          key={`${activeRaylaAdaptiveQuestion.key}-${option}`}
                           type="button"
                           className="ghostButton"
-                          onClick={() => handleTryCapitalGuideInScenario(direction)}
+                          onClick={() => handleRaylaAdaptiveOnboardingAnswer(activeRaylaAdaptiveQuestion.key, option)}
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            color: "#e2e8f0",
+                            borderColor: "rgba(124,196,255,0.16)",
+                            background: "rgba(124,196,255,0.06)",
+                          }}
                         >
-                          Try in Scenario
+                          {option}
                         </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "#7f8ea3", lineHeight: 1.6 }}>
+                    Rayla adapts over time using your questions, simulation behavior, and prior interactions.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div
+                  ref={askRaylaThreadRef}
+                  style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    padding: "18px 18px 140px 18px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 14,
+                    background: "linear-gradient(180deg, rgba(10,14,20,0.76), rgba(11,16,23,0.94))",
+                  }}
+                >
+                  {raylaChatMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: message.role === "user" ? "flex-end" : "flex-start",
+                      }}
+                    >
+                      <div
+                        style={{
+                          maxWidth: "78%",
+                          padding: "14px 16px",
+                          borderRadius: message.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
+                          background: message.role === "user" ? "rgba(124,196,255,0.16)" : "rgba(255,255,255,0.04)",
+                          border: message.role === "user" ? "1px solid rgba(124,196,255,0.24)" : "1px solid rgba(255,255,255,0.08)",
+                          color: "#e2e8f0",
+                          boxShadow: "0 12px 28px rgba(0,0,0,0.16)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: message.role === "user" ? "#93c5fd" : "#94a3b8", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+                          {message.role === "user" ? "You" : "Rayla"}
+                        </div>
+                        {message.loading ? (
+                          <div style={{ fontSize: 14, color: "#94a3b8" }}>Rayla is thinking...</div>
+                        ) : (
+                          <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
+                            {renderRaylaMessageContent(message.content)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
-                  {capitalGuideResult.confidenceLine && (
-                    <div style={{ fontSize: 12, color: "#7f8ea3", lineHeight: 1.6 }}>
-                      {capitalGuideResult.confidenceLine}
+
+                  {capitalGuideState.active && (
+                    <div style={{ fontSize: 12, color: "#7CC4FF", lineHeight: 1.5 }}>
+                      Capital Guide is active. Answer the current question to keep going.
                     </div>
                   )}
-                </div>
-              ) : null}
 
-            </div>
+                  {activeCapitalGuideQuestion && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                        Choose the best fit for this step:
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {activeCapitalGuideQuestion.options.map((option) => (
+                          <button
+                            key={`${activeCapitalGuideQuestion.key}-${option}`}
+                            type="button"
+                            className="ghostButton"
+                            disabled={isRaylaLoading}
+                            onClick={async () => {
+                              try {
+                                await handleAskRaylaQuestion(option, { clearInput: true, useChat: true });
+                              } catch (err) {
+                                console.error("CAPITAL GUIDE OPTION ERROR:", err);
+                              }
+                            }}
+                            style={{
+                              padding: "8px 12px",
+                              fontSize: 12,
+                              color: "#e2e8f0",
+                              borderColor: "rgba(124,196,255,0.2)",
+                              background: "rgba(124,196,255,0.08)",
+                            }}
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {capitalGuideResult?.directions?.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {capitalGuideResult.directions.map((direction) => (
+                        <div
+                          key={direction.id}
+                          style={{
+                            padding: 12,
+                            borderRadius: 12,
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                          }}
+                        >
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{direction.title}</div>
+                          <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>{direction.body}</div>
+                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{direction.fit}</div>
+                          <div>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={() => handleTryCapitalGuideInScenario(direction)}
+                            >
+                              Try in Scenario
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {capitalGuideResult.confidenceLine && (
+                        <div style={{ fontSize: 12, color: "#7f8ea3", lineHeight: 1.6 }}>
+                          {capitalGuideResult.confidenceLine}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div
+                  style={{
+                    position: "sticky",
+                    bottom: 0,
+                    padding: 16,
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(11,16,23,0.96)",
+                    backdropFilter: "blur(10px)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-end",
+                      gap: 10,
+                      padding: 10,
+                      borderRadius: 18,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(8,12,18,0.86)",
+                    }}
+                  >
+                    <textarea
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!aiInput.trim() || isRaylaLoading) return;
+                          try {
+                            await handleAskRaylaQuestion(aiInput, { clearInput: true, useChat: true });
+                          } catch (err) {
+                            console.error("ASK RAYLA FETCH ERROR:", err);
+                          }
+                        }
+                      }}
+                      placeholder="Ask Rayla anything..."
+                      style={{
+                        flex: 1,
+                        minHeight: 52,
+                        maxHeight: 180,
+                        borderRadius: 12,
+                        border: "none",
+                        background: "transparent",
+                        color: "#e2e8f0",
+                        padding: "8px 10px",
+                        fontSize: 14,
+                        resize: "none",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="ghostButton"
+                      disabled={!aiInput.trim() || isRaylaLoading}
+                      onClick={async () => {
+                        try {
+                          await handleAskRaylaQuestion(aiInput, { clearInput: true, useChat: true });
+                        } catch (err) {
+                          console.error("ASK RAYLA FETCH ERROR:", err);
+                        }
+                      }}
+                      style={{
+                        alignSelf: "stretch",
+                        minWidth: 58,
+                        borderRadius: 14,
+                        background: !aiInput.trim() || isRaylaLoading ? "rgba(255,255,255,0.06)" : "#7CC4FF",
+                        color: !aiInput.trim() || isRaylaLoading ? "#7f8ea3" : "#0b1017",
+                        borderColor: !aiInput.trim() || isRaylaLoading ? "rgba(255,255,255,0.08)" : "rgba(124,196,255,0.35)",
+                        fontWeight: 800,
+                      }}
+                    >
+                      ↑
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -8532,48 +9464,34 @@ return (
             <div>
               <input className="authInput" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
               <div className="listSubtext">{user?.email || "No email found"}</div>
-                            <div style={{ marginTop: 16 }}>
+              <div style={{ marginTop: 16 }}>
                 <div className="listSubtext" style={{ marginBottom: 8 }}>
-                  User Level
+                  Adaptive Learning
                 </div>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="ghostButton"
-                    onClick={() => handleUserLevelChange("beginner")}
-                    style={{
-                      border: userLevel === "beginner" ? "1px solid #7CC4FF" : undefined,
-                      background: userLevel === "beginner" ? "rgba(124,196,255,0.12)" : undefined
-                    }}
-                  >
-                    Beginner
-                  </button>
-
-                  <button
-                    type="button"
-                    className="ghostButton"
-                    onClick={() => handleUserLevelChange("intermediate")}
-                    style={{
-                      border: userLevel === "intermediate" ? "1px solid #7CC4FF" : undefined,
-                      background: userLevel === "intermediate" ? "rgba(124,196,255,0.12)" : undefined
-                    }}
-                  >
-                    Intermediate
-                  </button>
-
-                  <button
-                    type="button"
-                    className="ghostButton"
-                    onClick={() => handleUserLevelChange("experienced")}
-                    style={{
-                      border: userLevel === "experienced" ? "1px solid #7CC4FF" : undefined,
-                      background: userLevel === "experienced" ? "rgba(124,196,255,0.12)" : undefined
-                    }}
-                  >
-                    Experienced
-                  </button>
+                <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, marginBottom: 10 }}>
+                  Rayla adjusts explanation depth from your onboarding answers, your questions, and how you use simulations over time.
                 </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                  {raylaAdaptiveState.onboardingAnswers.experience ? (
+                    <div className="pill">{raylaAdaptiveState.onboardingAnswers.experience}</div>
+                  ) : null}
+                  {raylaAdaptiveState.onboardingAnswers.familiarity ? (
+                    <div className="pill">{raylaAdaptiveState.onboardingAnswers.familiarity}</div>
+                  ) : null}
+                  {raylaAdaptiveState.onboardingAnswers.goal ? (
+                    <div className="pill">{raylaAdaptiveState.onboardingAnswers.goal}</div>
+                  ) : null}
+                </div>
+                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 10 }}>
+                  Current explanation depth: {raylaAdaptiveProfile.explanationDepth}
+                </div>
+                <button
+                  type="button"
+                  className="ghostButton"
+                  onClick={() => setRaylaAdaptiveState(createDefaultRaylaAdaptiveState())}
+                >
+                  Retake Rayla onboarding
+                </button>
               </div>
             </div>
           </div>
@@ -8599,6 +9517,185 @@ return (
 )}
 
 
+
+        {chartExplainPopupOpen && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 12000,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              ref={chartExplainPopupWindowRef}
+              className="card"
+              style={{
+                position: "fixed",
+                right: chartExplainPopupIsMobile ? 12 : "auto",
+                left: chartExplainPopupIsMobile ? 12 : chartExplainPopupPosition.x,
+                top: chartExplainPopupIsMobile ? "auto" : chartExplainPopupPosition.y,
+                bottom: chartExplainPopupIsMobile ? 12 : "auto",
+                width: chartExplainPopupIsMobile ? "auto" : "min(400px, calc(100vw - 24px))",
+                maxWidth: chartExplainPopupIsMobile ? "none" : 420,
+                height: chartExplainPopupIsMobile ? "min(68vh, 640px)" : "min(64vh, 680px)",
+                maxHeight: chartExplainPopupIsMobile ? "68vh" : "64vh",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                border: "1px solid rgba(124,196,255,0.18)",
+                background: "linear-gradient(180deg, rgba(10,16,28,0.98), rgba(7,12,22,0.98))",
+                boxShadow: "0 28px 80px rgba(0,0,0,0.48)",
+                pointerEvents: "auto",
+              }}
+            >
+              <div
+                onPointerDown={(event) => {
+                  if (chartExplainPopupIsMobile || event.button !== 0 || !chartExplainPopupWindowRef.current) return;
+                  const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
+                  chartExplainPopupDragStateRef.current = {
+                    offsetX: event.clientX - rect.left,
+                    offsetY: event.clientY - rect.top,
+                  };
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "14px 16px 12px 16px",
+                  borderBottom: "1px solid rgba(255,255,255,0.08)",
+                  cursor: chartExplainPopupIsMobile ? "default" : "grab",
+                  touchAction: "none",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7cc4ff" }}>
+                    Rayla Coach
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff", marginTop: 4 }}>
+                    Explain this chart
+                  </div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                    {chartExplainPopupContext?.assetName || chartExplainPopupContext?.symbol || "Selected asset"}
+                    {chartExplainPopupContext?.timeframe ? ` · ${chartExplainPopupContext.timeframe}` : ""}
+                    {Number.isFinite(chartExplainPopupContext?.currentPrice) ? ` · ${formatCurrency(chartExplainPopupContext.currentPrice)}` : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => {
+                    setChartExplainPopupOpen(false);
+                    setChartExplainPopupLoading(false);
+                  }}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#cbd5e1",
+                    cursor: "pointer",
+                    fontSize: 18,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                ref={chartExplainPopupThreadRef}
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 14,
+                  background: "radial-gradient(circle at top, rgba(124,196,255,0.05), transparent 42%)",
+                }}
+              >
+                {chartExplainPopupMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    style={{
+                      alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+                      maxWidth: "85%",
+                      borderRadius: 18,
+                      padding: "12px 14px",
+                      background: message.role === "user" ? "rgba(124,196,255,0.14)" : "rgba(255,255,255,0.05)",
+                      border: message.role === "user" ? "1px solid rgba(124,196,255,0.2)" : "1px solid rgba(255,255,255,0.08)",
+                      color: "#e2e8f0",
+                    }}
+                  >
+                    {message.loading ? (
+                      <div style={{ fontSize: 13, color: "#94a3b8" }}>Rayla is reading the chart...</div>
+                    ) : (
+                      <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+                        {message.role === "assistant" ? renderRaylaMessageContent(message.content) : message.content}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: 12, background: "rgba(7,12,22,0.92)" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                  <textarea
+                    value={chartExplainPopupInput}
+                    onChange={(event) => setChartExplainPopupInput(event.target.value)}
+                    onKeyDown={async (event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        if (!chartExplainPopupInput.trim() || chartExplainPopupLoading) return;
+                        await handleChartExplainPopupQuestion(chartExplainPopupInput, chartExplainPopupContext);
+                      }
+                    }}
+                    placeholder="Ask a follow-up about this chart..."
+                    rows={1}
+                    style={{
+                      flex: 1,
+                      resize: "none",
+                      minHeight: 52,
+                      maxHeight: 140,
+                      borderRadius: 16,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#e2e8f0",
+                      padding: "14px 16px",
+                      outline: "none",
+                      fontSize: 14,
+                      lineHeight: 1.5,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!chartExplainPopupInput.trim() || chartExplainPopupLoading}
+                    onClick={async () => {
+                      await handleChartExplainPopupQuestion(chartExplainPopupInput, chartExplainPopupContext);
+                    }}
+                    style={{
+                      alignSelf: "stretch",
+                      minWidth: 94,
+                      borderRadius: 16,
+                      border: "1px solid",
+                      borderColor: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "rgba(255,255,255,0.08)" : "rgba(124,196,255,0.35)",
+                      background: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "rgba(255,255,255,0.06)" : "#7CC4FF",
+                      color: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "#7f8ea3" : "#0b1017",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mobileNav">
           {NAV_TABS.map(tab => (
