@@ -823,8 +823,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .askRaylaHeadline {
   font-family: inherit;
   font-size: 40px;
-  font-weight: 600;
-  letter-spacing: 0.015em;
+  font-weight: 400;
+  letter-spacing: 2px;
+  text-transform: uppercase;
   line-height: 1.02;
   color: #7CC4FF;
 }
@@ -1012,4 +1013,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   pointer-events: none;
   transition: top 220ms ease;
   box-shadow: 0 10px 24px rgba(2,6,23,0.28);
+}
+
+:root {
+  --rayla-blue: #6FA0D8;
+  --rayla-dark: #020A1A;
 }

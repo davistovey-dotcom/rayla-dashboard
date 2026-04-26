@@ -3,7 +3,8 @@ import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
 import TradeChart from "./TradeChart";
-import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2 } from "lucide-react";
+import AssetCarousel from "./components/AssetCarousel";
+import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import { Tutorial } from "./Login";
 
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
@@ -234,6 +235,7 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
   autoStarted: "rayla_first_trade_onboarding_autostarted",
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
+const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
 
 const marketSeeds = [
   { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
@@ -286,8 +288,8 @@ const NAV_TABS = [
   { id: "home", icon: <LayoutDashboard size={18} />, label: "Home" },
   { id: "trades", icon: <PlusSquare size={18} />, label: "My Trades" },
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
-  { id: "ask", icon: <Brain size={18} />, label: "Ask Rayla" },
-  { id: "ai", icon: <Target size={18} />, label: "Performance Analysis" },
+  { id: "ai", icon: <Target size={18} />, label: "Performance" },
+  { id: "journal", icon: <BookOpen size={18} />, label: "Journal" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
 const ASK_RAYLA_SUGGESTIONS = [
@@ -858,11 +860,12 @@ function buildChartExplainContext({ symbol, assetName, assetType, range, bars, c
   };
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null }) {
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, raylaMode = "beginner" }) {
   return {
     selectedMarketId,
     adaptiveProfile,
     chartContext,
+    raylaMode,
     stats: buildTradeStats(trades),
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
@@ -971,7 +974,7 @@ function CoachRow({ left, right, sub, tone }) {
   );
 }
 
-function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary }) {
+function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hideOverall = false }) {
   const report = useMemo(() => buildCoachReport(trades), [trades]);
 
   if (!report) {
@@ -1038,6 +1041,7 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary }) {
         </div>
       </div>
 
+      {!hideOverall && (
       <div className="card">
         <div className="cardHeader"><h2>Overall Performance</h2></div>
         <div className="cardBody">
@@ -1059,6 +1063,7 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary }) {
           </div>
         </div>
       </div>
+      )}
 
       <div className="card">
         <div className="cardHeader"><h2>Edge Analysis</h2></div>
@@ -2612,6 +2617,198 @@ function SubscriptionCard() {
   );
 }
 
+function JournalTab({ trades }) {
+  const [search, setSearch] = useState("");
+  const [filterDir, setFilterDir] = useState("all");
+  const [filterSetup, setFilterSetup] = useState("all");
+  const [sortNewest, setSortNewest] = useState(true);
+
+  const allSetups = [...new Set(trades.map(t => t.setup).filter(Boolean))];
+
+  const filtered = trades
+    .filter(t => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        (t.asset || "").toLowerCase().includes(q) ||
+        (t.setup || "").toLowerCase().includes(q) ||
+        (t.session || "").toLowerCase().includes(q)
+      );
+    })
+    .filter(t => filterDir === "all" || (t.direction || "").toLowerCase() === filterDir)
+    .filter(t => filterSetup === "all" || t.setup === filterSetup)
+    .sort((a, b) => {
+      const ta = a.entry_time ? new Date(a.entry_time).getTime() : 0;
+      const tb = b.entry_time ? new Date(b.entry_time).getTime() : 0;
+      return sortNewest ? tb - ta : ta - tb;
+    });
+
+  const totalRVal = trades.reduce((s, t) => s + parseFloat(t.result_r || 0), 0);
+  const wins = trades.filter(t => parseFloat(t.result_r) > 0);
+  const wr = trades.length ? (wins.length / trades.length) * 100 : 0;
+  const avgRVal = trades.length ? totalRVal / trades.length : 0;
+  const best = trades.length ? trades.reduce((b, t) => parseFloat(t.result_r) > parseFloat(b.result_r) ? t : b) : null;
+  const worst = trades.length ? trades.reduce((b, t) => parseFloat(t.result_r) < parseFloat(b.result_r) ? t : b) : null;
+
+  function rCol(v) {
+    const n = parseFloat(v);
+    return n > 0 ? "#4ade80" : n < 0 ? "#f87171" : "#94a3b8";
+  }
+
+  const hasFilters = search || filterDir !== "all" || filterSetup !== "all";
+
+  if (trades.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "64px 24px" }}>
+        <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>No trades logged yet</div>
+        <div style={{ fontSize: 13, color: "#64748b" }}>Log your first trade in My Trades and it will appear here.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Summary stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+        {[
+          { label: "Total Trades", value: trades.length, color: "#f3f7fc" },
+          { label: "Win Rate", value: `${wr.toFixed(1)}%`, color: wr >= 50 ? "#4ade80" : "#f87171" },
+          { label: "Total R", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}R`, color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Avg R", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}R`, color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
+          ...(best ? [{ label: "Best Trade", value: `+${parseFloat(best.result_r).toFixed(2)}R`, color: "#4ade80" }] : []),
+          ...(worst ? [{ label: "Worst Trade", value: `${parseFloat(worst.result_r).toFixed(2)}R`, color: "#f87171" }] : []),
+        ].map(item => (
+          <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px" }}>
+            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 }}>{item.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: item.color }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search asset, setup, session…"
+          style={{ flex: "1 1 180px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, outline: "none" }}
+        />
+        <select value={filterDir} onChange={e => setFilterDir(e.target.value)}
+          style={{ background: "rgba(18,26,38,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, cursor: "pointer" }}>
+          <option value="all">All Directions</option>
+          <option value="long">Long</option>
+          <option value="short">Short</option>
+        </select>
+        {allSetups.length > 0 && (
+          <select value={filterSetup} onChange={e => setFilterSetup(e.target.value)}
+            style={{ background: "rgba(18,26,38,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, cursor: "pointer" }}>
+            <option value="all">All Setups</option>
+            {allSetups.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+        <button type="button" onClick={() => setSortNewest(v => !v)}
+          style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#94a3b8", fontSize: 12, cursor: "pointer" }}>
+          {sortNewest ? "↓ Newest first" : "↑ Oldest first"}
+        </button>
+        {hasFilters && (
+          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); }}
+            style={{ background: "transparent", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", fontSize: 12, cursor: "pointer" }}>
+            Clear filters
+          </button>
+        )}
+        <div style={{ marginLeft: "auto", fontSize: 12, color: "#475569" }}>
+          {filtered.length} of {trades.length} trades
+        </div>
+      </div>
+
+      {/* Trade list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filtered.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 20px", color: "#64748b", fontSize: 13 }}>No trades match your filters.</div>
+        ) : filtered.map((trade, idx) => {
+          const r = parseFloat(trade.result_r || 0);
+          const isWin = r > 0;
+          const isLoss = r < 0;
+          const dateStr = trade.entry_time
+            ? new Date(trade.entry_time).toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" })
+            : "—";
+          const timeStr = trade.entry_time
+            ? new Date(trade.entry_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            : "";
+
+          return (
+            <div key={trade.id || idx} style={{
+              background: "rgba(18,26,38,0.86)",
+              border: `1px solid ${isWin ? "rgba(74,222,128,0.15)" : isLoss ? "rgba(248,113,113,0.12)" : "rgba(255,255,255,0.07)"}`,
+              borderLeft: `3px solid ${isWin ? "#4ade80" : isLoss ? "#f87171" : "rgba(255,255,255,0.1)"}`,
+              borderRadius: 14,
+              padding: "14px 18px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}>
+              {/* Header row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: "#f3f7fc" }}>{(trade.asset || "—").toUpperCase()}</span>
+                  {trade.direction && (
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", color: trade.direction.toLowerCase() === "long" ? "#4ade80" : "#f87171", background: trade.direction.toLowerCase() === "long" ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>
+                      {trade.direction}
+                    </span>
+                  )}
+                  {trade.setup && (
+                    <span style={{ fontSize: 11, color: "#7CC4FF", background: "rgba(124,196,255,0.08)", borderRadius: 6, padding: "2px 8px", border: "1px solid rgba(124,196,255,0.15)" }}>
+                      {trade.setup}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 12, color: "#475569" }}>{dateStr} {timeStr}</span>
+                </div>
+                <span style={{ fontSize: 20, fontWeight: 700, color: rCol(r) }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}R</span>
+              </div>
+
+              {/* Details */}
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "#64748b" }}>
+                {trade.entry_price != null && <span><span style={{ color: "#7f8ea3" }}>Entry </span>${Number(trade.entry_price).toFixed(2)}</span>}
+                {trade.exit_price != null && <span><span style={{ color: "#7f8ea3" }}>Exit </span>${Number(trade.exit_price).toFixed(2)}</span>}
+                {trade.entry_size != null && <span><span style={{ color: "#7f8ea3" }}>Size </span>${Number(trade.entry_size).toLocaleString()}</span>}
+                {trade.session && <span><span style={{ color: "#7f8ea3" }}>Session </span>{trade.session}</span>}
+                {trade.exit_time && <span><span style={{ color: "#7f8ea3" }}>Closed </span>{new Date(trade.exit_time).toLocaleDateString([], { month: "short", day: "numeric" })}</span>}
+              </div>
+
+              {/* Notes + tags row */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div style={{ flex: "1 1 200px", background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 8, padding: "6px 12px", fontSize: 12, color: "#475569", minHeight: 32, display: "flex", alignItems: "center" }}>
+                  + Add notes / reflection
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {["FOMO", "Over-sized", "Rule break", "Emotion"].map(tag => (
+                    <span key={tag} style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>+ {tag}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Footer: confidence dots + screenshot */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "#475569" }}>Confidence</span>
+                  {[1,2,3,4,5].map(n => (
+                    <div key={n} style={{ width: 9, height: 9, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer" }} />
+                  ))}
+                </div>
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 8, padding: "4px 10px", cursor: "pointer" }}>
+                  <span style={{ fontSize: 11, color: "#475569" }}>📎 Attach screenshot</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [selectedMarketId, setSelectedMarketId] = useState("BTC");
  const [watchlist, setWatchlist] = useState(() => {
@@ -2652,6 +2849,18 @@ useEffect(() => {
     };
   });
 
+  const [homeMarketQuotes, setHomeMarketQuotes] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem("rayla-market-quotes") || "{}"); }
+    catch { return {}; }
+  });
+  const [homeMarketSearchResults, setHomeMarketSearchResults] = useState([]);
+  const [homeMarketChart, setHomeMarketChart] = useState(null);
+  const [homeMarketChartLoading, setHomeMarketChartLoading] = useState(false);
+  const [homeMarketChartMode, setHomeMarketChartMode] = useState("candlestick");
+  const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
+  const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
+  const homeMarketSearchTimeoutRef = useRef(null);
+
   const [intelLoading, setIntelLoading] = useState(false);
   const [hotColdReport, setHotColdReport] = useState(() => {
     try {
@@ -2669,6 +2878,7 @@ useEffect(() => {
   const [chartExplainPopupMessages, setChartExplainPopupMessages] = useState([]);
   const [chartExplainPopupInput, setChartExplainPopupInput] = useState("");
   const [chartExplainPopupLoading, setChartExplainPopupLoading] = useState(false);
+  const [chartExplainPopupTitle, setChartExplainPopupTitle] = useState("Ask Rayla");
   const [chartExplainPopupPosition, setChartExplainPopupPosition] = useState({ x: 24, y: 96 });
   const [chartExplainPopupIsMobile, setChartExplainPopupIsMobile] = useState(() => window.innerWidth < 768);
   const [capitalGuideState, setCapitalGuideState] = useState({
@@ -2723,6 +2933,13 @@ useEffect(() => {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
+  const [raylaMode, setRaylaMode] = useState(() => {
+    try {
+      return localStorage.getItem(RAYLA_MODE_STORAGE_KEY) || "beginner";
+    } catch {
+      return "beginner";
+    }
+  });
   const [raylaAdaptiveState, setRaylaAdaptiveState] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(RAYLA_ADAPTIVE_STORAGE_KEY) || "null");
@@ -2734,6 +2951,13 @@ useEffect(() => {
   useEffect(() => {
     localStorage.setItem(RAYLA_ADAPTIVE_STORAGE_KEY, JSON.stringify(raylaAdaptiveState));
   }, [raylaAdaptiveState]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAYLA_MODE_STORAGE_KEY, raylaMode);
+    } catch {
+      // ignore localStorage write errors for mode preference
+    }
+  }, [raylaMode]);
     const [showBeginnerTutorial, setShowBeginnerTutorial] = useState(false);
   const [beginnerTutorialView, setBeginnerTutorialView] = useState("menu");
     const [beginnerTutorialStep, setBeginnerTutorialStep] = useState(0);
@@ -3879,6 +4103,64 @@ useEffect(() => {
     askRaylaThreadRef.current.scrollTop = askRaylaThreadRef.current.scrollHeight;
   }, [askRaylaHasMessages, raylaChatMessages, capitalGuideResult, activeCapitalGuideQuestion]);
 
+  const homeMarketSelectedItem = marketItems.find(item => item.id === selectedMarketId) || marketItems[0] || null;
+  const homeSymbolsKey = marketItems.map(item => item.id).sort().join("|");
+
+  useEffect(() => {
+    if (!marketItems.length) return;
+    async function fetchHomeQuotes() {
+      try {
+        const { data, error } = await supabase.functions.invoke("market-data", {
+          body: { symbols: marketItems.map(item => ({ symbol: item.id, type: item.type || "stock" })) },
+        });
+        if (error || !data?.ok) return;
+        setHomeMarketQuotes(prev => {
+          const next = { ...prev };
+          Object.entries(data.quotes || {}).forEach(([symbol, q]) => {
+            if (q?.price != null) next[symbol] = q;
+          });
+          sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
+          return next;
+        });
+      } catch {}
+    }
+    fetchHomeQuotes();
+    const interval = setInterval(fetchHomeQuotes, 30000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeSymbolsKey]);
+
+  useEffect(() => {
+    if (!homeMarketSelectedItem) {
+      setHomeMarketChart(null);
+      setHomeMarketChartLoading(false);
+      return;
+    }
+    let isCancelled = false;
+    setHomeMarketChart(prev => prev?.symbol === homeMarketSelectedItem.id ? prev : null);
+    setHomeMarketChartLoading(true);
+    async function fetchHomeChart() {
+      try {
+        const { data, error } = await supabase.functions.invoke("market-data", {
+          body: { chartSymbol: homeMarketSelectedItem.id, chartType: homeMarketSelectedItem.type || "stock", chartRange: homeMarketChartRange },
+        });
+        if (isCancelled || error || !data?.ok) return;
+        const nextChart = data.chart || null;
+        const nextBars = extractChartBars(nextChart);
+        if (nextChart && nextBars.length >= 2) {
+          setHomeMarketChart({ ...nextChart, symbol: nextChart.symbol || homeMarketSelectedItem.id });
+          setHomeMarketChartLastUpdated(new Date());
+          return;
+        }
+        setHomeMarketChart({ symbol: homeMarketSelectedItem.id, range: homeMarketChartRange, bars: [] });
+      } catch {}
+      finally { if (!isCancelled) setHomeMarketChartLoading(false); }
+    }
+    fetchHomeChart();
+    const interval = homeMarketChartRange === "1D" ? setInterval(fetchHomeChart, 10000) : null;
+    return () => { isCancelled = true; if (interval) clearInterval(interval); };
+  }, [homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketChartRange]);
+
   useEffect(() => {
     if (!chartExplainPopupOpen || !chartExplainPopupThreadRef.current) return;
     chartExplainPopupThreadRef.current.scrollTop = chartExplainPopupThreadRef.current.scrollHeight;
@@ -3982,6 +4264,8 @@ useEffect(() => {
   const avgLoss = combinedHomeStats.journalLosses.length
     ? `-${Math.abs(combinedHomeStats.journalLosses.reduce((sum, value) => sum + value, 0) / combinedHomeStats.journalLosses.length).toFixed(2)}R`
     : "--";
+
+  const perfReport = useMemo(() => buildCoachReport(trades), [trades]);
 
   // The Home equity curve is intentionally journal-only. Broker trade logs do
   // not contain enough risk context to convert executions into a shared R curve.
@@ -4277,6 +4561,7 @@ useEffect(() => {
             selectedMarketId,
             adaptiveProfile,
             chartContext: extraContext?.chartContext || null,
+            raylaMode,
           }),
         }),
       }
@@ -4397,8 +4682,19 @@ useEffect(() => {
     setChartExplainPopupContext(chartContext);
     setChartExplainPopupMessages([]);
     setChartExplainPopupInput("");
+    setChartExplainPopupTitle(initialQuestion || "Ask Rayla");
     setChartExplainPopupOpen(true);
-    handleChartExplainPopupQuestion(initialQuestion, chartContext, { resetThread: true });
+    if (initialQuestion) {
+      handleChartExplainPopupQuestion(initialQuestion, chartContext, { resetThread: true });
+    }
+  }
+
+  function openGlobalRaylaPopup() {
+    setChartExplainPopupContext(null);
+    setChartExplainPopupMessages([]);
+    setChartExplainPopupInput("");
+    setChartExplainPopupTitle("Ask Rayla");
+    setChartExplainPopupOpen(true);
   }
 
   function handleTryCapitalGuideInScenario(direction) {
@@ -6605,7 +6901,7 @@ return (
               )}
 
       <nav className="desktopSidebar">
-        <div className="desktopSidebarBrand">Rayla</div>
+        <img src="/rayla-logo.png" alt="Rayla" style={{ height: '20px', width: 'auto', objectFit: 'contain', display: 'block' }} />
         {NAV_TABS.map(tab => (
           <button key={tab.id} className={`desktopSidebarBtn ${activeTab === tab.id ? "active" : ""}`} onClick={() => { setActiveTab(tab.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
             {tab.icon}{tab.label}
@@ -6619,7 +6915,7 @@ return (
       </nav>
 
       <div className="appShellInner">
-        {!(activeTab === "ask" && !askRaylaHasMessages) && (
+        {activeTab !== "home" && (
           <div className="topbar">
             <div>
               <p className="eyebrow">Rayla</p>
@@ -6630,342 +6926,286 @@ return (
 
         {activeTab === "home" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 12, marginBottom: 18 }}>
-                            {(isBeginner
-                ? [
-                    { label: "Trades Taken", value: combinedHomeStats.totalTrackedTradeCount },
-                    {
-                    label: "Trades Won",
-                    value: winRate,
-                    tone:
-                      combinedHomeStats.winRate >= 50
-                        ? "positive"
-                        : "negative",
-                    tooltipKey: "winrate"
-                  },
-                    {
-                      label: "Average Result",
-                      value: avgR,
-                      tone:
-                        combinedHomeStats.journalAverageResult >= 0
-                          ? "positive"
-                          : "negative",
-                      tooltipKey: "avgres"
-                    },
-                    {
-                      label: "Overall Progress",
-                      value: `${parseFloat(totalR) >= 0 ? "+" : ""}${totalR}R`,
-                      tone: parseFloat(totalR) >= 0 ? "positive" : "negative",
-                      tooltipKey: "totalr"
-                    }
-                  ]
-                : [
-                    { label: "Trades", value: combinedHomeStats.totalTrackedTradeCount },
-                    {
-                      label: "Win Rate",
-                      value: winRate,
-                      tone:
-                        combinedHomeStats.winRate >= 50
-                          ? "positive"
-                          : "negative"
-                    },
-                    {
-                      label: "Avg R",
-                      value: avgR,
-                      tone:
-                        combinedHomeStats.journalAverageResult >= 0
-                          ? "positive"
-                          : "negative"
-                    },
-                    {
-                      label: "Total R",
-                      value: `${parseFloat(totalR) >= 0 ? "+" : ""}${totalR}R`,
-                      tone: parseFloat(totalR) >= 0 ? "positive" : "negative"
-                    },
-                    {
-                      label: "Avg Win",
-                      value: avgWin,
-                      tone: "positive"
-                    },
-                    {
-                      label: "Avg Loss",
-                      value: avgLoss,
-                      tone: "negative"
-                    }
-                  ]
-              ).map(item => (
-                <div
-                  key={item.label}
-                  onClick={() => {
-                    if (isBeginner && item.tooltipKey) {
-                      setShowTooltip(item.tooltipKey);
-                    }
-                  }}
-                  style={{
-                    background: "rgba(18,26,38,0.86)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    borderRadius: 16,
-                    padding: "14px 16px",
-                    boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
-                    cursor: isBeginner && item.tooltipKey ? "pointer" : "default"
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: "#94a6bb", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    {item.label}
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: item.tone === "positive" ? "#4ade80" : item.tone === "negative" ? "#f87171" : "#f3f7fc" }}>
-                    {item.value}
-                  </div>
+            <style>{`
+              @keyframes badgerPulse {
+                0%, 100% { opacity: 0.85; transform: scale(1); }
+                50% { opacity: 1; transform: scale(1.08); }
+              }
+              .homeLayout {
+                display: flex;
+                flex-direction: row;
+                height: 100vh;
+                overflow: hidden;
+                margin: -24px;
+                background: #050d1f;
+              }
+              .homeLeft {
+                flex: 1;
+                min-width: 0;
+                background: #060f1e;
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                overflow: hidden;
+              }
+              .homeRight {
+                flex: 1.2;
+                min-width: 0;
+                background: #0a1628;
+                border-left: 1px solid rgba(122,168,216,0.12);
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                overflow-y: auto;
+                overflow-x: hidden;
+              }
+              @media (max-width: 767px) {
+                .homeLayout { flex-direction: column; height: auto; overflow: visible; }
+                .homeLeft { min-height: 420px; overflow: visible; }
+                .homeRight { height: auto; }
+              }
+            `}</style>
+            <div className="homeLayout">
+              {/* LEFT: Ask Rayla */}
+              <div className="homeLeft">
+                {/* Header */}
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                  <img src="/badger.png" alt="" style={{ width: 32, height: 32, objectFit: "contain", animation: "badgerPulse 3s ease-in-out infinite" }} />
+                  <span style={{ color: "#7aa8d8", fontSize: 15, fontWeight: 600 }}>Ask Rayla</span>
                 </div>
-              ))}
-            </div>
-
-            {showTooltip === "winrate" && (
-              <div
-                style={{
-                  position: "fixed",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.6)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 9999
-                }}
-                onClick={() => setShowTooltip(null)}
-              >
-                <div
-                  className="card"
-                  style={{ maxWidth: 400 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="cardHeader">
-                    <h2>Win Rate</h2>
-                  </div>
-
-                  <div className="cardBody" style={{ lineHeight: 1.7 }}>
-                    Win rate is the percentage of your trades that were winners.
-                    <br /><br />
-                    Example:
-                    <br />
-                    If you took 10 trades and 6 were profitable, your win rate is 60%.
-                    <br /><br />
-                    Higher doesn’t always mean better — what matters is how much you make vs lose.
-                  </div>
-
-                  <button
-                    className="ghostButton"
-                    onClick={() => setShowTooltip(null)}
-                    style={{ marginTop: 10 }}
-                  >
-                    Got it
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {showTooltip === "avgres" && (
-                <div
-                  style={{
-                    position: "fixed",
-                    inset: 0,
-                    background: "rgba(0,0,0,0.6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    zIndex: 9999
-                  }}
-                  onClick={() => setShowTooltip(null)}
-                >
-                  <div
-                    className="card"
-                    style={{ maxWidth: 400 }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="cardHeader">
-                      <h2>Average Result</h2>
-                    </div>
-
-                    <div className="cardBody" style={{ lineHeight: 1.7 }}>
-                      Average Result shows how your trades are doing on average.
-                      <br /><br />
-                      Example:
-                      <br />
-                      If your trades average +0.50R, that means each trade is making half of your risk on average.
-                      <br /><br />
-                      A positive number is good. A negative number means your average trade is losing.
-                    </div>
-
-                    <button
-                      className="ghostButton"
-                      onClick={() => setShowTooltip(null)}
-                      style={{ marginTop: 10 }}
-                    >
-                      Got it
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {showTooltip === "totalr" && (
-                <div
-                  style={{
-                    position: "fixed",
-                    inset: 0,
-                    background: "rgba(0,0,0,0.6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    zIndex: 9999
-                  }}
-                  onClick={() => setShowTooltip(null)}
-                >
-                  <div
-                    className="card"
-                    style={{ maxWidth: 400 }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="cardHeader">
-                      <h2>Overall Progress</h2>
-                    </div>
-
-                    <div className="cardBody" style={{ lineHeight: 1.7 }}>
-                      Overall Progress shows your total R-based performance across your journaled trades.
-                      <br /><br />
-                      It’s measured in R (risk units), not dollars.
-                      <br /><br />
-                      Example:
-                      <br />
-                      +5R means you’ve gained 5 times your risk.
-                      <br />
-                      -3R means you’ve lost 3 times your risk.
-                      <br /><br />
-                      This is one of the most important numbers to track your progress over time.
-                    </div>
-
-                    <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                      <button
-                        className="ghostButton"
-                        onClick={() => setShowTooltip(null)}
-                      >
-                        Got it
-                      </button>
-
-                      <button
-                        className="ghostButton"
-                        onClick={() => {
-                          setShowTooltip(null);
-                          setActiveTab("ai");
-                          setTimeout(() => {
-                            setAiInput("Explain my win rate and how I can improve it");
-                          }, 100);
-                        }}
-                      >
-                        Ask Rayla
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-                        {isBeginner && (
-                        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
-                          <button
-                            type="button"
-                            className="ghostButton"
-                            onClick={() => {
-                              setBeginnerTutorialView("menu");
-                              setBeginnerTutorialStep(0);
-                              setShowBeginnerTutorial(true);
-                            }}
-                          >
-                            Beginner Help
-                          </button>
+                {/* Scrollable middle */}
+                <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                  {!askRaylaHasMessages ? (
+                    <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0 }}>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ color: "#7aa8d8", fontSize: 22, fontWeight: 700 }}>Ask Rayla anything</div>
+                        <div style={{ color: "#64748b", fontSize: 13, marginTop: 8 }}>Understand trades, charts, risk, and strategy in seconds.</div>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 24 }}>
+                        {ASK_RAYLA_SUGGESTIONS.map((suggestion) => (
+                          <button key={suggestion} type="button" disabled={isRaylaLoading}
+                            onClick={async () => { try { await handleAskRaylaQuestion(suggestion, { clearInput: true, useChat: true }); } catch (err) { console.error("ASK RAYLA SUGGESTION ERROR:", err); } }}
+                            style={{ background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.2)", color: "#7aa8d8", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}
+                          >{suggestion}</button>
+                        ))}
+                      </div>
+                      {!raylaAdaptiveState.onboardingCompleted && activeRaylaAdaptiveQuestion ? (
+                        <div style={{ width: "100%", maxWidth: 480, marginTop: 24, padding: 12, borderRadius: 14, background: "rgba(124,196,255,0.05)", border: "1px solid rgba(124,196,255,0.12)", display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
+                          <div style={{ fontSize: 11, color: "#7CC4FF", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700 }}>Rayla onboarding</div>
+                          <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>{activeRaylaAdaptiveQuestion.prompt}</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {activeRaylaAdaptiveQuestion.options.map((option) => (
+                              <button key={`${activeRaylaAdaptiveQuestion.key}-${option}`} type="button" className="ghostButton"
+                                onClick={() => handleRaylaAdaptiveOnboardingAnswer(activeRaylaAdaptiveQuestion.key, option)}
+                                style={{ padding: "8px 12px", fontSize: 12, color: "#e2e8f0", borderColor: "rgba(124,196,255,0.16)", background: "rgba(124,196,255,0.06)" }}
+                              >{option}</button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ color: "#64748b", fontSize: 11, textAlign: "center", marginTop: 24 }}>
+                          Rayla adapts over time using your questions, simulation behavior, and prior interactions.
                         </div>
                       )}
-            <div className="mainGrid">
-              <div className="span6">
-                <EquityCurveCard equitySeries={filteredEquitySeries} sourceLabel={equitySourceLabel} chartRange={chartRange} setChartRange={setChartRange} />
-              </div>
-              <div className="span6">
-                <MarketCard
-                  items={marketItems}
-                  selectedId={selectedMarketId}
-                  onSelect={setSelectedMarketId}
-                  onRemove={handleRemoveSymbol}
-                  newSymbol={newSymbol}
-                  setNewSymbol={setNewSymbol}
-                  onAddSymbol={handleAddSymbol}
-                  alpacaConnected={Boolean(alpacaAccount)}
-                  onAskChart={({ question, chartContext }) => {
-                    openChartExplainPopup(chartContext, question);
-                  }}
-                />
-              </div>
-              <div className="span4">
-                <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />
-              </div>
-              <div className="span4">
-                              {!isBeginner && (
-                              <>
-                                <div className="span4">
-                                  <div className="card" style={{ height: "100%" }}>
-                                    <div className="cardHeader"><h2>Top Edges</h2></div>
-                                    <div className="cardBody">
-                                      <div className="list">
-                                        {topEdges.map((edge, index) => (
-                                          <div className="listRow" key={edge.name}>
-                                            <div>
-                                              <div className="listTitle">{index + 1}. {edge.name}</div>
-                                              <div className="listSubtext">{edge.trades} trades</div>
-                                            </div>
-                                            <div className="pill">{edge.avgR}</div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="span4">
-                                  {(() => {
-                                    const r = buildCoachReport(trades);
-                                    if (!r) return (
-                                      <div className="card" style={{ height: "100%" }}>
-                                        <div className="cardHeader"><h2>Coach Insights</h2></div>
-                                        <div className="cardBody"><div style={{ fontSize: 13, color: "#7f8ea3" }}>Log trades to unlock coach insights.</div></div>
-                                      </div>
-                                    );
-                                    return (
-                                      <div className="card" style={{ height: "100%", borderColor: "rgba(124,196,255,0.2)" }}>
-                                        <div className="cardHeader"><h2>Coach Insights</h2></div>
-                                        <div className="cardBody">
-                                          <div style={{ fontSize: 13, color: "#e2e8f0", lineHeight: 1.7 }}>
-                                            {`Win Rate: ${r.winRate.toFixed(1)}% · Avg R: ${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(2)}R · ${r.trades} trades`}
-                                          </div>
-                                          {r.bestCombo && (
-                                            <div style={{ marginTop: 8, fontSize: 13, color: "#e2e8f0", lineHeight: 1.7 }}>
-                                              {`Strongest edge: ${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)}R avg`}
-                                            </div>
-                                          )}
-                                          {r.warnings.length > 0 && (
-                                            <div style={{ marginTop: 8, fontSize: 13, color: "#fbbf24", lineHeight: 1.7 }}>
-                                              {r.warnings[0]}
-                                            </div>
-                                          )}
-                                          {r.actions.length > 0 && (
-                                            <div style={{ marginTop: 8, fontSize: 13, color: "#7CC4FF", lineHeight: 1.7 }}>
-                                              {`Next: ${r.actions[0]}`}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              </>
+                    </div>
+                  ) : (
+                    <div ref={askRaylaThreadRef} style={{ flex: 1, overflowY: "auto", padding: "18px 18px 24px", display: "flex", flexDirection: "column", gap: 14, background: "linear-gradient(180deg, rgba(10,14,20,0.76), rgba(11,16,23,0.94))" }}>
+                      {raylaChatMessages.map((message) => (
+                        <div key={message.id} style={{ display: "flex", justifyContent: message.role === "user" ? "flex-end" : "flex-start" }}>
+                          <div style={{ maxWidth: "78%", padding: "14px 16px", borderRadius: message.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px", background: message.role === "user" ? "rgba(124,196,255,0.16)" : "rgba(255,255,255,0.04)", border: message.role === "user" ? "1px solid rgba(124,196,255,0.24)" : "1px solid rgba(255,255,255,0.08)", color: "#e2e8f0", boxShadow: "0 12px 28px rgba(0,0,0,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
+                            <div style={{ fontSize: 11, color: message.role === "user" ? "#93c5fd" : "#94a3b8", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+                              {message.role === "user" ? "You" : "Rayla"}
+                            </div>
+                            {message.loading ? (
+                              <div style={{ fontSize: 14, color: "#94a3b8" }}>Rayla is thinking...</div>
+                            ) : (
+                              <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
+                                {renderRaylaMessageContent(message.content)}
+                              </div>
                             )}
+                          </div>
+                        </div>
+                      ))}
+                      {capitalGuideState.active && (
+                        <div style={{ fontSize: 12, color: "#7CC4FF", lineHeight: 1.5 }}>Capital Guide is active. Answer the current question to keep going.</div>
+                      )}
+                      {activeCapitalGuideQuestion && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>Choose the best fit for this step:</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {activeCapitalGuideQuestion.options.map((option) => (
+                              <button key={`${activeCapitalGuideQuestion.key}-${option}`} type="button" className="ghostButton" disabled={isRaylaLoading}
+                                onClick={async () => { try { await handleAskRaylaQuestion(option, { clearInput: true, useChat: true }); } catch (err) { console.error("CAPITAL GUIDE OPTION ERROR:", err); } }}
+                                style={{ padding: "8px 12px", fontSize: 12, color: "#e2e8f0", borderColor: "rgba(124,196,255,0.2)", background: "rgba(124,196,255,0.08)" }}
+                              >{option}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {capitalGuideResult?.directions?.length ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {capitalGuideResult.directions.map((direction) => (
+                            <div key={direction.id} style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{direction.title}</div>
+                              <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>{direction.body}</div>
+                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{direction.fit}</div>
+                              <div><button type="button" className="ghostButton" onClick={() => handleTryCapitalGuideInScenario(direction)}>Try in Scenario</button></div>
+                            </div>
+                          ))}
+                          {capitalGuideResult.confidenceLine && <div style={{ fontSize: 12, color: "#7f8ea3", lineHeight: 1.6 }}>{capitalGuideResult.confidenceLine}</div>}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                {/* Bottom input — always visible */}
+                <div style={{ flexShrink: 0, padding: "16px 20px", borderTop: "1px solid rgba(122,168,216,0.12)", background: "#060f1e" }}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!aiInput.trim() || isRaylaLoading) return;
+                          try { await handleAskRaylaQuestion(aiInput, { clearInput: true, useChat: true }); }
+                          catch (err) { console.error("ASK RAYLA FETCH ERROR:", err); }
+                        }
+                      }}
+                      placeholder="Ask anything"
+                      style={{ flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(122,168,216,0.15)", borderRadius: 12, padding: "10px 14px", color: "#e2e8f0", fontSize: 14, outline: "none" }}
+                    />
+                    <button type="button" disabled={!aiInput.trim() || isRaylaLoading}
+                      onClick={async () => { try { await handleAskRaylaQuestion(aiInput, { clearInput: true, useChat: true }); } catch (err) { console.error("ASK RAYLA FETCH ERROR:", err); } }}
+                      style={{ background: "#7aa8d8", color: "#050d1f", borderRadius: 10, padding: "10px 14px", fontWeight: 700, fontSize: 14, border: "none", cursor: aiInput.trim() && !isRaylaLoading ? "pointer" : "default" }}
+                    >↑</button>
+                  </div>
+                </div>
+              </div>
+              {/* RIGHT: Live Market */}
+              <div className="homeRight">
+                {/* Label */}
+                <div style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
+                  Live Market
+                </div>
+                {/* Search bar */}
+                <div style={{ position: "relative", padding: "0 20px 12px", flexShrink: 0 }}>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <input
+                      type="text"
+                      value={newSymbol}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        setNewSymbol(val);
+                        if (homeMarketSearchTimeoutRef.current) clearTimeout(homeMarketSearchTimeoutRef.current);
+                        if (val.length < 1) { setHomeMarketSearchResults([]); return; }
+                        homeMarketSearchTimeoutRef.current = setTimeout(async () => {
+                          try {
+                            const results = await searchRaylaSupportedAssets(val, Boolean(alpacaAccount));
+                            setHomeMarketSearchResults(results);
+                          } catch { setHomeMarketSearchResults([]); }
+                        }, 120);
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                      placeholder="Search symbol (AAPL, BTC, NRG)"
+                      className="authInput"
+                    />
+                    <button type="button" onClick={() => {
+                      const best = homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
+                        || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
+                      handleAddSymbol(best || newSymbol);
+                      setHomeMarketSearchResults([]);
+                    }} className="ghostButton">Add</button>
+                  </div>
+                  {homeMarketSearchResults.length > 0 && (
+                    <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, left: 20, right: 20, maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
+                      {homeMarketSearchResults.map((r) => (
+                        <div key={r.symbol} onClick={() => { handleAddSymbol(r); setHomeMarketSearchResults([]); setNewSymbol(""); }}
+                          style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{r.symbol}</span>
+                          <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{r.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Asset carousel */}
+                <div style={{ padding: "0 20px 12px", flexShrink: 0 }}>
+                  <AssetCarousel
+                    assets={[...marketItems].sort((a, b) => a.id.localeCompare(b.id)).map((item) => ({
+                      id: item.id,
+                      symbol: item.id,
+                      name: item.description || item.name || item.id,
+                      price: homeMarketQuotes[item.id]?.price ?? item.priceValue,
+                      change: homeMarketQuotes[item.id]?.change ?? item.changeValue,
+                    }))}
+                    selectedId={selectedMarketId}
+                    onSelect={(asset) => setSelectedMarketId(asset.id)}
+                  />
+                </div>
+                {/* Range + Mode toggles */}
+                <div style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
+                      <button key={range} type="button" onClick={() => setHomeMarketChartRange(range)}
+                        style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid", borderColor: homeMarketChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)", background: homeMarketChartRange === range ? "rgba(124,196,255,0.13)" : "transparent", color: homeMarketChartRange === range ? "#d7efff" : "#7f8ea3", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.5px" }}
+                      >{range}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                      <button key={mode} type="button" onClick={() => setHomeMarketChartMode(mode)}
+                        style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid", borderColor: homeMarketChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)", background: homeMarketChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent", color: homeMarketChartMode === mode ? "#d7efff" : "#7f8ea3", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.5px" }}
+                      >{label}</button>
+                    ))}
+                  </div>
+                  {homeMarketChartLastUpdated && (
+                    <div style={{ fontSize: 10, color: "#7f8ea3", marginLeft: "auto" }}>
+                      Updated {homeMarketChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  )}
+                </div>
+                {/* TradeChart */}
+                <div style={{ flex: 1, minHeight: 300, padding: "0 20px 20px" }}>
+                  {homeMarketSelectedItem && homeMarketChartLoading && extractChartBars(homeMarketChart).length < 2 ? (
+                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>Loading chart...</div>
+                  ) : homeMarketSelectedItem && extractChartBars(homeMarketChart).length < 2 ? (
+                    <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                      <div>Chart unavailable</div>
+                      <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available.</div>
+                    </div>
+                  ) : homeMarketSelectedItem ? (
+                    <TradeChart
+                      bars={extractChartBars(homeMarketChart)}
+                      mode={homeMarketChartMode}
+                      latestPrice={homeMarketQuotes[homeMarketSelectedItem.id]?.price}
+                      assetSymbol={homeMarketSelectedItem.id}
+                      assetName={homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id}
+                      height="100%"
+                    />
+                  ) : null}
+                </div>
+                {/* Ask Rayla → Explain chart */}
+                {homeMarketSelectedItem && (
+                  <div style={{ padding: "0 20px 16px", flexShrink: 0 }}>
+                    <button type="button"
+                      onClick={() => {
+                        const context = buildChartExplainContext({
+                          symbol: homeMarketSelectedItem.id,
+                          assetName: homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id,
+                          assetType: homeMarketSelectedItem.type || "stock",
+                          range: homeMarketChartRange,
+                          bars: extractChartBars(homeMarketChart),
+                          currentPrice: homeMarketQuotes[homeMarketSelectedItem.id]?.price,
+                        });
+                        openChartExplainPopup(context, "Explain this chart");
+                      }}
+                      style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid rgba(124,196,255,0.28)", background: "rgba(124,196,255,0.08)", color: "#d7efff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                    >Ask Rayla → Explain this chart</button>
+                  </div>
+                )}
               </div>
             </div>
-
           </>
         )}
 
@@ -7166,8 +7406,8 @@ return (
                                   padding: "4px 11px",
                                   borderRadius: 7,
                                   border: "1px solid",
-                                  borderColor: tradeViewMode === "portfolio" ? "rgba(96,165,250,0.6)" : "rgba(255,255,255,0.1)",
-                                  background: tradeViewMode === "portfolio" ? "rgba(96,165,250,0.14)" : "transparent",
+                                  borderColor: tradeViewMode === "portfolio" ? "var(--rayla-blue)" : "rgba(255,255,255,0.1)",
+                                  background: tradeViewMode === "portfolio" ? "rgba(111,160,216,0.14)" : "transparent",
                                   color: tradeViewMode === "portfolio" ? "#93c5fd" : "#7f8ea3",
                                   fontSize: 11,
                                   fontWeight: 700,
@@ -8961,36 +9201,85 @@ return (
 
         {activeTab === "ai" && (
           <div className="mainGrid">
-            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
                 <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: "#f3f7fc" }}>Performance Analysis</div>
-                  <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>Review your edge, discipline, and progress in one place.</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "#f3f7fc", letterSpacing: "-0.01em" }}>Performance Analysis</div>
+                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Review your edge, discipline, and progress in one place.</div>
                 </div>
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 14,
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "rgba(18,26,38,0.72)",
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
-                    minWidth: 96,
-                    textAlign: "right",
-                  }}
-                >
-                  <div style={{ fontSize: 10, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 4 }}>
-                    Total R
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: parseFloat(totalR) >= 0 ? "#4ade80" : "#f87171" }}>
-                    {parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R
-                  </div>
+                <div style={{ padding: "10px 18px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(18,26,38,0.86)", textAlign: "right" }}>
+                  <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 3 }}>Total R</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: parseFloat(totalR) >= 0 ? "#4ade80" : "#f87171" }}>{parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R</div>
                 </div>
               </div>
+
+              {/* Stats overview */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                {[
+                  { label: "Trades", value: combinedHomeStats.totalTrackedTradeCount, color: "#f3f7fc" },
+                  { label: "Win Rate", value: winRate, color: combinedHomeStats.winRate >= 50 ? "#4ade80" : "#f87171" },
+                  { label: "Avg R", value: avgR, color: combinedHomeStats.journalAverageResult >= 0 ? "#4ade80" : "#f87171" },
+                  { label: "Avg Win", value: avgWin, color: "#4ade80" },
+                  { label: "Avg Loss", value: avgLoss, color: "#f87171" },
+                  ...(perfReport?.profitFactor != null ? [{ label: "Profit Factor", value: perfReport.profitFactor.toFixed(2), color: perfReport.profitFactor >= 1 ? "#4ade80" : "#f87171" }] : []),
+                ].map(item => (
+                  <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px", cursor: "default" }}>
+                    <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Beginner tooltip modals */}
+              {showTooltip === "winrate" && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => setShowTooltip(null)}>
+                  <div className="card" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+                    <div className="cardHeader"><h2>Win Rate</h2></div>
+                    <div className="cardBody" style={{ lineHeight: 1.7 }}>Win rate is the percentage of your trades that were winners.<br /><br />Example: If you took 10 trades and 6 were profitable, your win rate is 60%.<br /><br />Higher doesn't always mean better — what matters is how much you make vs lose.</div>
+                    <button className="ghostButton" onClick={() => setShowTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
+                  </div>
+                </div>
+              )}
+              {showTooltip === "avgres" && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => setShowTooltip(null)}>
+                  <div className="card" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+                    <div className="cardHeader"><h2>Average Result</h2></div>
+                    <div className="cardBody" style={{ lineHeight: 1.7 }}>Average Result shows how your trades are doing on average.<br /><br />A positive number means each trade makes you money on average. A negative number means the average trade is losing.</div>
+                    <button className="ghostButton" onClick={() => setShowTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
+                  </div>
+                </div>
+              )}
+              {showTooltip === "totalr" && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => setShowTooltip(null)}>
+                  <div className="card" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+                    <div className="cardHeader"><h2>Overall Progress</h2></div>
+                    <div className="cardBody" style={{ lineHeight: 1.7 }}>Overall Progress is your total R-based performance across journaled trades.<br /><br />+5R means you've gained 5× your risk. -3R means you've lost 3× your risk.<br /><br />This is one of the most important numbers to track over time.</div>
+                    <button className="ghostButton" onClick={() => setShowTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Equity curve */}
+              <EquityCurveCard equitySeries={filteredEquitySeries} sourceLabel={equitySourceLabel} chartRange={chartRange} setChartRange={setChartRange} />
+
+              {/* Edge + Setup + Asset analysis (no duplicate stats) */}
+              <AICoachTab
+                trades={trades}
+                onRunAnalysis={runAIAnalysis}
+                showNoNewTrades={showNoNewTrades}
+                coachSummary={coachSummary}
+                hideOverall
+              />
+
+              {/* Ask Rayla about performance */}
               <CoachAskBox trades={trades} onAskRayla={requestRaylaAnswer} isLoading={isRaylaLoading} />
-              <AICoachTab trades={trades} onRunAnalysis={runAIAnalysis} showNoNewTrades={showNoNewTrades} coachSummary={coachSummary} />
+
             </div>
           </div>
         )}
+
 
         {activeTab === "ask" && (
           <div
@@ -9466,6 +9755,32 @@ return (
               <div className="listSubtext">{user?.email || "No email found"}</div>
               <div style={{ marginTop: 16 }}>
                 <div className="listSubtext" style={{ marginBottom: 8 }}>
+                  Rayla Mode
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                  {[
+                    ["beginner", "Beginner Mode"],
+                    ["experienced", "Experienced Mode"],
+                  ].map(([modeValue, label]) => (
+                    <button
+                      key={modeValue}
+                      type="button"
+                      className="ghostButton"
+                      onClick={() => setRaylaMode(modeValue)}
+                      style={{
+                        background: raylaMode === modeValue ? "rgba(124,196,255,0.12)" : undefined,
+                        borderColor: raylaMode === modeValue ? "rgba(124,196,255,0.35)" : undefined,
+                        color: raylaMode === modeValue ? "#d7efff" : undefined,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 14 }}>
+                  Rayla will use this as a baseline tone and explanation depth across chat.
+                </div>
+                <div className="listSubtext" style={{ marginBottom: 8 }}>
                   Adaptive Learning
                 </div>
                 <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, marginBottom: 10 }}>
@@ -9574,13 +9889,19 @@ return (
                     Rayla Coach
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff", marginTop: 4 }}>
-                    Explain this chart
+                    {chartExplainPopupTitle}
                   </div>
-                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-                    {chartExplainPopupContext?.assetName || chartExplainPopupContext?.symbol || "Selected asset"}
-                    {chartExplainPopupContext?.timeframe ? ` · ${chartExplainPopupContext.timeframe}` : ""}
-                    {Number.isFinite(chartExplainPopupContext?.currentPrice) ? ` · ${formatCurrency(chartExplainPopupContext.currentPrice)}` : ""}
-                  </div>
+                  {chartExplainPopupContext ? (
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                      {chartExplainPopupContext?.assetName || chartExplainPopupContext?.symbol || "Selected asset"}
+                      {chartExplainPopupContext?.timeframe ? ` · ${chartExplainPopupContext.timeframe}` : ""}
+                      {Number.isFinite(chartExplainPopupContext?.currentPrice) ? ` · ${formatCurrency(chartExplainPopupContext.currentPrice)}` : ""}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                      Ask anything about trades, charts, risk, or strategy.
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -9653,7 +9974,7 @@ return (
                         await handleChartExplainPopupQuestion(chartExplainPopupInput, chartExplainPopupContext);
                       }
                     }}
-                    placeholder="Ask a follow-up about this chart..."
+                    placeholder={chartExplainPopupContext ? "Ask a follow-up about this chart..." : "Ask Rayla anything..."}
                     rows={1}
                     style={{
                       flex: 1,

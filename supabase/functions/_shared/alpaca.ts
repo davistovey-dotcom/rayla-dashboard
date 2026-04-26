@@ -19,7 +19,7 @@ export function getAlpacaEnv() {
 export function getAlpacaMarketDataEnv() {
   const keyId = Deno.env.get("ALPACA_MARKET_DATA_KEY_ID");
   const secretKey = Deno.env.get("ALPACA_MARKET_DATA_SECRET_KEY");
-  const stockFeed = (Deno.env.get("ALPACA_MARKET_DATA_STOCK_FEED") || "iex").toLowerCase();
+  const stockFeed = (Deno.env.get("ALPACA_MARKET_DATA_STOCK_FEED") || "sip").toLowerCase();
 
   if (!keyId || !secretKey) {
     throw new Error("Missing Alpaca market-data credentials.");
@@ -28,9 +28,7 @@ export function getAlpacaMarketDataEnv() {
   return {
     keyId,
     secretKey,
-    // Default to IEX because it is the safest broadly-available stock feed for
-    // this app. Upgrade to SIP later if your Alpaca data subscription supports it.
-    stockFeed: stockFeed === "sip" ? "sip" : "iex",
+    stockFeed: stockFeed === "iex" ? "iex" : "sip",
   };
 }
 

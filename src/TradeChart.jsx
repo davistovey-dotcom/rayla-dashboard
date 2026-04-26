@@ -92,6 +92,12 @@ export default function TradeChart({
         scaleMargins: { top: 0.08, bottom: 0.08 },
       },
       leftPriceScale: { visible: false },
+      localization: {
+        timeFormatter: (timestamp) => {
+          const date = new Date(timestamp * 1000);
+          return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        },
+      },
       timeScale: {
         borderColor: "rgba(255,255,255,0.08)",
         textColor: "#7f8ea3",

@@ -39,7 +39,8 @@ function isStaleCryptoQuote(quote: any) {
   return Date.now() - updatedAtMs > 60_000;
 }
 
-function getChartConfig(range = "1D") {
+
+function getChartConfig(range = "1D", assetType = "stock") {
   const now = new Date();
   const end = now.toISOString();
 
@@ -47,68 +48,75 @@ function getChartConfig(range = "1D") {
     return {
       stockTimeframe: "1Month",
       cryptoTimeframe: "1Month",
-      start: new Date(now.getTime() - 20 * 365 * 24 * 60 * 60 * 1000).toISOString(),
+      start: "2000-01-01T00:00:00.000Z",
       end,
-      limit: 240,
+      limit: 500,
     };
   }
 
   if (range === "5Y") {
+    const startDate = new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000);
     return {
       stockTimeframe: "1Week",
       cryptoTimeframe: "1Week",
-      start: new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString(),
+      start: startDate.toISOString(),
       end,
-      limit: 270,
+      limit: 500,
     };
   }
 
   if (range === "1Y") {
+    const startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     return {
       stockTimeframe: "1Day",
       cryptoTimeframe: "1Day",
-      start: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+      start: startDate.toISOString(),
       end,
-      limit: 366,
+      limit: 500,
     };
   }
 
   if (range === "1W") {
+    const startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     return {
-      stockTimeframe: "1Hour",
+      stockTimeframe: "30Min",
       cryptoTimeframe: "1Hour",
-      start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      start: startDate.toISOString(),
       end,
-      limit: 168,
+      limit: 500,
     };
   }
 
   if (range === "1M") {
+    const startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     return {
       stockTimeframe: "1Day",
-      cryptoTimeframe: "1Day",
-      start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      cryptoTimeframe: "4Hour",
+      start: startDate.toISOString(),
       end,
-      limit: 60,
+      limit: 500,
     };
   }
 
   if (range === "3M") {
+    const startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     return {
       stockTimeframe: "1Day",
       cryptoTimeframe: "1Day",
-      start: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      start: startDate.toISOString(),
       end,
-      limit: 90,
+      limit: 500,
     };
   }
 
+  const startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   return {
-    stockTimeframe: "15Min",
+    stockTimeframe: "5Min",
     cryptoTimeframe: "15Min",
-    start: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+    start: startDate.toISOString(),
     end,
-    limit: 96,
+    limit: 500,
+    label: "trailing_24h",
   };
 }
 
@@ -200,43 +208,169 @@ async function fetchFallbackSnapshots(items: any[]) {
 async function fetchChart(symbol: string, assetType: string, range = "1D") {
   if (!symbol) return { symbol, range, bars: [] };
 
-  const config = getChartConfig(range);
+  const config = getChartConfig(range, assetType);
   const timeframe = assetType === "crypto" ? config.cryptoTimeframe : config.stockTimeframe;
+  const requestedSpanMs = new Date(config.end).getTime() - new Date(config.start).getTime();
+  console.log("market-data fetchChart request", {
+    symbol,
+    assetType,
+    range,
+    timeframe,
+    start: config.start,
+    end: config.end,
+    limit: config.limit,
+  });
 
   try {
     if (assetType === "crypto") {
       const pair = buildCryptoPair(symbol);
-      const data = await alpacaMarketDataRequest(
-        `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(pair)}&timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}`
-      );
+      const provider = "alpaca-crypto-bars";
+      const requestPath = `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(pair)}&timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}`;
+      console.log("market-data fetchChart provider request", {
+        provider,
+        symbol,
+        assetType,
+        range,
+        requestPath,
+        requestParams: {
+          symbols: pair,
+          timeframe,
+          start: config.start,
+          end: config.end,
+          limit: config.limit,
+        },
+      });
+      const data = await alpacaMarketDataRequest(requestPath);
       const rawBars = Array.isArray(data?.bars?.[pair]) ? data.bars[pair] : [];
       const bars = rawBars
         .map(normalizeAlpacaBar)
         .filter((bar: any) => Number.isFinite(bar.close) && bar.close > 0)
         .map(({ raw, ...bar }: any) => bar);
+      const returnedSpanMs = bars.length >= 2
+        ? new Date(bars[bars.length - 1].time).getTime() - new Date(bars[0].time).getTime()
+        : 0;
+      const coverage = {
+        provider,
+        requestPath,
+        requestedStart: config.start,
+        requestedEnd: config.end,
+        firstBarTime: bars[0]?.time || null,
+        lastBarTime: bars[bars.length - 1]?.time || null,
+        rawFirstBarTime: rawBars[0]?.t || null,
+        rawLastBarTime: rawBars[rawBars.length - 1]?.t || null,
+        requestedSpanHours: Number((requestedSpanMs / (1000 * 60 * 60)).toFixed(2)),
+        returnedSpanHours: Number((returnedSpanMs / (1000 * 60 * 60)).toFixed(2)),
+        limited: returnedSpanMs < requestedSpanMs * 0.85,
+        reason: returnedSpanMs < requestedSpanMs * 0.85
+          ? "Provider returned less than the requested trailing window."
+          : null,
+      };
 
       if (!bars.length) {
         console.log("market-data fetchChart crypto returned no Alpaca bars", { symbol, pair, range, timeframe });
       }
 
-      return { symbol, range, bars };
+      console.log("market-data fetchChart response", {
+        symbol,
+        assetType,
+        range,
+        start: config.start,
+        end: config.end,
+        provider,
+        requestPath,
+        firstBarTime: bars[0]?.time || null,
+        lastBarTime: bars[bars.length - 1]?.time || null,
+        rawFirstBarTime: rawBars[0]?.t || null,
+        rawLastBarTime: rawBars[rawBars.length - 1]?.t || null,
+        barCount: bars.length,
+        diffHours: bars.length >= 2
+          ? Number((((new Date(bars[bars.length - 1].time).getTime()) - (new Date(bars[0].time).getTime())) / (1000 * 60 * 60)).toFixed(2))
+          : 0,
+        diffDays: bars.length >= 2
+          ? Number((((new Date(bars[bars.length - 1].time).getTime()) - (new Date(bars[0].time).getTime())) / (1000 * 60 * 60 * 24)).toFixed(2))
+          : 0,
+        coverageReason: coverage.reason,
+      });
+
+      return { symbol, range, bars, coverage, rangeMode: config.label || null };
     }
 
     const { stockFeed } = getAlpacaMarketDataEnv();
-    const data = await alpacaMarketDataRequest(
-      `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}&feed=${encodeURIComponent(stockFeed)}`
-    );
+    const provider = "alpaca-stock-bars";
+    const requestPath = `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}&feed=${encodeURIComponent(stockFeed)}`;
+    console.error("STOCK REQUEST PATH DEBUG", requestPath);
+    console.log("market-data fetchChart provider request", {
+      provider,
+      symbol,
+      assetType,
+      range,
+      requestPath,
+      requestParams: {
+        symbol,
+        timeframe,
+        start: config.start,
+        end: config.end,
+        limit: config.limit,
+        feed: stockFeed,
+      },
+    });
+    const data = await alpacaMarketDataRequest(requestPath);
     const rawBars = Array.isArray(data?.bars) ? data.bars : [];
     const bars = rawBars
       .map(normalizeAlpacaBar)
       .filter((bar: any) => Number.isFinite(bar.close) && bar.close > 0)
       .map(({ raw, ...bar }: any) => bar);
+    const returnedSpanMs = bars.length >= 2
+      ? new Date(bars[bars.length - 1].time).getTime() - new Date(bars[0].time).getTime()
+      : 0;
+    const limitedCoverage = returnedSpanMs < requestedSpanMs * 0.85;
+    const likelyMarketHoursOnly = range === "1D" && timeframe === "15Min" && limitedCoverage;
+    const coverage = {
+      provider,
+      requestPath,
+      requestedStart: config.start,
+      requestedEnd: config.end,
+      firstBarTime: bars[0]?.time || null,
+      lastBarTime: bars[bars.length - 1]?.time || null,
+      rawFirstBarTime: rawBars[0]?.t || null,
+      rawLastBarTime: rawBars[rawBars.length - 1]?.t || null,
+      requestedSpanHours: Number((requestedSpanMs / (1000 * 60 * 60)).toFixed(2)),
+      returnedSpanHours: Number((returnedSpanMs / (1000 * 60 * 60)).toFixed(2)),
+      limited: limitedCoverage,
+      reason: likelyMarketHoursOnly
+        ? "Alpaca stock intraday bars appear limited to market-session coverage for this request/feed, so the returned 1D span is shorter than the requested trailing 24 hours."
+        : limitedCoverage
+          ? "Provider returned less than the requested trailing window."
+          : null,
+    };
 
     if (!bars.length) {
       console.log("market-data fetchChart stock returned no Alpaca bars", { symbol, range, timeframe, feed: stockFeed });
     }
 
-    return { symbol, range, bars };
+    console.log("market-data fetchChart response", {
+      symbol,
+      assetType,
+      range,
+      start: config.start,
+      end: config.end,
+      provider,
+      requestPath,
+      firstBarTime: bars[0]?.time || null,
+      lastBarTime: bars[bars.length - 1]?.time || null,
+      rawFirstBarTime: rawBars[0]?.t || null,
+      rawLastBarTime: rawBars[rawBars.length - 1]?.t || null,
+      barCount: bars.length,
+      diffHours: bars.length >= 2
+        ? Number((((new Date(bars[bars.length - 1].time).getTime()) - (new Date(bars[0].time).getTime())) / (1000 * 60 * 60)).toFixed(2))
+        : 0,
+      diffDays: bars.length >= 2
+        ? Number((((new Date(bars[bars.length - 1].time).getTime()) - (new Date(bars[0].time).getTime())) / (1000 * 60 * 60 * 24)).toFixed(2))
+        : 0,
+      coverageReason: coverage.reason,
+    });
+
+    return { symbol, range, bars, coverage, rangeMode: config.label || null };
   } catch (error) {
     console.error("market-data fetchChart Alpaca bars failed", { symbol, assetType, range, error: error?.message || String(error) });
     return { symbol, range, bars: [] };
