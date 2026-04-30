@@ -15,6 +15,12 @@ const corsHeaders = {
 
 const CRYPTO_BASES = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
 const FALLBACK_CORS_JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
+const DEBUG_CHARTS = Deno.env.get("DEBUG_CHARTS") === "true";
+
+function logChartDebug(label: string, payload: Record<string, unknown>) {
+  if (!DEBUG_CHARTS) return;
+  console.log(label, payload);
+}
 
 function normalizeSymbolInput(item: any) {
   const symbol = String(item?.symbol || item || "").trim().toUpperCase();
@@ -39,90 +45,60 @@ function isStaleCryptoQuote(quote: any) {
   return Date.now() - updatedAtMs > 60_000;
 }
 
+function getEasternParts(date: Date) {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+}
+
+function buildEasternDate(parts: Record<string, string>, hour: string, minute: string, second = "00") {
+  const timeZoneName = String(parts.timeZoneName || "GMT-05:00").replace("GMT", "");
+  const offset = timeZoneName.startsWith("+") || timeZoneName.startsWith("-")
+    ? timeZoneName
+    : "-05:00";
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T${hour}:${minute}:${second}${offset}`);
+}
+
+function isStockMarketOpen(now: Date) {
+  const parts = getEasternParts(now);
+  const weekday = parts.weekday;
+  if (weekday === "Sat" || weekday === "Sun") return false;
+  const open = buildEasternDate(parts, "09", "30");
+  const close = buildEasternDate(parts, "16", "00");
+  return now.getTime() >= open.getTime() && now.getTime() <= close.getTime();
+}
+
+
 
 function getChartConfig(range = "1D", assetType = "stock") {
   const now = new Date();
   const end = now.toISOString();
-
-  if (range === "MAX") {
-    return {
-      stockTimeframe: "1Month",
-      cryptoTimeframe: "1Month",
-      start: "2000-01-01T00:00:00.000Z",
-      end,
-      limit: 500,
-    };
-  }
-
-  if (range === "5Y") {
-    const startDate = new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000);
-    return {
-      stockTimeframe: "1Week",
-      cryptoTimeframe: "1Week",
-      start: startDate.toISOString(),
-      end,
-      limit: 500,
-    };
-  }
-
-  if (range === "1Y") {
-    const startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-    return {
-      stockTimeframe: "1Day",
-      cryptoTimeframe: "1Day",
-      start: startDate.toISOString(),
-      end,
-      limit: 500,
-    };
-  }
-
-  if (range === "1W") {
-    const startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return {
-      stockTimeframe: "30Min",
-      cryptoTimeframe: "1Hour",
-      start: startDate.toISOString(),
-      end,
-      limit: 500,
-    };
-  }
-
-  if (range === "1M") {
-    const startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return {
-      stockTimeframe: "1Day",
-      cryptoTimeframe: "4Hour",
-      start: startDate.toISOString(),
-      end,
-      limit: 500,
-    };
-  }
-
-  if (range === "3M") {
-    const startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    return {
-      stockTimeframe: "1Day",
-      cryptoTimeframe: "1Day",
-      start: startDate.toISOString(),
-      end,
-      limit: 500,
-    };
-  }
-
-  const startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  return {
-    stockTimeframe: "5Min",
-    cryptoTimeframe: "15Min",
-    start: startDate.toISOString(),
-    end,
-    limit: 500,
-    label: "trailing_24h",
-  };
+  if (range === "MAX") return { stockTimeframe: "1Month", cryptoTimeframe: "1Month", start: "2000-01-01T00:00:00.000Z", end, limit: 10000 };
+  if (range === "5Y") return { stockTimeframe: "1Week", cryptoTimeframe: "1Week", start: new Date(now.getTime() - 5*365*24*60*60*1000).toISOString(), end, limit: 10000 };
+  if (range === "1Y") return { stockTimeframe: "1Day", cryptoTimeframe: "1Day", start: new Date(now.getTime() - 365*24*60*60*1000).toISOString(), end, limit: 10000 };
+  if (range === "3M") return { stockTimeframe: "1Day", cryptoTimeframe: "1Day", start: new Date(now.getTime() - 90*24*60*60*1000).toISOString(), end, limit: 10000 };
+  if (range === "1M") return { stockTimeframe: "1Day", cryptoTimeframe: "1Day", start: new Date(now.getTime() - 30*24*60*60*1000).toISOString(), end, limit: 500 };
+  if (range === "1W") return { stockTimeframe: "1Hour", cryptoTimeframe: "1Hour", start: new Date(now.getTime() - 7*24*60*60*1000).toISOString(), end, limit: 500 };
+  return { stockTimeframe: "15Min", cryptoTimeframe: "15Min", start: new Date(now.getTime() - 24*60*60*1000).toISOString(), end, limit: 500 };
 }
 
 async function fetchSnapshots(items: any[]) {
   const { stockFeed } = getAlpacaMarketDataEnv();
-  const quotes: Record<string, { price: number; change: number; updatedAt?: string | null }> = {};
+  const quotes: Record<string, { price: number; change: number; updatedAt?: string | null; bid?: number | null; ask?: number | null; lastTradePrice?: number | null }> = {};
   const stockSymbols = items.filter((item) => item.assetType === "stock").map((item) => item.symbol);
   const cryptoSymbols = items.filter((item) => item.assetType === "crypto").map((item) => item.symbol);
 
@@ -135,6 +111,9 @@ async function fetchSnapshots(items: any[]) {
           price: normalized.price,
           change: normalized.change,
           updatedAt: normalized.updatedAt || null,
+          bid: normalized.bid ?? null,
+          ask: normalized.ask ?? null,
+          lastTradePrice: normalized.lastTradePrice ?? normalized.price,
         };
       }
     });
@@ -150,6 +129,9 @@ async function fetchSnapshots(items: any[]) {
           price: normalized.price,
           change: normalized.change,
           updatedAt: normalized.updatedAt || null,
+          bid: normalized.bid ?? null,
+          ask: normalized.ask ?? null,
+          lastTradePrice: normalized.lastTradePrice ?? normalized.price,
         };
       }
     });
@@ -161,7 +143,7 @@ async function fetchSnapshots(items: any[]) {
 async function fetchFallbackSnapshots(items: any[]) {
   const polygonKey = Deno.env.get("POLYGON_API_KEY");
   const finnhubKey = Deno.env.get("FINNHUB_API_KEY");
-  const quotes: Record<string, { price: number; change: number; updatedAt?: string | null }> = {};
+  const quotes: Record<string, { price: number; change: number; updatedAt?: string | null; bid?: number | null; ask?: number | null; lastTradePrice?: number | null }> = {};
   const stockSymbols = items.filter((item) => item.assetType === "stock").map((item) => item.symbol);
   const cryptoSymbols = items.filter((item) => item.assetType === "crypto").map((item) => item.symbol);
 
@@ -180,6 +162,9 @@ async function fetchFallbackSnapshots(items: any[]) {
           price,
           change: Number(change.toFixed(2)),
           updatedAt: ticker?.lastTrade?.t || ticker?.updated_utc || null,
+          bid: Number.isFinite(Number(ticker?.lastQuote?.p ?? ticker?.lastQuote?.bp)) ? Number(ticker?.lastQuote?.p ?? ticker?.lastQuote?.bp) : null,
+          ask: Number.isFinite(Number(ticker?.lastQuote?.P ?? ticker?.lastQuote?.ap)) ? Number(ticker?.lastQuote?.P ?? ticker?.lastQuote?.ap) : null,
+          lastTradePrice: Number.isFinite(Number(ticker?.lastTrade?.p)) ? Number(ticker?.lastTrade?.p) : price,
         };
       }
     }
@@ -198,6 +183,9 @@ async function fetchFallbackSnapshots(items: any[]) {
         price,
         change: Number(change.toFixed(2)),
         updatedAt: data?.t ? new Date(data.t * 1000).toISOString() : new Date().toISOString(),
+        bid: null,
+        ask: null,
+        lastTradePrice: price,
       };
     }
   }
@@ -205,13 +193,22 @@ async function fetchFallbackSnapshots(items: any[]) {
   return quotes;
 }
 
-async function fetchChart(symbol: string, assetType: string, range = "1D") {
+async function fetchChart(symbol: string, assetType: string, range = "1D", timeframeOverride: string | null = null) {
   if (!symbol) return { symbol, range, bars: [] };
 
+  if (assetType === "stock" && range === "1D" && !isStockMarketOpen(new Date())) {
+    logChartDebug("market-data fetchChart stock 1D unavailable while market closed", {
+      symbol,
+      assetType,
+      range,
+    });
+    return { symbol, range, bars: [], rangeMode: "market_closed" };
+  }
+
   const config = getChartConfig(range, assetType);
-  const timeframe = assetType === "crypto" ? config.cryptoTimeframe : config.stockTimeframe;
+  const timeframe = timeframeOverride || (assetType === "crypto" ? config.cryptoTimeframe : config.stockTimeframe);
   const requestedSpanMs = new Date(config.end).getTime() - new Date(config.start).getTime();
-  console.log("market-data fetchChart request", {
+  logChartDebug("market-data fetchChart request", {
     symbol,
     assetType,
     range,
@@ -226,7 +223,7 @@ async function fetchChart(symbol: string, assetType: string, range = "1D") {
       const pair = buildCryptoPair(symbol);
       const provider = "alpaca-crypto-bars";
       const requestPath = `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(pair)}&timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}`;
-      console.log("market-data fetchChart provider request", {
+      logChartDebug("market-data fetchChart provider request", {
         provider,
         symbol,
         assetType,
@@ -267,10 +264,10 @@ async function fetchChart(symbol: string, assetType: string, range = "1D") {
       };
 
       if (!bars.length) {
-        console.log("market-data fetchChart crypto returned no Alpaca bars", { symbol, pair, range, timeframe });
+        logChartDebug("market-data fetchChart crypto returned no Alpaca bars", { symbol, pair, range, timeframe });
       }
 
-      console.log("market-data fetchChart response", {
+      logChartDebug("market-data fetchChart response", {
         symbol,
         assetType,
         range,
@@ -292,14 +289,28 @@ async function fetchChart(symbol: string, assetType: string, range = "1D") {
         coverageReason: coverage.reason,
       });
 
+      logChartDebug("CHART DATA VERIFY", {
+        symbol,
+        range,
+        assetType,
+        requestedStart: config.start,
+        requestedEnd: config.end,
+        timeframe: assetType === "crypto" ? config.cryptoTimeframe : config.stockTimeframe,
+        limit: config.limit,
+        actualFirstBar: bars[0]?.time || null,
+        actualLastBar: bars[bars.length - 1]?.time || null,
+        rawFirstBar: rawBars[0]?.t || null,
+        rawLastBar: rawBars[rawBars.length - 1]?.t || null,
+        totalBarsReturned: bars.length,
+      });
       return { symbol, range, bars, coverage, rangeMode: config.label || null };
     }
 
     const { stockFeed } = getAlpacaMarketDataEnv();
     const provider = "alpaca-stock-bars";
-    const requestPath = `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}&feed=${encodeURIComponent(stockFeed)}`;
-    console.error("STOCK REQUEST PATH DEBUG", requestPath);
-    console.log("market-data fetchChart provider request", {
+    const feedParam = range === "1D" ? `&feed=${encodeURIComponent(stockFeed)}` : "";
+    const requestPath = `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${encodeURIComponent(timeframe)}&start=${encodeURIComponent(config.start)}&end=${encodeURIComponent(config.end)}&limit=${config.limit}${feedParam}`;
+    logChartDebug("market-data fetchChart provider request", {
       provider,
       symbol,
       assetType,
@@ -311,7 +322,7 @@ async function fetchChart(symbol: string, assetType: string, range = "1D") {
         start: config.start,
         end: config.end,
         limit: config.limit,
-        feed: stockFeed,
+        feed: range === "1D" ? stockFeed : "(default)",
       },
     });
     const data = await alpacaMarketDataRequest(requestPath);
@@ -345,10 +356,10 @@ async function fetchChart(symbol: string, assetType: string, range = "1D") {
     };
 
     if (!bars.length) {
-      console.log("market-data fetchChart stock returned no Alpaca bars", { symbol, range, timeframe, feed: stockFeed });
+      logChartDebug("market-data fetchChart stock returned no Alpaca bars", { symbol, range, timeframe, feed: stockFeed });
     }
 
-    console.log("market-data fetchChart response", {
+    logChartDebug("market-data fetchChart response", {
       symbol,
       assetType,
       range,
@@ -370,6 +381,20 @@ async function fetchChart(symbol: string, assetType: string, range = "1D") {
       coverageReason: coverage.reason,
     });
 
+    logChartDebug("CHART DATA VERIFY", {
+      symbol,
+      range,
+      assetType,
+      requestedStart: config.start,
+      requestedEnd: config.end,
+      timeframe: assetType === "crypto" ? config.cryptoTimeframe : config.stockTimeframe,
+      limit: config.limit,
+      actualFirstBar: bars[0]?.time || null,
+      actualLastBar: bars[bars.length - 1]?.time || null,
+      rawFirstBar: rawBars[0]?.t || null,
+      rawLastBar: rawBars[rawBars.length - 1]?.t || null,
+      totalBarsReturned: bars.length,
+    });
     return { symbol, range, bars, coverage, rangeMode: config.label || null };
   } catch (error) {
     console.error("market-data fetchChart Alpaca bars failed", { symbol, assetType, range, error: error?.message || String(error) });
@@ -430,6 +455,12 @@ async function fetchSymbolNews(symbol: string, assetType: string) {
 }
 
 serve(async (req) => {
+  console.error("ALPACA ENV CHECK", {
+    hasKeyId: !!Deno.env.get("ALPACA_MARKET_DATA_KEY_ID"),
+    hasSecretKey: !!Deno.env.get("ALPACA_MARKET_DATA_SECRET_KEY"),
+    stockFeed: Deno.env.get("ALPACA_MARKET_DATA_STOCK_FEED"),
+  });
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -442,12 +473,12 @@ serve(async (req) => {
   }
 
   try {
-    const { symbols = [], chartSymbol, chartType, chartRange, newsSymbol, newsType } = await req.json();
+    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType } = await req.json();
     const normalizedItems = Array.isArray(symbols)
       ? symbols.map(normalizeSymbolInput).filter((item) => item.symbol)
       : [];
 
-    let quotes: Record<string, { price: number; change: number }> = {};
+    let quotes: Record<string, { price: number; change: number; updatedAt?: string | null; bid?: number | null; ask?: number | null; lastTradePrice?: number | null }> = {};
     if (normalizedItems.length) {
       try {
         quotes = await fetchSnapshots(normalizedItems);
@@ -474,7 +505,7 @@ serve(async (req) => {
     if (chartSymbol) {
       const normalizedChartSymbol = String(chartSymbol).toUpperCase();
       const normalizedChartType = String(chartType || "").toLowerCase() === "crypto" ? "crypto" : (CRYPTO_BASES.has(normalizedChartSymbol) ? "crypto" : "stock");
-      chart = await fetchChart(normalizedChartSymbol, normalizedChartType, chartRange || "1D");
+      chart = await fetchChart(normalizedChartSymbol, normalizedChartType, chartRange || "1D", chartTimeframe || null);
     }
 
     let news = [];

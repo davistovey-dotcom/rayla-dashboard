@@ -160,6 +160,11 @@ export function normalizeAlpacaOrder(order: any) {
 export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType = "stock") {
   if (!snapshot) return null;
 
+  const bid = Number(snapshot?.latestQuote?.bp ?? snapshot?.latestQuote?.bidPrice ?? 0);
+  const ask = Number(snapshot?.latestQuote?.ap ?? snapshot?.latestQuote?.askPrice ?? 0);
+  const normalizedBid = Number.isFinite(bid) && bid > 0 ? bid : null;
+  const normalizedAsk = Number.isFinite(ask) && ask > 0 ? ask : null;
+
   if (assetType === "crypto") {
     const latestTradePrice = Number(snapshot?.latestTrade?.p ?? 0);
     const prevClose = Number(snapshot?.dailyBar?.o ?? snapshot?.prevDailyBar?.c ?? 0);
@@ -174,6 +179,9 @@ export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType
       change: Number(change.toFixed(2)),
       previousClose: prevClose || null,
       updatedAt,
+      bid: normalizedBid,
+      ask: normalizedAsk,
+      lastTradePrice: latestTradePrice,
       assetType,
       raw: snapshot,
     };
@@ -192,6 +200,9 @@ export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType
     change: Number(change.toFixed(2)),
     previousClose: prevClose || null,
     updatedAt,
+    bid: normalizedBid,
+    ask: normalizedAsk,
+    lastTradePrice: latestTradePrice,
     assetType,
     raw: snapshot,
   };

@@ -3,11 +3,30 @@ import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
 import TradeChart from "./TradeChart";
+import KLineTradeChart from "./KLineTradeChart";
+import TradingViewLiveChart from "./TradingViewLiveChart";
+import EquityComparisonChart from "./EquityComparisonChart";
 import AssetCarousel from "./components/AssetCarousel";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import { Tutorial } from "./Login";
 
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
+const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
+const TICKER_ALIASES = {
+  APPL: "AAPL",
+  APPLE: "AAPL",
+  TESLA: "TSLA",
+  GOOGLE: "GOOGL",
+  ALPHABET: "GOOGL",
+  AMAZON: "AMZN",
+  NVIDIA: "NVDA",
+  MICROSOFT: "MSFT",
+};
+
+function resolveTickerAlias(raw) {
+  const upper = String(raw || "").trim().toUpperCase();
+  return TICKER_ALIASES[upper] || upper;
+}
 const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
   { symbol: "BTC", description: "Bitcoin", exchange: "CRYPTO", type: "crypto" },
   { symbol: "ETH", description: "Ethereum", exchange: "CRYPTO", type: "crypto" },
@@ -30,6 +49,66 @@ const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
   { symbol: "SAND", description: "The Sandbox", exchange: "CRYPTO", type: "crypto" },
   { symbol: "MANA", description: "Decentraland", exchange: "CRYPTO", type: "crypto" },
   { symbol: "TRX", description: "TRON", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "SHIB", description: "Shiba Inu", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "APT", description: "Aptos", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "ARB", description: "Arbitrum", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "OP", description: "Optimism", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "SUI", description: "Sui", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "INJ", description: "Injective", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "FIL", description: "Filecoin", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "ICP", description: "Internet Computer", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "HBAR", description: "Hedera", exchange: "CRYPTO", type: "crypto" },
+  { symbol: "VET", description: "VeChain", exchange: "CRYPTO", type: "crypto" },
+];
+
+const SUPPORTED_POPULAR_STOCKS = [
+  { symbol: "AAPL", description: "Apple Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "MSFT", description: "Microsoft Corp.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "NVDA", description: "NVIDIA Corp.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "TSLA", description: "Tesla Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "AMZN", description: "Amazon.com Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "GOOGL", description: "Alphabet Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "META", description: "Meta Platforms Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "NFLX", description: "Netflix Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "AMD", description: "Advanced Micro Devices", exchange: "NASDAQ", type: "stock" },
+  { symbol: "INTC", description: "Intel Corp.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "PYPL", description: "PayPal Holdings", exchange: "NASDAQ", type: "stock" },
+  { symbol: "COIN", description: "Coinbase Global", exchange: "NASDAQ", type: "stock" },
+  { symbol: "HOOD", description: "Robinhood Markets", exchange: "NASDAQ", type: "stock" },
+  { symbol: "PLTR", description: "Palantir Technologies", exchange: "NYSE", type: "stock" },
+  { symbol: "RBLX", description: "Roblox Corp.", exchange: "NYSE", type: "stock" },
+  { symbol: "UBER", description: "Uber Technologies", exchange: "NYSE", type: "stock" },
+  { symbol: "ABNB", description: "Airbnb Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "SHOP", description: "Shopify Inc.", exchange: "NYSE", type: "stock" },
+  { symbol: "SNOW", description: "Snowflake Inc.", exchange: "NYSE", type: "stock" },
+  { symbol: "NET", description: "Cloudflare Inc.", exchange: "NYSE", type: "stock" },
+  { symbol: "CRWD", description: "CrowdStrike Holdings", exchange: "NASDAQ", type: "stock" },
+  { symbol: "DKNG", description: "DraftKings Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "RIVN", description: "Rivian Automotive", exchange: "NASDAQ", type: "stock" },
+  { symbol: "NIO", description: "NIO Inc.", exchange: "NYSE", type: "stock" },
+  { symbol: "LCID", description: "Lucid Group", exchange: "NASDAQ", type: "stock" },
+  { symbol: "GME", description: "GameStop Corp.", exchange: "NYSE", type: "stock" },
+  { symbol: "AMC", description: "AMC Entertainment", exchange: "NYSE", type: "stock" },
+  { symbol: "JPM", description: "JPMorgan Chase & Co.", exchange: "NYSE", type: "stock" },
+  { symbol: "BAC", description: "Bank of America Corp.", exchange: "NYSE", type: "stock" },
+  { symbol: "GS", description: "Goldman Sachs Group", exchange: "NYSE", type: "stock" },
+  { symbol: "JNJ", description: "Johnson & Johnson", exchange: "NYSE", type: "stock" },
+  { symbol: "PFE", description: "Pfizer Inc.", exchange: "NYSE", type: "stock" },
+  { symbol: "MRNA", description: "Moderna Inc.", exchange: "NASDAQ", type: "stock" },
+  { symbol: "XOM", description: "Exxon Mobil Corp.", exchange: "NYSE", type: "stock" },
+  { symbol: "CVX", description: "Chevron Corp.", exchange: "NYSE", type: "stock" },
+  { symbol: "DIS", description: "Walt Disney Co.", exchange: "NYSE", type: "stock" },
+  { symbol: "BA", description: "Boeing Co.", exchange: "NYSE", type: "stock" },
+  { symbol: "F", description: "Ford Motor Co.", exchange: "NYSE", type: "stock" },
+  { symbol: "GM", description: "General Motors Co.", exchange: "NYSE", type: "stock" },
+  { symbol: "SPY", description: "SPDR S&P 500 ETF", exchange: "AMEX", type: "stock" },
+  { symbol: "QQQ", description: "Invesco QQQ ETF (Nasdaq 100)", exchange: "NASDAQ", type: "stock" },
+  { symbol: "IWM", description: "iShares Russell 2000 ETF", exchange: "AMEX", type: "stock" },
+  { symbol: "GLD", description: "SPDR Gold Shares ETF", exchange: "AMEX", type: "stock" },
+  { symbol: "TLT", description: "iShares 20+ Year Treasury Bond ETF", exchange: "NASDAQ", type: "stock" },
+  { symbol: "ARKK", description: "ARK Innovation ETF", exchange: "AMEX", type: "stock" },
+  { symbol: "VOO", description: "Vanguard S&P 500 ETF", exchange: "AMEX", type: "stock" },
+  { symbol: "VTI", description: "Vanguard Total Stock Market ETF", exchange: "AMEX", type: "stock" },
 ];
 
 function normalizeCryptoAssetId(rawSymbol) {
@@ -64,6 +143,63 @@ function normalizeAssetId(rawSymbol, type = "", tvSymbol = "") {
   if (isCrypto) return cryptoCandidate;
   if (raw === "TRON") return "TRX";
   return raw.includes(":") ? raw.split(":").pop() : raw;
+}
+
+function buildChartDrawingsStorageKey(symbol, chartType) {
+  const normalizedSymbol = normalizeAssetId(symbol) || "UNKNOWN";
+  return `rayla_drawings_${normalizedSymbol}_${chartType}`;
+}
+
+function normalizeStoredChartDrawing(drawing) {
+  if (!drawing || typeof drawing !== "object") return null;
+  const type = drawing.type === "note" ? "text" : String(drawing.type || "").toLowerCase();
+  if (!["horizontal", "trendline", "text"].includes(type)) return null;
+  const points = Array.isArray(drawing.points)
+    ? drawing.points
+        .map((point) => {
+          if (!point || typeof point !== "object") return null;
+          const normalizedPoint = {};
+          if (Number.isFinite(Number(point.time))) normalizedPoint.time = Number(point.time);
+          if (Number.isFinite(Number(point.price))) normalizedPoint.price = Number(point.price);
+          if (Number.isFinite(Number(point.xPct))) normalizedPoint.xPct = Math.max(0, Math.min(100, Number(point.xPct)));
+          if (Number.isFinite(Number(point.yPct))) normalizedPoint.yPct = Math.max(0, Math.min(100, Number(point.yPct)));
+          return Object.keys(normalizedPoint).length ? normalizedPoint : null;
+        })
+        .filter(Boolean)
+    : [];
+  if (!points.length) return null;
+  return {
+    id: String(drawing.id || crypto.randomUUID()),
+    type,
+    points,
+    text: type === "text" ? String(drawing.text || "").trim().slice(0, 80) : "",
+  };
+}
+
+function readChartDrawingsFromStorage(storageKey) {
+  if (!storageKey || typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeStoredChartDrawing).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeChartDrawingsToStorage(storageKey, drawings) {
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    if (!Array.isArray(drawings) || !drawings.length) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+    window.localStorage.setItem(storageKey, JSON.stringify(drawings.map(normalizeStoredChartDrawing).filter(Boolean)));
+  } catch {
+    // Ignore localStorage write failures.
+  }
 }
 
 function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
@@ -143,6 +279,9 @@ function normalizeSearchResult(result) {
     description,
     exchange,
     tvSymbol,
+    alpacaSupported: typeof result?.tradable === "boolean"
+      ? Boolean(result.tradable)
+      : (CRYPTO_SYMBOL_SET.has(symbol) ? true : result?.alpacaSupported),
   };
 }
 
@@ -162,7 +301,7 @@ function rankSupportedSearchResult(result, query) {
 const supportedSearchCache = new Map();
 
 async function searchRaylaSupportedAssets(query, alpacaConnected) {
-  const normalizedQuery = String(query || "").trim().toUpperCase();
+  const normalizedQuery = resolveTickerAlias(String(query || "").trim().toUpperCase());
   if (!normalizedQuery) return [];
 
   const cacheKey = `${alpacaConnected ? "alpaca" : "local"}:${normalizedQuery}`;
@@ -195,6 +334,13 @@ async function searchRaylaSupportedAssets(query, alpacaConnected) {
     } catch {
       stockResults = [];
     }
+  } else {
+    stockResults = SUPPORTED_POPULAR_STOCKS
+      .filter((asset) => (
+        asset.symbol.includes(normalizedQuery)
+        || asset.description.toUpperCase().includes(normalizedQuery)
+      ))
+      .map(normalizeSearchResult);
   }
 
   const merged = [...stockResults, ...cryptoResults];
@@ -213,7 +359,7 @@ async function searchRaylaSupportedAssets(query, alpacaConnected) {
       if (symbolLengthDelta !== 0) return symbolLengthDelta;
       return String(a.symbol || "").localeCompare(String(b.symbol || ""));
     })
-    .slice(0, 6);
+    .slice(0, 8);
 
   supportedSearchCache.set(cacheKey, results);
   return results;
@@ -238,11 +384,11 @@ const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
 
 const marketSeeds = [
-  { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%" },
-  { id: "ETH", type: "crypto", label: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", fallbackPrice: "3,120", fallbackChange: "+0.9%" },
-  { id: "SPY", type: "stock", label: "SPDR S&P 500 ETF", tvSymbol: "AMEX:SPY", fallbackPrice: "521.14", fallbackChange: "-0.4%" },
-  { id: "NVDA", type: "stock", label: "NVIDIA", tvSymbol: "NASDAQ:NVDA", fallbackPrice: "908.55", fallbackChange: "+3.2%" },
-  { id: "AAPL", type: "stock", label: "Apple", tvSymbol: "NASDAQ:AAPL", fallbackPrice: "212.44", fallbackChange: "-0.4%" },
+  { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%", alpacaSupported: true, tradable: true },
+  { id: "ETH", type: "crypto", label: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", fallbackPrice: "3,120", fallbackChange: "+0.9%", alpacaSupported: true, tradable: true },
+  { id: "SPY", type: "stock", label: "SPDR S&P 500 ETF", tvSymbol: "AMEX:SPY", fallbackPrice: "521.14", fallbackChange: "-0.4%", alpacaSupported: true, tradable: true },
+  { id: "NVDA", type: "stock", label: "NVIDIA", tvSymbol: "NASDAQ:NVDA", fallbackPrice: "908.55", fallbackChange: "+3.2%", alpacaSupported: true, tradable: true },
+  { id: "AAPL", type: "stock", label: "Apple", tvSymbol: "NASDAQ:AAPL", fallbackPrice: "212.44", fallbackChange: "-0.4%", alpacaSupported: true, tradable: true },
 ];
 
 const SETUP_OPTIONS = ["rejection","breakout","pullback","reversal","range"];
@@ -251,37 +397,37 @@ const SIMULATION_TUTORIAL_SECTIONS = [
   {
     key: "controls",
     title: "Trade Controls",
-    description: "Search an asset, choose direction, set amount mode and size, then build your stop and target plan before starting the rep.",
+    description: "Pick asset, direction, and size. Set your exit plan before you start.",
   },
   {
     key: "risk",
     title: "Risk Inputs",
-    description: "Stop loss or max loss protects the downside. Take profit or profit target defines where you want the simulator to pay you.",
+    description: "Stop = where you're wrong. Target = where you get paid. Define both before entering.",
   },
   {
     key: "account",
     title: "Simulator Stats",
-    description: "This area shows mode-specific P/L and coaching stats. Live uses live-simulator trades, while Scenario stats focus on Realistic-mode scenario trades.",
+    description: "Live and Scenario P/L tracked separately. Watch R multiple, not just dollar swings.",
   },
   {
     key: "chart",
     title: "Chart View",
-    description: "The chart shows the active market or scenario path. In Scenario mode, the line projects forward from the fixed Now anchor as the rep unfolds.",
+    description: "Live mode shows real price. Scenario mode projects forward from the Now anchor.",
   },
   {
     key: "open-position",
     title: "Open Position Panel",
-    description: "This panel tracks the live or scenario rep with current price, unrealized P/L, R multiple, and the risk plan you entered before opening.",
+    description: "Tracks current price, P/L, R multiple, and time in trade against your original plan.",
   },
   {
     key: "summary",
     title: "Trade Summary",
-    description: "After a trade closes, Rayla summarizes the outcome, grade, coaching takeaway, and the next thing to focus on in your simulator practice.",
+    description: "Outcome, execution grade, and one coaching note. Review every close.",
   },
   {
     key: "history",
     title: "Trade History",
-    description: "Your recent simulator trades stay here so you can review execution, compare environments, and see how your decisions are evolving over time.",
+    description: "Your recent reps. Use it to spot patterns in your decisions, not just outcomes.",
   },
 ];
 const NAV_TABS = [
@@ -294,11 +440,11 @@ const NAV_TABS = [
 ];
 const ASK_RAYLA_SUGGESTIONS = [
   "Explain this chart",
-  "What is a stop loss?",
-  "How risky is this trade?",
-  "Teach me trading basics",
-  "Why did this trade lose money?",
-  "What should I watch before entering?",
+  "Is this a good entry?",
+  "Where should my stop be?",
+  "Should I exit now?",
+  "Why did this trade lose?",
+  "What's my edge here?",
 ];
 
 const RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS = [
@@ -525,6 +671,12 @@ function parseTradeResult(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getTradeOutcomeValue(trade) {
+  const pnlValue = Number(trade?.pnl_value);
+  if (Number.isFinite(pnlValue)) return pnlValue;
+  return parseTradeResult(trade?.result_r);
+}
+
 function parseBrokerFillPrice(trade) {
   const rawPayload = trade?.raw_payload || {};
   const candidates = [
@@ -534,6 +686,112 @@ function parseBrokerFillPrice(trade) {
   ];
   const parsed = Number.parseFloat(candidates.find((value) => value != null) ?? NaN);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function buildNormalizedBrokerTrades(brokerTradeLog) {
+  const brokerTradesByKey = new Map();
+  (brokerTradeLog || []).forEach((trade) => {
+    if (!trade?.broker_provider || !trade?.broker_order_id) return;
+    brokerTradesByKey.set(`${trade.broker_provider}:${trade.broker_order_id}`, trade);
+  });
+
+  const orderedBrokerTrades = [...brokerTradesByKey.values()]
+    .filter((trade) => {
+      const status = String(trade?.status || "").toLowerCase();
+      return trade?.filled_at && (status === "filled" || status === "partially_filled");
+    })
+    .map((trade) => ({
+      ...trade,
+      fillPrice: parseBrokerFillPrice(trade),
+      qtyValue: Number.parseFloat(trade?.qty ?? 0),
+      filledAtValue: new Date(trade.filled_at).getTime(),
+    }))
+    .filter((trade) => trade.fillPrice != null && Number.isFinite(trade.qtyValue) && trade.qtyValue > 0)
+    .sort((a, b) => {
+      const timeA = Number.isFinite(a.filledAtValue) ? a.filledAtValue : 0;
+      const timeB = Number.isFinite(b.filledAtValue) ? b.filledAtValue : 0;
+      return timeA - timeB;
+    });
+
+  const lotsBySymbol = new Map();
+  const normalizedClosedTrades = [];
+
+  orderedBrokerTrades.forEach((trade) => {
+    const symbol = String(trade.symbol || "").toUpperCase();
+    const side = String(trade.side || "").toLowerCase();
+    if (!symbol || !side) return;
+
+    if (side === "buy") {
+      const existingLots = lotsBySymbol.get(symbol) || [];
+      existingLots.push({
+        qty: trade.qtyValue,
+        price: trade.fillPrice,
+        filledAt: trade.filled_at,
+      });
+      lotsBySymbol.set(symbol, existingLots);
+      return;
+    }
+
+    if (side !== "sell") return;
+
+    const existingLots = lotsBySymbol.get(symbol) || [];
+    if (!existingLots.length) return;
+
+    let remainingQty = trade.qtyValue;
+    let realizedPnl = 0;
+    let matchedQty = 0;
+    let matchedCost = 0;
+    let earliestEntryTime = null;
+
+    while (remainingQty > 0 && existingLots.length) {
+      const currentLot = existingLots[0];
+      const matchedLotQty = Math.min(remainingQty, currentLot.qty);
+      realizedPnl += (trade.fillPrice - currentLot.price) * matchedLotQty;
+      matchedQty += matchedLotQty;
+      matchedCost += currentLot.price * matchedLotQty;
+      if (!earliestEntryTime && currentLot.filledAt) earliestEntryTime = currentLot.filledAt;
+      currentLot.qty -= matchedLotQty;
+      remainingQty -= matchedLotQty;
+
+      if (currentLot.qty <= 0) {
+        existingLots.shift();
+      }
+    }
+
+    if (existingLots.length) lotsBySymbol.set(symbol, existingLots);
+    else lotsBySymbol.delete(symbol);
+
+    if (matchedQty > 0 && remainingQty === 0) {
+      const avgEntryPrice = matchedCost / matchedQty;
+      normalizedClosedTrades.push({
+        id: `broker:${trade.broker_provider}:${trade.broker_order_id}`,
+        asset: symbol,
+        setup: "Broker Import",
+        session: "Broker",
+        direction: "long",
+        entry_price: avgEntryPrice,
+        exit_price: trade.fillPrice,
+        entry_size: matchedCost,
+        entry_time: earliestEntryTime || trade.filled_at,
+        exit_time: trade.filled_at,
+        result_r: realizedPnl,
+        pnl_value: realizedPnl,
+        source: trade.source === "rayla" ? "rayla" : "broker",
+        source_label: trade.source === "rayla" ? "Placed in Rayla" : "Imported from Alpaca",
+        broker_provider: trade.broker_provider,
+        broker_order_id: trade.broker_order_id,
+        status: trade.status,
+        coachTag: trade.source === "rayla" ? "Executed in Rayla" : "Imported from broker",
+        isBrokerTrade: true,
+      });
+    }
+  });
+
+  return normalizedClosedTrades.sort((a, b) => {
+    const aTime = parseTradeTimeMs(a) || 0;
+    const bTime = parseTradeTimeMs(b) || 0;
+    return bTime - aTime;
+  });
 }
 
 function getBrokerOrderStatusPresentation(rawStatus) {
@@ -587,21 +845,72 @@ function buildOrderRealityCheck({ symbol, side, qty, estimatedValue, buyingPower
   return insights.slice(0, 2);
 }
 
+function getAlpacaOrderPayloadSide(action) {
+  if (action === "sell" || action === "short_sell") return "sell";
+  return "buy";
+}
+
+function getAlpacaOrderActionLabel(action) {
+  if (action === "short_sell") return "Short Sell";
+  if (action === "buy_to_cover") return "Buy to Cover";
+  if (action === "sell") return "Sell";
+  return "Buy";
+}
+
+function getAlpacaOrderTypeLabel(type) {
+  if (type === "stop_limit") return "Stop Limit";
+  if (type === "stop") return "Stop";
+  if (type === "limit") return "Limit";
+  return "Market";
+}
+
+function getAlpacaTimeInForceLabel(value) {
+  if (value === "gtc") return "GTC";
+  if (value === "ioc") return "IOC";
+  if (value === "fok") return "FOK";
+  return String(value || "").toUpperCase();
+}
+
+function getLeverageMultiplierValue(value) {
+  const parsed = Number(String(value || "1x").replace(/x/gi, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function getAvailableLeverageOptions(multiplier) {
+  const normalizedMax = Math.max(1, Math.floor(Number(multiplier) || 1));
+  const values = [1];
+
+  [2, 4].forEach((candidate) => {
+    if (candidate <= normalizedMax && !values.includes(candidate)) {
+      values.push(candidate);
+    }
+  });
+
+  if (!values.includes(normalizedMax)) {
+    values.push(normalizedMax);
+  }
+
+  return values
+    .filter((value) => value >= 1)
+    .sort((a, b) => a - b)
+    .map((value) => ({ value: `${value}x`, label: `${value}x` }));
+}
+
 function getSimulationCoachMessage(position, currentPrice, metrics) {
-  if (!position) return "Waiting for your next setup.";
-  if (!Number.isFinite(currentPrice)) return "You are currently in a trade. Stay disciplined.";
+  if (!position) return "Ready for your next setup.";
+  if (!Number.isFinite(currentPrice)) return "Trade is open. Stick to the plan.";
 
   if (position.exitMode === "pnl") {
     if (position.stopLoss != null && Number.isFinite(metrics?.profitLoss) && metrics.profitLoss < 0) {
       const stopProgress = Math.abs(metrics.profitLoss) / Math.max(position.stopLoss, 0.0001);
       if (stopProgress >= 0.85) {
-        return "Price is approaching your stop. Stay disciplined.";
+        return "Near your stop. Don't move it.";
       }
     }
     if (position.takeProfit != null && Number.isFinite(metrics?.profitLoss) && metrics.profitLoss > 0) {
       const targetProgress = metrics.profitLoss / Math.max(position.takeProfit, 0.0001);
       if (targetProgress >= 0.85) {
-        return "Price is approaching your target.";
+        return "Near your target. Let it work.";
       }
     }
   } else {
@@ -609,28 +918,369 @@ function getSimulationCoachMessage(position, currentPrice, metrics) {
       const stopDistance = Math.abs(position.entryPrice - position.stopLoss);
       const remainingToStop = Math.abs(currentPrice - position.stopLoss);
       if (stopDistance > 0 && remainingToStop / stopDistance <= 0.15) {
-        return "Price is approaching your stop. Stay disciplined.";
+        return "Near your stop. Don't move it.";
       }
     }
     if (position.takeProfit != null) {
       const targetDistance = Math.abs(position.takeProfit - position.entryPrice);
       const remainingToTarget = Math.abs(position.takeProfit - currentPrice);
       if (targetDistance > 0 && remainingToTarget / targetDistance <= 0.15) {
-        return "Price is approaching your target.";
+        return "Near your target. Let it work.";
       }
     }
   }
 
   if (Number.isFinite(metrics?.profitLoss) && metrics.profitLoss > 0) {
-    return "You are in profit. Let your plan play out.";
+    return "In profit. Stay patient.";
   }
 
-  return "You are currently in a trade. Stay disciplined.";
+  return "Trade is open. Stick to the plan.";
+}
+
+function getSimulationLeverageMultiplier(leverageValue) {
+  const parsed = Number.parseFloat(String(leverageValue || "1x").replace(/x/i, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+const CHART_TIMEFRAME_OPTIONS = [
+  { value: "12h", label: "12 hours", provider: "5Min", ms: 12 * 60 * 60 * 1000, lookbackMs: 12 * 60 * 60 * 1000, fetchRange: "1D" },
+  { value: "1h", label: "1 hour", provider: "1Min", ms: 60 * 60 * 1000, lookbackMs: 60 * 60 * 1000, fetchRange: "1D" },
+  { value: "30m", label: "30 mins", provider: "1Min", ms: 30 * 60 * 1000, lookbackMs: 30 * 60 * 1000, fetchRange: "1D" },
+  { value: "15m", label: "15 mins", provider: "1Min", ms: 15 * 60 * 1000, lookbackMs: 15 * 60 * 1000, fetchRange: "1D" },
+  { value: "5m", label: "5 mins", provider: "1Min", ms: 5 * 60 * 1000, lookbackMs: 5 * 60 * 1000, fetchRange: "1D" },
+  { value: "1m", label: "1 min", provider: "15Sec", ms: 60 * 1000, lookbackMs: 60 * 1000, fetchRange: "1D" },
+];
+
+const CHART_RANGE_OPTIONS = [
+  { value: "MAX", label: "MAX", provider: null, ms: null, fetchRange: "MAX" },
+  { value: "5Y", label: "5Y", provider: null, ms: 5 * 365 * 24 * 60 * 60 * 1000, fetchRange: "5Y" },
+  { value: "1Y", label: "1Y", provider: null, ms: 365 * 24 * 60 * 60 * 1000, fetchRange: "1Y" },
+  { value: "3M", label: "3M", provider: null, ms: 90 * 24 * 60 * 60 * 1000, fetchRange: "3M" },
+  { value: "1M", label: "1M", provider: null, ms: 30 * 24 * 60 * 60 * 1000, fetchRange: "1M" },
+  { value: "1W", label: "1W", provider: null, ms: 7 * 24 * 60 * 60 * 1000, fetchRange: "1W" },
+  { value: "1D", label: "1D", provider: null, ms: 24 * 60 * 60 * 1000, fetchRange: "1D" },
+  ...CHART_TIMEFRAME_OPTIONS.map((option) => ({
+    ...option,
+  })),
+];
+
+const LIVE_WIDGET_INTERVAL_OPTIONS = [
+  { value: "1m", label: "1m" },
+  { value: "5m", label: "5m" },
+  { value: "15m", label: "15m" },
+  { value: "30m", label: "30m" },
+  { value: "1h", label: "1h" },
+  { value: "1D", label: "1D" },
+];
+
+const SCENARIO_CHART_VISIBLE_BAR_COUNT = 72;
+const SCENARIO_CHART_RIGHT_OFFSET_BARS = 6;
+
+function getChartSelectionConfig(value) {
+  return CHART_RANGE_OPTIONS.find((option) => option.value === value) || CHART_RANGE_OPTIONS.find((option) => option.value === "1D");
+}
+
+function getSimulationTimeframeConfig(value) {
+  return getChartSelectionConfig(value);
+}
+
+function getChartSelectionWindowMs(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  const selection = getChartSelectionConfig(value);
+  return selection?.lookbackMs ?? selection?.ms ?? null;
+}
+
+function buildIntelSimulationPrompt(signal) {
+  if (!signal) {
+    return "Notable signal on this asset. Run it in the simulator.";
+  }
+
+  const score = Number(signal.score);
+  const topDriverKey = signal.topDriverKey || "";
+  const topDriverLabel = {
+    demand: "demand",
+    costMargin: "margin pressure",
+    guidance: "guidance",
+    narrative: "narrative",
+    priceConfirmation: "price confirmation",
+    liquidity: "liquidity",
+    sentiment: "sentiment",
+    momentum: "momentum",
+    catalyst: "catalyst flow",
+    relativeStrength: "relative strength",
+  }[topDriverKey] || "";
+
+  if (score >= 4) {
+    return `Strong momentum${topDriverLabel ? ` — ${topDriverLabel} is the driver` : ""}. Worth a rep.`;
+  }
+  if (score >= 1) {
+    return `Leaning long${topDriverLabel ? ` on ${topDriverLabel}` : ""}. Run it in the simulator.`;
+  }
+  if (score <= -4) {
+    return `Clear weakness${topDriverLabel ? ` — ${topDriverLabel} is breaking down` : ""}. Short side has a case.`;
+  }
+  if (score <= -1) {
+    return `Softening${topDriverLabel ? ` on ${topDriverLabel}` : ""}. Check the short setup.`;
+  }
+  return "Mixed signal here. Harder to have conviction — stay patient.";
+}
+
+function buildIntelSimulationSetupSteps({ assetSymbol, directionLabel }) {
+  return [
+    {
+      title: "Step 1: Amount",
+      body: `How much are you risking on this ${assetSymbol} rep?`,
+    },
+    {
+      title: "Step 2: Leverage",
+      body: "Leave at 1x unless you want more exposure.",
+    },
+    {
+      title: "Step 3: Stop / Max Loss",
+      body: `Define the downside before you open the ${directionLabel}.`,
+    },
+    {
+      title: "Step 4: Profit Target",
+      body: "Set the win condition.",
+    },
+    {
+      title: "Step 5: Open Trade",
+      body: "Plan is clear? Open the trade.",
+    },
+  ];
+}
+
+function buildScenarioBarFromStep({ previousClose, nextClose, timeMs, seed = 0 }) {
+  const open = Number(previousClose);
+  const close = Number(nextClose);
+  if (!Number.isFinite(open) || !Number.isFinite(close) || !Number.isFinite(timeMs)) return null;
+
+  const bodyHigh = Math.max(open, close);
+  const bodyLow = Math.min(open, close);
+  const bodySize = Math.abs(close - open);
+  const basePrice = Math.max(Math.abs(open || close || 1), 0.000001);
+  const randA = (Math.sin(seed * 12.9898) + 1) / 2;
+  const randB = (Math.cos(seed * 7.233 + 0.42) + 1) / 2;
+  const randC = (Math.sin(seed * 3.173 + 1.91) + 1) / 2;
+  const bodyPct = bodySize / basePrice;
+  const isIndecision = bodyPct < 0.00065;
+  const isMomentum = bodyPct > 0.0045;
+  const baseNoise = basePrice * (0.00025 + (randA * 0.00055));
+  const upperBias = 0.45 + (randB * 1.4);
+  const lowerBias = 0.45 + (randC * 1.35);
+  const upperWick = Math.max(
+    baseNoise,
+    bodySize * (isIndecision ? 1.35 : isMomentum ? 0.26 : 0.58)
+  ) * upperBias;
+  const lowerWick = Math.max(
+    baseNoise,
+    bodySize * (isIndecision ? 1.2 : isMomentum ? 0.24 : 0.52)
+  ) * lowerBias;
+  const high = Math.max(bodyHigh, close, open) + upperWick;
+  const low = Math.max(0.000001, Math.min(bodyLow, close, open) - lowerWick);
+
+  return {
+    time: new Date(timeMs).toISOString(),
+    open,
+    high: Math.max(high, open, close),
+    low: Math.min(low, open, close),
+    close,
+    volume: Math.max(1, Math.round((bodySize + upperWick + lowerWick) * (650 + (randA * 900)))),
+  };
+}
+
+function getScenarioRandom(seed) {
+  const value = Math.sin((seed * 12.9898) + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function getScenarioSignedRandom(seed) {
+  return (getScenarioRandom(seed) * 2) - 1;
+}
+
+function getScenarioDriftProfile(assetId, tick, scenarioType) {
+  const seed = hashScenarioSeed(assetId);
+  const regimeLength = 5 + ((seed + Math.floor(tick / 3)) % 9);
+  const regimeIndex = Math.floor((tick + seed) / regimeLength);
+  const localStep = (tick + seed) % regimeLength;
+  const localProgress = localStep / Math.max(1, regimeLength - 1);
+  const randA = getScenarioSignedRandom((seed * 101) + (regimeIndex * 17) + tick);
+  const randB = getScenarioSignedRandom((seed * 79) + (regimeIndex * 31) + (tick * 3));
+  const randC = getScenarioSignedRandom((seed * 43) + (regimeIndex * 13) + (tick * 7));
+
+  if (scenarioType === "range") {
+    const microRegime = regimeIndex % 4;
+    const meanReversionBias = microRegime === 0
+      ? 0.00025
+      : microRegime === 1
+        ? -0.00018
+        : microRegime === 2
+          ? 0.00008
+          : -0.00006;
+    return {
+      impulse: meanReversionBias + (randA * 0.00055),
+      chop: randB * 0.0011,
+      pullback: randC * 0.00048,
+      spikeChance: getScenarioRandom((seed * 19) + tick) > 0.87 ? (randA > 0 ? 1 : -1) : 0,
+      spikeStrength: 0.001 + (Math.abs(randB) * 0.0022),
+      indecisionChance: getScenarioRandom((seed * 23) + tick) > 0.76,
+    };
+  }
+
+  const realisticRegime = regimeIndex % 6;
+  const directionalBias = realisticRegime === 0
+    ? 0.00115
+    : realisticRegime === 1
+      ? -0.00072
+      : realisticRegime === 2
+        ? 0.00018
+        : realisticRegime === 3
+          ? -0.00105
+          : realisticRegime === 4
+            ? 0.00092
+            : -0.00022;
+  return {
+    impulse: directionalBias + (randA * 0.00095) + ((localProgress - 0.5) * 0.0008),
+    chop: randB * 0.00155,
+    pullback: randC * 0.00085,
+    spikeChance: getScenarioRandom((seed * 29) + tick) > 0.82 ? (randA > 0 ? 1 : -1) : 0,
+    spikeStrength: 0.0016 + (Math.abs(randB) * 0.0038),
+    indecisionChance: getScenarioRandom((seed * 37) + tick) > 0.79,
+  };
+}
+
+function buildScenarioContextBars({ anchorPrice, stepDurationMs, scenarioType = "realistic", barCount = 72, seedBase = 0, endTimeMs = Date.now() }) {
+  const resolvedAnchor = Number(anchorPrice);
+  const resolvedStepMs = Number(stepDurationMs);
+  if (!Number.isFinite(resolvedAnchor) || resolvedAnchor <= 0 || !Number.isFinite(resolvedStepMs) || resolvedStepMs <= 0) {
+    return [];
+  }
+
+  const normalizedCount = Math.max(24, Math.min(120, Math.floor(barCount) || 72));
+  const startTimeMs = endTimeMs - ((normalizedCount - 1) * resolvedStepMs);
+  const syntheticAssetId = `scenario-context-${scenarioType}-${seedBase}`;
+  const prices = new Array(normalizedCount).fill(resolvedAnchor);
+  let contextPrice = resolvedAnchor;
+
+  for (let index = normalizedCount - 2; index >= 0; index -= 1) {
+    const mirroredTick = normalizedCount - index + seedBase;
+    const forwardPrice = buildNextScenarioPrice({
+      assetId: syntheticAssetId,
+      currentPrice: contextPrice,
+      anchorPrice: resolvedAnchor,
+      tick: mirroredTick,
+      scenarioType,
+    });
+    const backStep = contextPrice - (forwardPrice - contextPrice);
+    const clampPct = scenarioType === "range" ? 0.055 : scenarioType === "realistic" ? 0.11 : 0.07;
+    const minPrice = resolvedAnchor * (1 - clampPct);
+    const maxPrice = resolvedAnchor * (1 + clampPct);
+    contextPrice = Math.max(minPrice, Math.min(maxPrice, backStep));
+    prices[index] = Math.max(0.000001, contextPrice);
+  }
+
+  const bars = [];
+  let previousClose = prices[0];
+
+  prices.forEach((price, index) => {
+    const close = index === 0 ? previousClose : price;
+    const nextBar = buildScenarioBarFromStep({
+      previousClose,
+      nextClose: close,
+      timeMs: startTimeMs + (index * resolvedStepMs),
+      seed: seedBase + index,
+    });
+    if (nextBar) {
+      bars.push(nextBar);
+      previousClose = nextBar.close;
+    }
+  });
+
+  if (bars.length) {
+    const lastBar = bars[bars.length - 1];
+    bars[bars.length - 1] = {
+      ...lastBar,
+      close: resolvedAnchor,
+      high: Math.max(Number(lastBar.high ?? resolvedAnchor), resolvedAnchor),
+      low: Math.min(Number(lastBar.low ?? resolvedAnchor), resolvedAnchor),
+    };
+  }
+
+  return bars;
+}
+
+function getSimulationPositionQuantity(position) {
+  if (!position || !Number.isFinite(Number(position.entryPrice)) || Number(position.entryPrice) <= 0) return null;
+  const leverageMultiplier = getSimulationLeverageMultiplier(position.leverage);
+  if (position.amountMode === "shares") {
+    const quantity = Number(position.amount) * leverageMultiplier;
+    return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+  }
+  const quantity = (Number(position.amount) * leverageMultiplier) / Number(position.entryPrice);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
 }
 
 function getLiveQuoteByAssetId(quotes, assetId, type = "", tvSymbol = "") {
   const normalizedId = normalizeAssetId(assetId, type, tvSymbol);
   return quotes[assetId] || quotes[normalizedId] || null;
+}
+
+function mergeIncomingQuotes(prevQuotes, incomingQuotes) {
+  if (!incomingQuotes || typeof incomingQuotes !== "object") return prevQuotes;
+
+  let didChange = false;
+  const nextQuotes = { ...prevQuotes };
+
+  Object.entries(incomingQuotes).forEach(([rawSymbol, rawQuote]) => {
+    const price = Number(rawQuote?.price);
+    if (!Number.isFinite(price)) return;
+
+    const normalizedSymbol = normalizeAssetId(rawSymbol);
+    const currentQuote = nextQuotes[rawSymbol] || nextQuotes[normalizedSymbol] || {};
+    const nextQuote = {
+      ...currentQuote,
+      ...rawQuote,
+      price,
+      change: Number.isFinite(Number(rawQuote?.change)) ? Number(rawQuote.change) : rawQuote?.change ?? currentQuote?.change ?? null,
+      updatedAt: rawQuote?.updatedAt || currentQuote?.updatedAt || new Date().toISOString(),
+    };
+
+    const quoteChanged = (
+      currentQuote?.price !== nextQuote.price
+      || currentQuote?.change !== nextQuote.change
+      || currentQuote?.updatedAt !== nextQuote.updatedAt
+    );
+
+    if (!quoteChanged) return;
+
+    nextQuotes[rawSymbol] = nextQuote;
+    if (normalizedSymbol) nextQuotes[normalizedSymbol] = nextQuote;
+    didChange = true;
+  });
+
+  return didChange ? nextQuotes : prevQuotes;
+}
+
+function buildQuoteSnapshotFromChart(chart) {
+  const bars = extractChartBars(chart);
+  if (!bars.length) return null;
+
+  const firstBar = bars[0];
+  const lastBar = bars[bars.length - 1];
+  const price = Number(lastBar?.close);
+  const baseline = Number(firstBar?.open ?? firstBar?.close);
+
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  return {
+    price,
+    change: Number.isFinite(baseline) && baseline > 0
+      ? ((price - baseline) / baseline) * 100
+      : null,
+    updatedAt: String(lastBar?.time || lastBar?.t || new Date().toISOString()),
+  };
 }
 
 function formatQuoteUpdatedAt(updatedAt) {
@@ -640,28 +1290,50 @@ function formatQuoteUpdatedAt(updatedAt) {
   return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
+function isQuoteFresh(quote, maxAgeMs = 60_000) {
+  const timestamp = Date.parse(String(quote?.updatedAt || ""));
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp <= maxAgeMs;
+}
+
+function getQuoteSpread(quote) {
+  const bid = Number(quote?.bid);
+  const ask = Number(quote?.ask);
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0 || ask < bid) return null;
+  return ask - bid;
+}
+
 function getKnownStockQuotePrice(symbol, quotes, watchlistItems, cachedQuotes) {
   const upperSymbol = String(symbol || "").trim().toUpperCase();
-  if (!upperSymbol) return null;
+  const normalizedSymbol = normalizeAssetId(upperSymbol);
+  if (!normalizedSymbol) return null;
 
-  const liveQuotePrice = quotes[upperSymbol]?.price;
+  const liveQuotePrice = getLiveQuoteByAssetId(quotes, normalizedSymbol)?.price;
   if (Number.isFinite(liveQuotePrice)) return liveQuotePrice;
 
-  const cachedPrice = cachedQuotes[upperSymbol]?.price;
+  const cachedPrice = getLiveQuoteByAssetId(cachedQuotes, normalizedSymbol)?.price;
   if (Number.isFinite(cachedPrice)) return cachedPrice;
 
-  const watchlistPrice = watchlistItems.find((item) => item.id === upperSymbol)?.priceValue;
+  const watchlistPrice = watchlistItems.find((item) => (
+    normalizeAssetId(item.id, item.type, item.tvSymbol) === normalizedSymbol
+  ))?.priceValue;
   return Number.isFinite(watchlistPrice) ? watchlistPrice : null;
 }
 
 function getKnownStockQuoteData(symbol, quotes, watchlistItems, cachedQuotes) {
   const upperSymbol = String(symbol || "").trim().toUpperCase();
-  if (!upperSymbol) return null;
+  const normalizedSymbol = normalizeAssetId(upperSymbol);
+  if (!normalizedSymbol) return null;
 
-  if (quotes[upperSymbol]?.price != null) return quotes[upperSymbol];
-  if (cachedQuotes[upperSymbol]?.price != null) return cachedQuotes[upperSymbol];
+  const liveQuote = getLiveQuoteByAssetId(quotes, normalizedSymbol);
+  if (liveQuote?.price != null) return liveQuote;
 
-  const watchlistItem = watchlistItems.find((item) => item.id === upperSymbol);
+  const cachedQuote = getLiveQuoteByAssetId(cachedQuotes, normalizedSymbol);
+  if (cachedQuote?.price != null) return cachedQuote;
+
+  const watchlistItem = watchlistItems.find((item) => (
+    normalizeAssetId(item.id, item.type, item.tvSymbol) === normalizedSymbol
+  ));
   if (watchlistItem && (Number.isFinite(watchlistItem.priceValue) || Number.isFinite(watchlistItem.changeValue))) {
     return {
       price: Number.isFinite(watchlistItem.priceValue) ? watchlistItem.priceValue : null,
@@ -683,8 +1355,7 @@ function extractChartCloseSeries(chart) {
 
   return barCandidates
     .map((bar) => Number(bar?.close ?? bar?.c ?? bar))
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .slice(-48);
+    .filter((value) => Number.isFinite(value) && value > 0);
 }
 
 function extractChartBars(chart) {
@@ -694,8 +1365,176 @@ function extractChartBars(chart) {
       ? chart.candles
       : [];
   return barCandidates
-    .filter((bar) => bar && Number.isFinite(Number(bar.close)) && Number(bar.close) > 0)
-    .slice(-48);
+    .filter((bar) => bar && Number.isFinite(Number(bar.close)) && Number(bar.close) > 0);
+}
+
+function getChartBarTimeMs(bar) {
+  const timeMs = Date.parse(String(bar?.time || bar?.t || ""));
+  return Number.isFinite(timeMs) ? timeMs : null;
+}
+
+function sliceBarsToSelectedWindow(bars, selectionValue) {
+  if (!Array.isArray(bars) || bars.length < 2) return Array.isArray(bars) ? bars : [];
+
+  const windowMs = getChartSelectionWindowMs(selectionValue);
+  if (!Number.isFinite(windowMs) || windowMs == null) return bars;
+
+  const normalizedBars = bars
+    .map((bar) => {
+      const timeMs = getChartBarTimeMs(bar);
+      return Number.isFinite(timeMs) ? { ...bar, timeMs } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.timeMs - b.timeMs);
+
+  if (normalizedBars.length < 2) {
+    return normalizedBars.map(({ timeMs, ...bar }) => bar);
+  }
+
+  const endMs = normalizedBars[normalizedBars.length - 1]?.timeMs;
+  if (!Number.isFinite(endMs)) {
+    return normalizedBars.map(({ timeMs, ...bar }) => bar);
+  }
+
+  const startMs = endMs - windowMs;
+  const windowBars = normalizedBars.filter((bar) => bar.timeMs >= startMs && bar.timeMs <= endMs);
+
+  if (windowBars.length >= 2) {
+    return windowBars.map(({ timeMs, ...bar }) => bar);
+  }
+
+  return normalizedBars.slice(-Math.min(2, normalizedBars.length)).map(({ timeMs, ...bar }) => bar);
+}
+
+function extractVisibleChartBars(chart, selectionValue) {
+  return sliceBarsToSelectedWindow(extractChartBars(chart), selectionValue);
+}
+
+const HOME_CHART_VIEW_OPTIONS = [
+  { value: "tight", label: "Tight", multiplier: 0.7 },
+  { value: "default", label: "Default", multiplier: 1 },
+  { value: "wide", label: "Wide", multiplier: 1.8 },
+];
+
+function getHomeChartViewMultiplier(viewPreset) {
+  return HOME_CHART_VIEW_OPTIONS.find((option) => option.value === viewPreset)?.multiplier ?? 1;
+}
+
+function getHomeChartSelectionConfig(value) {
+  const baseSelection = getChartSelectionConfig(value);
+  if (!baseSelection) return null;
+  return baseSelection;
+}
+
+function extractVisibleHomeChartBars(chart, selectionValue, viewPreset = "default") {
+  const selection = getHomeChartSelectionConfig(selectionValue);
+  if (!selection) return extractVisibleChartBars(chart, selectionValue);
+  const baseWindowMs = selection.lookbackMs ?? selection.ms ?? null;
+  const scaledWindowMs = Number.isFinite(baseWindowMs)
+    ? Math.max(selection.ms || 0, Math.round(baseWindowMs * getHomeChartViewMultiplier(viewPreset)))
+    : baseWindowMs;
+  return sliceBarsToSelectedWindow(extractChartBars(chart), scaledWindowMs);
+}
+
+function buildStableScenarioPriceRange({
+  bars,
+  anchorPrice,
+  currentPrice,
+  stopPrice,
+  targetPrice,
+}) {
+  const validBars = Array.isArray(bars) ? bars : [];
+  const firstBarOpen = Number(validBars[0]?.open ?? validBars[0]?.close);
+  const referencePrices = [
+    Number(anchorPrice),
+    Number(currentPrice),
+    Number(stopPrice),
+    Number(targetPrice),
+    firstBarOpen,
+  ].filter((price) => Number.isFinite(price) && price > 0);
+
+  if (!referencePrices.length) return null;
+
+  const anchor = Number.isFinite(Number(anchorPrice)) && Number(anchorPrice) > 0
+    ? Number(anchorPrice)
+    : referencePrices[0];
+  const minRef = Math.min(...referencePrices);
+  const maxRef = Math.max(...referencePrices);
+  const span = Math.max(maxRef - minRef, anchor * 0.02, 1);
+  const minVisibleSpan = Math.max(anchor * 0.08, span);
+  const center = (minRef + maxRef) / 2;
+  const halfSpan = (minVisibleSpan * 0.5) + Math.max(minVisibleSpan * 0.18, anchor * 0.01);
+
+  return {
+    min: Math.max(0.0001, center - halfSpan),
+    max: center + halfSpan,
+  };
+}
+
+function isClosedStock1DChart(chart, assetType, range) {
+  return assetType === "stock" && range === "1D" && chart?.rangeMode === "market_closed";
+}
+
+function isMarketCurrentlyOpen() {
+  const now = new Date();
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now).map((p) => [p.type, p.value])
+  );
+  const day = parts.weekday;
+  if (day === "Sat" || day === "Sun") return false;
+  const totalMins = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+  return totalMins >= 9 * 60 + 30 && totalMins < 16 * 60;
+}
+
+function useRelativeTime(timestamp) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!timestamp) return;
+    const id = setInterval(() => setTick((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, [timestamp]);
+  if (!timestamp) return null;
+  const secs = Math.floor((Date.now() - timestamp.getTime()) / 1000);
+  if (secs < 10) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+
+function MarketClosedBanner({ assetType, updatedLabel = null }) {
+  if (String(assetType || "").toLowerCase() === "crypto") return null;
+  if (isMarketCurrentlyOpen()) return null;
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "5px 10px",
+      marginBottom: 6,
+      background: "rgba(251,191,36,0.05)",
+      border: "1px solid rgba(251,191,36,0.16)",
+      borderRadius: 8,
+    }}>
+      <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fbbf24", flexShrink: 0 }} />
+      <div>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "#fbbf24" }}>Market Closed</span>
+        <span style={{ fontSize: 11, color: "#94a3b8" }}>{" – limited price movement"}</span>
+      </div>
+      <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, flexShrink: 0 }}>
+        {updatedLabel && (
+          <span style={{ fontSize: 10, color: "#64748b", whiteSpace: "nowrap" }}>Last updated: {updatedLabel}</span>
+        )}
+        <span style={{ fontSize: 10, color: "#475569", whiteSpace: "nowrap" }}>Try crypto for live data</span>
+      </div>
+    </div>
+  );
 }
 
 function buildFallbackMiniChartSeries(quote, position) {
@@ -720,6 +1559,167 @@ function buildFallbackMiniChartSeries(quote, position) {
     const wiggle = Math.sin(ratio * Math.PI * 2.5) * currentPrice * 0.0012 * (1 - (ratio * 0.35));
     return Math.max(0.0001, drift + wiggle);
   });
+}
+
+function getTradeRangeWindowMs(range) {
+  return getChartSelectionWindowMs(range);
+}
+
+function formatTradePortfolioTickLabel(timestampMs, range) {
+  const date = new Date(timestampMs);
+  if (!Number.isFinite(date.getTime())) return "";
+
+  if (range === "15s" || range === "30s") {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  }
+  if (range === "1m" || range === "5m") {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  if (range === "15m" || range === "30m" || range === "1h" || range === "12h") {
+    return date.toLocaleDateString([], { month: "short", day: "numeric" })
+      + " · "
+      + date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  if (range === "1D") {
+    return date.toLocaleDateString([], { month: "short", day: "numeric" })
+      + " · "
+      + date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  if (range === "1W") {
+    return date.toLocaleDateString([], { weekday: "short" })
+      + " "
+      + date.toLocaleDateString([], { month: "numeric", day: "numeric" });
+  }
+  if (range === "1M" || range === "3M") {
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+  if (range === "1Y") {
+    return date.toLocaleDateString([], { month: "short", year: "numeric" });
+  }
+  if (range === "5Y") {
+    return date.toLocaleDateString([], { year: "numeric" });
+  }
+  return date.toLocaleDateString([], { month: "short", year: "numeric" });
+}
+
+function buildTradePortfolioTicks(rangeStartMs, rangeEndMs, range) {
+  const tickCount =
+    range === "15s" || range === "30s" ? 5 :
+    range === "1m" || range === "5m" ? 5 :
+    range === "15m" || range === "30m" || range === "1h" || range === "12h" ? 5 :
+    range === "1D" ? 4 :
+    range === "1W" ? 5 :
+    range === "1M" || range === "3M" ? 5 :
+    range === "1Y" ? 5 :
+    4;
+  const span = Math.max(1, rangeEndMs - rangeStartMs);
+  const ticks = Array.from({ length: tickCount }, (_, index) => {
+    const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
+    const time = rangeStartMs + span * ratio;
+    return {
+      time,
+      label: formatTradePortfolioTickLabel(time, range),
+      ratio,
+    };
+  });
+
+  const deduped = [];
+  let previousLabel = "";
+  ticks.forEach((tick) => {
+    const label = tick.label === previousLabel ? "" : tick.label;
+    deduped.push({ ...tick, label });
+    if (label) previousLabel = label;
+  });
+  return deduped;
+}
+
+function resolveTradePortfolioEntryTime(position, brokerTradeLog, manualTrades = []) {
+  const symbol = String(position?.symbol || "").trim().toUpperCase();
+  if (!symbol) return { timeMs: null, source: null };
+
+  const directCandidates = [
+    ["openedAt", position?.openedAt],
+    ["opened_at", position?.opened_at],
+    ["entryTime", position?.entryTime],
+    ["entry_time", position?.entry_time],
+    ["open_time", position?.open_time],
+    ["raw.opened_at", position?.raw?.opened_at],
+    ["raw.entry_time", position?.raw?.entry_time],
+    ["raw.open_time", position?.raw?.open_time],
+    ["raw.filled_at", position?.raw?.filled_at],
+  ];
+  for (const [source, candidate] of directCandidates) {
+    const ms = new Date(candidate || "").getTime();
+    if (Number.isFinite(ms)) return { timeMs: ms, source };
+  }
+
+  const matchingBrokerFills = (brokerTradeLog || [])
+    .filter((trade) => String(trade?.symbol || "").trim().toUpperCase() === symbol)
+    .filter((trade) => {
+      const status = String(trade?.status || "").toLowerCase();
+      return trade?.filled_at && (status === "filled" || status === "partially_filled");
+    })
+    .map((trade) => ({
+      side: String(trade?.side || "").toLowerCase(),
+      qty: Math.abs(Number(trade?.filled_qty ?? trade?.qty ?? trade?.quantity ?? 0)) || 0,
+      timeMs: new Date(trade.filled_at).getTime(),
+    }))
+    .filter((trade) => Number.isFinite(trade.timeMs) && trade.qty > 0)
+    .sort((a, b) => a.timeMs - b.timeMs);
+
+  if (matchingBrokerFills.length) {
+    const openLots = [];
+    matchingBrokerFills.forEach((fill) => {
+      if (fill.side === "buy") {
+        openLots.push({ qty: fill.qty, timeMs: fill.timeMs });
+        return;
+      }
+      if (fill.side === "sell") {
+        let remaining = fill.qty;
+        while (remaining > 0 && openLots.length) {
+          const lot = openLots[0];
+          const used = Math.min(lot.qty, remaining);
+          lot.qty -= used;
+          remaining -= used;
+          if (lot.qty <= 0.0000001) openLots.shift();
+        }
+      }
+    });
+
+    const remainingOpenLots = openLots.filter((lot) => lot.qty > 0.0000001);
+    if (remainingOpenLots.length) {
+      const totalQty = remainingOpenLots.reduce((sum, lot) => sum + lot.qty, 0);
+      if (totalQty > 0) {
+        const weightedAverageTimeMs = remainingOpenLots.reduce((sum, lot) => sum + (lot.timeMs * lot.qty), 0) / totalQty;
+        if (Number.isFinite(weightedAverageTimeMs)) {
+          return { timeMs: weightedAverageTimeMs, source: "broker_open_lot_average_fill_time" };
+        }
+      }
+
+      const earliestRemainingLot = remainingOpenLots[0]?.timeMs || null;
+      if (Number.isFinite(earliestRemainingLot)) {
+        return { timeMs: earliestRemainingLot, source: "broker_earliest_open_lot_fill_time" };
+      }
+    }
+  }
+
+  const matchingManualEntries = (manualTrades || [])
+    .filter((trade) => {
+      const tradeSymbol = String(trade?.symbol || trade?.asset || "").trim().toUpperCase();
+      return tradeSymbol === symbol;
+    })
+    .map((trade) => {
+      const entryTimeMs = new Date(trade?.entry_time || "").getTime();
+      return Number.isFinite(entryTimeMs) ? entryTimeMs : null;
+    })
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a);
+
+  if (matchingManualEntries.length) {
+    return { timeMs: matchingManualEntries[0], source: "manual_trade_entry_time" };
+  }
+
+  return { timeMs: null, source: null };
 }
 
 function roundMetric(value, digits = 2) {
@@ -837,7 +1837,7 @@ function buildTradeStats(trades) {
   };
 }
 
-function buildChartExplainContext({ symbol, assetName, assetType, range, bars, currentPrice }) {
+function buildChartExplainContext({ symbol, assetName, assetType, range, bars, currentPrice, positionSummary = null }) {
   const normalizedBars = (Array.isArray(bars) ? bars : [])
     .filter((bar) => bar && Number.isFinite(Number(bar.close)) && Number(bar.close) > 0)
     .slice(-30)
@@ -856,15 +1856,222 @@ function buildChartExplainContext({ symbol, assetName, assetType, range, bars, c
     assetType: assetType || "stock",
     timeframe: range || "1D",
     currentPrice: Number.isFinite(Number(currentPrice)) ? Number(currentPrice) : null,
+    chartSummary: normalizedBars.length
+      ? {
+          firstClose: normalizedBars[0]?.close ?? null,
+          lastClose: normalizedBars[normalizedBars.length - 1]?.close ?? null,
+          barCount: normalizedBars.length,
+        }
+      : null,
+    positionSummary,
     recentBars: normalizedBars,
   };
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, raylaMode = "beginner" }) {
+function buildSimulationRaylaContext({
+  mode,
+  symbol,
+  assetName,
+  assetType,
+  timeframe,
+  currentPrice,
+  direction,
+  amount,
+  amountMode,
+  stopLoss,
+  takeProfit,
+  sessionStats,
+  intelSignal = null,
+  activeTrade = null,
+}) {
+  return {
+    contextType: "simulation",
+    mode,
+    symbol: String(symbol || "").toUpperCase(),
+    assetName: assetName || symbol || "",
+    assetType: assetType || "stock",
+    timeframe: timeframe || "1D",
+    currentPrice: Number.isFinite(Number(currentPrice)) ? Number(currentPrice) : null,
+    direction: direction || "long",
+    amount: amount || "",
+    amountMode: amountMode || "dollars",
+    stopLoss: stopLoss || "",
+    takeProfit: takeProfit || "",
+    sessionStats: sessionStats || null,
+    intelSignal,
+    activeTrade,
+  };
+}
+
+function buildSimulationActiveTradeContext({ position, currentPrice, metrics, levels, timeInTrade }) {
+  if (!position || !Number.isFinite(currentPrice)) return null;
+
+  const distanceEntries = [
+    { key: "entry", label: "entry", distance: Math.abs(currentPrice - Number(position.entryPrice)) },
+    Number.isFinite(levels?.stopPrice) ? { key: "stop", label: position.exitMode === "pnl" ? "max loss" : "stop", distance: Math.abs(currentPrice - levels.stopPrice) } : null,
+    Number.isFinite(levels?.targetPrice) ? { key: "target", label: position.exitMode === "pnl" ? "profit target" : "target", distance: Math.abs(currentPrice - levels.targetPrice) } : null,
+  ].filter(Boolean).sort((a, b) => a.distance - b.distance);
+
+  const nearest = distanceEntries[0] || null;
+  const isInsidePlan = (
+    !Number.isFinite(levels?.stopPrice)
+    || !Number.isFinite(levels?.targetPrice)
+    || (
+      position.direction === "long"
+        ? currentPrice >= levels.stopPrice && currentPrice <= levels.targetPrice
+        : currentPrice <= levels.stopPrice && currentPrice >= levels.targetPrice
+    )
+  );
+
+  return {
+    asset: position.asset,
+    label: position.label || position.asset,
+    marketMode: position.marketMode || "live",
+    direction: position.direction === "short" ? "short" : "long",
+    entryPrice: position.entryPrice,
+    currentPrice,
+    unrealizedPnL: Number.isFinite(metrics?.profitLoss) ? metrics.profitLoss : 0,
+    unrealizedR: Number.isFinite(metrics?.rMultiple) ? metrics.rMultiple : null,
+    stopLoss: position.stopLoss,
+    takeProfit: position.takeProfit,
+    stopPrice: Number.isFinite(levels?.stopPrice) ? levels.stopPrice : null,
+    targetPrice: Number.isFinite(levels?.targetPrice) ? levels.targetPrice : null,
+    exitMode: position.exitMode || "price",
+    plannedRisk: position.plannedRisk ?? null,
+    timeInTrade: timeInTrade || "--",
+    nearestLevel: nearest?.label || "entry",
+    nearestLevelKey: nearest?.key || "entry",
+    isInsidePlan,
+  };
+}
+
+function buildSimulationOpeningMessage(simulationContext) {
+  const activeTrade = simulationContext?.activeTrade;
+  const symbol = simulationContext?.assetName || simulationContext?.symbol || "";
+  const mode = simulationContext?.mode || "Live";
+
+  if (!activeTrade) {
+    const dir = simulationContext?.direction === "short" ? "short" : "long";
+    const price = Number(simulationContext?.currentPrice);
+    const priceStr = Number.isFinite(price)
+      ? ` at $${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : "";
+    return `${mode} sim — setting up a ${dir} on ${symbol}${priceStr}. What do you want to think through before entering?`;
+  }
+
+  const { direction, unrealizedR, isInsidePlan, nearestLevelKey } = activeTrade;
+  const dirLabel = direction === "short" ? "short" : "long";
+  const rVal = Number(unrealizedR);
+  const rStr = Number.isFinite(rVal) ? ` at ${rVal > 0 ? "+" : ""}${rVal.toFixed(2)}R` : "";
+  const planStr = isInsidePlan
+    ? "inside plan"
+    : nearestLevelKey === "stop"
+      ? "approaching your stop"
+      : nearestLevelKey === "target"
+        ? "near your target"
+        : "outside the plan range";
+
+  return `You're ${dirLabel} ${symbol}${rStr} — ${planStr}. What do you want to work through?`;
+}
+
+function buildDirectSimulationRaylaAnswer(question, simulationContext) {
+  const normalizedQuestion = String(question || "").trim().toLowerCase();
+  const activeTrade = simulationContext?.activeTrade;
+  if (!activeTrade) return null;
+
+  const directionLabel = activeTrade.direction === "short" ? "short" : "long";
+  const assetLabel = activeTrade.label || activeTrade.asset;
+  const stopLabel = activeTrade.exitMode === "pnl" ? "max loss" : "stop";
+
+  const asksForNextStep = [
+    "what should i do next",
+    "what do i do next",
+    "what now",
+    "next step",
+    "what should i do",
+  ].some((phrase) => normalizedQuestion.includes(phrase));
+
+  if (asksForNextStep) {
+    const priceDelta = Number(activeTrade.currentPrice) - Number(activeTrade.entryPrice);
+    const isAboveEntry = Number.isFinite(priceDelta) && priceDelta > 0;
+    const isBelowEntry = Number.isFinite(priceDelta) && priceDelta < 0;
+    const entryState = isAboveEntry ? "above entry" : isBelowEntry ? "below entry" : "at entry";
+    const nearestLevelText = activeTrade.nearestLevel === "entry"
+      ? "between stop and target"
+      : `near your ${activeTrade.nearestLevel}`;
+    const planLine = activeTrade.isInsidePlan ? "inside plan" : "outside the plan range";
+    const stopLine = activeTrade.stopPrice != null
+      ? `Keep the ${stopLabel} where it is unless something about the setup has actually changed.`
+      : "Define a stop if you haven't — one bad move shouldn't be open-ended.";
+    return `${directionLabel} ${assetLabel}, price ${entryState} — ${planLine}, ${nearestLevelText}. Best move is to wait and let it develop. ${stopLine}`;
+  }
+
+  const asksAboutStop = [
+    "where is my stop",
+    "where's my stop",
+    "what's my stop",
+    "what is my stop",
+    "where is the stop",
+  ].some((phrase) => normalizedQuestion.includes(phrase));
+
+  if (asksAboutStop) {
+    if (activeTrade.stopPrice != null) {
+      const aboveOrBelow = Number(activeTrade.currentPrice) > Number(activeTrade.stopPrice) ? "above" : "below";
+      return `Your ${stopLabel} is at ${activeTrade.stopPrice}. Current price is ${aboveOrBelow} that — trade is still live.`;
+    }
+    return "You don't have a stop set on this trade. Define one before the trade gets away from you.";
+  }
+
+  const asksAboutStatus = [
+    "how am i doing",
+    "how is the trade",
+    "how is my trade",
+    "how's the trade",
+    "am i up",
+    "am i down",
+    "what's my pnl",
+    "what is my pnl",
+  ].some((phrase) => normalizedQuestion.includes(phrase));
+
+  if (asksAboutStatus) {
+    const rVal = Number(activeTrade.unrealizedR);
+    const rStr = Number.isFinite(rVal) ? `${rVal > 0 ? "+" : ""}${rVal.toFixed(2)}R` : "unknown R";
+    const planStr = activeTrade.isInsidePlan ? "inside your plan" : "outside your plan range";
+    const levelCue = activeTrade.nearestLevelKey === "stop"
+      ? "Getting closer to your stop — keep watching it."
+      : activeTrade.nearestLevelKey === "target"
+        ? "Price is near your target. Stay patient and let it work."
+        : "Still developing between your levels.";
+    return `Trade is at ${rStr}, ${planStr}. ${levelCue}`;
+  }
+
+  const asksAboutTarget = [
+    "where is my target",
+    "where's my target",
+    "what's my target",
+    "what is my target",
+    "where is the target",
+  ].some((phrase) => normalizedQuestion.includes(phrase));
+
+  if (asksAboutTarget) {
+    if (activeTrade.targetPrice != null) {
+      const distStr = Number.isFinite(Number(activeTrade.currentPrice)) && Number.isFinite(Number(activeTrade.targetPrice))
+        ? ` — price is ${Math.abs(Number(activeTrade.currentPrice) - Number(activeTrade.targetPrice)).toFixed(2)} away`
+        : "";
+      return `Your target is at ${activeTrade.targetPrice}${distStr}. Let it get there before you start second-guessing the exit.`;
+    }
+    return "No take-profit is set. Decide your exit before price forces the decision for you.";
+  }
+
+  return null;
+}
+
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, raylaMode = "beginner" }) {
   return {
     selectedMarketId,
     adaptiveProfile,
     chartContext,
+    simulationContext,
     raylaMode,
     stats: buildTradeStats(trades),
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
@@ -881,13 +2088,13 @@ function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chart
 function buildCoachReport(trades) {
   if (!trades || trades.length === 0) return null;
 
-  const wins = trades.filter(t => parseFloat(t.result_r) > 0);
-  const losses = trades.filter(t => parseFloat(t.result_r) < 0);
+  const wins = trades.filter(t => getTradeOutcomeValue(t) > 0);
+  const losses = trades.filter(t => getTradeOutcomeValue(t) < 0);
   const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
-  const avgR = trades.length ? trades.reduce((s, t) => s + parseFloat(t.result_r || 0), 0) / trades.length : 0;
-  const avgWin = wins.length ? wins.reduce((s, t) => s + parseFloat(t.result_r || 0), 0) / wins.length : 0;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + parseFloat(t.result_r || 0), 0) / losses.length) : 0;
-  const totalR = trades.reduce((s, t) => s + parseFloat(t.result_r || 0), 0);
+  const avgR = trades.length ? trades.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / trades.length : 0;
+  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / losses.length) : 0;
+  const totalR = trades.reduce((s, t) => s + getTradeOutcomeValue(t), 0);
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
 
   const setupMap = {};
@@ -895,8 +2102,8 @@ function buildCoachReport(trades) {
     if (!t.setup) return;
     if (!setupMap[t.setup]) setupMap[t.setup] = { trades: 0, wins: 0, totalR: 0 };
     setupMap[t.setup].trades++;
-    setupMap[t.setup].totalR += parseFloat(t.result_r || 0);
-    if (parseFloat(t.result_r) > 0) setupMap[t.setup].wins++;
+    setupMap[t.setup].totalR += getTradeOutcomeValue(t);
+    if (getTradeOutcomeValue(t) > 0) setupMap[t.setup].wins++;
   });
   const setupStats = Object.entries(setupMap)
     .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -907,8 +2114,8 @@ function buildCoachReport(trades) {
     const asset = (t.asset || "Unknown").toUpperCase();
     if (!assetMap[asset]) assetMap[asset] = { trades: 0, wins: 0, totalR: 0 };
     assetMap[asset].trades++;
-    assetMap[asset].totalR += parseFloat(t.result_r || 0);
-    if (parseFloat(t.result_r) > 0) assetMap[asset].wins++;
+    assetMap[asset].totalR += getTradeOutcomeValue(t);
+    if (getTradeOutcomeValue(t) > 0) assetMap[asset].wins++;
   });
   const assetStats = Object.entries(assetMap)
     .map(([asset, s]) => ({ asset, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -920,8 +2127,8 @@ function buildCoachReport(trades) {
     const key = `${(t.asset||"").toUpperCase()}_${t.setup.trim()}`;
     if (!comboMap[key]) comboMap[key] = { asset: (t.asset||"").toUpperCase(), setup: t.setup.trim(), trades: 0, wins: 0, totalR: 0 };
     comboMap[key].trades++;
-    comboMap[key].totalR += parseFloat(t.result_r || 0);
-    if (parseFloat(t.result_r) > 0) comboMap[key].wins++;
+    comboMap[key].totalR += getTradeOutcomeValue(t);
+    if (getTradeOutcomeValue(t) > 0) comboMap[key].wins++;
   });
   const comboStats = Object.values(comboMap)
     .map(c => ({ ...c, winRate: (c.wins / c.trades) * 100, avgR: c.totalR / c.trades }))
@@ -934,14 +2141,14 @@ function buildCoachReport(trades) {
   if (profitFactor !== null && profitFactor < 1) warnings.push("Profit factor is below 1.0 — system is net negative. Review setups immediately.");
   if (trades.length >= 5 && winRate < 50) warnings.push("Win rate under 50% with 5+ trades — possible overtrading or setup quality issues.");
   if (assetStats.length > 4) warnings.push(`You are trading ${assetStats.length} different assets. Consider narrowing focus.`);
-  const recentLosses = trades.slice(0, 4).filter(t => parseFloat(t.result_r) < 0).length;
+  const recentLosses = trades.slice(0, 4).filter(t => getTradeOutcomeValue(t) < 0).length;
   if (recentLosses >= 3) warnings.push("3 or more losses in your last 4 trades — consider taking a break.");
 
   const actions = [];
   const bestCombo = comboStats[0];
   const worstSetup = setupStats[setupStats.length - 1];
-  if (bestCombo) actions.push(`Focus on ${bestCombo.setup} setups on ${bestCombo.asset} — your strongest edge (${bestCombo.avgR.toFixed(2)}R avg).`);
-  if (worstSetup && setupStats.length > 1 && worstSetup.avgR < 0) actions.push(`Reduce or stop trading ${worstSetup.setup} setups — negative avg R (${worstSetup.avgR.toFixed(2)}R).`);
+  if (bestCombo) actions.push(`Focus on ${bestCombo.setup} setups on ${bestCombo.asset} — your strongest edge (${bestCombo.avgR.toFixed(2)} avg).`);
+  if (worstSetup && setupStats.length > 1 && worstSetup.avgR < 0) actions.push(`Reduce or stop trading ${worstSetup.setup} setups — negative average result (${worstSetup.avgR.toFixed(2)}).`);
   if (avgLoss > avgWin) actions.push("Define your stop before entry on every trade and respect it without exception.");
   if (winRate < 50) actions.push("Be more selective — only take your clearest A+ setups.");
   if (actions.length === 0) actions.push("Keep executing consistently. Log every trade and review weekly.");
@@ -974,6 +2181,983 @@ function CoachRow({ left, right, sub, tone }) {
   );
 }
 
+const PERF_SELECT_STYLE = {
+  background: "rgba(18,26,38,0.9)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 10,
+  padding: "8px 12px",
+  color: "#e2e8f0",
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const MY_TRADES_HELP = {
+  buyingPower: {
+    title: "Buying Power",
+    body: "Cash your broker allows for new positions — includes margin if your account has it.",
+  },
+  positionSize: {
+    title: "Position Size",
+    body: "Shares or units in the trade. Bigger size amplifies both gain and loss.",
+  },
+  orderType: {
+    title: "Order Type",
+    body: "Market fills immediately at best price. Limit waits for your price or better.",
+  },
+  exits: {
+    title: "Stop Loss / Take Profit",
+    body: "Planning fields — not attached to the submitted order yet.",
+  },
+  leverage: {
+    title: "Leverage / Margin",
+    body: "Depends on your Alpaca account. Rayla submits standard paper orders only.",
+  },
+  unrealizedPnL: {
+    title: "Unrealized P/L",
+    body: "Open position gain/loss. Only becomes real when you close.",
+  },
+};
+
+function InlineHelpButton({ topic, activeTopic, onToggle, label = "What's this?" }) {
+  return (
+    <button
+      type="button"
+      className="ghostButton"
+      onClick={() => onToggle(activeTopic === topic ? null : topic)}
+      style={{
+        padding: "3px 8px",
+        fontSize: 10,
+        fontWeight: 700,
+        borderRadius: 999,
+        color: activeTopic === topic ? "#d7efff" : "#7f8ea3",
+        borderColor: activeTopic === topic ? "rgba(124,196,255,0.28)" : "rgba(255,255,255,0.08)",
+        background: activeTopic === topic ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function InlineHelpCard({ topic }) {
+  const help = MY_TRADES_HELP[topic];
+  if (!help) return null;
+  return (
+    <div style={{ marginTop: 8, padding: 10, borderRadius: 10, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", color: "#7CC4FF" }}>
+        {help.title}
+      </div>
+      <div style={{ fontSize: 12, color: "#dbeafe", lineHeight: 1.55 }}>
+        {help.body}
+      </div>
+    </div>
+  );
+}
+
+function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8" }) {
+  if (!rows || rows.length === 0) return null;
+  const maxAbs = Math.max(...rows.map(r => Math.abs(r.totalR)), 0.01);
+  return (
+    <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
+      <div style={{ padding: "4px 0" }}>
+        {rows.map((row, i) => (
+          <div key={i} style={{ padding: "9px 16px", borderBottom: i < rows.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ minWidth: 88, maxWidth: 120, fontSize: 12, color: nameColor, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
+            <div style={{ fontSize: 11, color: "#475569", whiteSpace: "nowrap", flexShrink: 0 }}>{row.trades}t · {row.winRate.toFixed(0)}%</div>
+            <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${(Math.abs(row.totalR) / maxAbs) * 100}%`, background: row.totalR >= 0 ? "#4ade80" : "#f87171", borderRadius: 2 }} />
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: row.totalR >= 0 ? "#4ade80" : "#f87171", minWidth: 54, textAlign: "right", flexShrink: 0 }}>{row.totalR >= 0 ? "+" : ""}{row.totalR.toFixed(2)}</div>
+            <div style={{ fontSize: 11, color: row.avgR >= 0 ? "#4ade80" : "#f87171", minWidth: 42, textAlign: "right", flexShrink: 0 }}>{row.avgR >= 0 ? "+" : ""}{row.avgR.toFixed(2)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PerformanceLiveChartCard({
+  alpacaPositions,
+  performanceLiveAppliedSelection,
+  setPerformanceLiveAppliedSelection,
+  tradePortfolioAllSymbols,
+  tradeChartSymbol,
+  tradeChartCurrentPrice,
+  tradeChartQuote,
+  tradeChartMatchingPosition,
+  tradeChartAsset,
+  tradeChartAssetType,
+  tradeChartRange,
+  setTradeChartRange,
+  tradeChartMode,
+  setTradeChartMode,
+  tradeChartLastUpdated,
+  tradeIsComparisonMode,
+  tradeIsPortfolioTotalMode,
+  tradePortfolioCombinedUnrealizedPl,
+  tradePortfolioCombinedMarketValue,
+  tradePortfolioDisplayedPositions,
+  tradePortfolioChartsLoading,
+  tradePortfolioCharts,
+  brokerTradeLog,
+  trades,
+  tradePortfolioRequestedStartMs,
+  tradePortfolioNowMs,
+  tradeMarketChartLoading,
+  tradeMarketChart,
+}) {
+  const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
+  const [historyRange, setHistoryRange] = useState("MAX");
+  const closedTrades = useMemo(
+    () => trades
+      .map((trade) => ({
+        ...trade,
+        symbol: String(trade?.asset || "").trim().toUpperCase(),
+        timeMs: parseTradeTimeMs(trade),
+        pnl: calculateTradeDollarPnl(trade),
+      }))
+      .filter((trade) => trade.symbol && Number.isFinite(trade.timeMs) && Number.isFinite(trade.pnl)),
+    [trades]
+  );
+  const closedTradeSymbols = useMemo(
+    () => Array.from(new Set(closedTrades.map((trade) => trade.symbol))).sort(),
+    [closedTrades]
+  );
+  const rangeWindowMs = getChartSelectionWindowMs(historyRange);
+  const nowMs = Date.now();
+  const rangeStartMs = rangeWindowMs ? nowMs - rangeWindowMs : null;
+  const rangeLabel = (CHART_RANGE_OPTIONS.find((option) => option.value === historyRange)?.label) || historyRange;
+  const historyRangeOptions = useMemo(
+    () => CHART_RANGE_OPTIONS.filter((option) => ["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].includes(option.value)),
+    []
+  );
+  const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const normalizeSelection = (selection) => {
+    const validSymbols = Array.from(new Set((selection?.symbols || []).filter((symbol) => closedTradeSymbols.includes(symbol))));
+    const includePortfolio = Boolean(selection?.includePortfolio);
+    if (!includePortfolio && validSymbols.length === 0) {
+      return { includePortfolio: true, symbols: [] };
+    }
+    return { includePortfolio, symbols: validSymbols };
+  };
+  const buildSelectionKey = (selection) => {
+    const normalized = normalizeSelection(selection);
+    return `${normalized.includePortfolio ? "portfolio" : "assets"}:${normalized.symbols.join(",")}`;
+  };
+  const [appliedSelection, setAppliedSelection] = useState(() => normalizeSelection({ includePortfolio: true, symbols: [] }));
+  const appliedSelectionKey = useMemo(() => buildSelectionKey(appliedSelection), [appliedSelection]);
+  const [pendingSelection, setPendingSelection] = useState(appliedSelection);
+  useEffect(() => {
+    setAppliedSelection((prev) => normalizeSelection(prev));
+    setPendingSelection((prev) => normalizeSelection(prev));
+  }, [closedTradeSymbols.join(",")]);
+  const isAppliedPortfolioMode = appliedSelection.includePortfolio;
+  const selectedTargets = pendingSelection.includePortfolio
+    ? ["PORTFOLIO", ...pendingSelection.symbols]
+    : pendingSelection.symbols;
+  const isTargetSelected = (target) => selectedTargets.includes(target);
+  const selectionDirty = buildSelectionKey(pendingSelection) !== buildSelectionKey(appliedSelection);
+  const togglePendingPortfolio = () => {
+    setPendingSelection((prev) => {
+      if (prev.includePortfolio && prev.symbols.length === 0) return prev;
+      return normalizeSelection({ ...prev, includePortfolio: !prev.includePortfolio });
+    });
+  };
+  const togglePendingSymbol = (symbol) => {
+    setPendingSelection((prev) => {
+      const current = new Set(prev.symbols);
+      if (current.has(symbol)) current.delete(symbol);
+      else current.add(symbol);
+      return normalizeSelection({ ...prev, symbols: Array.from(current) });
+    });
+  };
+  const applyPendingSelection = () => {
+    setAppliedSelection(normalizeSelection(pendingSelection));
+  };
+  const ASSET_PALETTE = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
+  const assetColorMap = {};
+  closedTradeSymbols.forEach((symbol, index) => {
+    assetColorMap[symbol] = ASSET_PALETTE[index % ASSET_PALETTE.length];
+  });
+  const filteredAssetChoices = useMemo(() => {
+    const normalizedQuery = assetSearchQuery.trim().toUpperCase();
+    if (!normalizedQuery) return closedTradeSymbols;
+    return closedTradeSymbols.filter((symbol) => symbol.includes(normalizedQuery));
+  }, [assetSearchQuery, closedTradeSymbols]);
+  const buildClosedTradeSeries = (tradeRows) => {
+    const sortedTrades = [...tradeRows].sort((a, b) => a.timeMs - b.timeMs);
+    if (!sortedTrades.length) return [];
+    const baselineTimeMs = rangeStartMs ?? Math.max(0, sortedTrades[0].timeMs - 1);
+    let runningValue = 0;
+    const points = [{ timeMs: baselineTimeMs, value: 0 }];
+    sortedTrades.forEach((trade) => {
+      runningValue += Number(trade.pnl) || 0;
+      points.push({ timeMs: trade.timeMs, value: runningValue });
+    });
+    return points;
+  };
+  const visibleClosedTrades = useMemo(
+    () => closedTrades.filter((trade) => rangeStartMs == null || trade.timeMs >= rangeStartMs),
+    [closedTrades, rangeStartMs]
+  );
+  const portfolioSeries = useMemo(
+    () => buildClosedTradeSeries(visibleClosedTrades),
+    [visibleClosedTrades, rangeStartMs]
+  );
+  const assetSeries = useMemo(
+    () => appliedSelection.symbols.map((symbol) => ({
+      symbol,
+      color: assetColorMap[symbol] || "#60a5fa",
+      points: buildClosedTradeSeries(visibleClosedTrades.filter((trade) => trade.symbol === symbol)),
+    })),
+    [appliedSelection.symbols, assetColorMap, visibleClosedTrades, rangeStartMs]
+  );
+  const displayedLines = useMemo(() => {
+    const nextLines = [];
+    if (appliedSelection.includePortfolio) {
+      nextLines.push({ symbol: "Portfolio", color: "#7CC4FF", points: portfolioSeries });
+    }
+    assetSeries.forEach((line) => {
+      if (line.points.length) nextLines.push(line);
+    });
+    return nextLines;
+  }, [appliedSelection.includePortfolio, portfolioSeries, assetSeries]);
+  const allVisibleValues = displayedLines.flatMap((line) => line.points.map((point) => point.value)).filter(Number.isFinite);
+  const xRangeStartMs = rangeStartMs ?? Math.min(...displayedLines.flatMap((line) => line.points.map((point) => point.timeMs)).filter(Number.isFinite));
+  const xRangeEndMs = Math.max(nowMs, ...displayedLines.flatMap((line) => line.points.map((point) => point.timeMs)).filter(Number.isFinite));
+  const selectedClosedTrades = useMemo(
+    () => visibleClosedTrades.filter((trade) => appliedSelection.includePortfolio || appliedSelection.symbols.includes(trade.symbol)),
+    [visibleClosedTrades, appliedSelection]
+  );
+  const selectedRealizedPnl = selectedClosedTrades.reduce((sum, trade) => sum + (Number(trade.pnl) || 0), 0);
+  const chartStatsLabel = appliedSelection.includePortfolio
+    ? "Portfolio + selected assets"
+    : "Selected assets only";
+
+  return (
+    <div style={{ ...cardBase, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 6 }}>
+            Closed Trade History
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "#e2e8f0" }}>
+            {appliedSelection.includePortfolio ? "Portfolio Realized P/L" : appliedSelection.symbols.length ? appliedSelection.symbols.join(", ") : "Select an asset"}
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+            Closed trades only. Open positions are excluded from this chart and any asset overlays.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 0.34fr) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: "#7f8ea3", letterSpacing: "0.4px", textTransform: "uppercase" }}>
+            Select assets to overlay
+          </div>
+          <button
+            type="button"
+            disabled={!selectionDirty}
+            onClick={applyPendingSelection}
+            style={{
+              padding: "13px 16px",
+              borderRadius: 12,
+              border: `1px solid ${selectionDirty ? "rgba(124,196,255,0.36)" : "rgba(255,255,255,0.08)"}`,
+              background: selectionDirty ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.03)",
+              boxShadow: selectionDirty ? "0 0 0 1px rgba(124,196,255,0.14), 0 0 20px rgba(124,196,255,0.08)" : "none",
+              color: selectionDirty ? "#d7efff" : "#7f8ea3",
+              fontSize: 14,
+              fontWeight: 800,
+              letterSpacing: "0.2px",
+              cursor: selectionDirty ? "pointer" : "default",
+              width: "100%",
+              textAlign: "center",
+              transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, color 160ms ease",
+            }}
+          >
+            View in chart
+          </button>
+          <input
+            value={assetSearchQuery}
+            onChange={(event) => setAssetSearchQuery(event.target.value)}
+            placeholder="Search traded assets"
+            style={{
+              width: "100%",
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.03)",
+              color: "#e2e8f0",
+              fontSize: 13,
+              padding: "11px 12px",
+              outline: "none",
+            }}
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              type="button"
+              onClick={togglePendingPortfolio}
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                background: isTargetSelected("PORTFOLIO") ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${isTargetSelected("PORTFOLIO") ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
+                boxShadow: isTargetSelected("PORTFOLIO") ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                cursor: "pointer",
+                textAlign: "left",
+                width: "100%",
+                transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Portfolio</div>
+                <div style={{ fontSize: 12, color: selectedRealizedPnl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                  {`${selectedRealizedPnl >= 0 ? "+" : ""}${formatCurrency(selectedRealizedPnl)}`}
+                </div>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                Realized P/L across the selected range. Closed trades only.
+              </div>
+            </button>
+            {filteredAssetChoices.map((symbol) => {
+              const visible = pendingSelection.symbols.includes(symbol);
+              const lineColor = assetColorMap[symbol] || "#60a5fa";
+              const appliedVisible = appliedSelection.symbols.includes(symbol);
+              const symbolTrades = visibleClosedTrades.filter((trade) => trade.symbol === symbol);
+              const symbolPnl = symbolTrades.reduce((sum, trade) => sum + (Number(trade.pnl) || 0), 0);
+              const highlighted = visible;
+              return (
+                <button
+                  key={symbol}
+                  type="button"
+                  onClick={() => togglePendingSymbol(symbol)}
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    background: highlighted ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${highlighted ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
+                    boxShadow: highlighted ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    width: "100%",
+                    opacity: !visible ? 0.45 : 1,
+                    transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, opacity 160ms ease",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: visible ? lineColor : "rgba(255,255,255,0.18)", flexShrink: 0 }} />
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{symbol}</div>
+                      {isAppliedPortfolioMode && appliedVisible ? (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#d7efff", border: "1px solid rgba(124,196,255,0.2)", borderRadius: 999, padding: "2px 7px", background: "rgba(124,196,255,0.05)" }}>
+                          Visible
+                        </span>
+                      ) : null}
+                    </div>
+                    <div style={{ fontSize: 12, color: symbolPnl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                      {`${symbolPnl >= 0 ? "+" : ""}${formatCurrency(symbolPnl)}`}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                    {symbolTrades.length} closed trade{symbolTrades.length === 1 ? "" : "s"} in range
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+              <ChartTimeframeDropdown
+                value={historyRange}
+                onChange={setHistoryRange}
+                options={historyRangeOptions}
+                width={88}
+              />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: selectedRealizedPnl >= 0 ? "#4ade80" : "#f87171" }}>
+                {`${selectedRealizedPnl >= 0 ? "+" : ""}${formatCurrency(selectedRealizedPnl)}`}
+              </div>
+              <div style={{ fontSize: 10, color: "#7f8ea3", textAlign: "right" }}>
+                {rangeLabel} · Closed trades only
+              </div>
+            </div>
+          </div>
+
+          {allVisibleValues.length >= 1 ? (() => {
+            const xL = 8;
+            const xR = 286;
+            const yT = 12;
+            const yB = 192;
+            const chartW = xR - xL;
+            const chartH = yB - yT;
+            const yMin = Math.min(...allVisibleValues);
+            const yMax = Math.max(...allVisibleValues);
+            const yPad = (yMax - yMin) * 0.16 || 25;
+            const yLo = yMin - yPad;
+            const yHi = yMax + yPad;
+            const valueToY = (value) => yB - ((value - yLo) / (yHi - yLo || 1)) * chartH;
+            const ySteps = Array.from({ length: 5 }, (_, index) => {
+              const ratio = index / 4;
+              return { y: yT + chartH * ratio, value: yHi - ((yHi - yLo) * ratio) };
+            });
+            const zeroY = valueToY(0);
+            const xTicks = buildTradePortfolioTicks(xRangeStartMs, xRangeEndMs, historyRange);
+            const lineMeta = displayedLines.map((line) => ({
+              ...line,
+              lastValue: line.points[line.points.length - 1]?.value,
+              pointsSvg: line.points.map((point) => {
+                const ratio = (point.timeMs - xRangeStartMs) / Math.max(1, xRangeEndMs - xRangeStartMs);
+                return `${xL + (Math.max(0, Math.min(1, ratio)) * chartW)},${valueToY(point.value)}`;
+              }).join(" "),
+            }));
+            return (
+              <div style={{ borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", position: "relative" }}>
+                <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2, display: "flex", flexWrap: "wrap", gap: "4px 10px", pointerEvents: "none", maxWidth: "calc(100% - 24px)" }}>
+                  {lineMeta.map((line) => (
+                    <div key={line.symbol} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <div style={{ width: 14, height: 2, background: line.color, borderRadius: 1, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#e2e8f0", letterSpacing: "0.01em" }}>
+                        {line.symbol}
+                      </span>
+                      {Number.isFinite(line.lastValue) ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: line.lastValue >= 0 ? "#4ade80" : "#f87171" }}>
+                          {line.lastValue >= 0 ? "+" : ""}{formatCurrency(line.lastValue)}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <svg viewBox="0 0 300 215" style={{ width: "100%", height: "auto", display: "block" }}>
+                  {ySteps.map((step, index) => (
+                    <g key={`y-${index}`}>
+                      <line x1={xL} y1={step.y} x2={xR} y2={step.y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.3" />
+                      <text x={xR + 3} y={step.y + 2} textAnchor="start" fontSize="5.5" fill="#7f8ea3" fontFamily="system-ui,sans-serif">
+                        {step.value >= 0 ? "+" : ""}{formatCurrency(step.value)}
+                      </text>
+                    </g>
+                  ))}
+                  {Number.isFinite(zeroY) && zeroY >= yT && zeroY <= yB ? (
+                    <line x1={xL} y1={zeroY} x2={xR} y2={zeroY} stroke="rgba(255,255,255,0.14)" strokeWidth="0.4" strokeDasharray="3 2" />
+                  ) : null}
+                  <line x1={xR} y1={yT} x2={xR} y2={yB} stroke="rgba(255,255,255,0.08)" strokeWidth="0.3" />
+                  <line x1={xL} y1={yB} x2={xR} y2={yB} stroke="rgba(255,255,255,0.08)" strokeWidth="0.3" />
+                  {xTicks.map((tick, index) => (
+                    <g key={`tick-${index}`}>
+                      <line x1={xL + tick.ratio * chartW} y1={yT} x2={xL + tick.ratio * chartW} y2={yB} stroke="rgba(255,255,255,0.025)" strokeWidth="0.3" />
+                      {tick.label ? (
+                        <text x={xL + tick.ratio * chartW} y={yB + 9} textAnchor="middle" fontSize="5.5" fill="#7f8ea3" fontFamily="system-ui,sans-serif">
+                          {tick.label}
+                        </text>
+                      ) : null}
+                    </g>
+                  ))}
+                  {lineMeta.map((line) => (
+                    line.pointsSvg ? (
+                      <polyline
+                        key={line.symbol}
+                        points={line.pointsSvg}
+                        fill="none"
+                        stroke={line.color}
+                        strokeWidth={line.symbol === "Portfolio" ? "1" : "0.8"}
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        opacity={line.symbol === "Portfolio" ? "1" : "0.88"}
+                      />
+                    ) : null
+                  ))}
+                </svg>
+              </div>
+            );
+          })() : (
+            <div style={{ height: 360, borderRadius: 12, background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+              No closed trades match this range yet. Open positions are intentionally excluded from the Performance chart.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Assets Selected</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{appliedSelection.symbols.length + (isAppliedPortfolioMode ? 1 : 0)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>View</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
+            {chartStatsLabel}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Closed Trades</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
+            {selectedClosedTrades.length}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Realized P/L</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: selectedRealizedPnl >= 0 ? "#4ade80" : "#f87171" }}>
+            {`${selectedRealizedPnl >= 0 ? "+" : ""}${formatCurrency(selectedRealizedPnl)}`}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PerformanceDashboard({
+  trades,
+  equityPoints,
+  sourceLabel,
+  chartRange,
+  setChartRange,
+  benchmarkSymbol,
+  benchmarkLabel,
+  onSelectBenchmark,
+  benchmarkOptions,
+  benchmarkPoints,
+  benchmarkLoading,
+  alpacaConnected,
+  coachSummary,
+  showNoNewTrades,
+  onRunAnalysis,
+  onOpenRaylaPopup,
+  alpacaPositions,
+  performanceLiveAppliedSelection,
+  setPerformanceLiveAppliedSelection,
+  tradeAppliedSelection,
+  applyTradeSelection,
+  tradePortfolioAllSymbols,
+  tradeChartSymbol,
+  tradeChartCurrentPrice,
+  tradeChartQuote,
+  tradeChartMatchingPosition,
+  tradeChartAsset,
+  tradeChartAssetType,
+  tradeChartRange,
+  setTradeChartRange,
+  tradeChartMode,
+  setTradeChartMode,
+  tradeChartLastUpdated,
+  tradeIsComparisonMode,
+  tradeIsPortfolioTotalMode,
+  tradePortfolioCombinedUnrealizedPl,
+  tradePortfolioCombinedMarketValue,
+  tradePortfolioDisplayedPositions,
+  tradePortfolioChartsLoading,
+  tradePortfolioCharts,
+  brokerTradeLog,
+  tradePortfolioRequestedStartMs,
+  tradePortfolioNowMs,
+  tradeMarketChartLoading,
+  tradeMarketChart,
+}) {
+  const [fAsset, setFAsset] = useState("all");
+  const [fSetup, setFSetup] = useState("all");
+  const [fSession, setFSession] = useState("all");
+  const [fDir, setFDir] = useState("all");
+  const [fResult, setFResult] = useState("all");
+  const [tooltip, setTooltip] = useState(null);
+
+  const allAssets = useMemo(() => [...new Set(trades.map(t => (t.asset || "").toUpperCase()).filter(Boolean))].sort(), [trades]);
+  const allSetups = useMemo(() => [...new Set(trades.map(t => t.setup).filter(Boolean))].sort(), [trades]);
+  const allSessions = useMemo(() => [...new Set(trades.map(t => t.session).filter(Boolean))].sort(), [trades]);
+
+  const ft = useMemo(() => trades
+    .filter(t => fAsset === "all" || (t.asset || "").toUpperCase() === fAsset)
+    .filter(t => fSetup === "all" || t.setup === fSetup)
+    .filter(t => fSession === "all" || t.session === fSession)
+    .filter(t => fDir === "all" || (t.direction || "").toLowerCase() === fDir)
+    .filter(t => {
+      if (fResult === "all") return true;
+      const r = getTradeOutcomeValue(t);
+      return fResult === "win" ? r > 0 : fResult === "loss" ? r < 0 : r === 0;
+    }), [trades, fAsset, fSetup, fSession, fDir, fResult]);
+
+  const report = useMemo(() => buildCoachReport(ft), [ft]);
+  const hasFilters = fAsset !== "all" || fSetup !== "all" || fSession !== "all" || fDir !== "all" || fResult !== "all";
+
+  const sessionStats = useMemo(() => {
+    const map = {};
+    ft.forEach(t => {
+      const k = t.session || "Untagged";
+      if (!map[k]) map[k] = { trades: 0, wins: 0, totalR: 0 };
+      map[k].trades++;
+      map[k].totalR += getTradeOutcomeValue(t);
+      if (getTradeOutcomeValue(t) > 0) map[k].wins++;
+    });
+    return Object.entries(map)
+      .map(([session, s]) => ({ session, trades: s.trades, winRate: s.trades > 0 ? (s.wins / s.trades) * 100 : 0, avgR: s.trades > 0 ? s.totalR / s.trades : 0, totalR: s.totalR }))
+      .sort((a, b) => b.totalR - a.totalR);
+  }, [ft]);
+
+  const recent5 = useMemo(() => [...trades]
+    .sort((a, b) => (b.entry_time ? new Date(b.entry_time).getTime() : 0) - (a.entry_time ? new Date(a.entry_time).getTime() : 0))
+    .slice(0, 5), [trades]);
+
+  const lossStreak = useMemo(() => {
+    const sorted = [...trades].sort((a, b) => (b.entry_time ? new Date(b.entry_time).getTime() : 0) - (a.entry_time ? new Date(a.entry_time).getTime() : 0));
+    let streak = 0;
+    for (const t of sorted) {
+      if (getTradeOutcomeValue(t) < 0) streak++;
+      else break;
+    }
+    return streak;
+  }, [trades]);
+
+  const rStdDev = useMemo(() => {
+    if (ft.length < 3) return null;
+    const rs = ft.map(t => getTradeOutcomeValue(t));
+    const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
+    const variance = rs.reduce((a, r) => a + (r - mean) ** 2, 0) / rs.length;
+    return Math.sqrt(variance);
+  }, [ft]);
+
+  const TOOLTIP_CONTENT = {
+    winrate: { title: "Win Rate", body: "Win rate is the percentage of your trades that finished as winners. Higher isn't always better — what matters is win rate in combination with how much you make vs. lose per trade." },
+    avgr: { title: "Avg Result / Trade", body: "Average result shows what your typical completed trade earns or loses across the trades currently included in analysis." },
+    totalr: { title: "Total Result", body: "Total result is the cumulative profit and loss across the trades currently included in analysis." },
+    pf: { title: "Profit Factor", body: "Profit Factor = total gross wins ÷ total gross losses. Above 1.0 means the system is net profitable. Below 1.0 means losses are outpacing wins in dollar terms." },
+  };
+
+  const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
+  const diagnosisStrongestEdge = coachSummary?.strongestEdge
+    || (report?.bestCombo
+      ? `${report.bestCombo.setup} on ${report.bestCombo.asset} — ${report.bestCombo.avgR.toFixed(2)} avg across ${report.bestCombo.trades} trade${report.bestCombo.trades === 1 ? "" : "s"} · ${report.bestCombo.winRate.toFixed(0)}% win rate.${report.bestCombo.trades < 3 ? " Early signal — build sample size here before scaling." : ""}`
+      : null);
+  const diagnosisConsistencyNote = rStdDev != null
+    ? `Result std deviation: ${rStdDev.toFixed(2)}. ${rStdDev < 1.2
+      ? "Your outcomes are fairly consistent."
+      : rStdDev < 2.5
+        ? "Moderate variance in outcomes. Review whether sizing and execution are staying consistent."
+        : "High variance in outcomes. Risk sizing or execution inconsistency is likely distorting results."}`
+    : null;
+  const weakestSetup = report?.setupStats?.length > 1 ? report.setupStats[report.setupStats.length - 1] : null;
+  const diagnosisWarning = coachSummary?.warning
+    || report?.warnings?.[0]
+    || (weakestSetup && weakestSetup.avgR < 0
+      ? `${weakestSetup.setup} is your weakest setup right now at ${weakestSetup.avgR.toFixed(2)} average per trade.`
+      : null);
+  const diagnosisNextAction = coachSummary?.nextAction || report?.actions?.[0] || null;
+
+  if (trades.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "80px 24px" }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>No trades to analyze yet</div>
+        <div style={{ fontSize: 14, color: "#64748b", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
+          Head to <strong style={{ color: "#7CC4FF" }}>My Trades</strong> and log your first trade. Your full analytics dashboard will unlock here.
+        </div>
+      </div>
+    );
+  }
+
+  const winCount = report?.wins || 0;
+  const lossCount = report?.losses || 0;
+  const beCount = ft.filter(t => getTradeOutcomeValue(t) === 0).length;
+  const totalCount = ft.length;
+
+  function clearFilters() {
+    setFAsset("all"); setFSetup("all"); setFSession("all"); setFDir("all"); setFResult("all");
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <RaylaLaunchButton
+          label="Ask Rayla about your performance"
+          onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
+        />
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {allAssets.length > 1 && (
+          <select value={fAsset} onChange={e => setFAsset(e.target.value)} style={PERF_SELECT_STYLE}>
+            <option value="all">All Assets</option>
+            {allAssets.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        )}
+        {allSetups.length > 0 && (
+          <select value={fSetup} onChange={e => setFSetup(e.target.value)} style={PERF_SELECT_STYLE}>
+            <option value="all">All Setups</option>
+            {allSetups.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+        {allSessions.length > 0 && (
+          <select value={fSession} onChange={e => setFSession(e.target.value)} style={PERF_SELECT_STYLE}>
+            <option value="all">All Sessions</option>
+            {allSessions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+        <select value={fDir} onChange={e => setFDir(e.target.value)} style={PERF_SELECT_STYLE}>
+          <option value="all">All Directions</option>
+          <option value="long">Long</option>
+          <option value="short">Short</option>
+        </select>
+        <select value={fResult} onChange={e => setFResult(e.target.value)} style={PERF_SELECT_STYLE}>
+          <option value="all">All Results</option>
+          <option value="win">Winners</option>
+          <option value="loss">Losers</option>
+          <option value="be">Breakeven</option>
+        </select>
+        {hasFilters && (
+          <button type="button" onClick={clearFilters}
+            style={{ background: "transparent", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", fontSize: 12, cursor: "pointer" }}>
+            Clear
+          </button>
+        )}
+        <div style={{ marginLeft: "auto", fontSize: 12, color: "#475569" }}>{ft.length} of {trades.length} trades</div>
+      </div>
+
+      {/* Stats grid */}
+      {report ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+          {[
+            { label: "Trades", value: report.trades, sub: `${winCount}W · ${lossCount}L`, color: "#f3f7fc" },
+            { label: "Win Rate", value: `${report.winRate.toFixed(1)}%`, sub: "% of winners", color: report.winRate >= 50 ? "#4ade80" : "#f87171", tip: "winrate" },
+            { label: "Total Result", value: `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, sub: "net result", color: report.totalR >= 0 ? "#4ade80" : "#f87171", tip: "totalr" },
+            { label: "Avg Result / Trade", value: `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, sub: "per trade", color: report.avgR >= 0 ? "#4ade80" : "#f87171", tip: "avgr" },
+            { label: "Avg Win", value: report.avgWin > 0 ? `+${report.avgWin.toFixed(2)}` : "—", sub: "avg winner", color: "#4ade80" },
+            { label: "Avg Loss", value: report.avgLoss > 0 ? `-${report.avgLoss.toFixed(2)}` : "—", sub: "avg loser", color: "#f87171" },
+            ...(report.profitFactor !== null ? [{ label: "Profit Factor", value: report.profitFactor.toFixed(2), sub: ">1.0 profitable", color: report.profitFactor >= 1 ? "#4ade80" : "#f87171", tip: "pf" }] : []),
+            ...(report.setupStats.length > 0 ? [{ label: "Best Setup", value: report.setupStats[0].setup, sub: `${report.setupStats[0].avgR >= 0 ? "+" : ""}${report.setupStats[0].avgR.toFixed(2)} avg`, color: "#7CC4FF" }] : []),
+            ...(report.setupStats.length > 1 ? [{ label: "Weakest Setup", value: report.setupStats[report.setupStats.length - 1].setup, sub: `${report.setupStats[report.setupStats.length - 1].avgR >= 0 ? "+" : ""}${report.setupStats[report.setupStats.length - 1].avgR.toFixed(2)} avg`, color: "#f87171" }] : []),
+          ].map(item => (
+            <div key={item.label}
+              onClick={item.tip ? () => setTooltip(item.tip) : undefined}
+              style={{ ...cardBase, padding: "14px 16px", cursor: item.tip ? "pointer" : "default" }}>
+              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                {item.label}
+                {item.tip && <span style={{ fontSize: 10, color: "#334155" }}>ⓘ</span>}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: item.color, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.value}</div>
+              <div style={{ fontSize: 11, color: "#475569" }}>{item.sub}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ ...cardBase, padding: "28px", textAlign: "center", color: "#64748b", fontSize: 14 }}>
+          No trades match the current filters.{" "}
+          <button type="button" onClick={clearFilters}
+            style={{ background: "transparent", border: "none", color: "#7CC4FF", fontSize: 14, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      {/* Tooltip modal */}
+      {tooltip && TOOLTIP_CONTENT[tooltip] && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}
+          onClick={() => setTooltip(null)}>
+          <div className="card" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="cardHeader"><h2>{TOOLTIP_CONTENT[tooltip].title}</h2></div>
+            <div className="cardBody" style={{ lineHeight: 1.7 }}>{TOOLTIP_CONTENT[tooltip].body}</div>
+            <button className="ghostButton" onClick={() => setTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
+          </div>
+        </div>
+      )}
+
+      {/* Equity curve */}
+      <EquityCurveCard
+        equityPoints={equityPoints}
+        sourceLabel={sourceLabel}
+        chartRange={chartRange}
+        setChartRange={setChartRange}
+        benchmarkSymbol={benchmarkSymbol}
+        benchmarkLabel={benchmarkLabel}
+        onSelectBenchmark={onSelectBenchmark}
+        benchmarkOptions={benchmarkOptions}
+        benchmarkPoints={benchmarkPoints}
+        benchmarkLoading={benchmarkLoading}
+        alpacaConnected={alpacaConnected}
+      />
+
+      {trades.length > 0 ? (
+        <PerformanceLiveChartCard
+          alpacaPositions={alpacaPositions}
+          performanceLiveAppliedSelection={performanceLiveAppliedSelection}
+          setPerformanceLiveAppliedSelection={setPerformanceLiveAppliedSelection}
+          tradePortfolioAllSymbols={tradePortfolioAllSymbols}
+          tradeChartSymbol={tradeChartSymbol}
+          tradeChartCurrentPrice={tradeChartCurrentPrice}
+          tradeChartQuote={tradeChartQuote}
+          tradeChartMatchingPosition={tradeChartMatchingPosition}
+          tradeChartAsset={tradeChartAsset}
+          tradeChartAssetType={tradeChartAssetType}
+          tradeChartRange={tradeChartRange}
+          setTradeChartRange={setTradeChartRange}
+          tradeChartMode={tradeChartMode}
+          setTradeChartMode={setTradeChartMode}
+          tradeChartLastUpdated={tradeChartLastUpdated}
+          tradeIsComparisonMode={tradeIsComparisonMode}
+          tradeIsPortfolioTotalMode={tradeIsPortfolioTotalMode}
+          tradePortfolioCombinedUnrealizedPl={tradePortfolioCombinedUnrealizedPl}
+          tradePortfolioCombinedMarketValue={tradePortfolioCombinedMarketValue}
+          tradePortfolioDisplayedPositions={tradePortfolioDisplayedPositions}
+          tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+          tradePortfolioCharts={tradePortfolioCharts}
+          brokerTradeLog={brokerTradeLog}
+          trades={trades}
+          tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
+          tradePortfolioNowMs={tradePortfolioNowMs}
+          tradeMarketChartLoading={tradeMarketChartLoading}
+          tradeMarketChart={tradeMarketChart}
+        />
+      ) : null}
+
+      {/* Trade outcome overview */}
+      {report && totalCount > 0 && (
+        <div style={{ ...cardBase, padding: "16px 20px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 14 }}>Trade Outcomes</div>
+          <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", marginBottom: 14, gap: 2 }}>
+            {winCount > 0 && <div style={{ flex: winCount, background: "#4ade80", borderRadius: 2 }} />}
+            {lossCount > 0 && <div style={{ flex: lossCount, background: "#f87171", borderRadius: 2 }} />}
+            {beCount > 0 && <div style={{ flex: beCount, background: "#64748b", borderRadius: 2 }} />}
+          </div>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            {[
+              { label: "Winners", count: winCount, color: "#4ade80", detail: report.avgWin > 0 ? `+${report.avgWin.toFixed(2)} avg` : "" },
+              { label: "Losers", count: lossCount, color: "#f87171", detail: report.avgLoss > 0 ? `-${report.avgLoss.toFixed(2)} avg` : "" },
+              ...(beCount > 0 ? [{ label: "Breakeven", count: beCount, color: "#64748b", detail: "" }] : []),
+            ].map(item => (
+              <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: item.color }}>{item.count}</span>
+                <span style={{ fontSize: 12, color: "#64748b" }}>{item.label} · {totalCount ? (item.count / totalCount * 100).toFixed(0) : 0}%</span>
+                {item.detail && <span style={{ fontSize: 12, color: "#475569" }}>· {item.detail}</span>}
+              </div>
+            ))}
+          </div>
+          {recent5.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+              <span style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: "0.4px" }}>Recent form</span>
+              <div style={{ display: "flex", gap: 5 }}>
+                {recent5.map((t, i) => {
+                  const r = getTradeOutcomeValue(t);
+                  return (
+                    <div key={i}
+                      title={`${(t.asset || "").toUpperCase()} · ${r >= 0 ? "+" : ""}${r.toFixed(2)}`}
+                      style={{ width: 11, height: 11, borderRadius: "50%", background: r > 0 ? "#4ade80" : r < 0 ? "#f87171" : "#64748b" }} />
+                  );
+                })}
+              </div>
+              {lossStreak >= 3 && (
+                <span style={{ fontSize: 11, color: "#fbbf24", background: "rgba(251,191,36,0.09)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 6, padding: "1px 8px" }}>
+                  {lossStreak} consecutive losses
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Breakdown tables: Setup | Asset | Session */}
+      {report && (report.setupStats.length > 0 || report.assetStats.length > 0 || sessionStats.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+          <PerfBreakdownTable
+            title="By Setup"
+            rows={report.setupStats.map(s => ({ name: s.setup, trades: s.trades, winRate: s.winRate, avgR: s.avgR, totalR: s.totalR }))}
+            nameColor="#7CC4FF"
+          />
+          <PerfBreakdownTable
+            title="By Asset"
+            rows={report.assetStats.map(a => ({ name: a.asset, trades: a.trades, winRate: a.winRate, avgR: a.avgR, totalR: a.totalR }))}
+            nameColor="#e2e8f0"
+          />
+          {sessionStats.length > 0 && (
+            <PerfBreakdownTable
+              title="By Session"
+              rows={sessionStats.map(s => ({ name: s.session, trades: s.trades, winRate: s.winRate, avgR: s.avgR, totalR: s.totalR }))}
+              nameColor="#94a3b8"
+            />
+          )}
+        </div>
+      )}
+
+      {/* Strongest patterns (Asset + Setup combos) */}
+      {report && report.comboStats.length > 0 && (
+        <div style={cardBase}>
+          <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>
+            Strongest Patterns — Asset + Setup
+          </div>
+          <div style={{ padding: "4px 0" }}>
+            {report.comboStats.slice(0, 5).map((c, i) => (
+              <div key={i} style={{ padding: "10px 16px", borderBottom: i < Math.min(report.comboStats.length, 5) - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 160px" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#f3f7fc" }}>{c.asset}</span>
+                  <span style={{ fontSize: 12, color: "#475569" }}> · </span>
+                  <span style={{ fontSize: 12, color: "#7CC4FF" }}>{c.setup}</span>
+                </div>
+                <span style={{ fontSize: 11, color: "#64748b", whiteSpace: "nowrap" }}>{c.trades} trades · {c.winRate.toFixed(0)}% win</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: c.avgR >= 0 ? "#4ade80" : "#f87171", whiteSpace: "nowrap" }}>{c.avgR >= 0 ? "+" : ""}{c.avgR.toFixed(2)} avg</span>
+                <span style={{ fontSize: 12, color: c.totalR >= 0 ? "#4ade80" : "#f87171", whiteSpace: "nowrap" }}>{c.totalR >= 0 ? "+" : ""}{c.totalR.toFixed(2)} total</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rayla Diagnosis */}
+      {report && (
+        <div style={cardBase}>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla's Diagnosis</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {showNoNewTrades && <span style={{ fontSize: 11, color: "#334155" }}>No new trades since last run</span>}
+              <button type="button" onClick={onRunAnalysis}
+                style={{ background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.25)", borderRadius: 8, padding: "6px 14px", color: "#7CC4FF", fontSize: 12, cursor: "pointer" }}>
+                Run AI Analysis
+              </button>
+            </div>
+          </div>
+          <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+            {ft.length < 20 && (
+              <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.15)", fontSize: 13, color: "#7CC4FF", lineHeight: 1.6 }}>
+                {ft.length < 5
+                  ? `Only ${ft.length} trade${ft.length === 1 ? "" : "s"} logged — keep logging every trade to unlock meaningful patterns.`
+                  : `${ft.length} trades logged — patterns are forming. Aim for 30+ trades before drawing firm conclusions from setup stats.`}
+              </div>
+            )}
+            {diagnosisStrongestEdge && (
+              <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(74,222,128,0.07)", border: "1px solid rgba(74,222,128,0.15)" }}>
+                <div style={{ fontSize: 11, color: "#4ade80", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5, fontWeight: 600 }}>Strongest Edge</div>
+                <div style={{ fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
+                  {diagnosisStrongestEdge}
+                </div>
+              </div>
+            )}
+            {diagnosisConsistencyNote && (
+              <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
+                <span style={{ color: "#7f8ea3", fontWeight: 600 }}>Consistency · </span>
+                {diagnosisConsistencyNote}
+              </div>
+            )}
+            {diagnosisWarning && (
+              <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.18)", fontSize: 13, color: "#fbbf24", lineHeight: 1.6 }}>
+                ⚠ {diagnosisWarning}
+              </div>
+            )}
+            {diagnosisNextAction && (
+              <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.15)" }}>
+                <div style={{ fontSize: 11, color: "#7CC4FF", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8, fontWeight: 600 }}>Next Action</div>
+                <div style={{ display: "flex", gap: 8, fontSize: 13, color: "#e2e8f0", lineHeight: 1.5 }}>
+                  <span style={{ color: "#7CC4FF", fontWeight: 700, flexShrink: 0 }}>1.</span>
+                  <span>{diagnosisNextAction}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hideOverall = false }) {
   const report = useMemo(() => buildCoachReport(trades), [trades]);
 
@@ -992,11 +3176,11 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
         <div className="cardHeader"><h2>Coach Insights</h2></div>
         <div className="cardBody">
           <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
-            {`Win Rate: ${report.winRate.toFixed(1)}% · Avg R: ${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}R · Trades: ${report.trades}`}
+            {`Win Rate: ${report.winRate.toFixed(1)}% · Avg Result: ${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)} · Trades: ${report.trades}`}
           </div>
           {report.bestCombo && (
             <div style={{ marginTop: 10, fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
-              {`Your strongest edge is ${report.bestCombo.setup} on ${report.bestCombo.asset} — ${report.bestCombo.avgR.toFixed(2)}R avg · ${report.bestCombo.winRate.toFixed(0)}% win rate across ${report.bestCombo.trades} trades.${report.bestCombo.trades < 3 ? " (early edge forming — low sample size)" : ""}`}
+              {`Your strongest edge is ${report.bestCombo.setup} on ${report.bestCombo.asset} — ${report.bestCombo.avgR.toFixed(2)} avg · ${report.bestCombo.winRate.toFixed(0)}% win rate across ${report.bestCombo.trades} trades.${report.bestCombo.trades < 3 ? " (early edge forming — low sample size)" : ""}`}
             </div>
           )}
           {report.warnings.length > 0 && (
@@ -1141,6 +3325,17 @@ function formatCurrency(value) {
   }).format(Number(value));
 }
 
+function formatCompactCurrencyAxis(value, span = 0) {
+  if (!Number.isFinite(Number(value))) return "--";
+  const numericValue = Number(value);
+  const absolute = Math.abs(numericValue);
+  if (span <= 25) return formatCurrency(numericValue);
+  if (span <= 250) return `${numericValue < 0 ? "-" : ""}$${Math.round(absolute).toLocaleString()}`;
+  if (absolute >= 1_000_000) return `${numericValue < 0 ? "-" : ""}$${(absolute / 1_000_000).toFixed(1)}M`;
+  if (absolute >= 1_000) return `${numericValue < 0 ? "-" : ""}$${(absolute / 1_000).toFixed(1)}k`;
+  return `${numericValue < 0 ? "-" : ""}$${Math.round(absolute).toLocaleString()}`;
+}
+
 function formatPctChange(value) {
   if (value == null || Number.isNaN(value)) return "--";
   const sign = value >= 0 ? "+" : "";
@@ -1185,6 +3380,35 @@ function buildSvgLinePoints(
     const y = 88 - ((value - paddedMin) / (paddedMax - paddedMin || 1)) * 68;
     return `${x},${y}`;
   }).join(" ");
+}
+
+function buildSvgStepLinePoints(
+  data,
+  zoomLevel = "normal",
+  slotCount = data.length,
+  xStart = 14,
+  xEnd = 100,
+  xRatios = null
+) {
+  if (!Array.isArray(data) || data.length === 0) return "";
+  if (data.length === 1) {
+    const point = buildSvgPointCoords(data, 0, zoomLevel, slotCount, xStart, xEnd, xRatios);
+    return `${point.x},${point.y}`;
+  }
+
+  const points = [];
+  for (let index = 0; index < data.length; index += 1) {
+    const current = buildSvgPointCoords(data, index, zoomLevel, slotCount, xStart, xEnd, xRatios);
+    if (index === 0) {
+      points.push(`${current.x},${current.y}`);
+      continue;
+    }
+    const previous = buildSvgPointCoords(data, index - 1, zoomLevel, slotCount, xStart, xEnd, xRatios);
+    points.push(`${current.x},${previous.y}`);
+    points.push(`${current.x},${current.y}`);
+  }
+
+  return points.join(" ");
 }
 
 function buildSvgPointCoords(
@@ -1249,8 +3473,435 @@ function buildSvgPriceScale(data, steps = 6, zoomLevel = "normal") {
     const ratio = index / (steps - 1 || 1);
     const y = 14 + (72 * ratio);
     const value = paddedMax - ((paddedMax - paddedMin) * ratio);
-    return { y, label: formatCompactPrice(value) };
+    return { y, label: formatCompactCurrencyAxis(value, range) };
   });
+}
+
+function parseTradeTimeMs(trade) {
+  const candidates = [
+    trade?.exit_time,
+    trade?.closed_at,
+    trade?.filled_at,
+    trade?.entry_time,
+  ];
+  for (const candidate of candidates) {
+    const value = Date.parse(String(candidate || ""));
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function resolveEquityTradeTimestamp(trade) {
+  const candidates = [
+    ["exit_time", trade?.exit_time],
+    ["closed_at", trade?.closed_at],
+    ["filled_at", trade?.filled_at],
+    ["entry_time", trade?.entry_time],
+  ];
+
+  for (const [field, candidate] of candidates) {
+    const value = Date.parse(String(candidate || ""));
+    if (Number.isFinite(value)) {
+      return { timeMs: value, field };
+    }
+  }
+
+  return { timeMs: null, field: null };
+}
+
+function parseTradeEntryTimeMs(trade) {
+  const candidates = [
+    trade?.entry_time,
+    trade?.created_at,
+    trade?.updated_at,
+  ];
+  for (const candidate of candidates) {
+    const value = Date.parse(String(candidate || ""));
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function calculateTradeDollarPnl(trade) {
+  const explicitPnl = Number(trade?.pnl_value);
+  if (Number.isFinite(explicitPnl)) return explicitPnl;
+
+  const entryPrice = Number(trade?.entry_price);
+  const exitPrice = Number(trade?.exit_price);
+  const entrySize = Number(trade?.entry_size);
+  const direction = String(trade?.direction || "long").trim().toLowerCase();
+
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  if (!Number.isFinite(exitPrice) || exitPrice <= 0) return null;
+  if (!Number.isFinite(entrySize) || entrySize <= 0) return null;
+
+  const pctMove = direction === "short"
+    ? (entryPrice - exitPrice) / entryPrice
+    : (exitPrice - entryPrice) / entryPrice;
+
+  if (!Number.isFinite(pctMove)) return null;
+  return entrySize * pctMove;
+}
+
+function buildUsableClosedTradesForEquity(trades) {
+  return [...(Array.isArray(trades) ? trades : [])]
+    .map((trade, originalIndex) => {
+      const timestamp = resolveEquityTradeTimestamp(trade);
+      const entryTimeMs = parseTradeEntryTimeMs(trade);
+      const pnl = calculateTradeDollarPnl(trade);
+      if (!Number.isFinite(timestamp.timeMs) || !Number.isFinite(pnl)) return null;
+      return {
+        trade,
+        timeMs: timestamp.timeMs,
+        timestampField: timestamp.field,
+        entryTimeMs,
+        pnl,
+        originalIndex,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.timeMs !== b.timeMs) return a.timeMs - b.timeMs;
+      const safeEntryA = Number.isFinite(a.entryTimeMs) ? a.entryTimeMs : a.timeMs;
+      const safeEntryB = Number.isFinite(b.entryTimeMs) ? b.entryTimeMs : b.timeMs;
+      if (safeEntryA !== safeEntryB) return safeEntryA - safeEntryB;
+      return a.originalIndex - b.originalIndex;
+    });
+}
+
+function buildLoggedEquityCurvePoints(trades, startingEquity = 10000) {
+  const sortedTrades = buildUsableClosedTradesForEquity(trades);
+
+  if (!sortedTrades.length) return [];
+
+  let equity = Number(startingEquity);
+  const groupedTrades = [];
+  sortedTrades.forEach((item) => {
+    const currentGroup = groupedTrades[groupedTrades.length - 1];
+    if (currentGroup && currentGroup.timeMs === item.timeMs) {
+      currentGroup.pnl += item.pnl;
+      currentGroup.trades.push(item);
+      return;
+    }
+    groupedTrades.push({
+      timeMs: item.timeMs,
+      timestampField: item.timestampField,
+      pnl: item.pnl,
+      trades: [item],
+    });
+  });
+
+  return groupedTrades.map((group) => {
+    equity += group.pnl;
+    const sources = [...new Set(group.trades.map((item) => item.trade?.source || (item.trade?.isBrokerTrade ? "broker" : "manual")))];
+    return {
+      time: new Date(group.timeMs).toISOString(),
+      timeMs: group.timeMs,
+      value: equity,
+      equity,
+      changeFromStart: equity - Number(startingEquity),
+      tradeId: group.trades[0]?.trade?.id || null,
+      tradeIds: group.trades.map((item) => item.trade?.id).filter(Boolean),
+      source: sources.length === 1 ? sources[0] : "mixed",
+      pnl: group.pnl,
+      timestampField: group.timestampField,
+      tradeCount: group.trades.length,
+      trade: group.trades[group.trades.length - 1]?.trade || null,
+    };
+  });
+}
+
+function inferBenchmarkRangeFromEquityPoints(points) {
+  if (!Array.isArray(points) || points.length < 2) return "1M";
+  const first = points[0]?.timeMs || 0;
+  const last = points[points.length - 1]?.timeMs || first;
+  const spanMs = Math.max(0, last - first);
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (spanMs <= dayMs) return "1D";
+  if (spanMs <= 7 * dayMs) return "1W";
+  if (spanMs <= 30 * dayMs) return "1M";
+  if (spanMs <= 90 * dayMs) return "3M";
+  if (spanMs <= 365 * dayMs) return "1Y";
+  if (spanMs <= 5 * 365 * dayMs) return "5Y";
+  return "MAX";
+}
+
+function normalizeBenchmarkSeries(chart, startingEquity = 10000) {
+  const bars = extractChartBars(chart);
+  if (bars.length < 2) return [];
+
+  const normalizedPoints = bars.map((bar, index) => {
+    const close = Number(bar?.close);
+    const timeMs = Date.parse(String(bar?.time || ""));
+    if (!Number.isFinite(close) || close <= 0 || !Number.isFinite(timeMs)) return null;
+    return {
+      id: `benchmark-${index}`,
+      time: new Date(timeMs).toISOString(),
+      timeMs,
+      close,
+    };
+  }).filter(Boolean);
+
+  if (normalizedPoints.length < 2) return [];
+
+  const firstClose = Number(normalizedPoints[0]?.close);
+  if (!Number.isFinite(firstClose) || firstClose <= 0) return [];
+
+  const valuePoints = normalizedPoints.map((point) => {
+    const value = Number(startingEquity) * (point.close / firstClose);
+    return {
+      ...point,
+      value,
+      equity: value,
+    };
+  });
+
+  const firstValue = Number(valuePoints[0]?.value);
+  if (!Number.isFinite(firstValue) || firstValue <= 0) return [];
+
+  return valuePoints.map((point) => {
+    const pctChange = ((point.value - firstValue) / firstValue) * 100;
+    return {
+      ...point,
+      time: point.time,
+      value: point.value,
+      pctChange,
+      changeFromStart: point.value - firstValue,
+      pnl: point.value - firstValue,
+    };
+  });
+}
+
+function readBenchmarkPointValue(point) {
+  const value = Number(point?.equity ?? point?.value);
+  return Number.isFinite(value) ? value : null;
+}
+
+function readBenchmarkPointPctChange(point, baselineValue = null) {
+  const pctChange = Number(point?.pctChange);
+  if (Number.isFinite(pctChange)) return pctChange;
+
+  const value = readBenchmarkPointValue(point);
+  if (!Number.isFinite(value) || !Number.isFinite(baselineValue) || baselineValue <= 0) {
+    return null;
+  }
+
+  return ((value / baselineValue) - 1) * 100;
+}
+
+function sliceBenchmarkBarsToVisibleWindow(chart, visibleStart, visibleEnd) {
+  const bars = extractChartBars(chart);
+  if (!bars.length) return [];
+
+  const normalizedBars = bars
+    .map((bar) => {
+      const timeMs = Date.parse(String(bar?.time || ""));
+      return Number.isFinite(timeMs) ? { ...bar, timeMs } : null;
+    })
+    .filter(Boolean);
+
+  const withinWindow = normalizedBars.filter((bar) => bar.timeMs >= visibleStart && bar.timeMs <= visibleEnd);
+  const priorBar = [...normalizedBars].reverse().find((bar) => bar.timeMs <= visibleStart) || null;
+
+  const result = [];
+  if (priorBar) result.push(priorBar);
+  withinWindow.forEach((bar) => {
+    if (!result.some((existing) => existing.timeMs === bar.timeMs)) {
+      result.push(bar);
+    }
+  });
+
+  if (result.length >= 2) return result.map(({ timeMs, ...bar }) => bar);
+
+  const nearestBars = normalizedBars
+    .map((bar) => ({
+      ...bar,
+      distance: Math.min(Math.abs(bar.timeMs - visibleStart), Math.abs(bar.timeMs - visibleEnd)),
+    }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 12)
+    .sort((a, b) => a.timeMs - b.timeMs);
+
+  return nearestBars.map(({ timeMs, distance, ...bar }) => bar);
+}
+
+function buildPortfolioBenchmarkChart(positionCharts, positions, visibleStart, visibleEnd) {
+  const normalizedPositions = Array.isArray(positions) ? positions : [];
+  const chartEntries = normalizedPositions.map((position) => {
+    const symbol = String(position?.symbol || "").trim().toUpperCase();
+    const chart = positionCharts?.[symbol] || null;
+    const bars = Array.isArray(chart?.bars) ? chart.bars : [];
+    const qty = Math.abs(Number(position?.qty) || 0);
+    const entryTimeMs = Number(chart?.entryTimeMs);
+    const clippedStartMs = Math.max(
+      Number.isFinite(visibleStart) ? visibleStart : 0,
+      Number.isFinite(entryTimeMs) ? entryTimeMs : Number.isFinite(visibleStart) ? visibleStart : 0
+    );
+    const filteredBars = bars
+      .map((bar) => {
+        const timeMs = Date.parse(String(bar?.time || bar?.t || ""));
+        const close = Number(bar?.close);
+        return Number.isFinite(timeMs) && Number.isFinite(close) && close > 0
+          ? { timeMs, close }
+          : null;
+      })
+      .filter(Boolean)
+      .filter((bar) => bar.timeMs >= clippedStartMs);
+    return {
+      symbol,
+      qty,
+      bars: filteredBars,
+    };
+  }).filter((entry) => entry.qty > 0 && entry.bars.length);
+
+  if (!chartEntries.length) return null;
+
+  const timeMap = new Map();
+  chartEntries.forEach((entry) => {
+    entry.bars.forEach((bar) => {
+      const existing = timeMap.get(bar.timeMs) || {};
+      existing[entry.symbol] = bar.close;
+      timeMap.set(bar.timeMs, existing);
+    });
+  });
+
+  const sortedTimes = Array.from(timeMap.keys()).sort((a, b) => a - b);
+  if (sortedTimes.length < 2) return null;
+
+  const latestCloseBySymbol = {};
+  const bars = [];
+  sortedTimes.forEach((timeMs) => {
+    const updates = timeMap.get(timeMs) || {};
+    Object.entries(updates).forEach(([symbol, close]) => {
+      latestCloseBySymbol[symbol] = close;
+    });
+    let totalCloseValue = 0;
+    let contributing = 0;
+    chartEntries.forEach((entry) => {
+      const close = latestCloseBySymbol[entry.symbol];
+      if (!Number.isFinite(close)) return;
+      totalCloseValue += close * entry.qty;
+      contributing += 1;
+    });
+    if (contributing > 0 && Number.isFinite(totalCloseValue) && totalCloseValue > 0) {
+      bars.push({
+        time: new Date(timeMs).toISOString(),
+        close: totalCloseValue,
+      });
+    }
+  });
+
+  if (bars.length < 2) return null;
+
+  return {
+    symbol: "Portfolio",
+    rangeMode: "portfolio_benchmark",
+    bars,
+  };
+}
+
+function calculateSeriesDrawdown(points) {
+  let peak = null;
+  let maxDrawdown = 0;
+  (Array.isArray(points) ? points : []).forEach((point) => {
+    const value = Number(point?.equity ?? point?.value);
+    if (!Number.isFinite(value)) return;
+    if (peak == null || value > peak) peak = value;
+    if (peak > 0) {
+      const drawdown = ((value - peak) / peak) * 100;
+      if (drawdown < maxDrawdown) maxDrawdown = drawdown;
+    }
+  });
+  return maxDrawdown;
+}
+
+const EQUITY_BENCHMARKS = {
+  SPY: { symbol: "SPY", type: "stock" },
+  QQQ: { symbol: "QQQ", type: "stock" },
+  BTC: { symbol: "BTC", type: "crypto" },
+  ETH: { symbol: "ETH", type: "crypto" },
+};
+
+function buildPercentScale(values, steps = 4) {
+  if (!Array.isArray(values) || values.length < 2) return [];
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = max - min || 1;
+  const paddedMax = max + range * 0.18;
+  const paddedMin = min - range * 0.18;
+
+  return Array.from({ length: steps }, (_, index) => {
+    const ratio = index / (steps - 1 || 1);
+    const y = 14 + (72 * ratio);
+    const value = paddedMax - ((paddedMax - paddedMin) * ratio);
+    return {
+      y,
+      label: `${value >= 0 ? "+" : ""}${value.toFixed(0)}%`,
+    };
+  });
+}
+
+function findNearestPointByTime(points, targetTimeMs) {
+  if (!Array.isArray(points) || !points.length || !Number.isFinite(targetTimeMs)) return null;
+  let nearest = points[0];
+  let nearestDistance = Math.abs((nearest?.timeMs || 0) - targetTimeMs);
+  for (let index = 1; index < points.length; index += 1) {
+    const point = points[index];
+    const distance = Math.abs((point?.timeMs || 0) - targetTimeMs);
+    if (distance < nearestDistance) {
+      nearest = point;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+function filterEquityCurvePointsByRange(points, range) {
+  if (!Array.isArray(points) || !points.length || range === "ALL") return points;
+  const endMs = points[points.length - 1]?.timeMs || Date.now();
+  const windowMs = (
+    range === "1D" ? 24 * 60 * 60 * 1000
+    : range === "1W" ? 7 * 24 * 60 * 60 * 1000
+    : range === "1M" ? 30 * 24 * 60 * 60 * 1000
+    : 90 * 24 * 60 * 60 * 1000
+  );
+  const startMs = endMs - windowMs;
+  const filtered = points.filter((point) => point.timeMs >= startMs);
+  return filtered.length ? filtered : points.slice(-1);
+}
+
+function buildEquityTimeScale(points, range) {
+  if (!Array.isArray(points) || !points.length) return [];
+  const firstTime = points[0]?.timeMs || 0;
+  const lastTime = points[points.length - 1]?.timeMs || firstTime;
+  const spanMs = Math.max(0, lastTime - firstTime);
+  const count = Math.min(points.length, range === "1D" ? 4 : range === "1W" ? 5 : 6);
+  const lastIndex = points.length - 1;
+  const labels = [];
+  const seen = new Set();
+
+  for (let i = 0; i < count; i += 1) {
+    const index = Math.round((lastIndex * i) / Math.max(1, count - 1));
+    const point = points[index];
+    if (!point) continue;
+    const label = new Date(point.timeMs).toLocaleDateString([], (
+      spanMs <= 24 * 60 * 60 * 1000
+        ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
+        : spanMs <= 7 * 24 * 60 * 60 * 1000
+          ? { month: "short", day: "numeric", hour: "numeric" }
+          : spanMs <= 120 * 24 * 60 * 60 * 1000
+            ? { month: "short", day: "numeric" }
+            : { month: "short", year: "numeric" }
+    ));
+    if (seen.has(label)) continue;
+    seen.add(label);
+    labels.push({
+      label,
+      ratio: lastIndex === 0 ? 0 : index / lastIndex,
+    });
+  }
+
+  return labels;
 }
 
 function hashScenarioSeed(symbol) {
@@ -1261,52 +3912,64 @@ function buildNextScenarioPrice({ assetId, currentPrice, anchorPrice, tick, scen
   const seed = hashScenarioSeed(assetId);
   const safeAnchor = Number.isFinite(anchorPrice) && anchorPrice > 0 ? anchorPrice : currentPrice;
   const safePrice = Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : safeAnchor;
-  const phaseLength = 7 + (seed % 5);
-  const phaseIndex = Math.floor((tick + seed) / phaseLength) % 3;
+  const phaseLength = 5 + (seed % 8);
+  const phaseIndex = Math.floor((tick + seed) / phaseLength) % 4;
   const phaseStep = (tick + seed) % phaseLength;
   const phaseProgress = phaseStep / (phaseLength - 1 || 1);
-  const microWave = Math.sin((tick + seed) / 3.2) * 0.00045;
-  const secondaryWave = Math.cos((tick + seed * 1.7) / 5.4) * 0.0003;
   const directionalNudge = (phaseProgress - 0.5) * 0.0009;
-  const phaseName = phaseIndex === 0 ? "impulse" : phaseIndex === 1 ? "pullback" : "consolidation";
-
-  let movePct = microWave + secondaryWave;
+  const phaseName = phaseIndex === 0 ? "push" : phaseIndex === 1 ? "pause" : phaseIndex === 2 ? "pullback" : "consolidation";
+  const driftProfile = getScenarioDriftProfile(assetId, tick, scenarioType);
+  const distanceFromAnchor = (safeAnchor - safePrice) / safeAnchor;
+  const microJitter = getScenarioSignedRandom((seed * 17) + tick) * 0.00042;
+  const secondaryJitter = getScenarioSignedRandom((seed * 29) + (tick * 5)) * 0.00031;
+  let movePct = microJitter + secondaryJitter;
 
   if (scenarioType === "uptrend") {
-    if (phaseName === "impulse") movePct += 0.0034 + directionalNudge;
-    else if (phaseName === "pullback") movePct += -0.0015 + (directionalNudge * 0.45);
-    else movePct += 0.00035 + (directionalNudge * 0.2);
+    if (phaseName === "push") movePct += 0.0027 + (driftProfile.impulse * 0.4) + directionalNudge;
+    else if (phaseName === "pullback") movePct += -0.00115 + (driftProfile.pullback * 0.45);
+    else if (phaseName === "pause") movePct += 0.00012 + (driftProfile.chop * 0.3);
+    else movePct += 0.00032 + (driftProfile.chop * 0.38);
   } else if (scenarioType === "downtrend") {
-    if (phaseName === "impulse") movePct += -0.0034 - directionalNudge;
-    else if (phaseName === "pullback") movePct += 0.0015 - (directionalNudge * 0.45);
-    else movePct += -0.00035 - (directionalNudge * 0.2);
+    if (phaseName === "push") movePct += -0.0027 - (driftProfile.impulse * 0.4) - directionalNudge;
+    else if (phaseName === "pullback") movePct += 0.00115 - (driftProfile.pullback * 0.45);
+    else if (phaseName === "pause") movePct += -0.00012 - (driftProfile.chop * 0.3);
+    else movePct += -0.00032 - (driftProfile.chop * 0.38);
   } else if (scenarioType === "realistic") {
-    const regimeLength = 11 + ((seed + Math.floor(tick / phaseLength)) % 9);
-    const regimeIndex = Math.floor((tick + seed * 3) / regimeLength) % 5;
-    const regimeStep = (tick + seed * 3) % regimeLength;
-    const regimeProgress = regimeStep / (regimeLength - 1 || 1);
-    const distanceFromAnchor = (safeAnchor - safePrice) / safeAnchor;
-    const recoveryBias = distanceFromAnchor * 0.1;
-
-    if (regimeIndex === 0) {
-      movePct += 0.0024 + (directionalNudge * 0.6) + (regimeProgress * 0.0007);
-    } else if (regimeIndex === 1) {
-      movePct += -0.0014 - (regimeProgress * 0.0005) + (recoveryBias * 0.18);
-    } else if (regimeIndex === 2) {
-      movePct += (distanceFromAnchor * 0.26) + (directionalNudge * 0.18);
-    } else if (regimeIndex === 3) {
-      movePct += -0.002 + ((0.5 - Math.abs(regimeProgress - 0.5)) * 0.0012) - (recoveryBias * 0.08);
+    const recoveryBias = distanceFromAnchor * 0.12;
+    if (phaseName === "push") {
+      movePct += driftProfile.impulse + recoveryBias;
+    } else if (phaseName === "pullback") {
+      movePct += (driftProfile.pullback * 0.95) - (recoveryBias * 0.3);
+    } else if (phaseName === "pause") {
+      movePct += (driftProfile.chop * 0.72) + (recoveryBias * 0.18);
     } else {
-      movePct += 0.0031 + (regimeProgress * 0.0009) - (distanceFromAnchor * 0.05);
+      movePct += (distanceFromAnchor * 0.18) + (driftProfile.chop * 0.94);
+    }
+    if (driftProfile.indecisionChance) {
+      movePct *= 0.42;
+    }
+    if (driftProfile.spikeChance !== 0) {
+      movePct += driftProfile.spikeChance * driftProfile.spikeStrength;
     }
   } else {
-    const distanceFromAnchor = (safeAnchor - safePrice) / safeAnchor;
-    if (phaseName === "impulse") movePct += (distanceFromAnchor * 0.16) + (directionalNudge * 0.35);
-    else if (phaseName === "pullback") movePct += (distanceFromAnchor * 0.24) - (directionalNudge * 0.25);
-    else movePct += distanceFromAnchor * 0.28;
+    const meanReversionBias = distanceFromAnchor * 0.34;
+    if (phaseName === "push") movePct += driftProfile.impulse + (driftProfile.chop * 0.4);
+    else if (phaseName === "pullback") movePct += meanReversionBias + (driftProfile.pullback * 0.72);
+    else if (phaseName === "pause") movePct += (driftProfile.chop * 0.55) + (meanReversionBias * 0.22);
+    else movePct += meanReversionBias + (driftProfile.chop * 0.92);
+    if (driftProfile.indecisionChance) {
+      movePct *= 0.35;
+    }
+    if (driftProfile.spikeChance !== 0) {
+      movePct += driftProfile.spikeChance * driftProfile.spikeStrength;
+    }
   }
-
-  return Math.max(0.01, safePrice * (1 + movePct));
+  const boundedMovePct = Math.max(-0.014, Math.min(0.014, movePct));
+  const nextPrice = Math.max(0.01, safePrice * (1 + boundedMovePct));
+  const maxDriftPct = scenarioType === "range" ? 0.06 : scenarioType === "realistic" ? 0.14 : 0.18;
+  const minPrice = safeAnchor * (1 - maxDriftPct);
+  const maxPrice = safeAnchor * (1 + maxDriftPct);
+  return Math.max(0.01, Math.min(maxPrice, Math.max(minPrice, nextPrice)));
 }
 
 function buildScenarioPlaybackBridge({ assetId, currentPrice, anchorPrice, fromTick, toTick, scenarioType }) {
@@ -1440,6 +4103,20 @@ function formatScenarioAxisLabel(ms, totalMs) {
   }
 
   return `${totalSeconds}s`;
+}
+
+function formatScenarioElapsedLabel(ms, totalMs) {
+  if (!Number.isFinite(ms) || ms <= 0) return "Now";
+  return `+${formatScenarioAxisLabel(ms, totalMs)}`;
+}
+
+function chartTimeToMs(time) {
+  if (typeof time === "number") return time * 1000;
+  if (typeof time === "string") return new Date(time).getTime();
+  if (time && typeof time === "object" && "year" in time) {
+    return Date.UTC(time.year, time.month - 1, time.day);
+  }
+  return NaN;
 }
 
 function isCapitalGuideIntent(question) {
@@ -1602,31 +4279,275 @@ function getCapitalGuideQuestions() {
   ];
 }
 
-function EquityCurveCard({ equitySeries, sourceLabel, chartRange, setChartRange }) {
-  const points = useMemo(() => buildSvgLinePoints(equitySeries), [equitySeries]);
-  const areaPoints = `0,100 ${points} 100,100`;
-  const startValue = equitySeries[0];
-  const currentValue = equitySeries[equitySeries.length - 1];
+function EquityCurveCard({
+  equityPoints,
+  sourceLabel,
+  chartRange,
+  setChartRange,
+  benchmarkSymbol,
+  benchmarkLabel,
+  onSelectBenchmark,
+  benchmarkOptions,
+  benchmarkPoints,
+  benchmarkLoading,
+  alpacaConnected,
+}) {
+  const [benchmarkSelectorOpen, setBenchmarkSelectorOpen] = useState(false);
+  const [benchmarkQuery, setBenchmarkQuery] = useState("");
+  const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
+  const values = equityPoints.map((point) => point.equity);
+  const startValue = values[0];
+  const currentValue = values[values.length - 1];
   const netValue = currentValue - startValue;
-  const netText = `${netValue >= 0 ? "+" : ""}${netValue.toFixed(2)}R`;
+  const yourReturnPct = startValue > 0 ? ((netValue / startValue) * 100) : 0;
+  const lastBenchmarkPoint = benchmarkPoints[benchmarkPoints.length - 1];
+  const rawBenchmarkReturnPct = benchmarkPoints.length > 1
+    ? Number(lastBenchmarkPoint?.pctChange)
+    : null;
+  const benchmarkReturnPct = Number.isFinite(rawBenchmarkReturnPct) ? rawBenchmarkReturnPct : null;
+  const benchmarkDifference = benchmarkReturnPct != null ? yourReturnPct - benchmarkReturnPct : null;
+  const maxDrawdown = calculateSeriesDrawdown(equityPoints);
+  const resolvedBenchmarkLabel = benchmarkLabel || benchmarkSymbol;
 
-  return (
-    <Card title="Equity Curve" className="equityCard">
-      <div className="chartTabs">
+  useEffect(() => {
+    if (!import.meta.env.DEV || benchmarkSymbol !== "Portfolio") return;
+    console.log("FINAL BENCHMARK (CARD):", benchmarkPoints?.slice(-1)[0]);
+  }, [benchmarkPoints, benchmarkSymbol]);
+
+  const filteredBenchmarkOptions = useMemo(() => {
+    const query = benchmarkQuery.trim().toLowerCase();
+    const localOptions = benchmarkOptions.filter((option) => (
+      !query
+      || option.symbol.toLowerCase().includes(query)
+      || option.label.toLowerCase().includes(query)
+      || option.group.toLowerCase().includes(query)
+    ));
+    const seen = new Set(localOptions.map((option) => option.symbol));
+    const remoteOptions = benchmarkSearchResults.filter((option) => !seen.has(option.symbol));
+    return [...localOptions, ...remoteOptions];
+  }, [benchmarkOptions, benchmarkQuery, benchmarkSearchResults]);
+
+  useEffect(() => {
+    if (!benchmarkSelectorOpen) {
+      setBenchmarkSearchResults([]);
+      return;
+    }
+
+    const query = benchmarkQuery.trim();
+    if (!query) {
+      setBenchmarkSearchResults([]);
+      return;
+    }
+
+    let isCancelled = false;
+    const timeout = setTimeout(async () => {
+      try {
+        const results = await searchRaylaSupportedAssets(query, alpacaConnected);
+        if (isCancelled) return;
+        setBenchmarkSearchResults(
+          results.slice(0, 8).map((item) => ({
+            symbol: item.symbol,
+            type: item.type || "stock",
+            label: item.description || item.name || "Search result",
+            group: "Search results",
+          }))
+        );
+      } catch {
+        if (!isCancelled) setBenchmarkSearchResults([]);
+      }
+    }, 160);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [benchmarkSelectorOpen, benchmarkQuery, alpacaConnected]);
+
+  useEffect(() => {
+    if (!benchmarkSelectorOpen) return;
+    function handleClickOutside(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest("[data-benchmark-selector='true']")) return;
+      setBenchmarkSelectorOpen(false);
+    }
+
+    window.addEventListener("pointerdown", handleClickOutside);
+    return () => window.removeEventListener("pointerdown", handleClickOutside);
+  }, [benchmarkSelectorOpen]);
+  const statCardStyle = {
+    background: "rgba(18,26,38,0.86)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 12,
+    padding: "10px 12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  };
+
+  const controlRow = (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+      <div className="chartTabs" style={{ marginBottom: 0 }}>
         {["1D","1W","1M","3M","ALL"].map((range) => (
           <button key={range} className={`chartTab ${chartRange === range ? "active" : ""}`} onClick={() => setChartRange(range)} type="button">{range}</button>
         ))}
       </div>
+      <div style={{ position: "relative", minWidth: 220 }} data-benchmark-selector="true">
+        <button
+          type="button"
+          onClick={() => setBenchmarkSelectorOpen((value) => !value)}
+          style={{
+            width: "100%",
+            background: "rgba(18,26,38,0.9)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 10,
+            padding: "8px 12px",
+            color: "#e2e8f0",
+            fontSize: 13,
+            cursor: "pointer",
+            textAlign: "left",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>{`Benchmark: ${resolvedBenchmarkLabel}`}</span>
+          <span style={{ color: "#7f8ea3", fontSize: 11 }}>{benchmarkSelectorOpen ? "▲" : "▼"}</span>
+        </button>
+        {benchmarkSelectorOpen ? (
+          <div
+            style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              right: 0,
+              width: "min(320px, 86vw)",
+              background: "rgba(12,18,28,0.98)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              boxShadow: "0 18px 36px rgba(2,6,23,0.36)",
+              zIndex: 6,
+            }}
+          >
+            <input
+              type="text"
+              value={benchmarkQuery}
+              onChange={(event) => setBenchmarkQuery(event.target.value)}
+              placeholder="Search benchmark symbol"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 10,
+                padding: "9px 11px",
+                color: "#e2e8f0",
+                fontSize: 13,
+                outline: "none",
+                marginBottom: 10,
+              }}
+            />
+            <div style={{ maxHeight: 240, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+              {filteredBenchmarkOptions.map((option) => (
+                <button
+                  key={`${option.symbol}-${option.group}`}
+                  type="button"
+                  onClick={() => {
+                    onSelectBenchmark(option);
+                    setBenchmarkSelectorOpen(false);
+                    setBenchmarkQuery("");
+                  }}
+                  style={{
+                    background: option.symbol === benchmarkSymbol ? "rgba(124,196,255,0.12)" : "transparent",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    borderRadius: 10,
+                    padding: "9px 10px",
+                    color: "#e2e8f0",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{option.symbol}</span>
+                    <span style={{ fontSize: 11, color: "#7f8ea3" }}>{option.group}</span>
+                  </div>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>{option.label}</span>
+                </button>
+              ))}
+              {!filteredBenchmarkOptions.length ? (
+                <div style={{ padding: "10px 4px", fontSize: 12, color: "#7f8ea3" }}>
+                  No benchmark matches your search yet.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (equityPoints.length < 2) {
+    return (
+      <Card title="Equity Curve" className="equityCard">
+        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
+          Your account value over time based on logged trades
+        </div>
+        {controlRow}
+        <div style={{ minHeight: 220, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
+          Log trades to build your equity curve.
+        </div>
+        <div className="equityFooter"><div className="equityFooterLabel">{sourceLabel}</div></div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Equity Curve" className="equityCard">
+      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
+        Your account value over time based on logged trades
+      </div>
+      {controlRow}
       <div className="equityMeta">
-        <div><span>Start</span><strong>{startValue.toFixed(1)}</strong></div>
-        <div><span>Current</span><strong>{currentValue.toFixed(1)}</strong></div>
-        <div><span>Net</span><strong>{netText}</strong></div>
+        <div><span>Start</span><strong>{formatCurrency(startValue)}</strong></div>
+        <div><span>Current</span><strong>{formatCurrency(currentValue)}</strong></div>
+        <div><span>Net</span><strong>{`${netValue >= 0 ? "+" : ""}${formatCurrency(netValue)}`}</strong></div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 14 }}>
+        <div style={statCardStyle}>
+          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Your Return %</span>
+          <strong style={{ fontSize: 16, color: yourReturnPct >= 0 ? "#4ade80" : "#f87171" }}>{`${yourReturnPct >= 0 ? "+" : ""}${yourReturnPct.toFixed(2)}%`}</strong>
+        </div>
+        <div style={statCardStyle}>
+          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>{`${resolvedBenchmarkLabel} Return %`}</span>
+          <strong style={{ fontSize: 16, color: benchmarkReturnPct != null && benchmarkReturnPct >= 0 ? "#4ade80" : "#f87171" }}>
+            {benchmarkReturnPct == null ? "—" : `${benchmarkReturnPct >= 0 ? "+" : ""}${benchmarkReturnPct.toFixed(2)}%`}
+          </strong>
+        </div>
+        <div style={statCardStyle}>
+          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Difference</span>
+          <strong style={{ fontSize: 16, color: benchmarkDifference != null && benchmarkDifference >= 0 ? "#4ade80" : "#f87171" }}>
+            {benchmarkDifference == null ? "—" : `${benchmarkDifference >= 0 ? "+" : ""}${benchmarkDifference.toFixed(2)}%`}
+          </strong>
+        </div>
+        <div style={statCardStyle}>
+          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Max Drawdown</span>
+          <strong style={{ fontSize: 16, color: maxDrawdown >= 0 ? "#e2e8f0" : "#f87171" }}>{`${maxDrawdown.toFixed(2)}%`}</strong>
+        </div>
       </div>
       <div className="equityChart">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-          <polygon points={areaPoints} className="equityArea" />
-          <polyline points={points} />
-        </svg>
+        <EquityComparisonChart
+          equityPoints={equityPoints}
+          benchmarkPoints={benchmarkPoints}
+          benchmarkSymbol={benchmarkSymbol}
+          benchmarkLabel={resolvedBenchmarkLabel}
+          chartRange={chartRange}
+          benchmarkLoading={benchmarkLoading}
+        />
       </div>
       <div className="equityFooter"><div className="equityFooterLabel">{sourceLabel}</div></div>
     </Card>
@@ -1660,8 +4581,8 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
                   })() : "-"}
                 </div>
               </div>
-              <div className={`tradeResult ${trade.result_r < 0 ? "negative" : trade.result_r > 0 ? "positive" : "neutral"}`}>
-                {trade.result_r !== null && trade.result_r !== undefined ? `${trade.result_r > 0 ? "+" : ""}${Number(trade.result_r).toFixed(1)}R` : "-"}
+              <div className={`tradeResult ${getTradeOutcomeValue(trade) < 0 ? "negative" : getTradeOutcomeValue(trade) > 0 ? "positive" : "neutral"}`}>
+                {Number.isFinite(getTradeOutcomeValue(trade)) ? `${getTradeOutcomeValue(trade) > 0 ? "+" : ""}${Number(getTradeOutcomeValue(trade)).toFixed(1)}${trade.isBrokerTrade ? "$" : "R"}` : "-"}
               </div>
               <div className="listSubtext">{trade.coachTag || "Disciplined"}</div>
               <button type="button" className="deleteTradeButton" onClick={() => onDeleteTrade(trade.id)}>Delete</button>
@@ -1673,18 +4594,70 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
   );
 }
 
+function getBrokerCapabilityBadges(asset) {
+  if (!asset) return [];
+
+  const badges = [];
+  if (asset.tradable) badges.push({ label: "Tradable", tone: "blue" });
+  if (asset.marginable) badges.push({ label: "Marginable", tone: "green" });
+  if (asset.shortable) badges.push({ label: "Shortable", tone: "amber" });
+  if (asset.easyToBorrow) badges.push({ label: "Easy To Borrow", tone: "green" });
+  if (asset.assetClass === "crypto") badges.push({ label: "24/7", tone: "violet" });
+  return badges;
+}
+
+function getCapabilityBadgeStyle(tone = "blue") {
+  if (tone === "green") {
+    return {
+      color: "#86efac",
+      background: "rgba(34,197,94,0.1)",
+      border: "1px solid rgba(34,197,94,0.2)",
+    };
+  }
+  if (tone === "amber") {
+    return {
+      color: "#fcd34d",
+      background: "rgba(245,158,11,0.1)",
+      border: "1px solid rgba(245,158,11,0.2)",
+    };
+  }
+  if (tone === "violet") {
+    return {
+      color: "#c4b5fd",
+      background: "rgba(139,92,246,0.1)",
+      border: "1px solid rgba(139,92,246,0.2)",
+    };
+  }
+  return {
+    color: "#d7efff",
+    background: "rgba(124,196,255,0.1)",
+    border: "1px solid rgba(124,196,255,0.22)",
+  };
+}
+
+function calculateBrokerDayPnL(positions) {
+  return (positions || []).reduce((total, position) => {
+    const marketValue = Number(position?.marketValue ?? 0);
+    const changeToday = Number(position?.changeToday ?? 0);
+    if (!Number.isFinite(marketValue) || !Number.isFinite(changeToday) || changeToday <= -1) return total;
+    const previousValue = marketValue / (1 + changeToday);
+    if (!Number.isFinite(previousValue)) return total;
+    return total + (marketValue - previousValue);
+  }, 0);
+}
+
 function BrokerTradeLogCard({ trades, isLoading, onRefresh }) {
   return (
-    <Card title="Broker Trade Log">
+    <Card title="Synced Orders">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
         <div className="listSubtext">{trades.length} broker trade{trades.length === 1 ? "" : "s"} synced</div>
         <button type="button" className="ghostButton" onClick={onRefresh} disabled={isLoading}>
-          {isLoading ? "Refreshing..." : "Refresh Alpaca Orders"}
+          {isLoading ? "Refreshing..." : "Refresh Broker Trades"}
         </button>
       </div>
       <div className="list">
         {!trades.length ? (
-          <div className="listSubtext">No broker trades synced yet. Place a Rayla paper order or refresh Alpaca orders.</div>
+          <div className="listSubtext">No broker trades synced yet. Place a Rayla paper order or refresh broker trades.</div>
         ) : (
           trades.map((trade) => {
             const statusPresentation = getBrokerOrderStatusPresentation(trade.status);
@@ -1695,7 +4668,7 @@ function BrokerTradeLogCard({ trades, isLoading, onRefresh }) {
                     <span className="assetText">{trade.symbol}</span> · {trade.side} · {Number(trade.qty || 0)} share(s)
                   </div>
                   <div className="listSubtext">
-                    {trade.order_type} {trade.limit_price ? `· Limit ${formatCurrency(trade.limit_price)}` : ""} · {trade.source === "rayla" ? "Placed in Rayla" : "Imported from Alpaca"}
+                    {trade.order_type} {trade.limit_price ? `· Limit ${formatCurrency(trade.limit_price)}` : ""} · {trade.source === "rayla" ? "Placed in Rayla" : "Broker import (Alpaca)"}
                   </div>
                 </div>
                 <div
@@ -1736,6 +4709,7 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
   const [marketChartMode, setMarketChartMode] = useState("candlestick");
   const [marketChartRange, setMarketChartRange] = useState("1D");
   const [marketChartLastUpdated, setMarketChartLastUpdated] = useState(null);
+  const marketChartUpdatedLabel = useRelativeTime(marketChartLastUpdated);
   const marketSearchTimeoutRef = useRef(null);
   const homeMarketCarouselRef = useRef(null);
   const homeMarketCarouselDirectionRef = useRef(1);
@@ -1747,7 +4721,9 @@ function MarketCard({ items, selectedId, onSelect, onRemove, newSymbol, setNewSy
   const [homeMarketCarouselSpeed, setHomeMarketCarouselSpeed] = useState(0.45);
   const symbolsKey = items.map((item) => item.id).sort().join("|");
   const selectedItem = items.find((item) => item.id === selectedId) || items[0];
-  const selectedChartBars = extractChartBars(marketChart);
+  const selectedItemExplicitlyUnsupported = selectedItem?.alpacaSupported === false || selectedItem?.tradable === false;
+  const marketChartSelection = getChartSelectionConfig(marketChartRange);
+  const selectedChartBars = extractVisibleChartBars(marketChart, marketChartRange);
   const selectedQuotePrice = selectedItem ? quotes[selectedItem.id]?.price : null;
 
   function handleExplainChartClick() {
@@ -1825,9 +4801,14 @@ useEffect(() => {
     setMarketChartLoading(false);
     return;
   }
+  if (selectedItemExplicitlyUnsupported) {
+    setMarketChart(null);
+    setMarketChartLoading(false);
+    return;
+  }
 
   let isCancelled = false;
-  setMarketChart((prev) => (prev?.symbol === selectedItem.id ? prev : null));
+  setMarketChart(null);
   setMarketChartLoading(true);
 
   async function fetchMarketChart() {
@@ -1836,7 +4817,8 @@ useEffect(() => {
         body: {
           chartSymbol: selectedItem.id,
           chartType: selectedItem.type || "stock",
-          chartRange: marketChartRange,
+          chartRange: marketChartSelection.fetchRange,
+          chartTimeframe: marketChartSelection.provider || null,
         },
       });
 
@@ -1854,9 +4836,10 @@ useEffect(() => {
       }
 
       setMarketChart({
-        symbol: selectedItem.id,
-        range: marketChartRange,
-        bars: [],
+          symbol: selectedItem.id,
+          range: marketChartSelection.fetchRange,
+          bars: [],
+          rangeMode: nextChart?.rangeMode || null,
       });
     } catch {
       // Keep the current market view stable if chart fetch fails.
@@ -1866,15 +4849,16 @@ useEffect(() => {
   }
 
   fetchMarketChart();
-  const interval = marketChartRange === "1D"
-    ? setInterval(fetchMarketChart, 10000)
+  const isCryptoItem = (selectedItem.type || "stock") === "crypto";
+  const interval = (marketChartSelection.provider || marketChartSelection.fetchRange === "1D")
+    ? setInterval(fetchMarketChart, (isCryptoItem || isMarketCurrentlyOpen()) ? 10000 : 30000)
     : null;
 
   return () => {
     isCancelled = true;
     if (interval) clearInterval(interval);
   };
-}, [selectedItem?.id, selectedItem?.type, marketChartRange]);
+}, [selectedItem?.id, selectedItem?.type, marketChartRange, selectedItemExplicitlyUnsupported]);
 
 useEffect(() => {
   if (fullPage) return undefined;
@@ -2191,56 +5175,13 @@ useEffect(() => {
             <div style={{ width: "100%", height: "100%", minHeight: 320, background: "#0d1117", display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px 0 12px", flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
-                      <button
-                        key={range}
-                        type="button"
-                        onClick={() => setMarketChartRange(range)}
-                        style={{
-                          padding: "3px 9px",
-                          borderRadius: 6,
-                          border: "1px solid",
-                          borderColor: marketChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                          background: marketChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
-                          color: marketChartRange === range ? "#d7efff" : "#7f8ea3",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        {range}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setMarketChartMode(mode)}
-                        style={{
-                          padding: "3px 9px",
-                          borderRadius: 6,
-                          border: "1px solid",
-                          borderColor: marketChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                          background: marketChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
-                          color: marketChartMode === mode ? "#d7efff" : "#7f8ea3",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div style={{ fontSize: 11, color: "#7f8ea3", fontWeight: 600 }}>
+                    TradingView live chart handles its own interval and chart controls.
                   </div>
                 </div>
-                {marketChartLastUpdated && (
+                {marketChartUpdatedLabel && (isMarketCurrentlyOpen() || String(selectedItem?.type || "").toLowerCase() === "crypto") && (
                   <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                    Updated {marketChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    Last updated: {marketChartUpdatedLabel}
                   </div>
                 )}
               </div>
@@ -2268,23 +5209,36 @@ useEffect(() => {
                 </button>
               </div>
             )}
+            {selectedItem && <MarketClosedBanner assetType={selectedItem.type} updatedLabel={marketChartUpdatedLabel} />}
             <div style={{ width: "100%", height: "100%", minHeight: 320, background: "#0d1117", paddingTop: 10 }}>
-              {selectedItem && (marketChartLoading && extractChartBars(marketChart).length < 2) ? (
+              {selectedItem && selectedItemExplicitlyUnsupported ? (
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                  <div>Live chart unavailable</div>
+                  <div>Alpaca does not currently support trading this asset.</div>
+                </div>
+              ) : selectedItem && (marketChartLoading && selectedChartBars.length < 2) ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
                   Loading chart...
                 </div>
-              ) : selectedItem && extractChartBars(marketChart).length < 2 ? (
+              ) : selectedItem && selectedChartBars.length < 2 ? (
                 <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                   <div>Chart unavailable</div>
-                  <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                  <div>
+                    {isClosedStock1DChart(marketChart, selectedItem.type || "stock", marketChartSelection.fetchRange)
+                      ? "Market is currently closed. Switch to 1W to see the most recent trading data."
+                      : "Unable to load chart data for this timeframe right now."}
+                  </div>
                 </div>
               ) : selectedItem ? (
-                <TradeChart
-                  bars={extractChartBars(marketChart)}
+                <KLineTradeChart
+                  bars={selectedChartBars}
                   mode={marketChartMode}
                   latestPrice={quotes[selectedItem.id]?.price}
                   assetSymbol={selectedItem.id}
                   assetName={selectedItem.description || selectedItem.name || selectedItem.id}
+                  chartRange={marketChartRange}
+                  timeZone="America/Denver"
+                  resetViewKey={`${selectedItem.id}:${marketChartRange}:${marketChartMode}:inline`}
                 />
               ) : null}
             </div>
@@ -2297,56 +5251,13 @@ useEffect(() => {
             <div style={{ width: "100%", height: "100%", minHeight: 420, background: "#0d1117", display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px 0 12px", flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
-                      <button
-                        key={range}
-                        type="button"
-                        onClick={() => setMarketChartRange(range)}
-                        style={{
-                          padding: "3px 9px",
-                          borderRadius: 6,
-                          border: "1px solid",
-                          borderColor: marketChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                          background: marketChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
-                          color: marketChartRange === range ? "#d7efff" : "#7f8ea3",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        {range}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setMarketChartMode(mode)}
-                        style={{
-                          padding: "3px 9px",
-                          borderRadius: 6,
-                          border: "1px solid",
-                          borderColor: marketChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                          background: marketChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
-                          color: marketChartMode === mode ? "#d7efff" : "#7f8ea3",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div style={{ fontSize: 11, color: "#7f8ea3", fontWeight: 600 }}>
+                    TradingView live chart handles its own interval and chart controls.
                   </div>
                 </div>
-                {marketChartLastUpdated && (
+                {marketChartUpdatedLabel && (
                   <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                    Updated {marketChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    Last updated: {marketChartUpdatedLabel}
                   </div>
                 )}
               </div>
@@ -2375,22 +5286,30 @@ useEffect(() => {
               </div>
             )}
             <div style={{ width: "100%", height: "100%", minHeight: 420, background: "#0d1117", paddingTop: 10 }}>
-              {selectedItem && (marketChartLoading && extractChartBars(marketChart).length < 2) ? (
+              {selectedItem && selectedItemExplicitlyUnsupported ? (
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                  <div>Live chart unavailable</div>
+                  <div>Alpaca does not currently support trading this asset.</div>
+                </div>
+              ) : selectedItem && (marketChartLoading && selectedChartBars.length < 2) ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
                   Loading chart...
                 </div>
-              ) : selectedItem && extractChartBars(marketChart).length < 2 ? (
+              ) : selectedItem && selectedChartBars.length < 2 ? (
                 <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                   <div>Chart unavailable</div>
-                  <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                  <div>Market is currently closed. Switch to 1W to see the most recent trading data.</div>
                 </div>
               ) : selectedItem ? (
-                <TradeChart
-                  bars={extractChartBars(marketChart)}
+                <KLineTradeChart
+                  bars={selectedChartBars}
                   mode={marketChartMode}
                   latestPrice={quotes[selectedItem.id]?.price}
                   assetSymbol={selectedItem.id}
                   assetName={selectedItem.description || selectedItem.name || selectedItem.id}
+                  chartRange={marketChartRange}
+                  timeZone="America/Denver"
+                  resetViewKey={`${selectedItem.id}:${marketChartRange}:${marketChartMode}:full`}
                 />
               ) : null}
             </div>
@@ -2423,10 +5342,12 @@ function getScoreLabel(score) {
   return { label: "Neutral", cls: "neutral" };
 }
 
-function IntelAssetCard({ item, onTrySimulation = null }) {
+function IntelAssetCard({ item, onTrySimulation = null, quoteOverride = null }) {
   if (!item) return null;
   const { label, cls } = getScoreLabel(item.score);
-  const changePos = !item.change?.startsWith("-");
+  const liveChangeValue = Number(quoteOverride?.change);
+  const displayChange = Number.isFinite(liveChangeValue) ? formatPctChange(liveChangeValue) : item.change;
+  const changePos = !String(displayChange || "").startsWith("-");
   const article = (item.rawArticles || [])[0];
   const drivers = item.breakdown
     ? Object.entries(item.breakdown).filter(([k]) => k !== "total").sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 2)
@@ -2452,7 +5373,7 @@ function IntelAssetCard({ item, onTrySimulation = null }) {
           <div style={{ fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 999, background: pill.bg, color: pill.color }}>{label}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: changePos ? "#4ade80" : "#f87171" }}>{item.change}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: changePos ? "#4ade80" : "#f87171" }}>{displayChange}</div>
           <div style={{ fontSize: 11, color: "#7f8ea3", marginTop: 2 }}>Score: {item.score}</div>
         </div>
       </div>
@@ -2497,44 +5418,41 @@ function IntelAssetCard({ item, onTrySimulation = null }) {
   );
 }
 
-function CoachAskBox({ trades, onAskRayla, isLoading }) {
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-
-  async function handleAsk() {
-    const q = question.trim();
-    if (!q) return;
-    const r = buildCoachReport(trades);
-    if (!r) { setAnswer("No trades logged yet. Start logging trades first."); setQuestion(""); return; }
-    try {
-      const nextAnswer = await onAskRayla(q);
-      setAnswer(nextAnswer);
-      setQuestion("");
-    } catch (error) {
-      setAnswer(`API error: ${error?.message || "unknown error"}`);
-    }
-  }
-
+function RaylaLaunchButton({ label, onClick }) {
   return (
-    <div className="card">
-      <div className="cardHeader"><h2>Ask Rayla About Your Performance</h2></div>
-      <div className="cardBody">
-        <p style={{ fontSize: 13, color: "#7f8ea3", margin: "0 0 12px 0" }}>Ask anything about your trades, setups, edges, or what to focus on next.</p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type="text"
-            value={question}
-            placeholder="e.g. What's my best setup? How am I doing? Am I overtrading?"
-            style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAsk(); }}
-            disabled={isLoading}
-          />
-          <button type="button" style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }} onClick={handleAsk} disabled={isLoading}>{isLoading ? "Thinking..." : "Ask"}</button>
-        </div>
-        {answer && <div style={{ marginTop: 12, fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>{answer}</div>}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: "#7CC4FF",
+        color: "#0b1017",
+        border: "none",
+        borderRadius: 12,
+        padding: "11px 16px",
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: "pointer",
+        boxShadow: "0 10px 24px rgba(124,196,255,0.22)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ChartTimeframeDropdown({ value, onChange, width = 110, options = CHART_RANGE_OPTIONS }) {
+  return (
+    <select
+      className="authInput"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      style={{ width, minWidth: width, paddingTop: 6, paddingBottom: 6 }}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
   );
 }
 
@@ -2617,15 +5535,58 @@ function SubscriptionCard() {
   );
 }
 
-function JournalTab({ trades }) {
+function JournalTradeTable({ trades, rCol, tradeDuration }) {
+  return (
+    <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+        <thead>
+          <tr style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.02)" }}>
+            {["Asset", "Dir", "Setup", "Session", "Source", "Entry", "Exit", "Size", "Held", "Result", "Date"].map(h => (
+              <th key={h} style={{ padding: "10px 14px", textAlign: h === "Result" ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {trades.map((trade, idx) => {
+            const r = getTradeOutcomeValue(trade);
+            const duration = tradeDuration(trade.entry_time, trade.exit_time);
+            return (
+              <tr key={trade.id || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 12 }}>
+                <td style={{ padding: "9px 14px", color: "#f3f7fc", fontWeight: 700 }}>{(trade.asset || "—").toUpperCase()}</td>
+                <td style={{ padding: "9px 14px", color: trade.direction?.toLowerCase() === "long" ? "#4ade80" : trade.direction ? "#f87171" : "#64748b", textTransform: "capitalize" }}>{trade.direction || "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#7CC4FF" }}>{trade.setup || "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.session || "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.source_label || (trade.isBrokerTrade ? "Broker" : "Manual")}</td>
+                <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.entry_price != null ? `$${Number(trade.entry_price).toFixed(2)}` : "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.exit_price != null ? `$${Number(trade.exit_price).toFixed(2)}` : "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.entry_size != null ? `$${Number(trade.entry_size).toLocaleString()}` : "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#64748b" }}>{duration || "—"}</td>
+                <td style={{ padding: "9px 14px", textAlign: "right", color: rCol(r), fontWeight: 700 }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}{trade.isBrokerTrade ? "$" : "R"}</td>
+                <td style={{ padding: "9px 14px", color: "#475569", whiteSpace: "nowrap" }}>{trade.entry_time ? new Date(trade.entry_time).toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const JOURNAL_MISTAKE_TAGS = ["FOMO", "Oversized", "Rule break", "Chased entry", "Early exit", "Missed target", "Emotional"];
+
+function JournalTab({ trades, onOpenRaylaPopup }) {
   const [search, setSearch] = useState("");
   const [filterDir, setFilterDir] = useState("all");
   const [filterSetup, setFilterSetup] = useState("all");
+  const [filterResult, setFilterResult] = useState("all");
   const [sortNewest, setSortNewest] = useState(true);
+  const [viewMode, setViewMode] = useState("cards");
+  const [expanded, setExpanded] = useState(new Set());
+  const [reflections, setReflections] = useState({});
 
-  const allSetups = [...new Set(trades.map(t => t.setup).filter(Boolean))];
+  const allSetups = useMemo(() => [...new Set(trades.map(t => t.setup).filter(Boolean))], [trades]);
 
-  const filtered = trades
+  const filtered = useMemo(() => trades
     .filter(t => {
       if (!search) return true;
       const q = search.toLowerCase();
@@ -2637,56 +5598,211 @@ function JournalTab({ trades }) {
     })
     .filter(t => filterDir === "all" || (t.direction || "").toLowerCase() === filterDir)
     .filter(t => filterSetup === "all" || t.setup === filterSetup)
+    .filter(t => {
+      if (filterResult === "all") return true;
+      const r = getTradeOutcomeValue(t);
+      if (filterResult === "win") return r > 0;
+      if (filterResult === "loss") return r < 0;
+      if (filterResult === "be") return r === 0;
+      return true;
+    })
     .sort((a, b) => {
       const ta = a.entry_time ? new Date(a.entry_time).getTime() : 0;
       const tb = b.entry_time ? new Date(b.entry_time).getTime() : 0;
       return sortNewest ? tb - ta : ta - tb;
-    });
+    }), [trades, search, filterDir, filterSetup, filterResult, sortNewest]);
 
-  const totalRVal = trades.reduce((s, t) => s + parseFloat(t.result_r || 0), 0);
-  const wins = trades.filter(t => parseFloat(t.result_r) > 0);
+  const totalRVal = useMemo(() => trades.reduce((s, t) => s + getTradeOutcomeValue(t), 0), [trades]);
+  const wins = useMemo(() => trades.filter(t => getTradeOutcomeValue(t) > 0), [trades]);
+  const losses = useMemo(() => trades.filter(t => getTradeOutcomeValue(t) < 0), [trades]);
   const wr = trades.length ? (wins.length / trades.length) * 100 : 0;
   const avgRVal = trades.length ? totalRVal / trades.length : 0;
-  const best = trades.length ? trades.reduce((b, t) => parseFloat(t.result_r) > parseFloat(b.result_r) ? t : b) : null;
-  const worst = trades.length ? trades.reduce((b, t) => parseFloat(t.result_r) < parseFloat(b.result_r) ? t : b) : null;
+  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / losses.length) : 0;
+  const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
+  const bestTrade = trades.length ? trades.reduce((b, t) => getTradeOutcomeValue(t) > getTradeOutcomeValue(b) ? t : b) : null;
+  const worstTrade = trades.length ? trades.reduce((b, t) => getTradeOutcomeValue(t) < getTradeOutcomeValue(b) ? t : b) : null;
+
+  const setupBreakdown = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      if (!t.setup) return;
+      if (!map[t.setup]) map[t.setup] = { trades: 0, wins: 0, totalR: 0 };
+      map[t.setup].trades++;
+      map[t.setup].totalR += getTradeOutcomeValue(t);
+      if (getTradeOutcomeValue(t) > 0) map[t.setup].wins++;
+    });
+    return Object.entries(map)
+      .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
+      .sort((a, b) => b.totalR - a.totalR);
+  }, [trades]);
+
+  const sessionBreakdown = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const key = t.session || "Untagged";
+      if (!map[key]) map[key] = { trades: 0, wins: 0, totalR: 0 };
+      map[key].trades++;
+      map[key].totalR += getTradeOutcomeValue(t);
+      if (getTradeOutcomeValue(t) > 0) map[key].wins++;
+    });
+    return Object.entries(map)
+      .map(([session, s]) => ({ session, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
+      .sort((a, b) => b.totalR - a.totalR);
+  }, [trades]);
 
   function rCol(v) {
     const n = parseFloat(v);
     return n > 0 ? "#4ade80" : n < 0 ? "#f87171" : "#94a3b8";
   }
 
-  const hasFilters = search || filterDir !== "all" || filterSetup !== "all";
+  function tradeDuration(entry_time, exit_time) {
+    if (!entry_time || !exit_time) return null;
+    const ms = new Date(exit_time) - new Date(entry_time);
+    if (ms <= 0) return null;
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    const rem = mins % 60;
+    if (hrs < 24) return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+    return `${Math.floor(hrs / 24)}d`;
+  }
+
+  function toggleExpand(id) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function setReflection(tradeId, field, value) {
+    setReflections(prev => ({ ...prev, [tradeId]: { ...(prev[tradeId] || {}), [field]: value } }));
+  }
+
+  function toggleMistake(tradeId, tag) {
+    const current = reflections[tradeId]?.mistakes || [];
+    const next = current.includes(tag) ? current.filter(t => t !== tag) : [...current, tag];
+    setReflection(tradeId, "mistakes", next);
+  }
+
+  const hasFilters = search || filterDir !== "all" || filterSetup !== "all" || filterResult !== "all";
+
+  const breakdownTableStyle = {
+    background: "rgba(18,26,38,0.86)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 14,
+    overflow: "hidden",
+  };
+  const breakdownHeaderStyle = {
+    padding: "12px 16px",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#7f8ea3",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  };
 
   if (trades.length === 0) {
     return (
-      <div style={{ textAlign: "center", padding: "64px 24px" }}>
+      <div style={{ textAlign: "center", padding: "80px 24px" }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>No trades logged yet</div>
-        <div style={{ fontSize: 13, color: "#64748b" }}>Log your first trade in My Trades and it will appear here.</div>
+        <div style={{ fontSize: 14, color: "#64748b", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
+          Head to <strong style={{ color: "#7CC4FF" }}>My Trades</strong> and log your first trade. Every trade you log will appear here with full analytics and reflection tools.
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <RaylaLaunchButton
+          label="Ask Rayla anything about your trades"
+          onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
+        />
+      </div>
 
-      {/* Summary stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+      {/* Summary stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
         {[
-          { label: "Total Trades", value: trades.length, color: "#f3f7fc" },
-          { label: "Win Rate", value: `${wr.toFixed(1)}%`, color: wr >= 50 ? "#4ade80" : "#f87171" },
-          { label: "Total R", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}R`, color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
-          { label: "Avg R", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}R`, color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
-          ...(best ? [{ label: "Best Trade", value: `+${parseFloat(best.result_r).toFixed(2)}R`, color: "#4ade80" }] : []),
-          ...(worst ? [{ label: "Worst Trade", value: `${parseFloat(worst.result_r).toFixed(2)}R`, color: "#f87171" }] : []),
+          { label: "Total Trades", value: trades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
+          { label: "Win Rate", value: `${wr.toFixed(1)}%`, sub: `${wins.length} winners`, color: wr >= 50 ? "#4ade80" : "#f87171" },
+          { label: "Total Result", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}`, sub: "net result", color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Avg Result / Trade", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}`, sub: "per trade", color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Avg Win", value: avgWin > 0 ? `+${avgWin.toFixed(2)}` : "—", sub: "avg winner", color: "#4ade80" },
+          { label: "Avg Loss", value: avgLoss > 0 ? `-${avgLoss.toFixed(2)}` : "—", sub: "avg loser", color: "#f87171" },
+          ...(profitFactor !== null ? [{ label: "Profit Factor", value: profitFactor.toFixed(2), sub: ">1.0 profitable", color: profitFactor >= 1 ? "#4ade80" : "#f87171" }] : []),
+          ...(bestTrade ? [{ label: "Best Trade", value: `${getTradeOutcomeValue(bestTrade) >= 0 ? "+" : ""}${getTradeOutcomeValue(bestTrade).toFixed(2)}`, sub: (bestTrade.asset || "").toUpperCase(), color: "#4ade80" }] : []),
+          ...(worstTrade ? [{ label: "Worst Trade", value: `${getTradeOutcomeValue(worstTrade) >= 0 ? "+" : ""}${getTradeOutcomeValue(worstTrade).toFixed(2)}`, sub: (worstTrade.asset || "").toUpperCase(), color: "#f87171" }] : []),
         ].map(item => (
           <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 }}>{item.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: item.color }}>{item.value}</div>
+            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: item.color, marginBottom: 2 }}>{item.value}</div>
+            <div style={{ fontSize: 11, color: "#475569" }}>{item.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Breakdown tables */}
+      {(setupBreakdown.length > 0 || sessionBreakdown.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+          {setupBreakdown.length > 0 && (
+            <div style={breakdownTableStyle}>
+              <div style={breakdownHeaderStyle}>By Setup</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ fontSize: 11, color: "#475569" }}>
+                    {["Setup", "Trades", "Win%", "Avg", "Total"].map(h => (
+                      <th key={h} style={{ padding: "6px 14px", textAlign: h === "Setup" ? "left" : "right", fontWeight: 500 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {setupBreakdown.map(row => (
+                    <tr key={row.setup} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 12 }}>
+                      <td style={{ padding: "8px 14px", color: "#7CC4FF" }}>{row.setup}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: "#94a3b8" }}>{row.trades}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: row.winRate >= 50 ? "#4ade80" : "#f87171" }}>{row.winRate.toFixed(0)}%</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.avgR) }}>{row.avgR >= 0 ? "+" : ""}{row.avgR.toFixed(2)}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.totalR) }}>{row.totalR >= 0 ? "+" : ""}{row.totalR.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {sessionBreakdown.length > 0 && (
+            <div style={breakdownTableStyle}>
+              <div style={breakdownHeaderStyle}>By Session</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ fontSize: 11, color: "#475569" }}>
+                    {["Session", "Trades", "Win%", "Avg", "Total"].map(h => (
+                      <th key={h} style={{ padding: "6px 14px", textAlign: h === "Session" ? "left" : "right", fontWeight: 500 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessionBreakdown.map(row => (
+                    <tr key={row.session} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 12 }}>
+                      <td style={{ padding: "8px 14px", color: "#94a3b8" }}>{row.session}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: "#94a3b8" }}>{row.trades}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: row.winRate >= 50 ? "#4ade80" : "#f87171" }}>{row.winRate.toFixed(0)}%</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.avgR) }}>{row.avgR >= 0 ? "+" : ""}{row.avgR.toFixed(2)}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.totalR) }}>{row.totalR >= 0 ? "+" : ""}{row.totalR.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           type="text"
@@ -2695,6 +5811,13 @@ function JournalTab({ trades }) {
           placeholder="Search asset, setup, session…"
           style={{ flex: "1 1 180px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, outline: "none" }}
         />
+        <select value={filterResult} onChange={e => setFilterResult(e.target.value)}
+          style={{ background: "rgba(18,26,38,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, cursor: "pointer" }}>
+          <option value="all">All Results</option>
+          <option value="win">Winners</option>
+          <option value="loss">Losers</option>
+          <option value="be">Breakeven</option>
+        </select>
         <select value={filterDir} onChange={e => setFilterDir(e.target.value)}
           style={{ background: "rgba(18,26,38,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, cursor: "pointer" }}>
           <option value="all">All Directions</option>
@@ -2710,12 +5833,20 @@ function JournalTab({ trades }) {
         )}
         <button type="button" onClick={() => setSortNewest(v => !v)}
           style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#94a3b8", fontSize: 12, cursor: "pointer" }}>
-          {sortNewest ? "↓ Newest first" : "↑ Oldest first"}
+          {sortNewest ? "↓ Newest" : "↑ Oldest"}
         </button>
+        <div style={{ display: "flex", gap: 0, border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, overflow: "hidden" }}>
+          {[["cards", "⬜"], ["table", "≡"]].map(([m, icon]) => (
+            <button key={m} type="button" onClick={() => setViewMode(m)}
+              style={{ background: viewMode === m ? "rgba(124,196,255,0.12)" : "transparent", border: "none", borderRight: m === "cards" ? "1px solid rgba(255,255,255,0.1)" : "none", padding: "8px 14px", color: viewMode === m ? "#7CC4FF" : "#64748b", fontSize: 12, cursor: "pointer" }}>
+              {icon} {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
         {hasFilters && (
-          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); }}
+          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); }}
             style={{ background: "transparent", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", fontSize: 12, cursor: "pointer" }}>
-            Clear filters
+            Clear
           </button>
         )}
         <div style={{ marginLeft: "auto", fontSize: 12, color: "#475569" }}>
@@ -2724,87 +5855,155 @@ function JournalTab({ trades }) {
       </div>
 
       {/* Trade list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "32px 20px", color: "#64748b", fontSize: 13 }}>No trades match your filters.</div>
-        ) : filtered.map((trade, idx) => {
-          const r = parseFloat(trade.result_r || 0);
-          const isWin = r > 0;
-          const isLoss = r < 0;
-          const dateStr = trade.entry_time
-            ? new Date(trade.entry_time).toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" })
-            : "—";
-          const timeStr = trade.entry_time
-            ? new Date(trade.entry_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-            : "";
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 }}>
+          <div style={{ fontSize: 14, color: "#64748b", marginBottom: 10 }}>No trades match your current filters.</div>
+          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); }}
+            style={{ background: "transparent", border: "1px solid rgba(124,196,255,0.3)", borderRadius: 8, padding: "6px 14px", color: "#7CC4FF", fontSize: 12, cursor: "pointer" }}>
+            Clear filters
+          </button>
+        </div>
+      ) : viewMode === "table" ? (
+        <JournalTradeTable trades={filtered} rCol={rCol} tradeDuration={tradeDuration} />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((trade, idx) => {
+            const tradeId = trade.id || idx;
+            const r = getTradeOutcomeValue(trade);
+            const isWin = r > 0;
+            const isLoss = r < 0;
+            const isExpanded = expanded.has(tradeId);
+            const ref = reflections[tradeId] || {};
+            const duration = tradeDuration(trade.entry_time, trade.exit_time);
+            const dateStr = trade.entry_time
+              ? new Date(trade.entry_time).toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" })
+              : "—";
+            const timeStr = trade.entry_time
+              ? new Date(trade.entry_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+              : "";
+            const rBarPct = Math.min(Math.abs(r) / 5 * 100, 100);
 
-          return (
-            <div key={trade.id || idx} style={{
-              background: "rgba(18,26,38,0.86)",
-              border: `1px solid ${isWin ? "rgba(74,222,128,0.15)" : isLoss ? "rgba(248,113,113,0.12)" : "rgba(255,255,255,0.07)"}`,
-              borderLeft: `3px solid ${isWin ? "#4ade80" : isLoss ? "#f87171" : "rgba(255,255,255,0.1)"}`,
-              borderRadius: 14,
-              padding: "14px 18px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}>
-              {/* Header row */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: "#f3f7fc" }}>{(trade.asset || "—").toUpperCase()}</span>
-                  {trade.direction && (
-                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", color: trade.direction.toLowerCase() === "long" ? "#4ade80" : "#f87171", background: trade.direction.toLowerCase() === "long" ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>
-                      {trade.direction}
+            return (
+              <div key={tradeId} style={{
+                background: "rgba(18,26,38,0.86)",
+                border: `1px solid ${isWin ? "rgba(74,222,128,0.12)" : isLoss ? "rgba(248,113,113,0.1)" : "rgba(255,255,255,0.07)"}`,
+                borderLeft: `3px solid ${isWin ? "#4ade80" : isLoss ? "#f87171" : "rgba(255,255,255,0.12)"}`,
+                borderRadius: 14,
+                overflow: "hidden",
+              }}>
+                {/* Card summary row — always visible, click to expand */}
+                <div onClick={() => toggleExpand(tradeId)}
+                  style={{ padding: "14px 18px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 9 }}>
+                  {/* Top row */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: "#f3f7fc" }}>{(trade.asset || "—").toUpperCase()}</span>
+                      {trade.direction && (
+                        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", color: trade.direction.toLowerCase() === "long" ? "#4ade80" : "#f87171", background: trade.direction.toLowerCase() === "long" ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>
+                          {trade.direction}
+                        </span>
+                      )}
+                      {trade.setup && (
+                        <span style={{ fontSize: 11, color: "#7CC4FF", background: "rgba(124,196,255,0.08)", borderRadius: 6, padding: "2px 8px", border: "1px solid rgba(124,196,255,0.15)" }}>
+                          {trade.setup}
+                        </span>
+                      )}
+                      {trade.session && (
+                        <span style={{ fontSize: 11, color: "#94a3b8", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "2px 8px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                          {trade.session}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 12, color: "#475569" }}>{dateStr}{timeStr ? ` · ${timeStr}` : ""}</span>
+                    <span style={{ fontSize: 11, color: "#94a3b8", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "2px 8px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                      {trade.source_label || (trade.isBrokerTrade ? "Broker" : "Manual")}
                     </span>
+                    <span style={{ fontSize: 20, fontWeight: 700, color: rCol(r), minWidth: 56, textAlign: "right" }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}{trade.isBrokerTrade ? "$" : "R"}</span>
+                      <span style={{ fontSize: 12, color: "#334155" }}>{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+                  {/* Details row */}
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "#64748b" }}>
+                    {trade.entry_price != null && <span><span style={{ color: "#7f8ea3" }}>Entry </span>${Number(trade.entry_price).toFixed(2)}</span>}
+                    {trade.exit_price != null && <span><span style={{ color: "#7f8ea3" }}>Exit </span>${Number(trade.exit_price).toFixed(2)}</span>}
+                    {trade.entry_size != null && <span><span style={{ color: "#7f8ea3" }}>Size </span>${Number(trade.entry_size).toLocaleString()}</span>}
+                    {duration && <span><span style={{ color: "#7f8ea3" }}>Held </span>{duration}</span>}
+                  </div>
+                  {/* R magnitude bar */}
+                  <div style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${rBarPct}%`, background: isWin ? "#4ade80" : isLoss ? "#f87171" : "#64748b", borderRadius: 2 }} />
+                  </div>
+                  {/* Active mistake tags preview */}
+                  {ref.mistakes?.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {ref.mistakes.map(tag => (
+                        <span key={tag} style={{ fontSize: 11, color: "#fb923c", background: "rgba(251,146,60,0.08)", borderRadius: 20, padding: "2px 8px", border: "1px solid rgba(251,146,60,0.18)" }}>{tag}</span>
+                      ))}
+                    </div>
                   )}
-                  {trade.setup && (
-                    <span style={{ fontSize: 11, color: "#7CC4FF", background: "rgba(124,196,255,0.08)", borderRadius: 6, padding: "2px 8px", border: "1px solid rgba(124,196,255,0.15)" }}>
-                      {trade.setup}
-                    </span>
-                  )}
-                  <span style={{ fontSize: 12, color: "#475569" }}>{dateStr} {timeStr}</span>
                 </div>
-                <span style={{ fontSize: 20, fontWeight: 700, color: rCol(r) }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}R</span>
-              </div>
 
-              {/* Details */}
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "#64748b" }}>
-                {trade.entry_price != null && <span><span style={{ color: "#7f8ea3" }}>Entry </span>${Number(trade.entry_price).toFixed(2)}</span>}
-                {trade.exit_price != null && <span><span style={{ color: "#7f8ea3" }}>Exit </span>${Number(trade.exit_price).toFixed(2)}</span>}
-                {trade.entry_size != null && <span><span style={{ color: "#7f8ea3" }}>Size </span>${Number(trade.entry_size).toLocaleString()}</span>}
-                {trade.session && <span><span style={{ color: "#7f8ea3" }}>Session </span>{trade.session}</span>}
-                {trade.exit_time && <span><span style={{ color: "#7f8ea3" }}>Closed </span>{new Date(trade.exit_time).toLocaleDateString([], { month: "short", day: "numeric" })}</span>}
-              </div>
+                {/* Expanded reflection section */}
+                {isExpanded && (
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+                    {/* Notes */}
+                    <div>
+                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.4px", display: "flex", alignItems: "center", gap: 8 }}>
+                        Reflection notes
+                        <span style={{ fontSize: 10, color: "#334155", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>session only · not saved to account</span>
+                      </div>
+                      <textarea
+                        value={ref.notes || ""}
+                        onChange={e => setReflection(tradeId, "notes", e.target.value)}
+                        placeholder="What went well? What would you do differently? Any emotional or execution notes?"
+                        rows={3}
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: "100%", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "10px 12px", color: "#e2e8f0", fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                      />
+                    </div>
 
-              {/* Notes + tags row */}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-                <div style={{ flex: "1 1 200px", background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 8, padding: "6px 12px", fontSize: 12, color: "#475569", minHeight: 32, display: "flex", alignItems: "center" }}>
-                  + Add notes / reflection
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                  {["FOMO", "Over-sized", "Rule break", "Emotion"].map(tag => (
-                    <span key={tag} style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>+ {tag}</span>
-                  ))}
-                </div>
-              </div>
+                    {/* Mistake tags */}
+                    <div>
+                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.4px" }}>Mistake tags</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {JOURNAL_MISTAKE_TAGS.map(tag => {
+                          const active = ref.mistakes?.includes(tag);
+                          return (
+                            <button key={tag} type="button"
+                              onClick={e => { e.stopPropagation(); toggleMistake(tradeId, tag); }}
+                              style={{ background: active ? "rgba(251,146,60,0.13)" : "rgba(255,255,255,0.03)", border: `1px solid ${active ? "rgba(251,146,60,0.38)" : "rgba(255,255,255,0.09)"}`, borderRadius: 20, padding: "4px 13px", color: active ? "#fb923c" : "#64748b", fontSize: 12, cursor: "pointer", transition: "all 0.15s" }}>
+                              {tag}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-              {/* Footer: confidence dots + screenshot */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 11, color: "#475569" }}>Confidence</span>
-                  {[1,2,3,4,5].map(n => (
-                    <div key={n} style={{ width: 9, height: 9, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer" }} />
-                  ))}
-                </div>
-                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 8, padding: "4px 10px", cursor: "pointer" }}>
-                  <span style={{ fontSize: 11, color: "#475569" }}>📎 Attach screenshot</span>
-                </div>
+                    {/* Confidence + screenshot */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.4px" }}>Confidence</span>
+                        <div style={{ display: "flex", gap: 5 }}>
+                          {[1,2,3,4,5].map(n => (
+                            <div key={n}
+                              onClick={e => { e.stopPropagation(); setReflection(tradeId, "confidence", n === ref.confidence ? 0 : n); }}
+                              style={{ width: 13, height: 13, borderRadius: "50%", background: n <= (ref.confidence || 0) ? "#7CC4FF" : "rgba(255,255,255,0.06)", border: `1.5px solid ${n <= (ref.confidence || 0) ? "rgba(124,196,255,0.55)" : "rgba(255,255,255,0.12)"}`, cursor: "pointer", transition: "all 0.15s" }} />
+                          ))}
+                        </div>
+                        {ref.confidence > 0 && <span style={{ fontSize: 11, color: "#7CC4FF" }}>{ref.confidence}/5</span>}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)", borderRadius: 8, padding: "6px 12px", opacity: 0.45 }}>
+                        <span style={{ fontSize: 12, color: "#475569" }}>📎 Screenshot — coming soon</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -2854,10 +6053,13 @@ useEffect(() => {
     catch { return {}; }
   });
   const [homeMarketSearchResults, setHomeMarketSearchResults] = useState([]);
+  const [homeMarketActiveAsset, setHomeMarketActiveAsset] = useState(null);
   const [homeMarketChart, setHomeMarketChart] = useState(null);
   const [homeMarketChartLoading, setHomeMarketChartLoading] = useState(false);
   const [homeMarketChartMode, setHomeMarketChartMode] = useState("candlestick");
   const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
+  const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
+  const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
   const homeMarketSearchTimeoutRef = useRef(null);
 
@@ -2869,6 +6071,7 @@ useEffect(() => {
       return null;
     }
   });
+  const [intelLiveQuotes, setIntelLiveQuotes] = useState({});
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
   const [aiInput, setAiInput] = useState("");
@@ -2881,6 +6084,12 @@ useEffect(() => {
   const [chartExplainPopupTitle, setChartExplainPopupTitle] = useState("Ask Rayla");
   const [chartExplainPopupPosition, setChartExplainPopupPosition] = useState({ x: 24, y: 96 });
   const [chartExplainPopupIsMobile, setChartExplainPopupIsMobile] = useState(() => window.innerWidth < 768);
+  const [simulationRaylaGuidanceStateByTrade, setSimulationRaylaGuidanceStateByTrade] = useState({});
+  const [simulationRaylaPromptTradeId, setSimulationRaylaPromptTradeId] = useState(null);
+  const [pendingIntelSimulationLaunch, setPendingIntelSimulationLaunch] = useState(null);
+  const [intelPracticeModeChoice, setIntelPracticeModeChoice] = useState(null);
+  const [intelSimulationSetupPrompt, setIntelSimulationSetupPrompt] = useState(null);
+  const [intelSimulationSetupChecklist, setIntelSimulationSetupChecklist] = useState(null);
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
     stepIndex: 0,
@@ -2904,31 +6113,67 @@ useEffect(() => {
   const [alpacaAssetSearchLoading, setAlpacaAssetSearchLoading] = useState(false);
   const [alpacaAssetSearchError, setAlpacaAssetSearchError] = useState("");
   const [alpacaAssetSearchOpen, setAlpacaAssetSearchOpen] = useState(false);
+  const [alpacaSelectedAssetMeta, setAlpacaSelectedAssetMeta] = useState(null);
   const [alpacaAssetQuotes, setAlpacaAssetQuotes] = useState({});
   const [tradeMarketChart, setTradeMarketChart] = useState(null);
   const [tradeMarketChartLoading, setTradeMarketChartLoading] = useState(false);
+  const [tradePortfolioCharts, setTradePortfolioCharts] = useState({});
+  const [tradePortfolioChartsLoading, setTradePortfolioChartsLoading] = useState(false);
   const [tradeChartMode, setTradeChartMode] = useState("candlestick");
   const [tradeChartRange, setTradeChartRange] = useState("1D");
   const [tradeChartLastUpdated, setTradeChartLastUpdated] = useState(null);
   const [tradeChartRefreshTick, setTradeChartRefreshTick] = useState(0);
   const [tradeViewMode, setTradeViewMode] = useState("asset");
+  const [tradePortfolioChartView, setTradePortfolioChartView] = useState("portfolio");
+  const [tradePortfolioSelectedSymbols, setTradePortfolioSelectedSymbols] = useState([]);
+  const tradeChartSelection = getChartSelectionConfig(tradeChartRange);
+  const [performanceLiveAppliedSelection, setPerformanceLiveAppliedSelection] = useState({ includePortfolio: true, symbols: [] });
+  const [tradePendingSelection, setTradePendingSelection] = useState({ mode: "asset", symbols: [] });
+  const [tradeAppliedSelection, setTradeAppliedSelection] = useState({ mode: "asset", symbols: [] });
   const [simulationLiveChart, setSimulationLiveChart] = useState(null);
   const [simulationLiveChartLoading, setSimulationLiveChartLoading] = useState(false);
   const [simulationLiveChartRefreshTick, setSimulationLiveChartRefreshTick] = useState(0);
   const [simulationLiveChartMode, setSimulationLiveChartMode] = useState("candlestick");
+  const [simulationLivePaused, setSimulationLivePaused] = useState(false);
+  const [simulationLivePauseSnapshot, setSimulationLivePauseSnapshot] = useState({});
+  const [chartDrawings, setChartDrawings] = useState({});
+  const [simulationScenarioChartMode, setSimulationScenarioChartMode] = useState("candlestick");
+  const [simulationScenarioDrawingMode, setSimulationScenarioDrawingMode] = useState("none");
+  const [simulationChartTimeframe, setSimulationChartTimeframe] = useState("5m");
   const [simulationLiveChartRange, setSimulationLiveChartRange] = useState("1D");
+  const simulationLiveChartSelection = getChartSelectionConfig(simulationLiveChartRange);
   const [simulationLiveChartLastUpdated, setSimulationLiveChartLastUpdated] = useState(null);
+  const homeMarketChartUpdatedLabel = useRelativeTime(homeMarketChartLastUpdated);
+  const tradeChartUpdatedLabel = useRelativeTime(tradeChartLastUpdated);
+  const tradeVisibleBars = useMemo(
+    () => extractVisibleChartBars(tradeMarketChart, tradeChartRange),
+    [tradeMarketChart, tradeChartRange]
+  );
+  const simulationLiveChartUpdatedLabel = useRelativeTime(simulationLiveChartLastUpdated);
   const [alpacaOrderForm, setAlpacaOrderForm] = useState({
     symbol: "",
     side: "buy",
     qty: "",
+    notional: "",
     type: "market",
     limitPrice: "",
+    timeInForce: "gtc",
+    stopPrice: "",
+    takeProfit: "",
+    maxLoss: "",
+    buyingPowerPercent: "",
+    leverage: "1x",
   });
+  const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
   const [activeTab, setActiveTab] = useState("home");
     const [newSymbol, setNewSymbol] = useState("");
   const [user, setUser] = useState(null);
   const [chartRange, setChartRange] = useState("ALL");
+  const [equityBenchmarkSymbol, setEquityBenchmarkSymbol] = useState("SPY");
+  const [equityBenchmarkType, setEquityBenchmarkType] = useState("stock");
+  const [equityBenchmarkLabel, setEquityBenchmarkLabel] = useState("SPY");
+  const [equityBenchmarkChart, setEquityBenchmarkChart] = useState(null);
+  const [equityBenchmarkLoading, setEquityBenchmarkLoading] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -2965,7 +6210,7 @@ useEffect(() => {
   const [lastAnalyzedCount, setLastAnalyzedCount] = useState(-1);
   const [showNoNewTrades, setShowNoNewTrades] = useState(false);
   const [coachSummary, setCoachSummary] = useState(null);
-  const [equitySourceLabel, setEquitySourceLabel] = useState("R-based equity from journaled trades only. Add your first trade.");
+  const [equitySourceLabel, setEquitySourceLabel] = useState("Built from manual and broker-imported trades with enough execution detail.");
   const [trades, setTrades] = useState([]);
   const [simulationQuotes, setSimulationQuotes] = useState(() => {
     try {
@@ -2974,6 +6219,32 @@ useEffect(() => {
       return {};
     }
   });
+  function syncSharedQuoteCaches(incomingQuotes, { includeAlpacaQuotes = false } = {}) {
+    if (!incomingQuotes || typeof incomingQuotes !== "object") return;
+
+    setHomeMarketQuotes((prev) => {
+      const next = mergeIncomingQuotes(prev, incomingQuotes);
+      sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
+      return next;
+    });
+    setSimulationQuotes((prev) => {
+      const next = mergeIncomingQuotes(prev, incomingQuotes);
+      sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
+      return next;
+    });
+
+    if (includeAlpacaQuotes) {
+      setAlpacaAssetQuotes((prev) => mergeIncomingQuotes(prev, incomingQuotes));
+    }
+  }
+
+  function syncQuoteFromChart(asset, chart, options = {}) {
+    const symbol = normalizeAssetId(asset?.id, asset?.type, asset?.tvSymbol);
+    const snapshot = buildQuoteSnapshotFromChart(chart);
+    if (!symbol || !snapshot) return;
+    syncSharedQuoteCaches({ [symbol]: snapshot }, options);
+  }
+
   const tradePanelSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase() || alpacaPositions[0]?.symbol || "";
   const tradePanelMatchingPosition = tradePanelSymbol
     ? alpacaPositions.find((position) => position.symbol === tradePanelSymbol) || null
@@ -2986,15 +6257,20 @@ useEffect(() => {
     : Number.isFinite(tradePanelMatchingPosition?.currentPrice)
       ? Number(tradePanelMatchingPosition.currentPrice)
       : null;
-  const tradePanelAsset = tradePanelSymbol
-    ? watchlist.find((item) => item.id === tradePanelSymbol)
+  const tradePanelAsset = useMemo(() => {
+    if (!tradePanelSymbol) return null;
+    return watchlist.find((item) => item.id === tradePanelSymbol)
       || buildMarketAsset({
         symbol: tradePanelSymbol,
         description: tradePanelMatchingPosition?.symbol || tradePanelSymbol,
         exchange: tradePanelMatchingPosition?.exchange || "",
         type: "stock",
-      })
-    : null;
+      });
+  }, [tradePanelSymbol, watchlist, tradePanelMatchingPosition?.symbol, tradePanelMatchingPosition?.exchange]);
+  const tradePanelAssetType = tradePanelAsset?.type || "stock";
+  const tradeSelectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === tradePanelSymbol)
+    || (alpacaSelectedAssetMeta?.symbol === tradePanelSymbol ? alpacaSelectedAssetMeta : null);
+  const tradeSelectedLeverageOptions = getAvailableLeverageOptions(alpacaAccount?.raw?.multiplier);
   const tradeMarketChartSeries = tradeMarketChart?.symbol === tradePanelSymbol
     ? extractChartCloseSeries(tradeMarketChart)
     : [];
@@ -3005,6 +6281,114 @@ useEffect(() => {
   const tradeMarketChartPoints = tradeMarketDisplaySeries.length >= 2
     ? buildSvgLinePoints(tradeMarketDisplaySeries)
     : "";
+  const tradePortfolioAllSymbols = useMemo(
+    () => alpacaPositions.map((position) => position.symbol).filter(Boolean),
+    [alpacaPositions]
+  );
+  const normalizePerformanceLiveSelection = (selection) => {
+    const validSymbols = Array.from(new Set((selection?.symbols || []).filter((symbol) => tradePortfolioAllSymbols.includes(symbol))));
+    const includePortfolio = Boolean(selection?.includePortfolio);
+    if (!includePortfolio && validSymbols.length === 0) {
+      return { includePortfolio: true, symbols: [] };
+    }
+    return { includePortfolio, symbols: validSymbols };
+  };
+  const performanceLiveLegacySelection = useMemo(() => {
+    const normalized = normalizePerformanceLiveSelection(performanceLiveAppliedSelection);
+    if (normalized.includePortfolio) {
+      return { mode: "portfolio", symbols: tradePortfolioAllSymbols };
+    }
+    if (normalized.symbols.length > 1) {
+      return { mode: "multi", symbols: normalized.symbols };
+    }
+    return {
+      mode: "asset",
+      symbols: normalized.symbols.length ? [normalized.symbols[0]] : [tradePortfolioAllSymbols[0]].filter(Boolean),
+    };
+  }, [performanceLiveAppliedSelection, tradePortfolioAllSymbols]);
+  const activeTradeChartSelection = activeTab === "ai" ? performanceLiveLegacySelection : tradeAppliedSelection;
+  const tradeChartSymbol = activeTradeChartSelection.mode === "asset"
+    ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
+    : "";
+  const tradeChartMatchingPosition = tradeChartSymbol
+    ? alpacaPositions.find((position) => position.symbol === tradeChartSymbol) || null
+    : null;
+  const tradeChartQuote = tradeChartSymbol
+    ? getKnownStockQuoteData(tradeChartSymbol, simulationQuotes, marketItems, alpacaAssetQuotes)
+    : null;
+  const tradeChartCurrentPrice = Number.isFinite(tradeChartQuote?.price)
+    ? Number(tradeChartQuote.price)
+    : Number.isFinite(tradeChartMatchingPosition?.currentPrice)
+      ? Number(tradeChartMatchingPosition.currentPrice)
+      : null;
+  const tradeChartAsset = useMemo(() => {
+    if (!tradeChartSymbol) return null;
+    return watchlist.find((item) => item.id === tradeChartSymbol)
+      || buildMarketAsset({
+        symbol: tradeChartSymbol,
+        description: tradeChartMatchingPosition?.symbol || tradeChartSymbol,
+        exchange: tradeChartMatchingPosition?.exchange || "",
+        type: "stock",
+      });
+  }, [tradeChartSymbol, watchlist, tradeChartMatchingPosition?.symbol, tradeChartMatchingPosition?.exchange]);
+  const tradeChartAssetExplicitlyUnsupported = tradeChartAsset?.alpacaSupported === false || tradeChartAsset?.tradable === false;
+  const tradeChartAssetType = tradeChartAsset?.type || "stock";
+  const tradePortfolioDisplayedSymbols = useMemo(() => {
+    if (activeTradeChartSelection.mode === "multi") {
+      const validApplied = (activeTradeChartSelection.symbols || []).filter((symbol) => tradePortfolioAllSymbols.includes(symbol));
+      return validApplied.length ? validApplied : tradePortfolioAllSymbols;
+    }
+    if (activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "breakdown") {
+      const validSelected = tradePortfolioSelectedSymbols.filter((symbol) => tradePortfolioAllSymbols.includes(symbol));
+      return validSelected.length ? validSelected : tradePortfolioAllSymbols;
+    }
+    return tradePortfolioAllSymbols;
+  }, [activeTradeChartSelection, tradePortfolioAllSymbols, tradePortfolioChartView, tradePortfolioSelectedSymbols]);
+  const tradePortfolioDisplayedPositions = useMemo(
+    () => alpacaPositions.filter((position) => tradePortfolioDisplayedSymbols.includes(position.symbol)),
+    [alpacaPositions, tradePortfolioDisplayedSymbols]
+  );
+  const tradePortfolioCombinedUnrealizedPl = useMemo(
+    () => tradePortfolioDisplayedPositions.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0),
+    [tradePortfolioDisplayedPositions]
+  );
+  const tradePortfolioCombinedMarketValue = useMemo(
+    () => tradePortfolioDisplayedPositions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0),
+    [tradePortfolioDisplayedPositions]
+  );
+  const tradePortfolioRangeWindowMs = getTradeRangeWindowMs(tradeChartRange);
+  const tradePortfolioNowMs = Date.now();
+  const tradePortfolioRequestedStartMs = tradePortfolioRangeWindowMs
+    ? tradePortfolioNowMs - tradePortfolioRangeWindowMs
+    : null;
+  const buildTradeSelectionKey = (selection) => {
+    const symbols = Array.from(new Set(selection?.symbols || [])).filter(Boolean).sort();
+    return `${selection?.mode || "asset"}:${symbols.join(",")}`;
+  };
+  const normalizeTradeSelection = (selection) => {
+    const validSymbols = Array.from(new Set((selection?.symbols || []).filter((symbol) => tradePortfolioAllSymbols.includes(symbol))));
+    if (selection?.mode === "portfolio") {
+      return { mode: "portfolio", symbols: tradePortfolioAllSymbols };
+    }
+    if (validSymbols.length) {
+      return { mode: "asset", symbols: [validSymbols[0]] };
+    }
+    return tradePortfolioAllSymbols.length
+      ? { mode: "portfolio", symbols: tradePortfolioAllSymbols }
+      : { mode: "asset", symbols: [] };
+  };
+  const applyTradeSelection = (selection) => {
+    const nextSelection = normalizeTradeSelection(selection);
+    setTradePendingSelection(nextSelection);
+    setTradeAppliedSelection(nextSelection);
+  };
+  const tradePendingSelectionKey = buildTradeSelectionKey(tradePendingSelection);
+  const tradeAppliedSelectionKey = buildTradeSelectionKey(tradeAppliedSelection);
+  const tradeViewSelectionDirty = tradePendingSelectionKey !== tradeAppliedSelectionKey;
+  const tradeIsComparisonMode = activeTradeChartSelection.mode === "portfolio" || activeTradeChartSelection.mode === "multi";
+  const tradeIsPortfolioTotalMode = activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "portfolio";
+  const tradeIsPortfolioBreakdownMode = activeTradeChartSelection.mode === "multi"
+    || (activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "breakdown");
   const [simulationAsset, setSimulationAsset] = useState(null);
   const [simulationMode, setSimulationMode] = useState("live");
   const [simulationScenarioType, setSimulationScenarioType] = useState("uptrend");
@@ -3023,6 +6407,7 @@ useEffect(() => {
   const [simulationDirection, setSimulationDirection] = useState("long");
   const [simulationAmount, setSimulationAmount] = useState("");
   const [simulationAmountMode, setSimulationAmountMode] = useState("dollars");
+  const [simulationLeverage, setSimulationLeverage] = useState("1x");
   const [simulationExitMode, setSimulationExitMode] = useState("price");
   const [simulationStopLoss, setSimulationStopLoss] = useState("");
   const [simulationTakeProfit, setSimulationTakeProfit] = useState("");
@@ -3033,8 +6418,10 @@ useEffect(() => {
   const simulationSearchTimeoutRef = useRef(null);
   const [simulationScenarioQuotes, setSimulationScenarioQuotes] = useState({});
   const [simulationScenarioSeries, setSimulationScenarioSeries] = useState({});
+  const [simulationScenarioBarsByAsset, setSimulationScenarioBarsByAsset] = useState({});
   const [simulationScenarioAnchors, setSimulationScenarioAnchors] = useState({});
   const [simulationScenarioTick, setSimulationScenarioTick] = useState(0);
+  const simulationScenarioBarTimeAnchorRef = useRef({});
   const [simulationPositions, setSimulationPositions] = useState(() => {
     const stored = readSimulationStorage(
       SIMULATION_STORAGE_KEYS.openPosition,
@@ -3045,6 +6432,8 @@ useEffect(() => {
     if (stored && typeof stored === "object") return [stored];
     return [];
   });
+  const [simulationPendingScenarioDecision, setSimulationPendingScenarioDecision] = useState(null);
+  const [simulationPendingLiveDecision, setSimulationPendingLiveDecision] = useState(null);
   const [simulationClosedTrade, setSimulationClosedTrade] = useState(() =>
     readSimulationStorage(
       SIMULATION_STORAGE_KEYS.closedTrade,
@@ -3246,6 +6635,51 @@ useEffect(() => {
     };
   }, [brokerTradeLog, trades]);
 
+  const normalizedBrokerTrades = useMemo(
+    () => buildNormalizedBrokerTrades(brokerTradeLog),
+    [brokerTradeLog]
+  );
+
+  const combinedTrades = useMemo(() => {
+    const normalizedManualTrades = (trades || []).map((trade) => ({
+      ...trade,
+      source: trade.source || "manual",
+      source_label: trade.source_label || "Manual Trade",
+      isBrokerTrade: false,
+    }));
+
+    return [...normalizedManualTrades, ...normalizedBrokerTrades].sort((a, b) => {
+      const aTime = parseTradeTimeMs(a) || 0;
+      const bTime = parseTradeTimeMs(b) || 0;
+      return bTime - aTime;
+    });
+  }, [trades, normalizedBrokerTrades]);
+
+  const usableClosedTradesForEquity = useMemo(() => {
+    return [...combinedTrades]
+      .map((trade, originalIndex) => {
+        const timeMs = parseTradeTimeMs(trade);
+        const entryTimeMs = parseTradeEntryTimeMs(trade);
+        const pnl = calculateTradeDollarPnl(trade);
+        if (!Number.isFinite(timeMs) || !Number.isFinite(pnl)) return null;
+        return {
+          trade,
+          timeMs,
+          entryTimeMs,
+          pnl,
+          originalIndex,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.timeMs !== b.timeMs) return a.timeMs - b.timeMs;
+        const safeEntryA = Number.isFinite(a.entryTimeMs) ? a.entryTimeMs : a.timeMs;
+        const safeEntryB = Number.isFinite(b.entryTimeMs) ? b.entryTimeMs : b.timeMs;
+        if (safeEntryA !== safeEntryB) return safeEntryA - safeEntryB;
+        return a.originalIndex - b.originalIndex;
+      });
+  }, [combinedTrades]);
+
   useEffect(() => {
     if (!simulationPositions.length) return;
     const interval = setInterval(() => setSimulationNow(Date.now()), 1000);
@@ -3309,15 +6743,7 @@ useEffect(() => {
         });
 
         if (error || !data?.ok) return;
-
-        setSimulationQuotes((prev) => {
-          const next = { ...prev };
-          Object.entries(data.quotes || {}).forEach(([symbol, quote]) => {
-            if (quote?.price != null) next[symbol] = quote;
-          });
-          sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
-          return next;
-        });
+        syncSharedQuoteCaches(data.quotes || {});
       } catch (error) {
         console.error("simulation quote fetch failed:", error);
       }
@@ -3334,8 +6760,11 @@ useEffect(() => {
     const nextAnchors = {};
     const nextQuotes = {};
     const nextSeries = {};
+    const nextBarsByAsset = {};
+    const nextBarTimeAnchors = {};
+    const contextStepDurationMs = getSimulationTimeframeConfig(simulationChartTimeframe).ms;
 
-    simulationTrackedAssets.forEach((asset) => {
+    simulationTrackedAssets.forEach((asset, assetIndex) => {
       const normalizedAssetId = normalizeAssetId(asset.id, asset.type, asset.tvSymbol);
       const livePrice = getLiveQuoteByAssetId(simulationQuotes, normalizedAssetId, asset.type, asset.tvSymbol)?.price;
       const fallbackPrice = marketItems.find((item) => normalizeAssetId(item.id, item.type, item.tvSymbol) === normalizedAssetId)?.priceValue;
@@ -3348,28 +6777,52 @@ useEffect(() => {
       nextAnchors[asset.id] = basePrice;
       nextQuotes[asset.id] = { price: basePrice };
       nextSeries[asset.id] = [];
+      const contextEndTimeMs = Date.now();
+      const contextBars = buildScenarioContextBars({
+        anchorPrice: basePrice,
+        stepDurationMs: contextStepDurationMs,
+        scenarioType: simulationScenarioType,
+        barCount: SCENARIO_CHART_VISIBLE_BAR_COUNT,
+        seedBase: ((assetIndex + 1) * 10_000) + asset.id.length,
+        endTimeMs: contextEndTimeMs,
+      });
+      nextBarsByAsset[asset.id] = contextBars;
+      if (contextBars.length) {
+        nextBarTimeAnchors[asset.id] = Date.parse(String(contextBars[0].time));
+      }
     });
 
     setSimulationScenarioAnchors(nextAnchors);
     setSimulationScenarioQuotes(nextQuotes);
     setSimulationScenarioSeries(nextSeries);
+    setSimulationScenarioBarsByAsset(nextBarsByAsset);
+    simulationScenarioBarTimeAnchorRef.current = nextBarTimeAnchors;
     setSimulationScenarioTick(0);
     scenarioPlaybackStartedAtRef.current = null;
     scenarioPlaybackElapsedMsRef.current = 0;
     setSimulationScenarioIsPlaying(false);
+    setSimulationPendingScenarioDecision(null);
     setGuidedScenarioActive(false);
     setGuidedScenarioMessage("");
     setGuidedScenarioMessageStep(0);
-  }, [simulationMode, simulationScenarioType, simulationSymbolsKey]);
+  }, [simulationMode, simulationScenarioType, simulationSymbolsKey, simulationChartTimeframe]);
 
   function resetScenarioPlayback() {
     if (!simulationTrackedAssets.length) return;
+    const scenarioPositionIds = new Set(
+      simulationPositions
+        .filter((position) => (position.marketMode || "live") === "scenario")
+        .map((position) => position.id)
+    );
 
     const nextAnchors = {};
     const nextQuotes = {};
     const nextSeries = {};
+    const nextBarsByAsset = {};
+    const nextBarTimeAnchors = {};
+    const contextStepDurationMs = getSimulationTimeframeConfig(simulationChartTimeframe).ms;
 
-    simulationTrackedAssets.forEach((asset) => {
+    simulationTrackedAssets.forEach((asset, assetIndex) => {
       const normalizedAssetId = normalizeAssetId(asset.id, asset.type, asset.tvSymbol);
       const livePrice = getLiveQuoteByAssetId(simulationQuotes, normalizedAssetId, asset.type, asset.tvSymbol)?.price;
       const fallbackPrice = marketItems.find((item) => normalizeAssetId(item.id, item.type, item.tvSymbol) === normalizedAssetId)?.priceValue;
@@ -3382,19 +6835,48 @@ useEffect(() => {
       nextAnchors[asset.id] = basePrice;
       nextQuotes[asset.id] = { price: basePrice };
       nextSeries[asset.id] = [];
+      const contextEndTimeMs = Date.now();
+      const contextBars = buildScenarioContextBars({
+        anchorPrice: basePrice,
+        stepDurationMs: contextStepDurationMs,
+        scenarioType: simulationScenarioType,
+        barCount: SCENARIO_CHART_VISIBLE_BAR_COUNT,
+        seedBase: ((assetIndex + 1) * 10_000) + asset.id.length,
+        endTimeMs: contextEndTimeMs,
+      });
+      nextBarsByAsset[asset.id] = contextBars;
+      if (contextBars.length) {
+        nextBarTimeAnchors[asset.id] = Date.parse(String(contextBars[0].time));
+      }
     });
 
     setSimulationScenarioAnchors(nextAnchors);
     setSimulationScenarioQuotes(nextQuotes);
     setSimulationScenarioSeries(nextSeries);
+    setSimulationScenarioBarsByAsset(nextBarsByAsset);
+    simulationScenarioBarTimeAnchorRef.current = nextBarTimeAnchors;
     setSimulationScenarioTick(0);
+    pendingScenarioCompletionRef.current = null;
     scenarioPlaybackStartedAtRef.current = null;
     scenarioPlaybackElapsedMsRef.current = 0;
     setSimulationScenarioIsPlaying(false);
+    setSimulationPositions((prev) => prev.filter((position) => (position.marketMode || "live") !== "scenario"));
+    setSimulationPendingScenarioDecision(null);
+    setSimulationClosedTrade((prev) => prev?.marketMode === "scenario" ? null : prev);
+    setSimulationRaylaGuidanceStateByTrade((prev) => {
+      if (!scenarioPositionIds.size) return prev;
+      const next = { ...prev };
+      scenarioPositionIds.forEach((positionId) => {
+        delete next[positionId];
+      });
+      return next;
+    });
+    setSimulationRaylaPromptTradeId((prev) => (prev && scenarioPositionIds.has(prev) ? null : prev));
     setGuidedScenarioActive(false);
     setGuidedScenarioMessage("");
     setGuidedScenarioMessageStep(0);
     setPendingGuidedScenarioLaunch(null);
+    setSimulationScenarioDrawingMode("none");
   }
 
   function startScenarioPlayback() {
@@ -3437,9 +6919,35 @@ useEffect(() => {
     setSimulationScenarioIsPlaying(false);
   }
 
+  function pauseLiveSimulation() {
+    const nextSnapshot = {};
+    simulationTrackedAssets.forEach((asset) => {
+      const normalizedAssetId = normalizeAssetId(asset.id, asset.type, asset.tvSymbol);
+      const livePrice = getLiveQuoteByAssetId(simulationQuotes, normalizedAssetId, asset.type, asset.tvSymbol)?.price;
+      const fallbackPrice = marketItems.find((item) => normalizeAssetId(item.id, item.type, item.tvSymbol) === normalizedAssetId)?.priceValue;
+      const snapshotPrice = Number.isFinite(livePrice)
+        ? Number(livePrice)
+        : Number.isFinite(fallbackPrice)
+          ? Number(fallbackPrice)
+          : null;
+      if (Number.isFinite(snapshotPrice)) {
+        nextSnapshot[asset.id] = { price: snapshotPrice };
+        nextSnapshot[normalizedAssetId] = { price: snapshotPrice };
+      }
+    });
+    setSimulationLivePauseSnapshot(nextSnapshot);
+    setSimulationLivePaused(true);
+  }
+
+  function resumeLiveSimulation() {
+    setSimulationLivePaused(false);
+    setSimulationLivePauseSnapshot({});
+  }
+
   const scenarioIntervalMs = simulationScenarioNoLimit
     ? getScenarioSpeedInterval(simulationScenarioSpeed)
     : 1000;
+  const simulationChartTimeframeConfig = getSimulationTimeframeConfig(simulationChartTimeframe);
   const scenarioDurationMs = (
     parseScenarioDurationValue(simulationScenarioSeconds) * 1000
     + parseScenarioDurationValue(simulationScenarioMinutes) * 60 * 1000
@@ -3475,10 +6983,11 @@ useEffect(() => {
     }
 
     const boundedExitPrices = {};
+    const appendedScenarioPointsByAsset = {};
 
     setSimulationScenarioQuotes((prevQuotes) => {
-      const nextQuotes = { ...prevQuotes };
-      simulationTrackedAssets.forEach((asset) => {
+        const nextQuotes = { ...prevQuotes };
+        simulationTrackedAssets.forEach((asset) => {
         const currentPrice = prevQuotes[asset.id]?.price ?? simulationScenarioAnchors[asset.id] ?? 100;
         if (simulationScenarioNoLimit) {
           const nextPrice = buildNextScenarioPrice({
@@ -3523,6 +7032,7 @@ useEffect(() => {
             scenarioType: simulationScenarioType,
           });
           nextSeries[asset.id] = [...previousSeries, nextPrice];
+          appendedScenarioPointsByAsset[asset.id] = [nextPrice];
           return;
         }
 
@@ -3535,8 +7045,53 @@ useEffect(() => {
           scenarioType: simulationScenarioType,
         });
         nextSeries[asset.id] = [...previousSeries, ...bridge.points];
+        appendedScenarioPointsByAsset[asset.id] = bridge.points;
       });
       return nextSeries;
+    });
+
+    setSimulationScenarioBarsByAsset((prevBarsByAsset) => {
+      const nextBarsByAsset = { ...prevBarsByAsset };
+      const stepDurationMs = simulationChartTimeframeConfig.ms;
+
+      simulationTrackedAssets.forEach((asset, assetIndex) => {
+        const appendedPrices = appendedScenarioPointsByAsset[asset.id] || [];
+        if (!appendedPrices.length) return;
+
+        const existingBars = prevBarsByAsset[asset.id] || [];
+        const anchorPrice = simulationScenarioAnchors[asset.id]
+          ?? simulationScenarioQuotes[asset.id]?.price
+          ?? simulationQuotes[asset.id]?.price
+          ?? 100;
+        const baseTimeMs = simulationScenarioBarTimeAnchorRef.current[asset.id] ?? Date.now();
+        simulationScenarioBarTimeAnchorRef.current[asset.id] = baseTimeMs;
+
+        let previousClose = Number(existingBars[existingBars.length - 1]?.close);
+        if (!Number.isFinite(previousClose)) {
+          previousClose = Number(simulationScenarioSeries[asset.id]?.[0] ?? anchorPrice);
+        }
+
+        const newBars = [];
+        appendedPrices.forEach((nextPrice, pointIndex) => {
+          const barIndex = existingBars.length + newBars.length;
+          const nextBar = buildScenarioBarFromStep({
+            previousClose,
+            nextClose: nextPrice,
+            timeMs: baseTimeMs + (barIndex * stepDurationMs),
+            seed: ((assetIndex + 1) * 100000) + nextTick + pointIndex + barIndex,
+          });
+          if (nextBar) {
+            newBars.push(nextBar);
+            previousClose = nextBar.close;
+          }
+        });
+
+        if (newBars.length) {
+          nextBarsByAsset[asset.id] = [...existingBars, ...newBars];
+        }
+      });
+
+      return nextBarsByAsset;
     });
 
     if (scenarioDurationPointCount != null && nextTick >= scenarioDurationPointCount) {
@@ -3581,7 +7136,7 @@ useEffect(() => {
     clearInterval(interval);
   };
 
-  }, [simulationMode, simulationScenarioType, simulationScenarioSpeed, simulationScenarioPlaybackDuration, simulationSymbolsKey, simulationTrackedAssets, simulationScenarioAnchors, simulationScenarioQuotes, simulationScenarioSeries, simulationPositions, simulationScenarioIsPlaying, simulationScenarioNoLimit, scenarioDurationPointCount, scenarioPlaybackDurationMs, scenarioPlaybackIntervalMs]);
+  }, [simulationMode, simulationScenarioType, simulationScenarioSpeed, simulationScenarioPlaybackDuration, simulationChartTimeframe, simulationSymbolsKey, simulationTrackedAssets, simulationScenarioAnchors, simulationScenarioQuotes, simulationScenarioSeries, simulationPositions, simulationScenarioIsPlaying, simulationScenarioNoLimit, scenarioDurationPointCount, scenarioPlaybackDurationMs, scenarioPlaybackIntervalMs]);
 
   useEffect(() => {
     const pendingCompletion = pendingScenarioCompletionRef.current;
@@ -3727,35 +7282,138 @@ useEffect(() => {
     return Number.isFinite(resolved) ? resolved : null;
   }
 
+  function getAlpacaOrderValidationState() {
+    const symbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
+    const action = String(alpacaOrderForm.side || "buy");
+    const payloadSide = getAlpacaOrderPayloadSide(action);
+    const qty = Number(alpacaOrderForm.qty);
+    const type = String(alpacaOrderForm.type || "market");
+    const timeInForce = String(alpacaOrderForm.timeInForce || "gtc").toLowerCase();
+    const limitPrice = type === "limit" || type === "stop_limit" ? Number(alpacaOrderForm.limitPrice) : null;
+    const stopPrice = type === "stop" || type === "stop_limit" ? Number(alpacaOrderForm.stopPrice) : null;
+    const matchingPosition = alpacaPositions.find((position) => position.symbol === symbol) || null;
+    const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === symbol)
+      || (alpacaSelectedAssetMeta?.symbol === symbol ? alpacaSelectedAssetMeta : null)
+      || (tradeSelectedBrokerAsset?.symbol === symbol ? tradeSelectedBrokerAsset : null);
+    const sourceQuote = getKnownStockQuoteData(symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+    const quoteIsFresh = Boolean(sourceQuote?.price) && isQuoteFresh(sourceQuote);
+    const estimatedPrice = getOrderEstimatePrice(symbol, limitPrice, matchingPosition);
+    const estimatedValue = Number.isFinite(estimatedPrice) && Number.isFinite(qty) ? estimatedPrice * qty : null;
+    const accountMultiplier = Math.max(1, Number(alpacaAccount?.raw?.multiplier ?? 1) || 1);
+    const selectedLeverage = getLeverageMultiplierValue(alpacaOrderForm.leverage);
+    const assetIsMarginable = Boolean(selectedBrokerAsset?.marginable);
+    const leverageAvailable = accountMultiplier > 1 && assetIsMarginable;
+    const effectiveLeverage = leverageAvailable ? Math.min(selectedLeverage, accountMultiplier) : 1;
+    const totalBuyingPower = Number(alpacaAccount?.buyingPower ?? 0);
+    const baseBuyingPower = leverageAvailable && accountMultiplier > 0 ? totalBuyingPower / accountMultiplier : totalBuyingPower;
+    const buyingPowerLimit = leverageAvailable
+      ? Math.min(totalBuyingPower, baseBuyingPower * effectiveLeverage)
+      : totalBuyingPower;
+    const currentQty = Math.abs(Number(matchingPosition?.qty ?? 0));
+    const hasShortPosition = matchingPosition?.side === "short" && currentQty > 0;
+    const hasLongPosition = matchingPosition?.side === "long" && currentQty > 0;
+    const requiresBuyingPowerCheck = action !== "sell";
+    const orderValueExceedsBuyingPower = Number.isFinite(estimatedValue) && Number.isFinite(buyingPowerLimit) && buyingPowerLimit > 0
+      ? estimatedValue > buyingPowerLimit + 0.0001
+      : false;
+
+    let error = "";
+
+    if (!symbol) {
+      error = "Symbol is required.";
+    } else if (!Number.isFinite(qty) || qty <= 0) {
+      error = "Quantity must be greater than 0.";
+    } else if (!["market", "limit", "stop", "stop_limit"].includes(type)) {
+      error = "Choose a valid order type.";
+    } else if (!["gtc", "ioc", "fok"].includes(timeInForce)) {
+      error = "Choose a valid time in force.";
+    } else if (type === "limit" && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
+      error = "Enter a valid limit price.";
+    } else if (type === "stop" && (!Number.isFinite(stopPrice) || stopPrice <= 0)) {
+      error = "Enter a valid stop price.";
+    } else if (type === "stop_limit" && (!Number.isFinite(stopPrice) || stopPrice <= 0 || !Number.isFinite(limitPrice) || limitPrice <= 0)) {
+      error = "Stop limit orders require both a stop price and a limit price.";
+    } else if (selectedBrokerAsset && selectedBrokerAsset.tradable === false) {
+      error = "Alpaca does not currently support trading this asset.";
+    } else if (action === "short_sell" && !selectedBrokerAsset?.shortable) {
+      error = "Shorting is not available for this Alpaca asset.";
+    } else if (action === "short_sell" && hasLongPosition) {
+      error = `Use Sell to reduce your current long ${symbol} position before opening a short.`;
+    } else if (action === "buy_to_cover" && !hasShortPosition) {
+      error = `You need an open short position in ${symbol} before using Buy to Cover.`;
+    } else if (action === "sell" && !hasLongPosition) {
+      error = `You need shares of ${symbol} before using Sell. Use Short Sell to open a short position.`;
+    } else if (action === "buy_to_cover" && qty > currentQty) {
+      error = `Buy to Cover cannot exceed your current short position of ${currentQty} share(s).`;
+    } else if (action === "sell" && qty > currentQty) {
+      error = `Sell cannot exceed your current long position of ${currentQty} share(s).`;
+    } else if (!quoteIsFresh) {
+      error = "Waiting for fresh Alpaca market data before placing order.";
+    } else if (requiresBuyingPowerCheck && Number.isFinite(buyingPowerLimit) && buyingPowerLimit > 0 && orderValueExceedsBuyingPower) {
+      error = `This order is larger than your available buying power at ${effectiveLeverage}x.`;
+    } else if (requiresBuyingPowerCheck && Number.isFinite(totalBuyingPower) && totalBuyingPower <= 0) {
+      error = "Buying power is unavailable right now.";
+    }
+
+    return {
+      symbol,
+      action,
+      payloadSide,
+      qty,
+      type,
+      timeInForce,
+      limitPrice: Number.isFinite(limitPrice) ? limitPrice : null,
+      stopPrice: Number.isFinite(stopPrice) ? stopPrice : null,
+      matchingPosition,
+      selectedBrokerAsset,
+      sourceQuote,
+      quoteIsFresh,
+      estimatedPrice,
+      estimatedValue,
+      totalBuyingPower,
+      buyingPowerLimit,
+      leverageAvailable,
+      effectiveLeverage,
+      accountMultiplier,
+      hasShortPosition,
+      hasLongPosition,
+      error,
+    };
+  }
+
+  const alpacaOrderValidation = getAlpacaOrderValidationState();
+
   async function handleSubmitAlpacaOrder(e) {
     e.preventDefault();
 
-    const symbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
-    const qty = Number(alpacaOrderForm.qty);
-    const limitPrice = alpacaOrderForm.type === "limit" ? Number(alpacaOrderForm.limitPrice) : null;
+    const validation = getAlpacaOrderValidationState();
+    const {
+      symbol,
+      action,
+      payloadSide,
+      qty,
+      type,
+      timeInForce,
+      limitPrice,
+      stopPrice,
+      matchingPosition,
+      estimatedPrice,
+      estimatedValue,
+      totalBuyingPower,
+      effectiveLeverage,
+      error,
+    } = validation;
 
-    if (!symbol) {
-      showToast("Symbol is required.", "warning");
-      return;
-    }
-    if (!Number.isFinite(qty) || qty <= 0) {
-      showToast("Quantity must be greater than 0.", "warning");
-      return;
-    }
-    if (alpacaOrderForm.type === "limit" && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
-      showToast("Enter a valid limit price.", "warning");
+    if (error) {
+      showToast(error, "warning");
       return;
     }
 
-    const matchingPosition = alpacaPositions.find((position) => position.symbol === symbol) || null;
-    const estimatedPrice = getOrderEstimatePrice(symbol, limitPrice, matchingPosition);
-    const estimatedValue = Number.isFinite(estimatedPrice) ? estimatedPrice * qty : null;
     const currentQty = Number(matchingPosition?.qty ?? 0);
-    const buyingPower = Number(alpacaAccount?.buyingPower ?? 0);
     let insight = `This trade changes your ${symbol} exposure.`;
 
     if (matchingPosition) {
-      if (alpacaOrderForm.side === "buy") {
+      if (action === "buy" || action === "buy_to_cover") {
         insight = matchingPosition.side === "short"
           ? `This trade may reduce or close your current ${symbol} position.`
           : `This trade increases your exposure to ${symbol}.`;
@@ -3764,7 +7422,7 @@ useEffect(() => {
           ? `This may close your current ${symbol} position.`
           : `This trade reduces your exposure to ${symbol}.`;
       }
-    } else if (alpacaOrderForm.side === "buy") {
+    } else if (action === "buy") {
       insight = `This trade increases your exposure to ${symbol}.`;
     } else {
       insight = `This trade may open a new ${symbol} short position.`;
@@ -3772,20 +7430,23 @@ useEffect(() => {
 
     setPendingAlpacaOrderConfirmation({
       symbol,
-      side: alpacaOrderForm.side,
+      action,
+      side: payloadSide,
       qty,
-      type: alpacaOrderForm.type,
+      type,
       limitPrice: Number.isFinite(limitPrice) ? limitPrice : null,
-      timeInForce: "day",
+      stopPrice: Number.isFinite(stopPrice) ? stopPrice : null,
+      timeInForce,
+      leverage: `${effectiveLeverage}x`,
       estimatedPrice,
       estimatedValue,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
-        side: alpacaOrderForm.side,
+        side: payloadSide,
         qty,
         estimatedValue,
-        buyingPower,
+        buyingPower: totalBuyingPower,
         position: matchingPosition,
       }),
     });
@@ -3803,9 +7464,12 @@ useEffect(() => {
         side: pendingAlpacaOrderConfirmation.side,
         qty: pendingAlpacaOrderConfirmation.qty,
         type: pendingAlpacaOrderConfirmation.type,
-        time_in_force: "day",
-        ...(pendingAlpacaOrderConfirmation.type === "limit"
+        time_in_force: pendingAlpacaOrderConfirmation.timeInForce,
+        ...(pendingAlpacaOrderConfirmation.type === "limit" || pendingAlpacaOrderConfirmation.type === "stop_limit"
           ? { limit_price: pendingAlpacaOrderConfirmation.limitPrice }
+          : {}),
+        ...(pendingAlpacaOrderConfirmation.type === "stop" || pendingAlpacaOrderConfirmation.type === "stop_limit"
+          ? { stop_price: pendingAlpacaOrderConfirmation.stopPrice }
           : {}),
       };
 
@@ -3906,14 +7570,7 @@ useEffect(() => {
         });
 
         if (isCancelled || error || !data?.ok) return;
-
-        setAlpacaAssetQuotes((prev) => {
-          const next = { ...prev };
-          Object.entries(data.quotes || {}).forEach(([symbol, quote]) => {
-            if (quote?.price != null) next[symbol] = quote;
-          });
-          return next;
-        });
+        syncSharedQuoteCaches(data.quotes || {}, { includeAlpacaQuotes: true });
       } catch {
         // Keep the order search usable even if quote lookup fails.
       }
@@ -3927,62 +7584,115 @@ useEffect(() => {
   }, [alpacaAccount, alpacaAssetSearchResults, alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes]);
 
   useEffect(() => {
-    if (activeTab !== "trades" || !alpacaAccount || !tradePanelSymbol || !tradePanelAsset) {
+    if ((activeTab !== "trades" && activeTab !== "ai") || tradeIsComparisonMode || !alpacaAccount || !tradeChartSymbol || !tradeChartAsset || tradeChartAssetExplicitlyUnsupported) {
+      if (DEBUG_CHARTS) {
+        console.log("TRADING CHART FETCH RESET", {
+          selectedChartSymbol: tradeChartSymbol || null,
+          selectedChartType: tradeChartAssetType,
+          chartRange: tradeChartRange,
+          loading: false,
+          errorState: tradeIsComparisonMode ? "comparison_mode" : "inactive_or_missing_dependencies",
+        });
+      }
       setTradeMarketChart(null);
       setTradeMarketChartLoading(false);
       return;
     }
 
     let isCancelled = false;
-    setTradeMarketChart((prev) => (prev?.symbol === tradePanelSymbol ? prev : null));
+    setTradeMarketChart(null);
     setTradeMarketChartLoading(true);
+    if (DEBUG_CHARTS) {
+      console.log("TRADING CHART FETCH START", {
+        selectedChartSymbol: tradeChartSymbol,
+        selectedChartType: tradeChartAssetType,
+        chartRange: tradeChartRange,
+        loading: true,
+      });
+    }
 
     async function fetchTradeMarketChart() {
       try {
         const { data, error } = await supabase.functions.invoke("market-data", {
           body: {
-            chartSymbol: tradePanelSymbol,
-            chartType: tradePanelAsset.type || "stock",
-            chartRange: tradeChartRange,
+            chartSymbol: tradeChartSymbol,
+            chartType: tradeChartAssetType,
+            chartRange: tradeChartSelection.fetchRange,
+            chartTimeframe: tradeChartSelection.provider || null,
           },
         });
 
         if (isCancelled) return;
         if (error || !data?.ok) {
+          if (DEBUG_CHARTS) {
+            console.log("TRADING CHART FETCH ERROR", {
+              selectedChartSymbol: tradeChartSymbol,
+              selectedChartType: tradeChartAssetType,
+              chartRange: tradeChartRange,
+              loading: false,
+              errorState: error?.message || data?.error || "market_data_error",
+            });
+          }
           return;
         }
 
         const nextChart = data.chart || null;
-        console.log("TRADE MINI CHART DATA", {
-          chartSymbol: tradePanelSymbol,
-          chartType: tradePanelAsset.type || "stock",
-          chartRange: tradeChartRange,
-          rawChart: nextChart,
-          extractedSeries: extractChartCloseSeries(nextChart),
-        });
         const nextSeries = extractChartCloseSeries(nextChart);
+        const nextBars = extractChartBars(nextChart);
+        if (DEBUG_CHARTS) {
+          const firstBarTime = nextBars[0]?.time || nextBars[0]?.t || null;
+          const lastBarTime = nextBars[nextBars.length - 1]?.time || nextBars[nextBars.length - 1]?.t || null;
+          console.log("TRADING CHART FETCH RESULT", {
+            selectedChartSymbol: tradeChartSymbol,
+            selectedChartType: tradeChartAssetType,
+            chartRange: tradeChartRange,
+            loading: false,
+            barsCount: nextBars.length,
+            seriesCount: nextSeries.length,
+            firstBar: firstBarTime,
+            lastBar: lastBarTime,
+            errorState: null,
+          });
+        }
         if (nextChart && nextSeries.length >= 2) {
+          syncQuoteFromChart(tradeChartAsset, nextChart, { includeAlpacaQuotes: true });
           setTradeMarketChart({
             ...nextChart,
-            symbol: nextChart.symbol || tradePanelSymbol,
+            symbol: nextChart.symbol || tradeChartSymbol,
           });
           setTradeChartLastUpdated(new Date());
           return;
         }
 
-        setTradeMarketChart((prev) => (
-          prev?.symbol === tradePanelSymbol && extractChartCloseSeries(prev).length >= 2
-            ? prev
-            : {
-                symbol: tradePanelSymbol,
-                range: tradeChartRange,
-                bars: [],
-              }
-        ));
+        setTradeMarketChart({
+          symbol: tradeChartSymbol,
+          range: tradeChartSelection.fetchRange,
+          bars: [],
+          rangeMode: nextChart?.rangeMode || null,
+        });
       } catch {
+        if (DEBUG_CHARTS) {
+          console.log("TRADING CHART FETCH EXCEPTION", {
+            selectedChartSymbol: tradeChartSymbol,
+            selectedChartType: tradeChartAssetType,
+            chartRange: tradeChartRange,
+            loading: false,
+            errorState: "exception",
+          });
+        }
         // Keep the last valid real chart for this symbol if we already have one.
       } finally {
-        if (!isCancelled) setTradeMarketChartLoading(false);
+        if (!isCancelled) {
+          setTradeMarketChartLoading(false);
+          if (DEBUG_CHARTS) {
+            console.log("TRADING CHART LOADING END", {
+              selectedChartSymbol: tradeChartSymbol,
+              selectedChartType: tradeChartAssetType,
+              chartRange: tradeChartRange,
+              loading: false,
+            });
+          }
+        }
       }
     }
 
@@ -3991,15 +7701,167 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, alpacaAccount, tradePanelSymbol, tradePanelAsset, tradeChartRange, tradeChartRefreshTick]);
+  }, [activeTab, tradeIsComparisonMode, alpacaAccount, tradeChartSymbol, tradeChartAssetType, tradeChartRange, tradeChartRefreshTick, tradeChartAssetExplicitlyUnsupported]);
 
   useEffect(() => {
-    if (activeTab !== "trades" || tradeChartRange !== "1D") return;
-    const interval = setInterval(() => {
-      setTradeChartRefreshTick((prev) => prev + 1);
-    }, 10000);
+    if ((activeTab !== "trades" && activeTab !== "ai") || (!tradeChartSelection.provider && tradeChartSelection.fetchRange !== "1D")) return;
+    const isCryptoTradeAsset = tradeChartAssetType === "crypto";
+    const interval = setInterval(
+      () => setTradeChartRefreshTick((prev) => prev + 1),
+      (isCryptoTradeAsset || isMarketCurrentlyOpen()) ? 10000 : 30000
+    );
     return () => clearInterval(interval);
-  }, [activeTab, tradeChartRange]);
+  }, [activeTab, tradeChartRange, tradeChartAssetType]);
+
+  useEffect(() => {
+    const symbols = alpacaPositions.map((position) => position.symbol).filter(Boolean);
+    if (!symbols.length) {
+      setTradePendingSelection({ mode: "asset", symbols: [] });
+      setTradeAppliedSelection({ mode: "asset", symbols: [] });
+      setPerformanceLiveAppliedSelection({ includePortfolio: true, symbols: [] });
+      return;
+    }
+    setTradePendingSelection((prev) => {
+      if (prev.mode === "portfolio") return { mode: "portfolio", symbols };
+      const valid = prev.symbols.filter((symbol) => symbols.includes(symbol));
+      return valid.length ? { mode: valid.length === 1 ? "asset" : "multi", symbols: valid } : { mode: "asset", symbols: [symbols[0]] };
+    });
+    setTradeAppliedSelection((prev) => {
+      if (prev.mode === "portfolio") return { mode: "portfolio", symbols };
+      const valid = prev.symbols.filter((symbol) => symbols.includes(symbol));
+      return valid.length ? { mode: valid.length === 1 ? "asset" : "multi", symbols: valid } : { mode: "asset", symbols: [symbols[0]] };
+    });
+    setPerformanceLiveAppliedSelection((prev) => normalizePerformanceLiveSelection(prev));
+  }, [alpacaPositions]);
+
+  useEffect(() => {
+    setTradePortfolioSelectedSymbols((prev) => {
+      const valid = prev.filter((symbol) => tradePortfolioAllSymbols.includes(symbol));
+      return valid.length ? valid : tradePortfolioAllSymbols;
+    });
+  }, [tradePortfolioAllSymbols]);
+
+  useEffect(() => {
+    const normalizedPending = normalizeTradeSelection(tradePendingSelection);
+    if (buildTradeSelectionKey(normalizedPending) !== buildTradeSelectionKey(tradePendingSelection)) {
+      setTradePendingSelection(normalizedPending);
+    }
+
+    const normalizedApplied = normalizeTradeSelection(tradeAppliedSelection);
+    if (buildTradeSelectionKey(normalizedApplied) !== buildTradeSelectionKey(tradeAppliedSelection)) {
+      setTradeAppliedSelection(normalizedApplied);
+    }
+  }, [tradeAppliedSelection, tradePendingSelection, tradePortfolioAllSymbols]);
+
+  useEffect(() => {
+    if (tradeAppliedSelection.mode === "portfolio") {
+      setTradeViewMode("portfolio");
+      setTradeChartMode("line");
+      setTradePortfolioChartView("portfolio");
+      setTradePortfolioSelectedSymbols(tradePortfolioAllSymbols);
+      return;
+    }
+    if (tradeAppliedSelection.mode === "asset") {
+      setTradeViewMode("asset");
+      const selectedSymbol = tradeAppliedSelection.symbols[0];
+      if (selectedSymbol) {
+        setAlpacaOrderForm((prev) => ({ ...prev, symbol: selectedSymbol }));
+      }
+    }
+  }, [tradeAppliedSelection, tradePortfolioAllSymbols]);
+
+  useEffect(() => {
+    if ((activeTab !== "trades" && activeTab !== "ai") || !alpacaAccount || activeTradeChartSelection.mode !== "portfolio" || !tradePortfolioDisplayedSymbols.length) {
+      setTradePortfolioCharts({});
+      setTradePortfolioChartsLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setTradePortfolioChartsLoading(true);
+
+    async function fetchTradePortfolioCharts() {
+      try {
+        const chartResults = await Promise.all(
+          tradePortfolioDisplayedSymbols.map(async (symbol) => {
+            const position = alpacaPositions.find((item) => item.symbol === symbol) || null;
+            const assetType = position?.assetClass === "crypto" ? "crypto" : "stock";
+            const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog, trades);
+            const { data, error } = await supabase.functions.invoke("market-data", {
+              body: {
+                chartSymbol: symbol,
+                chartType: assetType,
+                chartRange: tradeChartSelection.fetchRange,
+                chartTimeframe: tradeChartSelection.provider || null,
+              },
+            });
+            return {
+              symbol,
+              assetType,
+              entryTimeMs: entryResolution.timeMs,
+              entryTimeSource: entryResolution.source,
+              data,
+              error,
+            };
+          })
+        );
+
+        if (isCancelled) return;
+
+        const nextCharts = {};
+        chartResults.forEach(({ symbol, assetType, entryTimeMs, entryTimeSource, data, error }) => {
+          const nextChart = error || !data?.ok ? null : data.chart || null;
+          const bars = extractChartBars(nextChart);
+          nextCharts[symbol] = {
+            symbol,
+            assetType,
+            entryTimeMs,
+            entryTimeSource,
+            bars,
+            rangeMode: nextChart?.rangeMode || null,
+            error: error?.message || data?.error || null,
+          };
+          if (DEBUG_CHARTS) {
+            console.log("TRADING PORTFOLIO CHART DATA", {
+              selectedPortfolioAssets: tradePortfolioDisplayedSymbols,
+              portfolioRange: tradeChartRange,
+              symbol,
+              entryOpenTimestamp: entryTimeMs ? new Date(entryTimeMs).toISOString() : null,
+              entryOpenSource: entryTimeSource,
+              selectedRangeStart: tradePortfolioRequestedStartMs ? new Date(tradePortfolioRequestedStartMs).toISOString() : null,
+              chartPointCount: bars.length,
+              firstBar: bars[0]?.time || bars[0]?.t || null,
+              lastBar: bars[bars.length - 1]?.time || bars[bars.length - 1]?.t || null,
+              errorState: error?.message || data?.error || null,
+              combinedSelectedPortfolioPl: tradePortfolioCombinedUnrealizedPl,
+            });
+          }
+        });
+
+        setTradePortfolioCharts(nextCharts);
+      } catch (error) {
+        if (!isCancelled) {
+          setTradePortfolioCharts({});
+          if (DEBUG_CHARTS) {
+            console.log("TRADING PORTFOLIO CHART FETCH ERROR", {
+              selectedPortfolioAssets: tradePortfolioDisplayedSymbols,
+              portfolioRange: tradeChartRange,
+              errorState: error?.message || "portfolio_fetch_exception",
+              combinedSelectedPortfolioPl: tradePortfolioCombinedUnrealizedPl,
+            });
+          }
+        }
+      } finally {
+        if (!isCancelled) setTradePortfolioChartsLoading(false);
+      }
+    }
+
+    fetchTradePortfolioCharts();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, activeTradeChartSelection.mode, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, trades, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl, tradePortfolioRequestedStartMs]);
 
   useEffect(() => {
   supabase.auth.getSession().then(({ data }) => {
@@ -4094,6 +7956,56 @@ useEffect(() => {
       });
   }, []);
 
+  useEffect(() => {
+    const intelItems = [
+      ...(hotColdReport?.stockHot || []),
+      ...(hotColdReport?.stockCold || []),
+      hotColdReport?.cryptoHot,
+      hotColdReport?.cryptoCold,
+    ].filter(Boolean);
+
+    if (!intelItems.length) {
+      setIntelLiveQuotes({});
+      return;
+    }
+
+    const uniqueSymbols = [];
+    const seen = new Set();
+    intelItems.forEach((item) => {
+      const symbol = String(item?.symbol || "").trim().toUpperCase();
+      if (!symbol || seen.has(symbol)) return;
+      seen.add(symbol);
+      uniqueSymbols.push({
+        symbol,
+        type: CRYPTO_SYMBOL_SET.has(symbol) ? "crypto" : "stock",
+      });
+    });
+
+    let isCancelled = false;
+
+    async function fetchIntelQuotes() {
+      try {
+        const { data, error } = await supabase.functions.invoke("market-data", {
+          body: { symbols: uniqueSymbols },
+        });
+        if (isCancelled || error || !data?.ok) return;
+        const nextQuotes = {};
+        Object.entries(data.quotes || {}).forEach(([symbol, quote]) => {
+          if (quote?.price != null) nextQuotes[symbol] = quote;
+        });
+        if (!isCancelled) setIntelLiveQuotes(nextQuotes);
+      } catch {
+        // Keep Intel usable even if live quote refresh fails.
+      }
+    }
+
+    fetchIntelQuotes();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [hotColdReport]);
+
 useEffect(() => {
   if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
 }, [user]);
@@ -4103,9 +8015,25 @@ useEffect(() => {
     askRaylaThreadRef.current.scrollTop = askRaylaThreadRef.current.scrollHeight;
   }, [askRaylaHasMessages, raylaChatMessages, capitalGuideResult, activeCapitalGuideQuestion]);
 
-  const homeMarketSelectedItem = marketItems.find(item => item.id === selectedMarketId) || marketItems[0] || null;
+  const homeMarketSelectedItem = homeMarketActiveAsset || marketItems.find(item => item.id === selectedMarketId) || marketItems[0] || null;
+  const homeMarketAssetExplicitlyUnsupported = homeMarketSelectedItem?.alpacaSupported === false || homeMarketSelectedItem?.tradable === false;
+  const homeMarketSelectedDisplayPrice = homeMarketSelectedItem
+    ? (getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price ?? homeMarketSelectedItem.priceValue ?? null)
+    : null;
   const homeSymbolsKey = marketItems.map(item => item.id).sort().join("|");
-
+  const homeMarketChartSelection = getHomeChartSelectionConfig(homeMarketChartRange);
+  const homeMarketChartMatchesSelection = Boolean(
+    homeMarketChart
+    && homeMarketSelectedItem
+    && homeMarketChart.symbol === homeMarketSelectedItem.id
+    && homeMarketChart.selectionValue === homeMarketChartRange
+  );
+  const homeMarketVisibleBars = useMemo(
+    () => (homeMarketChartMatchesSelection
+      ? extractVisibleHomeChartBars(homeMarketChart, homeMarketChartRange, homeMarketChartViewPreset)
+      : []),
+    [homeMarketChart, homeMarketChartRange, homeMarketChartMatchesSelection, homeMarketChartViewPreset]
+  );
   useEffect(() => {
     if (!marketItems.length) return;
     async function fetchHomeQuotes() {
@@ -4114,14 +8042,7 @@ useEffect(() => {
           body: { symbols: marketItems.map(item => ({ symbol: item.id, type: item.type || "stock" })) },
         });
         if (error || !data?.ok) return;
-        setHomeMarketQuotes(prev => {
-          const next = { ...prev };
-          Object.entries(data.quotes || {}).forEach(([symbol, q]) => {
-            if (q?.price != null) next[symbol] = q;
-          });
-          sessionStorage.setItem("rayla-market-quotes", JSON.stringify(next));
-          return next;
-        });
+        syncSharedQuoteCaches(data.quotes || {});
       } catch {}
     }
     fetchHomeQuotes();
@@ -4136,30 +8057,53 @@ useEffect(() => {
       setHomeMarketChartLoading(false);
       return;
     }
+    if (homeMarketAssetExplicitlyUnsupported) {
+      setHomeMarketChart(null);
+      setHomeMarketChartLoading(false);
+      return;
+    }
     let isCancelled = false;
-    setHomeMarketChart(prev => prev?.symbol === homeMarketSelectedItem.id ? prev : null);
     setHomeMarketChartLoading(true);
     async function fetchHomeChart() {
       try {
         const { data, error } = await supabase.functions.invoke("market-data", {
-          body: { chartSymbol: homeMarketSelectedItem.id, chartType: homeMarketSelectedItem.type || "stock", chartRange: homeMarketChartRange },
+          body: {
+            chartSymbol: homeMarketSelectedItem.id,
+            chartType: homeMarketSelectedItem.type || "stock",
+            chartRange: homeMarketChartSelection.fetchRange,
+            chartTimeframe: homeMarketChartSelection.provider || null,
+          },
         });
         if (isCancelled || error || !data?.ok) return;
         const nextChart = data.chart || null;
         const nextBars = extractChartBars(nextChart);
         if (nextChart && nextBars.length >= 2) {
-          setHomeMarketChart({ ...nextChart, symbol: nextChart.symbol || homeMarketSelectedItem.id });
+          syncQuoteFromChart(homeMarketSelectedItem, nextChart);
+          setHomeMarketChart({
+            ...nextChart,
+            symbol: nextChart.symbol || homeMarketSelectedItem.id,
+            selectionValue: homeMarketChartRange,
+          });
           setHomeMarketChartLastUpdated(new Date());
           return;
         }
-        setHomeMarketChart({ symbol: homeMarketSelectedItem.id, range: homeMarketChartRange, bars: [] });
+        setHomeMarketChart({
+          symbol: homeMarketSelectedItem.id,
+          range: homeMarketChartSelection.fetchRange,
+          selectionValue: homeMarketChartRange,
+          bars: [],
+          rangeMode: nextChart?.rangeMode || null,
+        });
       } catch {}
       finally { if (!isCancelled) setHomeMarketChartLoading(false); }
     }
     fetchHomeChart();
-    const interval = homeMarketChartRange === "1D" ? setInterval(fetchHomeChart, 10000) : null;
+    const isCryptoHomeAsset = (homeMarketSelectedItem.type || "stock") === "crypto";
+    const interval = (homeMarketChartSelection.provider || homeMarketChartSelection.fetchRange === "1D")
+      ? setInterval(fetchHomeChart, (isCryptoHomeAsset || isMarketCurrentlyOpen()) ? 10000 : 30000)
+      : null;
     return () => { isCancelled = true; if (interval) clearInterval(interval); };
-  }, [homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketChartRange]);
+  }, [homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketChartRange, homeMarketAssetExplicitlyUnsupported]);
 
   useEffect(() => {
     if (!chartExplainPopupOpen || !chartExplainPopupThreadRef.current) return;
@@ -4236,7 +8180,7 @@ useEffect(() => {
       if (!localStorage.getItem("rayla-visited")) {
         setShowTutorial(true);
       }
-      setEquitySourceLabel("R-based equity from journaled trades only");
+      setEquitySourceLabel("Built from manual and broker-imported trades with enough execution detail.");
     }
     loadUserAndTrades();
   }, [session]);
@@ -4267,25 +8211,222 @@ useEffect(() => {
 
   const perfReport = useMemo(() => buildCoachReport(trades), [trades]);
 
-  // The Home equity curve is intentionally journal-only. Broker trade logs do
-  // not contain enough risk context to convert executions into a shared R curve.
-  const equitySeries = trades.length
-    ? trades.map((_, i) => 100 + trades.slice(0, i + 1).reduce((sum, x) => sum + parseFloat(x.result_r || 0), 0))
-    : [100, 100];
+  const equityPoints = useMemo(
+    () => buildLoggedEquityCurvePoints(combinedTrades),
+    [combinedTrades]
+  );
+  const filteredEquityPoints = useMemo(
+    () => filterEquityCurvePointsByRange(equityPoints, chartRange),
+    [equityPoints, chartRange]
+  );
+  const normalizedBenchmarkPoints = useMemo(
+    () => normalizeBenchmarkSeries(equityBenchmarkChart, filteredEquityPoints[0]?.equity || 10000),
+    [equityBenchmarkChart, filteredEquityPoints]
+  );
+  const equityBenchmarkVisibleStart = filteredEquityPoints[0]?.timeMs || 0;
+  const equityBenchmarkVisibleEnd = filteredEquityPoints[filteredEquityPoints.length - 1]?.timeMs || equityBenchmarkVisibleStart;
+  const equityBenchmarkOptions = useMemo(() => {
+    const tradedSymbols = [];
+    const seen = new Set();
 
-  const filteredEquitySeries =
-    chartRange === "1D" ? equitySeries.slice(-5)
-    : chartRange === "1W" ? equitySeries.slice(-10)
-    : chartRange === "1M" ? equitySeries.slice(-20)
-    : chartRange === "3M" ? equitySeries.slice(-40)
-    : equitySeries;
+    seen.add("PORTFOLIO");
+
+    combinedTrades.forEach((trade) => {
+      const symbol = String(trade?.asset || "").trim().toUpperCase();
+      if (!symbol || seen.has(symbol)) return;
+      seen.add(symbol);
+      tradedSymbols.push({
+        symbol,
+        type: CRYPTO_SYMBOL_SET.has(symbol) ? "crypto" : "stock",
+        label: CRYPTO_SYMBOL_SET.has(symbol) ? "Crypto" : "Equity",
+        group: "Your traded symbols",
+      });
+    });
+
+    const defaultOptions = Object.values(EQUITY_BENCHMARKS)
+      .filter((option) => !seen.has(option.symbol))
+      .map((option) => ({
+        symbol: option.symbol,
+        type: option.type,
+        label: option.type === "crypto" ? "Crypto" : "Benchmark",
+        group: "Common benchmarks",
+      }));
+
+    return [
+      {
+        symbol: "Portfolio",
+        type: "portfolio",
+        label: "Portfolio Benchmark",
+        group: "Your benchmarks",
+      },
+      ...tradedSymbols,
+      ...defaultOptions,
+    ];
+  }, [combinedTrades]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const duplicateTimestampCount = Math.max(0, usableClosedTradesForEquity.length - new Set(usableClosedTradesForEquity.map((item) => item.timeMs)).size);
+    const uniqueTimestampCount = new Set(usableClosedTradesForEquity.map((item) => item.timeMs)).size;
+    const groupedTimestampCount = usableClosedTradesForEquity.reduce((acc, item, index, array) => {
+      const previous = array[index - 1];
+      if (!previous || previous.timeMs !== item.timeMs) return acc;
+      return acc + 1;
+    }, 0);
+    const summarizeTrade = (item) => ({
+      tradeId: item.trade?.id || null,
+      timestamp: new Date(item.timeMs).toISOString(),
+      timestampField: item.timestampField,
+      source: item.trade?.source || (item.trade?.isBrokerTrade ? "broker" : "manual"),
+      pnl: item.pnl,
+      asset: item.trade?.asset || null,
+    });
+    console.log("RAYLA TRADE PIPELINE DEBUG", {
+      manualTradesCount: trades.length,
+      brokerTradesCount: normalizedBrokerTrades.length,
+      combinedTradesCount: combinedTrades.length,
+      usableClosedTradesCount: usableClosedTradesForEquity.length,
+      selectedTimeframe: chartRange,
+      sortedFirst5Trades: usableClosedTradesForEquity.slice(0, 5).map(summarizeTrade),
+      sortedLast5Trades: usableClosedTradesForEquity.slice(-5).map(summarizeTrade),
+      uniqueTimestampCount,
+      duplicateTimestampCount,
+      groupedTimestampCount,
+      tradeSourcesPresent: [...new Set(combinedTrades.map((trade) => trade.source || "unknown"))],
+      performanceInputTradesCount: combinedTrades.length,
+      equityCurvePointCount: equityPoints.length,
+      firstEquityPoint: equityPoints[0] || null,
+      lastEquityPoint: equityPoints[equityPoints.length - 1] || null,
+      benchmarkDataPointsCount: normalizedBenchmarkPoints.length,
+      benchmarkFirstTimestamp: normalizedBenchmarkPoints[0]?.time || null,
+      benchmarkLastTimestamp: normalizedBenchmarkPoints[normalizedBenchmarkPoints.length - 1]?.time || null,
+    });
+  }, [trades, normalizedBrokerTrades, combinedTrades, usableClosedTradesForEquity, chartRange, equityPoints, normalizedBenchmarkPoints]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || equityBenchmarkSymbol !== "Portfolio") return;
+    console.log("Portfolio Benchmark Sample:", normalizedBenchmarkPoints.slice(0, 3));
+  }, [equityBenchmarkSymbol, normalizedBenchmarkPoints]);
+
+  useEffect(() => {
+    if (filteredEquityPoints.length < 2) {
+      setEquityBenchmarkChart(null);
+      setEquityBenchmarkLoading(false);
+      return;
+    }
+
+    const benchmarkConfig = equityBenchmarkOptions.find((option) => option.symbol === equityBenchmarkSymbol)
+      || { symbol: equityBenchmarkSymbol, type: equityBenchmarkType }
+      || EQUITY_BENCHMARKS[equityBenchmarkSymbol]
+      || EQUITY_BENCHMARKS.SPY;
+    const inferredRange = chartRange === "ALL"
+      ? inferBenchmarkRangeFromEquityPoints(filteredEquityPoints)
+      : chartRange;
+    const benchmarkRange = benchmarkConfig.type === "stock" && inferredRange === "1D"
+      ? "1W"
+      : inferredRange;
+
+    let isCancelled = false;
+    setEquityBenchmarkLoading(true);
+
+    async function fetchEquityBenchmark() {
+      if (benchmarkConfig.type === "portfolio") {
+        try {
+          const chartResults = await Promise.all(
+            alpacaPositions.map(async (position) => {
+              const symbol = String(position?.symbol || "").trim().toUpperCase();
+              const assetType = position?.assetClass === "crypto" ? "crypto" : "stock";
+              const requestedRange = assetType === "stock" && benchmarkRange === "1D"
+                ? "1W"
+                : benchmarkRange;
+              const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog, trades);
+              const { data, error } = await supabase.functions.invoke("market-data", {
+                body: {
+                  chartSymbol: symbol,
+                  chartType: assetType,
+                  chartRange: requestedRange,
+                },
+              });
+              return {
+                symbol,
+                position,
+                entryTimeMs: entryResolution.timeMs,
+                entryTimeSource: entryResolution.source,
+                chart: error || !data?.ok ? null : data.chart || null,
+              };
+            })
+          );
+
+          if (isCancelled) return;
+
+          const chartsBySymbol = {};
+          chartResults.forEach(({ symbol, entryTimeMs, entryTimeSource, chart }) => {
+            chartsBySymbol[symbol] = {
+              ...(chart || {}),
+              entryTimeMs,
+              entryTimeSource,
+              bars: extractChartBars(chart),
+            };
+          });
+
+          const portfolioBenchmarkChart = buildPortfolioBenchmarkChart(
+            chartsBySymbol,
+            alpacaPositions,
+            equityBenchmarkVisibleStart,
+            equityBenchmarkVisibleEnd
+          );
+
+          setEquityBenchmarkChart(portfolioBenchmarkChart);
+        } finally {
+          if (!isCancelled) setEquityBenchmarkLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke("market-data", {
+          body: {
+            chartSymbol: benchmarkConfig.symbol,
+            chartType: benchmarkConfig.type,
+            chartRange: benchmarkRange,
+          },
+        });
+
+        if (isCancelled || error || !data?.ok) {
+          return;
+        }
+
+        const nextChart = data.chart || null;
+        const visibleStart = filteredEquityPoints[0]?.timeMs || 0;
+        const visibleEnd = filteredEquityPoints[filteredEquityPoints.length - 1]?.timeMs || visibleStart;
+        const nextBars = sliceBenchmarkBarsToVisibleWindow(nextChart, visibleStart, visibleEnd);
+
+        setEquityBenchmarkChart({
+          ...(nextChart || {}),
+          symbol: benchmarkConfig.symbol,
+          range: benchmarkRange,
+          bars: nextBars,
+        });
+      } catch {
+        // Keep the equity chart usable even if benchmark data fails.
+      } finally {
+        if (!isCancelled) setEquityBenchmarkLoading(false);
+      }
+    }
+
+    fetchEquityBenchmark();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [chartRange, equityBenchmarkSymbol, equityBenchmarkType, equityBenchmarkOptions, filteredEquityPoints, alpacaPositions, brokerTradeLog, trades, equityBenchmarkVisibleStart, equityBenchmarkVisibleEnd]);
 
   async function handleAddTrade(e) {
     e.preventDefault();
     if (!user) { showToast("No user loaded.", "error"); return; }
     if (!tradeForm.asset || !tradeForm.entryPrice || !tradeForm.size || !tradeForm.entryTime || !tradeForm.result) { showToast("Fill out required fields.", "warning"); return; }
     const newTrade = {
-      user_id: user.id, asset: tradeForm.asset, entry_price: Number(tradeForm.entryPrice),
+      user_id: user.id, asset: resolveTickerAlias(tradeForm.asset.trim()).toUpperCase(), entry_price: Number(tradeForm.entryPrice),
       entry_size: Number(tradeForm.size), entry_time: tradeForm.entryTime, setup: tradeForm.setup || "",
       session: tradeForm.session || "", direction: tradeForm.direction || "", result_r: Number(tradeForm.result),
       exit_price: tradeForm.exitPrice ? Number(tradeForm.exitPrice) : null, exit_time: tradeForm.exitTime || null,
@@ -4344,6 +8485,15 @@ useEffect(() => {
       simulationTradeHistory,
       selectedMarketId,
     });
+
+    const directSimulationAnswer = buildDirectSimulationRaylaAnswer(
+      trimmedQuestion,
+      extraContext?.simulationContext || null
+    );
+    if (directSimulationAnswer) {
+      setRaylaAdaptiveState(nextAdaptiveState);
+      return directSimulationAnswer;
+    }
 
     function buildCapitalGuideUserContext() {
       const simulationProfile = buildSimulationTraderProfile(simulationTradeHistory);
@@ -4561,6 +8711,7 @@ useEffect(() => {
             selectedMarketId,
             adaptiveProfile,
             chartContext: extraContext?.chartContext || null,
+            simulationContext: extraContext?.simulationContext || null,
             raylaMode,
           }),
         }),
@@ -4635,8 +8786,19 @@ useEffect(() => {
     const trimmedQuestion = String(question || "").trim();
     if (!trimmedQuestion) return;
 
+    if (intelSimulationSetupPrompt) {
+      const normalized = trimmedQuestion.toLowerCase();
+      if (["yes", "yes please", "y", "yeah", "sure", "ok", "okay"].includes(normalized)) {
+        handleAcceptIntelSimulationSetupPrompt();
+        return;
+      }
+      if (["no", "no thanks", "n", "i'm good", "im good", "no i'm good", "no im good"].includes(normalized)) {
+        handleDismissIntelSimulationSetupPrompt();
+        return;
+      }
+    }
+
     const nextContext = chartContext || chartExplainPopupContext;
-    if (!nextContext) return;
 
     const pendingMessageId = crypto.randomUUID();
     const nextUserMessage = {
@@ -4658,7 +8820,14 @@ useEffect(() => {
     setChartExplainPopupMessages((prev) => resetThread ? [nextUserMessage, loadingMessage] : [...prev, nextUserMessage, loadingMessage]);
 
     try {
-      const answer = await requestRaylaAnswer(trimmedQuestion, { chartContext: nextContext });
+      const answer = await requestRaylaAnswer(
+        trimmedQuestion,
+        nextContext
+          ? nextContext.contextType === "simulation"
+            ? { simulationContext: nextContext }
+            : { chartContext: nextContext }
+          : null
+      );
       setChartExplainPopupMessages((prev) => prev.map((message) => (
         message.id === pendingMessageId
           ? { ...message, content: answer, loading: false }
@@ -4679,6 +8848,8 @@ useEffect(() => {
   }
 
   function openChartExplainPopup(chartContext, initialQuestion = "Explain this chart") {
+    setIntelSimulationSetupPrompt(null);
+    setIntelSimulationSetupChecklist(null);
     setChartExplainPopupContext(chartContext);
     setChartExplainPopupMessages([]);
     setChartExplainPopupInput("");
@@ -4689,12 +8860,299 @@ useEffect(() => {
     }
   }
 
-  function openGlobalRaylaPopup() {
-    setChartExplainPopupContext(null);
+  function openGlobalRaylaPopup(title = "Ask Rayla", context = null) {
+    setIntelSimulationSetupPrompt(null);
+    setIntelSimulationSetupChecklist(null);
+    setChartExplainPopupContext(context || null);
     setChartExplainPopupMessages([]);
     setChartExplainPopupInput("");
-    setChartExplainPopupTitle("Ask Rayla");
+    setChartExplainPopupTitle(title || "Ask Rayla");
     setChartExplainPopupOpen(true);
+  }
+
+  function buildSimulationRaylaPopupContext(position) {
+    if (!position) return simulationRaylaContext;
+
+    const marketMode = position.marketMode || "live";
+    const currentPrice = getSimulationPrice(position.asset, marketMode);
+    const metrics = Number.isFinite(currentPrice) ? calculateSimulationPnL(position, currentPrice) : { profitLoss: 0, rMultiple: null };
+    const levels = getSimulationPriceLevels(position);
+    const activeTrade = buildSimulationActiveTradeContext({
+      position,
+      currentPrice,
+      metrics,
+      levels,
+      timeInTrade: formatTimeInTrade(position),
+    });
+
+    return buildSimulationRaylaContext({
+      mode: marketMode === "scenario" ? "Scenario" : "Live",
+      symbol: position.asset,
+      assetName: position.label || position.asset,
+      assetType: position.type || "stock",
+      timeframe: marketMode === "live"
+        ? simulationLiveChartRange
+        : simulationChartTimeframeConfig.label,
+      currentPrice,
+      direction: position.direction,
+      amount: position.amount,
+      amountMode: position.amountMode,
+      stopLoss: position.stopLoss != null ? String(position.stopLoss) : "",
+      takeProfit: position.takeProfit != null ? String(position.takeProfit) : "",
+      activeTrade,
+      sessionStats: {
+        totalPnL: simulationStatsTotalPnL,
+        closedTrades: simulationStatsTradeHistory.length,
+        avgProfitLoss: simulationStatsProfile.avgProfitLoss,
+        totalTrades: simulationStatsProfile.totalTrades,
+        winRate: simulationStatsProfile.winRate,
+        avgRMultiple: simulationStatsProfile.avgRMultiple,
+      },
+    });
+  }
+
+  function openSimulationRaylaHelper(position) {
+    if (!position) return;
+
+    const helperContext = buildSimulationRaylaPopupContext(position);
+
+    setIntelSimulationSetupPrompt(null);
+    setIntelSimulationSetupChecklist(null);
+    setChartExplainPopupContext(helperContext);
+    setChartExplainPopupMessages([
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: buildSimulationOpeningMessage(helperContext),
+      },
+    ]);
+    setChartExplainPopupInput("");
+    setChartExplainPopupLoading(false);
+    setChartExplainPopupTitle(position.marketMode === "scenario" ? "Rayla Scenario Help" : "Rayla Live Help");
+    setChartExplainPopupOpen(true);
+    setSimulationRaylaGuidanceStateByTrade((prev) => (
+      prev[position.id]
+        ? prev
+        : { ...prev, [position.id]: "pending" }
+    ));
+    setSimulationRaylaPromptTradeId(position.id);
+  }
+
+  function openIntelSimulationRaylaPopup(intelLaunch) {
+    if (!intelLaunch) return;
+
+    const launchMode = intelLaunch.mode === "scenario" ? "scenario" : "live";
+    const directionLabel = intelLaunch.direction === "short" ? "Sell / Short" : "Buy / Long";
+
+    const nextContext = buildSimulationRaylaContext({
+      mode: launchMode === "scenario" ? "Scenario" : "Live",
+      symbol: intelLaunch.asset.id,
+      assetName: intelLaunch.asset.label || intelLaunch.asset.id,
+      assetType: intelLaunch.asset.type || "stock",
+      timeframe: launchMode === "scenario"
+        ? simulationChartTimeframeConfig.label
+        : getChartSelectionConfig(simulationLiveChartRange).label,
+      currentPrice: getSimulationPrice(intelLaunch.asset.id, launchMode),
+      direction: intelLaunch.direction,
+      amount: simulationAmount,
+      amountMode: simulationAmountMode,
+      stopLoss: simulationStopLoss,
+      takeProfit: simulationTakeProfit,
+      intelSignal: intelLaunch.intelSignal,
+      sessionStats: {
+        totalPnL: simulationStatsTotalPnL,
+        closedTrades: simulationStatsTradeHistory.length,
+        avgProfitLoss: simulationStatsProfile.avgProfitLoss,
+        totalTrades: simulationStatsProfile.totalTrades,
+        winRate: simulationStatsProfile.winRate,
+        avgRMultiple: simulationStatsProfile.avgRMultiple,
+      },
+    });
+
+    setChartExplainPopupContext(nextContext);
+    setChartExplainPopupMessages([
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: launchMode === "scenario"
+          ? `I loaded ${intelLaunch.asset.id} in Scenario Simulator with future candles hidden and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`
+          : `I loaded ${intelLaunch.asset.id} in Live Simulator and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`,
+      },
+    ]);
+    setChartExplainPopupInput("");
+    setChartExplainPopupLoading(false);
+    setChartExplainPopupTitle(launchMode === "scenario" ? "Rayla Scenario Setup" : "Rayla Live Setup");
+    setChartExplainPopupOpen(true);
+    setIntelSimulationSetupChecklist(null);
+    setIntelSimulationSetupPrompt({
+      handoffId: intelLaunch.handoffId,
+      assetSymbol: intelLaunch.asset.id,
+      mode: launchMode,
+      direction: intelLaunch.direction,
+      directionLabel,
+      intelSignal: intelLaunch.intelSignal,
+    });
+  }
+
+  function handleAcceptIntelSimulationSetupPrompt() {
+    if (!intelSimulationSetupPrompt) return;
+    const steps = buildIntelSimulationSetupSteps(intelSimulationSetupPrompt);
+    if (!steps.length) return;
+
+    setIntelSimulationSetupPrompt(null);
+    setIntelSimulationSetupChecklist({
+      assetSymbol: intelSimulationSetupPrompt.assetSymbol,
+      directionLabel: intelSimulationSetupPrompt.directionLabel,
+      steps,
+      currentStep: 0,
+    });
+    setChartExplainPopupMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "One field at a time.",
+      },
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: `${steps[0].title}\n${steps[0].body}`,
+      },
+    ]);
+  }
+
+  function handleAdvanceIntelSimulationSetupChecklist() {
+    setIntelSimulationSetupChecklist((prev) => {
+      if (!prev) return prev;
+      const nextStepIndex = prev.currentStep + 1;
+      if (nextStepIndex >= prev.steps.length) {
+        setChartExplainPopupMessages((messages) => [
+          ...messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "Setup complete. Hit Open Trade when ready.",
+          },
+        ]);
+        return null;
+      }
+
+      const nextStep = prev.steps[nextStepIndex];
+      setChartExplainPopupMessages((messages) => [
+        ...messages,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `${nextStep.title}\n${nextStep.body}`,
+        },
+      ]);
+
+      return {
+        ...prev,
+        currentStep: nextStepIndex,
+      };
+    });
+  }
+
+  function handleDismissIntelSimulationSetupPrompt() {
+    setIntelSimulationSetupPrompt(null);
+    setIntelSimulationSetupChecklist(null);
+    setChartExplainPopupOpen(false);
+    setChartExplainPopupLoading(false);
+  }
+
+  function handleCancelIntelPracticeModeChoice() {
+    setIntelPracticeModeChoice(null);
+  }
+
+  function launchIntelPracticeMode(mode) {
+    if (!intelPracticeModeChoice?.launch || !intelPracticeModeChoice?.draft) return;
+
+    const nextMode = mode === "scenario" ? "scenario" : "live";
+    const { launch, draft } = intelPracticeModeChoice;
+    const nextAsset = launch.asset;
+
+    if (nextAsset) {
+      setSimulationAsset(nextAsset);
+    }
+    setSimulationSearchQuery(draft.asset || "");
+    setSimulationSearchResults([]);
+    setSimulationDirection(draft.direction);
+    setSelectedSimulationInfoKey(null);
+    setIsSimulationTutorialOpen(false);
+    setActiveTab("simulation");
+    setGuidedSimulationDraft(draft);
+    setIntelPracticeModeChoice(null);
+
+    if (nextMode === "scenario") {
+      setSimulationMode("scenario");
+      setSimulationScenarioType("realistic");
+      setSimulationScenarioTick(0);
+      setSimulationUseStopTarget(true);
+      setSimulationUseExitPrice(false);
+      setSimulationExitMode("price");
+      setSimulationStopLoss("");
+      setSimulationTakeProfit("");
+      setPendingGuidedScenarioLaunch({
+        handoffId: launch.handoffId,
+        asset: launch.asset,
+        direction: launch.direction,
+        intelSignal: launch.intelSignal,
+        message: launch.message,
+      });
+      setPendingIntelSimulationLaunch({ ...launch, mode: "scenario" });
+      return;
+    }
+
+    setSimulationMode("live");
+    setPendingIntelSimulationLaunch({ ...launch, mode: "live" });
+  }
+
+  function handleStartIntelLiveSimulation() {
+    launchIntelPracticeMode("live");
+  }
+
+  function handleStartIntelScenarioSimulation() {
+    launchIntelPracticeMode("scenario");
+  }
+
+  function handleEnableSimulationRaylaGuidance(positionId) {
+    if (!positionId) return;
+
+    const position = simulationPositions.find((item) => item.id === positionId);
+    const marketMode = position?.marketMode || "live";
+    const currentPrice = position ? getSimulationPrice(position.asset, marketMode) : null;
+    const metrics = position && Number.isFinite(currentPrice)
+      ? calculateSimulationPnL(position, currentPrice)
+      : null;
+    const coachNote = getSimulationCoachMessage(position, currentPrice, metrics);
+
+    setSimulationRaylaGuidanceStateByTrade((prev) => ({ ...prev, [positionId]: "guided" }));
+    setSimulationRaylaPromptTradeId((prev) => (prev === positionId ? null : prev));
+    setChartExplainPopupMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "I'm watching. What do you want to know?",
+      },
+      ...(coachNote
+        ? [{
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: coachNote,
+          }]
+        : []),
+    ]);
+  }
+
+  function handleDismissSimulationRaylaGuidance(positionId) {
+    if (!positionId) return;
+
+    setSimulationRaylaGuidanceStateByTrade((prev) => ({ ...prev, [positionId]: "dismissed" }));
+    setSimulationRaylaPromptTradeId((prev) => (prev === positionId ? null : prev));
+    setChartExplainPopupOpen(false);
+    setChartExplainPopupLoading(false);
   }
 
   function handleTryCapitalGuideInScenario(direction) {
@@ -4823,6 +9281,10 @@ useEffect(() => {
       const scenarioPrice = simulationScenarioQuotes[assetId]?.price ?? simulationScenarioQuotes[normalizedAssetId]?.price;
       if (scenarioPrice != null) return scenarioPrice;
     }
+    if (preferredMode !== "scenario" && simulationLivePaused) {
+      const pausedPrice = simulationLivePauseSnapshot[assetId]?.price ?? simulationLivePauseSnapshot[normalizedAssetId]?.price;
+      if (pausedPrice != null) return pausedPrice;
+    }
     const livePrice = simulationQuotes[assetId]?.price ?? simulationQuotes[normalizedAssetId]?.price;
     if (livePrice != null) return livePrice;
     const item = marketItems.find((marketItem) => normalizeAssetId(marketItem.id, marketItem.type, marketItem.tvSymbol) === normalizedAssetId);
@@ -4831,14 +9293,55 @@ useEffect(() => {
 
   function calculateSimulationPnL(position, currentPrice) {
     if (!position || !Number.isFinite(currentPrice)) return { profitLoss: 0, rMultiple: null };
+    const quantity = getSimulationPositionQuantity(position);
+    if (!Number.isFinite(quantity) || quantity <= 0) return { profitLoss: 0, rMultiple: null };
     const priceMove = position.direction === "long"
       ? currentPrice - position.entryPrice
       : position.entryPrice - currentPrice;
-    const profitLoss = position.amountMode === "shares"
-      ? position.amount * priceMove
-      : position.amount * (priceMove / position.entryPrice);
+    const profitLoss = quantity * priceMove;
     const rMultiple = position.plannedRisk > 0 ? profitLoss / position.plannedRisk : null;
     return { profitLoss, rMultiple };
+  }
+
+  function getSimulationPriceLevels(position) {
+    if (!position || !Number.isFinite(position.entryPrice) || position.entryPrice <= 0) {
+      return { entryPrice: null, stopPrice: null, targetPrice: null, quantity: null };
+    }
+
+    const quantity = getSimulationPositionQuantity(position);
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return {
+        entryPrice: position.entryPrice,
+        stopPrice: position.exitMode === "price" ? position.stopLoss : null,
+        targetPrice: position.exitMode === "price" ? position.takeProfit : null,
+        quantity: null,
+      };
+    }
+
+    if (position.exitMode !== "pnl") {
+      return {
+        entryPrice: position.entryPrice,
+        stopPrice: position.stopLoss,
+        targetPrice: position.takeProfit,
+        quantity,
+      };
+    }
+
+    const stopOffset = position.stopLoss != null ? Math.abs(Number(position.stopLoss)) / quantity : null;
+    const targetOffset = position.takeProfit != null ? Math.abs(Number(position.takeProfit)) / quantity : null;
+    const isLong = position.direction === "long";
+
+    return {
+      entryPrice: position.entryPrice,
+      stopPrice: Number.isFinite(stopOffset)
+        ? (isLong ? position.entryPrice - stopOffset : position.entryPrice + stopOffset)
+        : null,
+      targetPrice: Number.isFinite(targetOffset)
+        ? (isLong ? position.entryPrice + targetOffset : position.entryPrice - targetOffset)
+        : null,
+      quantity,
+    };
   }
 
   function getSimulationElapsedDuration(position) {
@@ -4902,34 +9405,34 @@ useEffect(() => {
     if (strongWinner) {
       return {
         outcomeLabel: "Good trade",
-        coachingInsight: `You stayed patient on that ${position.direction} and let the move pay you. This is the kind of follow-through that good trade management is built on.`,
+        coachingInsight: `Patient hold, full move. That's the standard.`,
       };
     }
 
     if (tinyWinner) {
       return {
         outcomeLabel: "Cut too early",
-        coachingInsight: `You finished green, but the reward was light for the time and risk you took. Make sure you are giving winning trades enough room to prove themselves.`,
+        coachingInsight: `Green, but you left money on the table. Let winners breathe next time.`,
       };
     }
 
     if (heldTooLongLoss) {
       return {
         outcomeLabel: "Held too long",
-        coachingInsight: `This one stayed open long enough to do real damage without improving. When a trade stops earning the right to stay open, tighter management usually helps.`,
+        coachingInsight: `Held past where the setup broke. Cut faster when price stops improving.`,
       };
     }
 
     if (isLoss) {
       return {
         outcomeLabel: "Controlled loss",
-        coachingInsight: `Not every setup works, and this one did not. The win here is keeping the loss contained and treating it like a rep instead of a setback.`,
+        coachingInsight: `Loss contained. That's the job. Line up the next rep.`,
       };
     }
 
     return {
       outcomeLabel: "Managed trade",
-      coachingInsight: `The result was decent, but the bigger win is practicing consistent execution. Clean decisions stack up over time.`,
+      coachingInsight: `Clean process. Focus on repeating it, not the outcome.`,
     };
   }
 
@@ -4982,26 +9485,26 @@ useEffect(() => {
     const isLoss = profitLoss < 0;
 
     if (executionGrade === "A") {
-      return "Next time, focus on repeating this process.";
+      return "Repeat the process. The grade will follow.";
     }
 
     if (outcomeLabel === "Cut too early" || (isWin && hasRiskPlan && rMultiple < 0.5)) {
-      return "Next time, let strong winners breathe a little longer.";
+      return "Next time, trail it — don't exit early into strength.";
     }
 
     if (executionGrade === "D" || outcomeLabel === "Held too long") {
-      return "Next time, cut weak trades sooner.";
+      return "Honor the stop earlier. Weak trades don't fix themselves.";
     }
 
     if (isLoss && exitReason === "Stopped Out") {
-      return "Next time, stay consistent with your risk plan and be ready for the next setup.";
+      return "Risk was defined. Loss was clean. Next rep.";
     }
 
     if (isLoss && durationMinutes >= 5) {
-      return "Next time, protect capital faster when the setup weakens.";
+      return "Tighten your exit when the setup weakens.";
     }
 
-    return "Next time, keep managing the trade with the same level of discipline.";
+    return "Same discipline next rep.";
   }
 
   function buildSimulationTraderProfile(simulationTradeHistory) {
@@ -5205,6 +9708,18 @@ useEffect(() => {
     const position = simulationPositions.find((item) => item.id === positionId);
     if (!position) return;
 
+    if (
+      position.marketMode === "scenario" &&
+      [
+        "P/L Stop Hit",
+        "P/L Target Hit",
+        "Stopped Out",
+        "Target Hit",
+      ].includes(exitReason)
+    ) {
+      pauseScenarioPlayback();
+    }
+
     const { profitLoss, rMultiple } = calculateSimulationPnL(position, exitPrice);
     const closedAt = Date.now();
     const durationMs = getSimulationElapsedDuration(position);
@@ -5267,6 +9782,8 @@ useEffect(() => {
     setSimulatedBalance((prev) => prev + profitLoss);
     setSimulationTradeHistory((prev) => [closedTrade, ...prev]);
     setSimulationPositions((prev) => prev.filter((item) => item.id !== positionId));
+    setSimulationPendingScenarioDecision((prev) => prev?.positionId === positionId ? null : prev);
+    setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
   }
 
   function handleOpenSimulationTrade() {
@@ -5276,6 +9793,7 @@ useEffect(() => {
     const parsedTakeProfit = Number.parseFloat(simulationTakeProfit);
     const stopLoss = Number.isFinite(parsedStopLoss) ? parsedStopLoss : null;
     const takeProfit = Number.isFinite(parsedTakeProfit) ? parsedTakeProfit : null;
+    const leverageMultiplier = getSimulationLeverageMultiplier(simulationLeverage);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       showToast("Enter a valid amount to simulate.", "warning");
@@ -5287,7 +9805,10 @@ useEffect(() => {
       return false;
     }
 
-    if (simulationPositions.some((position) => normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol))) {
+    if (simulationPositions.some((position) =>
+      (position.marketMode || "live") === simulationMode
+      && normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)
+    )) {
       showToast("You already have an open trade on this asset.", "warning");
       return false;
     }
@@ -5324,16 +9845,16 @@ useEffect(() => {
       : simulationDirection === "long"
         ? entryPrice - stopLoss
         : stopLoss - entryPrice;
+    const leveragedQuantity = simulationAmountMode === "shares"
+      ? amount * leverageMultiplier
+      : (amount * leverageMultiplier) / entryPrice;
     const plannedRisk = simulationExitMode === "pnl"
       ? stopLoss
       : riskPerUnit == null
         ? null
-        : simulationAmountMode === "shares"
-          ? amount * riskPerUnit
-          : amount * (riskPerUnit / entryPrice);
+        : leveragedQuantity * riskPerUnit;
 
-    setSimulationClosedTrade(null);
-    setSimulationPositions((prev) => [...prev, {
+    const newPosition = {
       id: crypto.randomUUID(),
       asset: selectedSimulationItem.id,
       label: selectedSimulationItem.label,
@@ -5351,6 +9872,7 @@ useEffect(() => {
       direction: simulationDirection,
       amount,
       amountMode: simulationAmountMode,
+      leverage: simulationLeverage,
       exitMode: simulationExitMode,
       entryPrice,
       stopLoss,
@@ -5361,7 +9883,16 @@ useEffect(() => {
       riskPerUnit,
       plannedRisk,
       openedAt: Date.now(),
-    }]);
+    };
+
+    setSimulationClosedTrade(null);
+    if (simulationMode === "scenario") {
+      setSimulationPendingScenarioDecision(null);
+    } else {
+      setSimulationPendingLiveDecision(null);
+    }
+    setSimulationPositions((prev) => [...prev, newPosition]);
+    openSimulationRaylaHelper(newPosition);
     if (activeGuidedSimulation) {
       setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "position-open" } : prev));
     }
@@ -5403,14 +9934,98 @@ useEffect(() => {
     }
   }
 
+  function handleQuitAndSaveScenarioTrade(positionId) {
+    const pendingDecision = simulationPendingScenarioDecision;
+    if (!pendingDecision || pendingDecision.positionId !== positionId) return;
+    finalizeSimulationTrade(positionId, pendingDecision.exitPrice, pendingDecision.exitReason);
+  }
+
+  function handleQuitAndSaveLiveTrade(positionId) {
+    const pendingDecision = simulationPendingLiveDecision;
+    if (!pendingDecision || pendingDecision.positionId !== positionId) return;
+    finalizeSimulationTrade(positionId, pendingDecision.exitPrice, pendingDecision.exitReason);
+  }
+
+  function handleReopenAndContinueScenarioTrade(positionId) {
+    setSimulationPositions((prev) => prev.map((position) => {
+      if (position.id !== positionId) return position;
+      if (selectedSimulationOpenPosition?.id !== positionId) return position;
+
+      const parsedStopLoss = Number.parseFloat(simulationStopLoss);
+      const parsedTakeProfit = Number.parseFloat(simulationTakeProfit);
+      const nextStopLoss = simulationUseStopTarget && Number.isFinite(parsedStopLoss) ? parsedStopLoss : null;
+      const nextTakeProfit = simulationUseStopTarget && simulationUseExitPrice && Number.isFinite(parsedTakeProfit) ? parsedTakeProfit : null;
+      const riskPerUnit = simulationExitMode !== "price" || nextStopLoss == null
+        ? null
+        : position.direction === "long"
+          ? position.entryPrice - nextStopLoss
+          : nextStopLoss - position.entryPrice;
+      const leverageMultiplier = getSimulationLeverageMultiplier(position.leverage);
+      const leveragedQuantity = position.amountMode === "shares"
+        ? position.amount * leverageMultiplier
+        : (position.amount * leverageMultiplier) / position.entryPrice;
+      const plannedRisk = simulationExitMode === "pnl"
+        ? nextStopLoss
+        : riskPerUnit == null
+          ? null
+          : leveragedQuantity * riskPerUnit;
+
+      return {
+        ...position,
+        exitMode: simulationUseStopTarget ? simulationExitMode : position.exitMode,
+        stopLoss: nextStopLoss,
+        takeProfit: nextTakeProfit,
+        riskPerUnit,
+        plannedRisk,
+      };
+    }));
+    setSimulationPendingScenarioDecision((prev) => prev?.positionId === positionId ? null : prev);
+  }
+
+  function handleReopenAndContinueLiveTrade(positionId) {
+    setSimulationPositions((prev) => prev.map((position) => {
+      if (position.id !== positionId) return position;
+      if (selectedSimulationOpenPosition?.id !== positionId) return position;
+
+      const parsedStopLoss = Number.parseFloat(simulationStopLoss);
+      const parsedTakeProfit = Number.parseFloat(simulationTakeProfit);
+      const nextStopLoss = simulationUseStopTarget && Number.isFinite(parsedStopLoss) ? parsedStopLoss : null;
+      const nextTakeProfit = simulationUseStopTarget && simulationUseExitPrice && Number.isFinite(parsedTakeProfit) ? parsedTakeProfit : null;
+      const riskPerUnit = simulationExitMode !== "price" || nextStopLoss == null
+        ? null
+        : position.direction === "long"
+          ? position.entryPrice - nextStopLoss
+          : nextStopLoss - position.entryPrice;
+      const leverageMultiplier = getSimulationLeverageMultiplier(position.leverage);
+      const leveragedQuantity = position.amountMode === "shares"
+        ? position.amount * leverageMultiplier
+        : (position.amount * leverageMultiplier) / position.entryPrice;
+      const plannedRisk = simulationExitMode === "pnl"
+        ? nextStopLoss
+        : riskPerUnit == null
+          ? null
+          : leveragedQuantity * riskPerUnit;
+
+      return {
+        ...position,
+        exitMode: simulationUseStopTarget ? simulationExitMode : position.exitMode,
+        stopLoss: nextStopLoss,
+        takeProfit: nextTakeProfit,
+        riskPerUnit,
+        plannedRisk,
+      };
+    }));
+    setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
+  }
+
   function runAIAnalysis() {
   if (trades.length === 0) { showToast("No trades logged yet.", "warning"); return; }
   if (trades.length === lastAnalyzedCount) { showToast("No new trades since last analysis.", "warning"); return; }
   const r = buildCoachReport(trades);
   if (!r) return;
   setCoachSummary({
-    strongestEdge: r.bestCombo ? `${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)}R avg, ${r.bestCombo.winRate.toFixed(0)}% win rate (${r.bestCombo.trades} trades)` : null,
-    weakestPattern: r.comboStats.length > 1 ? (() => { const w = r.comboStats[r.comboStats.length - 1]; return `${w.setup} on ${w.asset} — ${w.avgR.toFixed(2)}R avg, ${w.winRate.toFixed(0)}% win rate`; })() : null,
+    strongestEdge: r.bestCombo ? `${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)} avg, ${r.bestCombo.winRate.toFixed(0)}% win rate (${r.bestCombo.trades} trades)` : null,
+    weakestPattern: r.comboStats.length > 1 ? (() => { const w = r.comboStats[r.comboStats.length - 1]; return `${w.setup} on ${w.asset} — ${w.avgR.toFixed(2)} avg, ${w.winRate.toFixed(0)}% win rate`; })() : null,
     warning: r.warnings[0] || null,
     nextAction: r.actions[0] || null,
     generatedAt: new Date().toLocaleTimeString(),
@@ -5427,7 +10042,9 @@ useEffect(() => {
   }
 
 function buildMarketAsset(rawOrResult) {
-  const raw = (typeof rawOrResult === "string" ? rawOrResult : rawOrResult?.symbol || "").trim();
+  const rawStr = (typeof rawOrResult === "string" ? rawOrResult : rawOrResult?.symbol || "").trim();
+  // Apply alias resolution for direct string inputs; search result objects already carry the correct symbol
+  const raw = typeof rawOrResult === "string" ? resolveTickerAlias(rawStr) : rawStr;
   if (!raw) return null;
 
   const upper = normalizeAssetId(
@@ -5478,11 +10095,31 @@ function buildMarketAsset(rawOrResult) {
     type: isCrypto ? "crypto" : "stock",
     fallbackPrice: "--",
     fallbackChange: "--",
+    tradable: typeof rawOrResult === "object" && typeof rawOrResult?.tradable === "boolean"
+      ? Boolean(rawOrResult.tradable)
+      : undefined,
+    marginable: typeof rawOrResult === "object" && typeof rawOrResult?.marginable === "boolean"
+      ? Boolean(rawOrResult.marginable)
+      : undefined,
+    shortable: typeof rawOrResult === "object" && typeof rawOrResult?.shortable === "boolean"
+      ? Boolean(rawOrResult.shortable)
+      : undefined,
+    easyToBorrow: typeof rawOrResult === "object" && typeof rawOrResult?.easyToBorrow === "boolean"
+      ? Boolean(rawOrResult.easyToBorrow)
+      : undefined,
+    assetClass: typeof rawOrResult === "object" ? rawOrResult?.assetClass || rawOrResult?.type || (isCrypto ? "crypto" : "stock") : (isCrypto ? "crypto" : "stock"),
+    alpacaSupported: typeof rawOrResult === "object"
+      ? (typeof rawOrResult?.alpacaSupported === "boolean"
+        ? rawOrResult.alpacaSupported
+        : typeof rawOrResult?.tradable === "boolean"
+          ? Boolean(rawOrResult.tradable)
+          : (isCrypto ? true : undefined))
+      : (isCrypto ? true : undefined),
   };
 }
 
   function handleAddSymbol(overrideSymbol) {
-    
+
   const raw = (typeof overrideSymbol === "string" ? overrideSymbol : overrideSymbol?.symbol || newSymbol).trim();
   if (!raw) return;
 
@@ -5505,6 +10142,14 @@ function buildMarketAsset(rawOrResult) {
   setNewSymbol("");
   showToast(`${id} added.`, "success");
 }
+
+  function handleSelectHomeAsset(item) {
+    const nextAsset = buildMarketAsset(item);
+    if (!nextAsset) return;
+    setHomeMarketActiveAsset(nextAsset);
+    setHomeMarketSearchResults([]);
+    setNewSymbol("");
+  }
 
   function handleRemoveSymbol(id) {
     const remaining = watchlist.filter((item) => item.id !== id);
@@ -5564,6 +10209,19 @@ function buildMarketAsset(rawOrResult) {
       tvSymbol: resolvedTvSymbol,
     });
     const upperSymbol = String(item.symbol).toUpperCase();
+    const topDriverEntry = item.breakdown
+      ? Object.entries(item.breakdown)
+        .filter(([key]) => key !== "total")
+        .sort((a, b) => Math.abs(Number(b[1]) || 0) - Math.abs(Number(a[1]) || 0))[0]
+      : null;
+    const intelSignal = {
+      symbol: upperSymbol,
+      score: Number(item.score) || 0,
+      summary: item.summary || "",
+      sentimentLabel: getScoreLabel(Number(item.score) || 0).label,
+      topDriverKey: topDriverEntry?.[0] || "",
+      topDriverValue: Number(topDriverEntry?.[1]) || 0,
+    };
     const draft = {
       source: "market-intel",
       guided: true,
@@ -5577,17 +10235,19 @@ function buildMarketAsset(rawOrResult) {
       thesis: item.summary || "",
       createdAt: Date.now(),
     };
-    if (nextAsset) {
-      setSimulationAsset(nextAsset);
-    }
-    setSimulationSearchQuery(upperSymbol);
-    setSimulationSearchResults([]);
-    setSimulationDirection(draft.direction);
-    setSelectedSimulationInfoKey(null);
-    setIsSimulationTutorialOpen(false);
-    setActiveTab("simulation");
+    const launch = {
+      handoffId: crypto.randomUUID(),
+      asset: nextAsset,
+      direction: draft.direction,
+      intelSignal,
+      message: buildIntelSimulationPrompt(intelSignal),
+      requestedAt: Date.now(),
+    };
 
-    if (simulationPositions.some((position) => normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(upperSymbol))) {
+    if (simulationPositions.some((position) =>
+      (position.marketMode || "live") === "live"
+      && normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(upperSymbol)
+    )) {
       setGuidedSimulationDraft(null);
       showToast("You already have an open trade on this asset.", "warning");
       return;
@@ -5603,7 +10263,10 @@ function buildMarketAsset(rawOrResult) {
       return;
     }
 
-    setGuidedSimulationDraft(draft);
+    setIntelPracticeModeChoice({
+      launch,
+      draft,
+    });
   }
 
   useEffect(() => {
@@ -5701,9 +10364,10 @@ function buildMarketAsset(rawOrResult) {
   }
 
   const selectedSimulationItem = simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
+  const selectedSimulationAssetExplicitlyUnsupported = selectedSimulationItem?.alpacaSupported === false || selectedSimulationItem?.tradable === false;
   const previousSelectedSimulationAssetIdRef = useRef(simulationAsset?.id || null);
   const selectedSimulationPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
-  const simulationLiveChartBars = extractChartBars(simulationLiveChart);
+  const simulationLiveChartBars = extractVisibleChartBars(simulationLiveChart, simulationLiveChartRange);
   const selectedScenarioSeries = selectedSimulationItem
     ? simulationScenarioSeries[selectedSimulationItem.id] || []
     : [];
@@ -5716,7 +10380,7 @@ function buildMarketAsset(rawOrResult) {
     }
 
     let isCancelled = false;
-    setSimulationLiveChart((prev) => (prev?.symbol === selectedSimulationItem.id ? prev : null));
+    setSimulationLiveChart(null);
     setSimulationLiveChartLoading(true);
 
     async function fetchSimulationLiveChart() {
@@ -5725,7 +10389,8 @@ function buildMarketAsset(rawOrResult) {
           body: {
             chartSymbol: selectedSimulationItem.id,
             chartType: selectedSimulationItem.type || "stock",
-            chartRange: simulationLiveChartRange,
+            chartRange: simulationLiveChartSelection.fetchRange,
+            chartTimeframe: simulationLiveChartSelection.provider || null,
           },
         });
 
@@ -5734,6 +10399,7 @@ function buildMarketAsset(rawOrResult) {
         const nextChart = data.chart || null;
         const nextBars = extractChartBars(nextChart);
         if (nextChart && nextBars.length >= 2) {
+          syncQuoteFromChart(selectedSimulationItem, nextChart);
           setSimulationLiveChart({
             ...nextChart,
             symbol: nextChart.symbol || selectedSimulationItem.id,
@@ -5744,8 +10410,9 @@ function buildMarketAsset(rawOrResult) {
 
         setSimulationLiveChart({
           symbol: selectedSimulationItem.id,
-          range: simulationLiveChartRange,
+          range: simulationLiveChartSelection.fetchRange,
           bars: [],
+          rangeMode: nextChart?.rangeMode || null,
         });
       } catch {
         // Keep the current live simulation chart stable if the latest fetch fails.
@@ -5762,144 +10429,31 @@ function buildMarketAsset(rawOrResult) {
   }, [simulationMode, selectedSimulationItem?.id, selectedSimulationItem?.type, simulationLiveChartRange, simulationLiveChartRefreshTick]);
 
   useEffect(() => {
-    if (simulationMode !== "live" || !selectedSimulationItem || simulationLiveChartRange !== "1D") return;
-    const interval = setInterval(() => {
-      setSimulationLiveChartRefreshTick((prev) => prev + 1);
-    }, 10000);
+    if (simulationMode !== "live" || !selectedSimulationItem || (!simulationLiveChartSelection.provider && simulationLiveChartSelection.fetchRange !== "1D")) return;
+    const isCryptoSimAsset = (selectedSimulationItem.type || "stock") === "crypto";
+    const interval = setInterval(
+      () => setSimulationLiveChartRefreshTick((prev) => prev + 1),
+      (isCryptoSimAsset || isMarketCurrentlyOpen()) ? 10000 : 30000
+    );
     return () => clearInterval(interval);
-  }, [simulationMode, selectedSimulationItem?.id, simulationLiveChartRange]);
+  }, [simulationMode, selectedSimulationItem?.id, selectedSimulationItem?.type, simulationLiveChartRange]);
 
-  const scenarioHistoryCount = 12;
-  const scenarioNowX = 14;
-  const scenarioFutureXEnd = 96;
+  useEffect(() => {
+    if (simulationMode !== "live" && simulationLivePaused) {
+      setSimulationLivePaused(false);
+      setSimulationLivePauseSnapshot({});
+    }
+  }, [simulationMode, simulationLivePaused]);
 
   const visibleScenarioChartSeries = selectedScenarioSeries;
-  const scenarioChartSlotCount = simulationScenarioNoLimit
-    ? Math.max(24, visibleScenarioChartSeries.length + 12)
-    : Math.max(1, scenarioDurationPointCount || visibleScenarioChartSeries.length || 1);
-  const boundedScenarioProgress = !simulationScenarioNoLimit && scenarioDurationPointCount
-    ? Math.min(1, simulationScenarioTick / Math.max(1, scenarioDurationPointCount))
-    : null;
-  const scenarioChartXRatios = !simulationScenarioNoLimit && boundedScenarioProgress != null
-    ? visibleScenarioChartSeries.map((_, index) => {
-        if (visibleScenarioChartSeries.length <= 1) return 0;
-        return boundedScenarioProgress * (index / (visibleScenarioChartSeries.length - 1));
-      })
-    : null;
-
-  const scenarioChartPoints = visibleScenarioChartSeries.length >= 2
-    ? buildSvgLinePoints(
-        visibleScenarioChartSeries,
-        simulationScenarioZoom,
-        Math.max(1, scenarioChartSlotCount),
-        scenarioNowX,
-        scenarioFutureXEnd,
-        scenarioChartXRatios
-      )
-    : "";
-
-  const scenarioChartRecentPoints = visibleScenarioChartSeries.length >= 2
-    ? visibleScenarioChartSeries
-        .map((_, index) => index)
-        .slice(-18)
-        .map((index) => {
-          const point = buildSvgPointCoords(
-            visibleScenarioChartSeries,
-            index,
-            simulationScenarioZoom,
-            Math.max(1, scenarioChartSlotCount),
-            scenarioNowX,
-            scenarioFutureXEnd,
-            scenarioChartXRatios
-          );
-          return `${point.x},${point.y}`;
-        })
-        .join(" ")
-    : "";
-
-  const scenarioChartCurrentPoint = visibleScenarioChartSeries.length >= 2
-    ? buildSvgPointCoords(
-        visibleScenarioChartSeries,
-        visibleScenarioChartSeries.length - 1,
-        simulationScenarioZoom,
-        Math.max(1, scenarioChartSlotCount),
-        scenarioNowX,
-        scenarioFutureXEnd,
-        scenarioChartXRatios
-      )
-    : visibleScenarioChartSeries.length === 1
-      ? { x: scenarioNowX, y: getScenarioAnchorY(simulationScenarioType) }
-    : null;
-  const scenarioChartPulseRadius = 1.7 + ((simulationScenarioTick % 6) / 10);
   const visibleNoLimitScenarioDurationMs = simulationScenarioNoLimit
     ? Math.max(0, visibleScenarioChartSeries.length - 1) * scenarioIntervalMs * getScenarioSpeedMultiplier(simulationScenarioSpeed)
     : 0;
-  const scenarioAxisLeftLabel = simulationScenarioNoLimit
-    ? ""
-    : "History";
-  const scenarioAxisMidLabel = simulationScenarioNoLimit
-    ? "Now"
-    : "Now";
-  const scenarioAxisRightLabel = simulationScenarioNoLimit
-    ? formatSimulationDuration(visibleNoLimitScenarioDurationMs)
-    : formatScenarioAxisLabel(scenarioDurationMs, scenarioDurationMs);
+  const scenarioDisplayedDurationMs = simulationScenarioNoLimit
+    ? visibleNoLimitScenarioDurationMs
+    : scenarioDurationMs;
   const selectedSimulationOpenPosition = selectedSimulationItem
     ? simulationPositions.find((position) => normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol) && (position.marketMode || "live") === simulationMode) || null
-    : null;
-  const scenarioOverlayData = [
-    ...visibleScenarioChartSeries,
-    selectedSimulationOpenPosition?.entryPrice,
-    selectedSimulationPrice,
-    selectedSimulationOpenPosition?.stopLoss,
-    selectedSimulationOpenPosition?.takeProfit,
-  ].filter((value) => Number.isFinite(value));
-  const scenarioChartScale = buildSvgPriceScale(
-    scenarioOverlayData.length >= 2 ? scenarioOverlayData : visibleScenarioChartSeries,
-    6,
-    simulationScenarioZoom
-  );
-  const scenarioEntryPoint = selectedSimulationOpenPosition
-    ? (() => {
-        const entryY = clampScenarioChartY(buildSvgValueY(
-          scenarioOverlayData.length >= 2 ? scenarioOverlayData : [selectedSimulationOpenPosition.entryPrice, selectedSimulationPrice || selectedSimulationOpenPosition.entryPrice],
-          selectedSimulationOpenPosition.entryPrice,
-          simulationScenarioZoom
-        ));
-        if (!selectedSimulationOpenPosition.scenarioNoLimit && selectedSimulationOpenPosition.scenarioDurationPointCount) {
-          const entryRatio = Math.max(0, Math.min(1, (selectedSimulationOpenPosition.openedScenarioTick || 0) / selectedSimulationOpenPosition.scenarioDurationPointCount));
-          return {
-            x: scenarioNowX + ((scenarioFutureXEnd - scenarioNowX) * entryRatio),
-            y: entryY,
-          };
-        }
-
-        const entryIndex = Math.max(0, selectedSimulationOpenPosition.openedScenarioSeriesIndex || 0);
-        const entryRatio = entryIndex / Math.max(1, scenarioChartSlotCount - 1);
-        return {
-          x: scenarioNowX + ((scenarioFutureXEnd - scenarioNowX) * entryRatio),
-          y: entryY,
-        };
-      })()
-    : null;
-  const scenarioStopY = selectedSimulationOpenPosition?.stopLoss != null
-    ? clampScenarioChartY(buildSvgValueY(
-        scenarioOverlayData.length >= 2 ? scenarioOverlayData : [selectedSimulationOpenPosition.stopLoss, selectedSimulationOpenPosition.entryPrice],
-        selectedSimulationOpenPosition.stopLoss,
-        simulationScenarioZoom
-      ))
-    : null;
-  const scenarioTargetY = selectedSimulationOpenPosition?.takeProfit != null
-    ? clampScenarioChartY(buildSvgValueY(
-        scenarioOverlayData.length >= 2 ? scenarioOverlayData : [selectedSimulationOpenPosition.takeProfit, selectedSimulationOpenPosition.entryPrice],
-        selectedSimulationOpenPosition.takeProfit,
-        simulationScenarioZoom
-      ))
-    : null;
-  const scenarioEntryLabelY = scenarioEntryPoint
-    ? Math.max(12, scenarioEntryPoint.y - 3.4)
-    : null;
-  const scenarioCurrentLabelY = scenarioChartCurrentPoint
-    ? Math.max(12, scenarioChartCurrentPoint.y - 3.4)
     : null;
   const visibleSimulationPositions = useMemo(
     () => simulationPositions.filter((position) => (position.marketMode || "live") === simulationMode),
@@ -5921,6 +10475,18 @@ function buildMarketAsset(rawOrResult) {
     simulationCoachPrice,
     simulationCoachMetrics
   );
+  const simulationCoachLevels = simulationCoachPosition
+    ? getSimulationPriceLevels(simulationCoachPosition)
+    : { entryPrice: null, stopPrice: null, targetPrice: null, quantity: null };
+  const simulationActiveTradeContext = simulationCoachPosition
+    ? buildSimulationActiveTradeContext({
+        position: simulationCoachPosition,
+        currentPrice: simulationCoachPrice,
+        metrics: simulationCoachMetrics,
+        levels: simulationCoachLevels,
+        timeInTrade: formatTimeInTrade(simulationCoachPosition),
+      })
+    : null;
   const simulationStatsTradeHistory = useMemo(
     () => simulationTradeHistory.filter((trade) => {
       const marketMode = trade.marketMode || "live";
@@ -5932,30 +10498,175 @@ function buildMarketAsset(rawOrResult) {
   const visibleSimulationClosedTrade = simulationClosedTrade && (simulationClosedTrade.marketMode || "live") === simulationMode
     ? simulationClosedTrade
     : null;
+  const selectedSimulationOpenPositionLevels = selectedSimulationOpenPosition
+    ? getSimulationPriceLevels(selectedSimulationOpenPosition)
+    : { entryPrice: null, stopPrice: null, targetPrice: null, quantity: null };
+  const scenarioChartBars = useMemo(() => {
+    if (simulationMode !== "scenario") return [];
+    return simulationScenarioBarsByAsset[selectedSimulationItem?.id] || [];
+  }, [simulationMode, simulationScenarioBarsByAsset, selectedSimulationItem?.id]);
+  const scenarioTickMarkFormatter = useMemo(() => {
+    if (scenarioChartBars.length < 2) return null;
+    const startMs = chartTimeToMs(scenarioChartBars[0].time);
+    const endMs = chartTimeToMs(scenarioChartBars[scenarioChartBars.length - 1].time);
+    const totalSpanMs = Math.max(0, endMs - startMs);
+
+    return (time) => {
+      const valueMs = chartTimeToMs(time);
+      if (!Number.isFinite(valueMs)) return "";
+      const elapsedMs = Math.max(0, valueMs - startMs);
+
+      if (totalSpanMs <= 60 * 60 * 1000) {
+        return formatScenarioAxisLabel(elapsedMs, Math.max(totalSpanMs, 1000));
+      }
+
+      if (totalSpanMs <= 24 * 60 * 60 * 1000) {
+        return new Date(valueMs).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+      }
+
+      return new Date(valueMs).toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
+        hour: totalSpanMs <= 7 * 24 * 60 * 60 * 1000 ? "numeric" : undefined,
+      });
+    };
+  }, [scenarioChartBars]);
+  const scenarioUsesSecondLabels = scenarioDisplayedDurationMs > 0 && scenarioDisplayedDurationMs <= 60 * 60 * 1000;
+  const scenarioPriceScaleAnchor = selectedSimulationOpenPositionLevels.entryPrice
+    ?? Number(scenarioChartBars[0]?.open ?? scenarioChartBars[0]?.close ?? selectedSimulationPrice);
+  const scenarioStablePriceRange = useMemo(
+    () => buildStableScenarioPriceRange({
+      bars: scenarioChartBars,
+      anchorPrice: scenarioPriceScaleAnchor,
+      currentPrice: selectedSimulationPrice,
+      stopPrice: selectedSimulationOpenPositionLevels.stopPrice,
+      targetPrice: selectedSimulationOpenPositionLevels.targetPrice,
+    }),
+    [
+      scenarioChartBars,
+      scenarioPriceScaleAnchor,
+      selectedSimulationPrice,
+      selectedSimulationOpenPositionLevels.stopPrice,
+      selectedSimulationOpenPositionLevels.targetPrice,
+    ]
+  );
+  const scenarioDrawingStorageKey = selectedSimulationItem?.id
+    ? buildChartDrawingsStorageKey(selectedSimulationItem.id, "simulation_scenario")
+    : null;
+  useEffect(() => {
+    if (!scenarioDrawingStorageKey) return;
+    setChartDrawings((prev) => (
+      Object.prototype.hasOwnProperty.call(prev, scenarioDrawingStorageKey)
+        ? prev
+        : { ...prev, [scenarioDrawingStorageKey]: readChartDrawingsFromStorage(scenarioDrawingStorageKey) }
+    ));
+  }, [scenarioDrawingStorageKey]);
+  useEffect(() => {
+    if (scenarioDrawingStorageKey && Array.isArray(chartDrawings[scenarioDrawingStorageKey])) {
+      writeChartDrawingsToStorage(scenarioDrawingStorageKey, chartDrawings[scenarioDrawingStorageKey]);
+    }
+  }, [scenarioDrawingStorageKey, chartDrawings]);
+  const scenarioVisibleDrawings = useMemo(
+    () => (scenarioDrawingStorageKey ? (chartDrawings[scenarioDrawingStorageKey] || []) : []),
+    [chartDrawings, scenarioDrawingStorageKey]
+  );
+  const scenarioDrawingStatus = simulationScenarioDrawingMode === "horizontal"
+    ? "Click the scenario chart to place a labeled line."
+    : simulationScenarioDrawingMode === "profit"
+      ? "Click the scenario chart to place a green profit line."
+      : simulationScenarioDrawingMode === "loss"
+        ? "Click the scenario chart to place a red loss line."
+        : "";
+  function updateStoredChartDrawings(storageKey, updater) {
+    if (!storageKey) return;
+    setChartDrawings((prev) => {
+      const current = Array.isArray(prev[storageKey]) ? prev[storageKey] : [];
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return { ...prev, [storageKey]: Array.isArray(next) ? next.map(normalizeStoredChartDrawing).filter(Boolean) : [] };
+    });
+  }
+
+  function undoStoredChartDrawing(storageKey) {
+    updateStoredChartDrawings(storageKey, (current) => current.slice(0, -1));
+  }
+
+  function clearStoredChartDrawings(storageKey) {
+    updateStoredChartDrawings(storageKey, []);
+    if (storageKey && typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {
+        // Ignore localStorage clear failures.
+      }
+    }
+  }
+
+  function buildUserHorizontalDrawing(mode, point, promptMessage) {
+    if (!point) return null;
+    let label = mode === "profit" ? "Profit Target" : mode === "loss" ? "Max Loss" : "";
+    const color = mode === "profit"
+      ? "rgba(74,222,128,0.92)"
+      : mode === "loss"
+        ? "rgba(248,113,113,0.92)"
+        : "rgba(226,232,240,0.82)";
+    if (mode === "horizontal") {
+      const customLabel = window.prompt(promptMessage || "Label this line:");
+      if (!customLabel || !customLabel.trim()) return null;
+      label = customLabel.trim().slice(0, 48);
+    }
+    return {
+      id: crypto.randomUUID(),
+      type: "horizontal",
+      points: [{ time: Number(point.time), price: Number(point.price) }],
+      label,
+      text: label,
+      color,
+    };
+  }
+
+  function handleScenarioChartAnnotationClick(point) {
+    if (simulationMode !== "scenario" || !selectedSimulationItem || !point || simulationScenarioDrawingMode === "none") return;
+    const drawing = buildUserHorizontalDrawing(simulationScenarioDrawingMode, point, "Label this line:");
+    if (!drawing) return;
+    updateStoredChartDrawings(scenarioDrawingStorageKey, (prev) => [...prev, drawing]);
+    setSimulationScenarioDrawingMode("none");
+  }
+
+  function clearScenarioDrawings() {
+    clearStoredChartDrawings(scenarioDrawingStorageKey);
+  }
+
+  function returnLiveSimulationToCurrentMarket() {
+    setSimulationLivePauseSnapshot({});
+    setSimulationLivePaused(false);
+    setSimulationLiveChartRefreshTick((prev) => prev + 1);
+  }
   const simulationModeLabel = simulationMode === "scenario" ? "Scenario" : "Live";
   const simulationHowToTitle = simulationMode === "scenario" ? "How to use Scenario Training" : "How to use Live Simulation";
   const simulationHowToSteps = simulationMode === "scenario"
     ? [
-        "1. Search and select the asset you want to train on",
-        "2. Choose a Scenario type: Uptrend, Downtrend, Range, or Realistic",
-        "3. Decide whether the rep is No Limit or bounded with a total scenario duration",
-        "4. In No Limit, speed controls how quickly simulated time moves. In bounded mode, playback time controls how long the full rep takes in real time",
-        "5. Choose direction, amount mode, size, and your exit plan before you start",
-        "6. Press Play to begin the rep. The chart starts from the fixed Now anchor and projects forward to the right",
-        "7. Use the chart overlays and open-trade panel to track entry, current price, and live P/L",
-        "8. Review the summary after the trade closes. Detailed AI coaching is available in Realistic mode",
-        "9. Use Scenario simulator P/L and Session Coach as Realistic-mode training feedback, then repeat with a new condition",
+        "1. Search the asset you want to train on",
+        "2. Choose Scenario type: Uptrend, Downtrend, Range, or Realistic",
+        "3. No Limit runs until you close. Bounded ends after the full duration.",
+        "4. Set direction, size, and exit plan before pressing Play",
+        "5. Chart projects forward from the Now anchor — make decisions as it unfolds",
+        "6. Use the open-trade panel to track entry, price, and P/L",
+        "7. Review the summary after close. AI coaching available in Realistic mode.",
+        "8. Repeat with a new condition. Consistent reps build the edge.",
       ]
     : [
-        "1. Search and select an asset you want to simulate live",
-        "2. Choose Long or Short, then choose whether size is measured in dollars or shares",
-        "3. Build your exit plan with stop loss or max loss, plus an optional take profit or profit target",
-        "4. Open the simulated live trade and let the market update the rep in real time",
-        "5. Use the live chart to compare price behavior with your original plan",
-        "6. Watch the open-trade panel for current price, unrealized P/L, R multiple, and time in trade",
-        "7. Close manually or let the simulator auto-close using your stop or target",
-        "8. Review the trade summary, Session Coach feedback, and Live simulator P/L stats to understand the rep",
-        "9. Use repeated live reps to improve execution, patience, and risk discipline",
+        "1. Search the asset you want to practice",
+        "2. Choose Long or Short. Set size in dollars or shares.",
+        "3. Define your exit plan: stop and optional target",
+        "4. Open the trade. Market updates the rep in real time.",
+        "5. Compare price behavior against your plan on the chart",
+        "6. Close manually or let the simulator hit your stop or target",
+        "7. Review execution grade and session stats after close",
+        "8. Repeat reps to sharpen execution, patience, and discipline",
       ];
   const simulationAmountPlaceholder = simulationAmountMode === "shares" ? "Shares / units" : "Amount ($)";
   const simulationStopPlaceholder = simulationExitMode === "pnl" ? "Max loss ($)" : "Stop loss price";
@@ -5964,32 +10675,32 @@ function buildMarketAsset(rawOrResult) {
     {
       title: "1. Pick your asset",
       text: simulationMode === "scenario"
-        ? "Search the stock or crypto you want to train on. The Scenario chart below will generate a forward-projection training move for that asset."
-        : "Search the stock or crypto you want to practice. Once selected, the live simulator chart updates so you can see current market behavior immediately.",
+        ? "Search the asset you want to train on. The chart will generate a forward-projection rep."
+        : "Search the asset. The live chart updates immediately so you can read current behavior.",
     },
     {
       title: "2. Choose your trade size",
       text: simulationAmountMode === "dollars"
-        ? "Dollars means the total cash amount you want to simulate in this trade. Shares means the number of shares or units you want to simulate."
-        : "Shares means the number of shares or units you want to simulate. Dollars means the total cash amount you want to commit to the rep.",
+        ? "Dollars = total cash in the rep. Shares = number of units."
+        : "Shares = number of units. Dollars = total cash committed.",
     },
     {
       title: "3. Define your risk plan",
       text: simulationExitMode === "price"
-        ? "Price mode uses chart levels. Stop loss marks where you are wrong. Take profit marks where you want to get paid if the move works."
-        : "P/L mode uses dollar outcomes. Max loss closes the trade if you lose that amount. Profit target closes it when the rep makes that amount.",
+        ? "Stop = where you're wrong. Target = where you get paid."
+        : "Max loss closes the trade at that dollar loss. Profit target closes it when you hit that gain.",
     },
     {
-      title: simulationMode === "scenario" ? "4. Start and manage the rep" : "4. Read the live rep",
+      title: simulationMode === "scenario" ? "4. Start the rep" : "4. Read the live rep",
       text: simulationMode === "scenario"
-        ? "Use Play to start the scenario. No Limit keeps the tape running, while bounded mode ends naturally after the full selected duration plays out."
-        : "Use the live chart and open-trade panel together. They show what price is doing now, how your position is reacting, and whether the trade is still earning the right to stay open.",
+        ? "Press Play. No Limit keeps running until you close. Bounded mode ends after the full duration."
+        : "Watch the chart and open-trade panel together. Is price still earning the right to stay open?",
     },
     {
-      title: simulationMode === "scenario" ? "5. Review the right feedback" : "5. Review the feedback loop",
+      title: "5. Review after close",
       text: simulationMode === "scenario"
-        ? "Realistic mode adds the most lifelike market behavior and unlocks the detailed AI scenario coaching note after the trade closes."
-        : "After the trade closes, use the trade summary, Live simulator P/L, and Session Coach to review execution quality, not just whether the trade won or lost.",
+        ? "Realistic mode unlocks AI coaching after close. Use it."
+        : "Check execution grade and session stats. Win/loss isn't the only signal.",
     },
   ];
   const simulationStatsTotalPnL = useMemo(
@@ -6004,6 +10715,31 @@ function buildMarketAsset(rawOrResult) {
     () => buildSimulationSessionInsights(simulationStatsProfile),
     [simulationStatsProfile]
   );
+  const simulationRaylaContext = buildSimulationRaylaContext({
+    mode: simulationModeLabel,
+    symbol: selectedSimulationItem?.id || "",
+    assetName: selectedSimulationItem?.description || selectedSimulationItem?.name || selectedSimulationItem?.id || "",
+    assetType: selectedSimulationItem?.type || "stock",
+    timeframe: simulationMode === "live"
+      ? getChartSelectionConfig(simulationLiveChartRange).label
+      : simulationChartTimeframeConfig.label,
+    currentPrice: selectedSimulationPrice,
+    direction: simulationDirection,
+    amount: simulationAmount,
+    amountMode: simulationAmountMode,
+    stopLoss: simulationStopLoss,
+    takeProfit: simulationTakeProfit,
+    intelSignal: pendingIntelSimulationLaunch?.intelSignal || null,
+    activeTrade: simulationActiveTradeContext,
+    sessionStats: {
+      totalPnL: simulationStatsTotalPnL,
+      closedTrades: simulationStatsTradeHistory.length,
+      avgProfitLoss: simulationStatsProfile.avgProfitLoss,
+      totalTrades: simulationStatsProfile.totalTrades,
+      winRate: simulationStatsProfile.winRate,
+      avgRMultiple: simulationStatsProfile.avgRMultiple,
+    },
+  });
 
 
   useEffect(() => {
@@ -6014,6 +10750,47 @@ function buildMarketAsset(rawOrResult) {
     }
     previousSelectedSimulationAssetIdRef.current = currentAssetId;
   }, [simulationAsset?.id]);
+
+  useEffect(() => {
+    if (!simulationPendingScenarioDecision || selectedSimulationOpenPosition?.id !== simulationPendingScenarioDecision.positionId) return;
+    setSimulationExitMode(selectedSimulationOpenPosition.exitMode || "price");
+    setSimulationStopLoss(selectedSimulationOpenPosition.stopLoss != null ? String(selectedSimulationOpenPosition.stopLoss) : "");
+    setSimulationTakeProfit(selectedSimulationOpenPosition.takeProfit != null ? String(selectedSimulationOpenPosition.takeProfit) : "");
+  }, [simulationPendingScenarioDecision, selectedSimulationOpenPosition]);
+
+  useEffect(() => {
+    if (!simulationPendingLiveDecision || selectedSimulationOpenPosition?.id !== simulationPendingLiveDecision.positionId) return;
+    setSimulationExitMode(selectedSimulationOpenPosition.exitMode || "price");
+    setSimulationStopLoss(selectedSimulationOpenPosition.stopLoss != null ? String(selectedSimulationOpenPosition.stopLoss) : "");
+    setSimulationTakeProfit(selectedSimulationOpenPosition.takeProfit != null ? String(selectedSimulationOpenPosition.takeProfit) : "");
+  }, [simulationPendingLiveDecision, selectedSimulationOpenPosition]);
+
+  useEffect(() => {
+    if (!pendingIntelSimulationLaunch) return;
+    if (activeTab !== "simulation" || simulationMode !== (pendingIntelSimulationLaunch.mode || "live")) return;
+    if (!simulationAsset || simulationAsset.id !== pendingIntelSimulationLaunch.asset?.id) return;
+
+    const chartNode = simulationSectionRefs.current.chart;
+    if (!chartNode) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      chartNode.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+      openIntelSimulationRaylaPopup(pendingIntelSimulationLaunch);
+      setPendingIntelSimulationLaunch(null);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [pendingIntelSimulationLaunch, activeTab, simulationMode, simulationAsset]);
+
+  useEffect(() => {
+    if (!simulationRaylaPromptTradeId) return;
+    if (simulationPositions.some((position) => position.id === simulationRaylaPromptTradeId)) return;
+    setSimulationRaylaPromptTradeId(null);
+  }, [simulationRaylaPromptTradeId, simulationPositions]);
 
   const simulationTutorialSteps = useMemo(
     () =>
@@ -6044,42 +10821,74 @@ function buildMarketAsset(rawOrResult) {
     for (const position of simulationPositions) {
       const currentPrice = getSimulationPrice(position.asset, position.marketMode || simulationMode);
       if (!Number.isFinite(currentPrice)) continue;
+      if (
+        (position.marketMode === "scenario" && simulationPendingScenarioDecision?.positionId === position.id)
+        || (position.marketMode !== "scenario" && simulationPendingLiveDecision?.positionId === position.id)
+      ) {
+        continue;
+      }
       const metrics = calculateSimulationPnL(position, currentPrice);
+      const { stopPrice, targetPrice } = getSimulationPriceLevels(position);
 
       if (position.exitMode === "pnl") {
-        if (position.stopLoss != null && metrics.profitLoss <= -Math.abs(position.stopLoss)) {
-          finalizeSimulationTrade(position.id, currentPrice, "P/L Stop Hit");
+        if (position.marketMode === "scenario" && position.stopLoss != null && metrics.profitLoss <= -Math.abs(position.stopLoss)) {
+          if (position.marketMode === "scenario") {
+            pauseScenarioPlayback();
+            setSimulationPendingScenarioDecision({ positionId: position.id, exitPrice: currentPrice, exitReason: "P/L Stop Hit" });
+          }
           return;
         }
-        if (position.takeProfit != null && metrics.profitLoss >= position.takeProfit) {
-          finalizeSimulationTrade(position.id, currentPrice, "P/L Target Hit");
+        if (position.marketMode === "scenario" && position.takeProfit != null && metrics.profitLoss >= position.takeProfit) {
+          if (position.marketMode === "scenario") {
+            pauseScenarioPlayback();
+            setSimulationPendingScenarioDecision({ positionId: position.id, exitPrice: currentPrice, exitReason: "P/L Target Hit" });
+          }
           return;
         }
-        continue;
       }
 
       if (position.direction === "long") {
-        if (position.stopLoss != null && currentPrice <= position.stopLoss) {
-          finalizeSimulationTrade(position.id, position.stopLoss, "Stopped Out");
+        if (stopPrice != null && currentPrice <= stopPrice) {
+          if (position.marketMode === "scenario") {
+            pauseScenarioPlayback();
+            setSimulationPendingScenarioDecision({ positionId: position.id, exitPrice: stopPrice, exitReason: "Stop Hit" });
+          } else {
+            setSimulationPendingLiveDecision({ positionId: position.id, exitPrice: stopPrice, exitReason: "Stop Hit" });
+          }
           return;
         }
-        if (position.takeProfit != null && currentPrice >= position.takeProfit) {
-          finalizeSimulationTrade(position.id, position.takeProfit, "Target Hit");
+        if (targetPrice != null && currentPrice >= targetPrice) {
+          if (position.marketMode === "scenario") {
+            pauseScenarioPlayback();
+            setSimulationPendingScenarioDecision({ positionId: position.id, exitPrice: targetPrice, exitReason: "Target Hit" });
+          } else {
+            setSimulationPendingLiveDecision({ positionId: position.id, exitPrice: targetPrice, exitReason: "Target Hit" });
+          }
           return;
         }
         continue;
       }
 
-      if (position.stopLoss != null && currentPrice >= position.stopLoss) {
-        finalizeSimulationTrade(position.id, position.stopLoss, "Stopped Out");
+      if (stopPrice != null && currentPrice >= stopPrice) {
+        if (position.marketMode === "scenario") {
+          pauseScenarioPlayback();
+          setSimulationPendingScenarioDecision({ positionId: position.id, exitPrice: stopPrice, exitReason: "Stop Hit" });
+        } else {
+          setSimulationPendingLiveDecision({ positionId: position.id, exitPrice: stopPrice, exitReason: "Stop Hit" });
+        }
         return;
       }
-      if (position.takeProfit != null && currentPrice <= position.takeProfit) {
-        finalizeSimulationTrade(position.id, position.takeProfit, "Target Hit");
+      if (targetPrice != null && currentPrice <= targetPrice) {
+        if (position.marketMode === "scenario") {
+          pauseScenarioPlayback();
+          setSimulationPendingScenarioDecision({ positionId: position.id, exitPrice: targetPrice, exitReason: "Target Hit" });
+        } else {
+          setSimulationPendingLiveDecision({ positionId: position.id, exitPrice: targetPrice, exitReason: "Target Hit" });
+        }
         return;
       }
     }
-  }, [simulationPositions, simulationQuotes, simulationScenarioQuotes, simulationMode, marketItems]);
+  }, [simulationPositions, simulationQuotes, simulationScenarioQuotes, simulationMode, marketItems, simulationPendingScenarioDecision, simulationPendingLiveDecision]);
 
   useEffect(() => {
     if (!isSimulationTutorialOpen) return;
@@ -6959,14 +11768,21 @@ return (
                 overflow-y: auto;
                 overflow-x: hidden;
               }
+              .homeRightFullscreen {
+                flex: 1 1 100%;
+                width: 100%;
+                border-left: none;
+              }
               @media (max-width: 767px) {
                 .homeLayout { flex-direction: column; height: auto; overflow: visible; }
                 .homeLeft { min-height: 420px; overflow: visible; }
                 .homeRight { height: auto; }
+                .homeRightFullscreen { height: 100vh; }
               }
             `}</style>
             <div className="homeLayout">
               {/* LEFT: Ask Rayla */}
+              {!isHomeLiveChartFullscreen && (
               <div className="homeLeft">
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -6978,7 +11794,7 @@ return (
                   {!askRaylaHasMessages ? (
                     <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0 }}>
                       <div style={{ textAlign: "center" }}>
-                        <div style={{ color: "#7aa8d8", fontSize: 22, fontWeight: 700 }}>Ask Rayla anything</div>
+                        <div style={{ color: "#7aa8d8", fontSize: 22, fontWeight: 300, letterSpacing: "0.08em", textTransform: "uppercase" }}>ASK RAYLA ANYTHING</div>
                         <div style={{ color: "#64748b", fontSize: 13, marginTop: 8 }}>Understand trades, charts, risk, and strategy in seconds.</div>
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 24 }}>
@@ -7082,8 +11898,9 @@ return (
                   </div>
                 </div>
               </div>
+              )}
               {/* RIGHT: Live Market */}
-              <div className="homeRight">
+              <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
                 {/* Label */}
                 <div style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   Live Market
@@ -7106,21 +11923,35 @@ return (
                           } catch { setHomeMarketSearchResults([]); }
                         }, 120);
                       }}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-                      placeholder="Search symbol (AAPL, BTC, NRG)"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const resolved = resolveTickerAlias(newSymbol.trim());
+                          const best = homeMarketSearchResults.find(r => r.symbol === resolved)
+                            || homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
+                            || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
+                          if (best || CRYPTO_SYMBOL_SET.has(resolved)) handleSelectHomeAsset(best || resolved);
+                        }
+                      }}
+                      placeholder="Search symbol (AAPL, BTC, NVDA…)"
                       className="authInput"
                     />
                     <button type="button" onClick={() => {
-                      const best = homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
+                      const resolved = resolveTickerAlias(newSymbol.trim());
+                      const best = homeMarketSearchResults.find(r => r.symbol === resolved)
+                        || homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
                         || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
-                      handleAddSymbol(best || newSymbol);
-                      setHomeMarketSearchResults([]);
-                    }} className="ghostButton">Add</button>
+                      if (!best && !CRYPTO_SYMBOL_SET.has(resolved)) {
+                        showToast("Asset not found. Try a ticker like AAPL, TSLA, or BTC.", "warning");
+                        return;
+                      }
+                      handleSelectHomeAsset(best || resolved);
+                    }} className="ghostButton">Select</button>
                   </div>
                   {homeMarketSearchResults.length > 0 && (
                     <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, left: 20, right: 20, maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
                       {homeMarketSearchResults.map((r) => (
-                        <div key={r.symbol} onClick={() => { handleAddSymbol(r); setHomeMarketSearchResults([]); setNewSymbol(""); }}
+                        <div key={r.symbol} onClick={() => handleSelectHomeAsset(r)}
                           style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{r.symbol}</span>
                           <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{r.description}</span>
@@ -7136,52 +11967,49 @@ return (
                       id: item.id,
                       symbol: item.id,
                       name: item.description || item.name || item.id,
-                      price: homeMarketQuotes[item.id]?.price ?? item.priceValue,
-                      change: homeMarketQuotes[item.id]?.change ?? item.changeValue,
+                      type: item.type || "stock",
+                      price: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.price ?? item.priceValue,
+                      change: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.change ?? item.changeValue,
                     }))}
                     selectedId={selectedMarketId}
-                    onSelect={(asset) => setSelectedMarketId(asset.id)}
+                    onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); }}
                   />
                 </div>
                 {/* Range + Mode toggles */}
                 <div style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
-                      <button key={range} type="button" onClick={() => setHomeMarketChartRange(range)}
-                        style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid", borderColor: homeMarketChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)", background: homeMarketChartRange === range ? "rgba(124,196,255,0.13)" : "transparent", color: homeMarketChartRange === range ? "#d7efff" : "#7f8ea3", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.5px" }}
-                      >{range}</button>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                      <button key={mode} type="button" onClick={() => setHomeMarketChartMode(mode)}
-                        style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid", borderColor: homeMarketChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)", background: homeMarketChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent", color: homeMarketChartMode === mode ? "#d7efff" : "#7f8ea3", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.5px" }}
-                      >{label}</button>
-                    ))}
-                  </div>
-                  {homeMarketChartLastUpdated && (
+                  <ChartTimeframeDropdown
+                    value={homeMarketChartRange}
+                    onChange={setHomeMarketChartRange}
+                    options={LIVE_WIDGET_INTERVAL_OPTIONS}
+                    width={88}
+                  />
+                  <button
+                    type="button"
+                    className="ghostButton"
+                    onClick={() => setIsHomeLiveChartFullscreen((value) => !value)}
+                    style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
+                  >
+                    {isHomeLiveChartFullscreen ? "Back to normal" : "Full page"}
+                  </button>
+                  {homeMarketChartUpdatedLabel && (isMarketCurrentlyOpen() || String(homeMarketSelectedItem?.type || "").toLowerCase() === "crypto") && (
                     <div style={{ fontSize: 10, color: "#7f8ea3", marginLeft: "auto" }}>
-                      Updated {homeMarketChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      Last updated: {homeMarketChartUpdatedLabel}
                     </div>
                   )}
                 </div>
-                {/* TradeChart */}
-                <div style={{ flex: 1, minHeight: 300, padding: "0 20px 20px" }}>
-                  {homeMarketSelectedItem && homeMarketChartLoading && extractChartBars(homeMarketChart).length < 2 ? (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>Loading chart...</div>
-                  ) : homeMarketSelectedItem && extractChartBars(homeMarketChart).length < 2 ? (
+                <div style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
+                  {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
+                  {homeMarketSelectedItem && homeMarketAssetExplicitlyUnsupported ? (
                     <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
-                      <div>Chart unavailable</div>
-                      <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available.</div>
+                      <div>Live chart unavailable</div>
+                      <div>Alpaca does not currently support trading this asset.</div>
                     </div>
                   ) : homeMarketSelectedItem ? (
-                    <TradeChart
-                      bars={extractChartBars(homeMarketChart)}
-                      mode={homeMarketChartMode}
-                      latestPrice={homeMarketQuotes[homeMarketSelectedItem.id]?.price}
-                      assetSymbol={homeMarketSelectedItem.id}
-                      assetName={homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id}
+                    <TradingViewLiveChart
+                      asset={homeMarketSelectedItem}
                       height="100%"
+                      interval={homeMarketChartRange}
+                      chartType="home_live"
                     />
                   ) : null}
                 </div>
@@ -7195,8 +12023,8 @@ return (
                           assetName: homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id,
                           assetType: homeMarketSelectedItem.type || "stock",
                           range: homeMarketChartRange,
-                          bars: extractChartBars(homeMarketChart),
-                          currentPrice: homeMarketQuotes[homeMarketSelectedItem.id]?.price,
+                          bars: homeMarketVisibleBars,
+                          currentPrice: getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price,
                         });
                         openChartExplainPopup(context, "Explain this chart");
                       }}
@@ -7241,7 +12069,7 @@ return (
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Side</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: pendingAlpacaOrderConfirmation.side === "buy" ? "#4ade80" : "#f87171" }}>
-                            {pendingAlpacaOrderConfirmation.side === "buy" ? "Buy" : "Sell"}
+                            {getAlpacaOrderActionLabel(pendingAlpacaOrderConfirmation.action)}
                           </div>
                         </div>
                         <div>
@@ -7251,10 +12079,10 @@ return (
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Order Type</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                            {pendingAlpacaOrderConfirmation.type === "limit" ? "Limit" : "Market"}
+                            {getAlpacaOrderTypeLabel(pendingAlpacaOrderConfirmation.type)}
                           </div>
                         </div>
-                        {pendingAlpacaOrderConfirmation.type === "limit" && (
+                        {(pendingAlpacaOrderConfirmation.type === "limit" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
                           <div>
                             <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Limit Price</div>
                             <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
@@ -7262,6 +12090,20 @@ return (
                             </div>
                           </div>
                         )}
+                        {(pendingAlpacaOrderConfirmation.type === "stop" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Stop Price</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                              {formatCurrency(pendingAlpacaOrderConfirmation.stopPrice)}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Time In Force</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                            {getAlpacaTimeInForceLabel(pendingAlpacaOrderConfirmation.timeInForce)}
+                          </div>
+                        </div>
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Estimated Price</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
@@ -7276,6 +12118,12 @@ return (
                             {pendingAlpacaOrderConfirmation.estimatedValue != null
                               ? formatCurrency(pendingAlpacaOrderConfirmation.estimatedValue)
                               : "--"}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Leverage Plan</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                            {pendingAlpacaOrderConfirmation.leverage || "1x"}
                           </div>
                         </div>
                       </div>
@@ -7329,55 +12177,83 @@ return (
               )}
 
               <div className="card" style={{ marginBottom: 16, overflow: "visible" }}>
-                <div className="cardHeader"><h2>Alpaca Paper Trading</h2></div>
+                <div className="cardHeader"><h2>Rayla Trading Workspace</h2></div>
                 <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                    Trade is where Rayla handles broker connectivity and user-confirmed paper stock execution.
+                    Rayla keeps your connected broker account, live market context, and paper execution flow in one focused trading workspace.
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-                    <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
+                    <div style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                        Connection Status
+                        Broker Connection
                       </div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: alpacaAccount ? "#4ade80" : "#e2e8f0" }}>
-                        {alpacaAccount ? "Connected to Alpaca Paper" : "Not connected"}
+                        {alpacaAccount ? "Connected Broker · Paper Trading" : "Broker not connected"}
                       </div>
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        Paper trading. Orders are submitted after you confirm.
+                        Rayla submits paper orders only after your confirmation. Live broker data stays synced to your workspace.
                       </div>
+                      {alpacaAccount?.accountNumber ? (
+                        <div style={{ fontSize: 11, color: "#7f8ea3" }}>
+                          Broker detail: Alpaca Paper · Account {alpacaAccount.accountNumber}
+                        </div>
+                      ) : null}
                       {!alpacaAccount ? (
                         <button type="button" className="ghostButton" onClick={handleConnectAlpaca}>
-                          Connect Alpaca
+                          Connect Broker
                         </button>
                       ) : (
                         <button type="button" className="ghostButton" onClick={() => fetchAlpacaBrokerData()}>
-                          Refresh
+                          Refresh Broker Data
                         </button>
                       )}
                     </div>
 
                     <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                        Account Summary
+                        Account Snapshot
                       </div>
                       {alpacaAccount ? (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                           {[
                             { label: "Status", value: alpacaAccount.status || "--" },
-                            { label: "Buying Power", value: formatCurrency(alpacaAccount.buyingPower) },
+                            { label: "Buying Power", value: formatCurrency(alpacaAccount.buyingPower), helpTopic: "buyingPower" },
                             { label: "Cash", value: formatCurrency(alpacaAccount.cash) },
                             { label: "Portfolio", value: formatCurrency(alpacaAccount.portfolioValue) },
                             { label: "Equity", value: formatCurrency(alpacaAccount.equity) },
+                            {
+                              label: "Day P/L",
+                              value: (() => {
+                                const dayPnL = calculateBrokerDayPnL(alpacaPositions);
+                                return Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
+                              })(),
+                              color: calculateBrokerDayPnL(alpacaPositions) >= 0 ? "#4ade80" : "#f87171",
+                            },
+                            {
+                              label: "Margin",
+                              value: Number(alpacaAccount.raw?.multiplier ?? 1) > 1
+                                ? `${alpacaAccount.raw?.multiplier}x buying power`
+                                : "Margin info unavailable",
+                              helpTopic: "leverage",
+                            },
                           ].map((item) => (
                             <div key={item.label}>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{item.label}</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{item.value}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 12, color: "#7f8ea3" }}>{item.label}</div>
+                                {item.helpTopic ? (
+                                  <InlineHelpButton topic={item.helpTopic} activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                ) : null}
+                              </div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: item.color || "#e2e8f0" }}>{item.value}</div>
+                              {item.helpTopic && tradeHelpTopic === item.helpTopic ? (
+                                <InlineHelpCard topic={item.helpTopic} />
+                              ) : null}
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                          Connect Alpaca Paper to load your account status, buying power, cash, portfolio value, and equity.
+                          Connect your paper broker to load status, buying power, cash, portfolio value, equity, and live trading context.
                         </div>
                       )}
                     </div>
@@ -7385,90 +12261,82 @@ return (
 
                   {alpacaConnectionLoading && (
                     <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                      Loading Alpaca Paper data...
+                      Loading broker data...
                     </div>
                   )}
 
                   {alpacaAccount && (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-                      <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(560px, 1.75fr) minmax(305px, 0.95fr) minmax(245px, 0.85fr)", gap: 14, alignItems: "stretch" }}>
+                      <div style={{ order: 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                          Positions
+                          Positions & Holdings
                         </div>
                         {alpacaPositions.length > 0 && (
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ fontSize: 10, color: "#7f8ea3", letterSpacing: "0.4px" }}>Select asset to view</div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                              <button
-                                type="button"
-                                onClick={() => setTradeViewMode("portfolio")}
-                                style={{
-                                  padding: "4px 11px",
-                                  borderRadius: 7,
-                                  border: "1px solid",
-                                  borderColor: tradeViewMode === "portfolio" ? "var(--rayla-blue)" : "rgba(255,255,255,0.1)",
-                                  background: tradeViewMode === "portfolio" ? "rgba(111,160,216,0.14)" : "transparent",
-                                  color: tradeViewMode === "portfolio" ? "#93c5fd" : "#7f8ea3",
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Portfolio
-                              </button>
-                              {alpacaPositions.map((pos) => {
-                                const isSelected = tradeViewMode === "asset" && tradePanelSymbol === pos.symbol;
-                                return (
-                                  <button
-                                    key={pos.symbol}
-                                    type="button"
-                                    onClick={() => {
-                                      setAlpacaOrderForm((prev) => ({ ...prev, symbol: pos.symbol }));
-                                      setAlpacaAssetSearchResults([]);
-                                      setAlpacaAssetSearchError("");
-                                      setAlpacaAssetSearchOpen(false);
-                                      setTradeViewMode("asset");
-                                    }}
-                                    style={{
-                                      padding: "4px 11px",
-                                      borderRadius: 7,
-                                      border: "1px solid",
-                                      borderColor: isSelected ? "rgba(124,196,255,0.55)" : "rgba(255,255,255,0.1)",
-                                      background: isSelected ? "rgba(124,196,255,0.13)" : "transparent",
-                                      color: isSelected ? "#d7efff" : "#94a3b8",
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    {pos.symbol}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            <div style={{ fontSize: 10, color: "#7f8ea3", letterSpacing: "0.4px" }}>Select the portfolio or one asset to view</div>
                           </div>
                         )}
                         {alpacaPositions.length ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", minHeight: 0 }}>
+                            {(() => {
+                              const isPortfolioPending = tradeAppliedSelection.mode === "portfolio";
+                              const portfolioMarketValue = alpacaPositions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
+                              const portfolioUnrealizedPl = alpacaPositions.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0);
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => applyTradeSelection({ mode: "portfolio", symbols: tradePortfolioAllSymbols })}
+                                  style={{
+                                    padding: 12,
+                                    borderRadius: 12,
+                                    background: isPortfolioPending ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
+                                    border: `1px solid ${isPortfolioPending ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
+                                    boxShadow: isPortfolioPending ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                    width: "100%",
+                                    transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Portfolio</div>
+                                    <div style={{ fontSize: 12, color: portfolioUnrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                                      {`${portfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(portfolioUnrealizedPl)}`}
+                                    </div>
+                                  </div>
+                                  <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                                    {alpacaPositions.length} assets selected · Combined value {formatCurrency(portfolioMarketValue)}
+                                  </div>
+                                </button>
+                              );
+                            })()}
                             {alpacaPositions.map((position) => (
                               <button
                                 key={position.symbol}
                                 type="button"
-                                onClick={() => {
-                                  setAlpacaOrderForm((prev) => ({ ...prev, symbol: position.symbol }));
-                                  setAlpacaAssetSearchResults([]);
-                                  setAlpacaAssetSearchError("");
-                                  setAlpacaAssetSearchOpen(false);
-                                  setTradeViewMode("asset");
+                                onClick={() => applyTradeSelection({ mode: "asset", symbols: [position.symbol] })}
+                                style={{
+                                  padding: 12,
+                                  borderRadius: 12,
+                                  background: tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset" ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
+                                  border: `1px solid ${tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset" ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
+                                  boxShadow: tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset" ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                  width: "100%",
+                                  transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
                                 }}
-                                style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", cursor: "pointer", textAlign: "left", width: "100%", transition: "border-color 160ms ease, background 160ms ease, transform 160ms ease" }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
-                                  e.currentTarget.style.background = "rgba(124,196,255,0.05)";
+                                  if (!tradeAppliedSelection.symbols.includes(position.symbol) || tradeAppliedSelection.mode !== "asset") {
+                                    e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
+                                    e.currentTarget.style.background = "rgba(124,196,255,0.05)";
+                                  }
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                                  e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                                  if (!tradeAppliedSelection.symbols.includes(position.symbol) || tradeAppliedSelection.mode !== "asset") {
+                                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                                    e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                                  }
                                 }}
                               >
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -7485,18 +12353,18 @@ return (
                           </div>
                         ) : (
                           <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                            No Alpaca Paper stock positions yet.
+                            No connected broker positions yet.
                           </div>
                         )}
                       </div>
 
                       {(() => {
                         return (
-                          <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ order: 1, padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
                             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                               Live Market
                             </div>
-                            {!tradePanelSymbol ? (
+                            {(!tradeIsComparisonMode && !tradeChartSymbol) ? (
                               <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
                                 Select an asset or click a position to view live market context.
                               </div>
@@ -7504,85 +12372,88 @@ return (
                               <>
                                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                                   <div>
-                                    <div style={{ fontSize: 17, fontWeight: 700, color: "#e2e8f0" }}>{tradePanelSymbol}</div>
-                                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                                      {Number.isFinite(tradePanelCurrentPrice) ? formatCurrency(tradePanelCurrentPrice) : "--"}
-                                      {tradePanelQuote?.change != null ? ` · ${tradePanelQuote.change >= 0 ? "+" : ""}${tradePanelQuote.change.toFixed(2)}%` : ""}
+                                    <div style={{ fontSize: 17, fontWeight: 700, color: "#e2e8f0" }}>
+                                      {tradeAppliedSelection.mode === "portfolio"
+                                        ? "Portfolio Performance"
+                                        : tradeChartSymbol}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+                                      {tradeAppliedSelection.mode === "portfolio"
+                                        ? "Combined portfolio performance over time"
+                                        : `${Number.isFinite(tradeChartCurrentPrice) ? formatCurrency(tradeChartCurrentPrice) : "--"}${tradeChartQuote?.change != null ? ` · ${tradeChartQuote.change >= 0 ? "+" : ""}${tradeChartQuote.change.toFixed(2)}%` : ""} · Live price chart`}
                                     </div>
                                   </div>
-                                  {tradePanelMatchingPosition ? (
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: tradePanelMatchingPosition.unrealizedPl >= 0 ? "#4ade80" : "#f87171" }}>
-                                      {`${tradePanelMatchingPosition.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradePanelMatchingPosition.unrealizedPl)}`}
+                                  {(tradeIsComparisonMode || tradeChartMatchingPosition) ? (
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: (tradeIsComparisonMode ? tradePortfolioCombinedUnrealizedPl : tradeChartMatchingPosition.unrealizedPl) >= 0 ? "#4ade80" : "#f87171" }}>
+                                      {tradeIsComparisonMode
+                                        ? `${tradePortfolioCombinedUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradePortfolioCombinedUnrealizedPl)}`
+                                        : `${tradeChartMatchingPosition.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradeChartMatchingPosition.unrealizedPl)}`}
                                     </div>
                                   ) : null}
                                 </div>
-                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                                   <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
                                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                                      {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
-                                        <button
-                                          key={range}
-                                          type="button"
-                                          onClick={() => setTradeChartRange(range)}
-                                          style={{
-                                            padding: "3px 9px",
-                                            borderRadius: 6,
-                                            border: "1px solid",
-                                            borderColor: tradeChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                            background: tradeChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
-                                            color: tradeChartRange === range ? "#d7efff" : "#7f8ea3",
-                                            fontSize: 10,
-                                            fontWeight: 700,
-                                            cursor: "pointer",
-                                            letterSpacing: "0.5px",
-                                          }}
-                                        >
-                                          {range}
-                                        </button>
-                                      ))}
+                                      <ChartTimeframeDropdown
+                                        value={tradeChartRange}
+                                        onChange={setTradeChartRange}
+                                        options={LIVE_WIDGET_INTERVAL_OPTIONS}
+                                        width={88}
+                                      />
                                     </div>
-                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                                      {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                                        <button
-                                          key={mode}
-                                          type="button"
-                                          onClick={() => setTradeChartMode(mode)}
-                                          style={{
-                                            padding: "3px 9px",
-                                            borderRadius: 6,
-                                            border: "1px solid",
-                                            borderColor: tradeChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                            background: tradeChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
-                                            color: tradeChartMode === mode ? "#d7efff" : "#7f8ea3",
-                                            fontSize: 10,
-                                            fontWeight: 700,
-                                            cursor: "pointer",
-                                            letterSpacing: "0.5px",
-                                          }}
-                                        >
-                                          {label}
-                                        </button>
-                                      ))}
-                                    </div>
+                                    {tradeIsComparisonMode ? (
+                                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                        {[["line", "Line"]].map(([mode, label]) => (
+                                          <button
+                                            key={mode}
+                                            type="button"
+                                            onClick={() => setTradeChartMode(mode)}
+                                            style={{
+                                              padding: "3px 9px",
+                                              borderRadius: 6,
+                                              border: "1px solid",
+                                              borderColor: tradeChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                              background: tradeChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
+                                              color: tradeChartMode === mode ? "#d7efff" : "#7f8ea3",
+                                              fontSize: 10,
+                                              fontWeight: 700,
+                                              cursor: "pointer",
+                                              letterSpacing: "0.5px",
+                                            }}
+                                          >
+                                            {label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : null}
                                   </div>
-                                {tradeChartLastUpdated && (
+                                {tradeChartUpdatedLabel && (
                                   <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                                    Updated {tradeChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    Last updated: {tradeChartUpdatedLabel}
                                   </div>
                                 )}
                               </div>
-                              {tradePanelSymbol && tradeViewMode !== "portfolio" && (
+                              {tradeChartSymbol && !tradeIsComparisonMode && (
                                 <div style={{ display: "flex", justifyContent: "flex-start" }}>
                                   <button
                                     type="button"
                                     onClick={() => {
                                       const chartContext = buildChartExplainContext({
-                                        symbol: tradePanelSymbol,
-                                        assetName: tradePanelAsset?.description || tradePanelAsset?.name || tradePanelSymbol,
-                                        assetType: tradePanelAsset?.type || "stock",
+                                        symbol: tradeChartSymbol,
+                                        assetName: tradeChartAsset?.description || tradeChartAsset?.name || tradeChartSymbol,
+                                        assetType: tradeChartAsset?.type || "stock",
                                         range: tradeChartRange,
-                                        bars: extractChartBars(tradeMarketChart),
-                                        currentPrice: tradePanelCurrentPrice,
+                                        bars: tradeVisibleBars,
+                                        currentPrice: tradeChartCurrentPrice,
+                                        positionSummary: tradeChartMatchingPosition
+                                          ? {
+                                              qty: tradeChartMatchingPosition.qty,
+                                              avgEntryPrice: tradeChartMatchingPosition.avgEntryPrice,
+                                              marketValue: tradeChartMatchingPosition.marketValue,
+                                              unrealizedPl: tradeChartMatchingPosition.unrealizedPl,
+                                              unrealizedPlpc: tradeChartMatchingPosition.unrealizedPlpc,
+                                            }
+                                          : null,
                                       });
                                       openChartExplainPopup(chartContext, "Explain this chart");
                                     }}
@@ -7601,109 +12472,258 @@ return (
                                   </button>
                                 </div>
                               )}
-                              {tradeViewMode === "portfolio" ? (() => {
-                                  const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
-                                  const xL = 10, xR = 195, yT = 5, yB = 108;
-                                  const chartW = xR - xL;
-                                  const chartH = yB - yT;
-                                  const portfolioLines = alpacaPositions.map((pos, pi) => {
-                                    const q = getKnownStockQuoteData(pos.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
-                                    const raw = buildFallbackMiniChartSeries(q, pos);
-                                    const base = raw[0] || 1;
-                                    return { symbol: pos.symbol, series: raw.map((v) => ((v - base) / base) * 100), color: palette[pi % palette.length] };
-                                  });
-                                  const allVals = portfolioLines.flatMap((l) => l.series).filter(Number.isFinite);
-                                  if (allVals.length < 2) return (
-                                    <div style={{ height: 260, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>No positions to display</div>
+                              {tradeIsComparisonMode ? (() => {
+                                const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
+                                const xL = 20, xR = 194, yT = 8, yB = 100;
+                                const chartW = xR - xL;
+                                const chartH = yB - yT;
+                                const lineInputs = tradePortfolioDisplayedPositions.map((pos, pi) => {
+                                  const chart = tradePortfolioCharts[pos.symbol];
+                                  const rawBars = Array.isArray(chart?.bars) ? chart.bars : [];
+                                  const fallbackEntryResolution = resolveTradePortfolioEntryTime(pos, brokerTradeLog, trades);
+                                  const entryTimeMs = chart?.entryTimeMs ?? fallbackEntryResolution.timeMs;
+                                  const entryTimeSource = chart?.entryTimeSource ?? fallbackEntryResolution.source;
+                                  const safeStartMs = Math.max(
+                                    tradePortfolioRequestedStartMs ?? (rawBars[0]?.time ? new Date(rawBars[0].time).getTime() : tradePortfolioNowMs),
+                                    Number.isFinite(entryTimeMs) ? entryTimeMs : tradePortfolioRequestedStartMs ?? 0
                                   );
-                                  const pMin = Math.min(...allVals), pMax = Math.max(...allVals);
-                                  const pPad = (pMax - pMin) * 0.14 || 0.5;
-                                  const pLo = pMin - pPad, pHi = pMax + pPad;
-                                  const vy = (v) => yB - ((v - pLo) / (pHi - pLo || 1)) * chartH;
-                                  const ySteps = Array.from({ length: 4 }, (_, i) => {
-                                    const ratio = i / 3;
-                                    return { y: yT + chartH * ratio, val: pHi - (pHi - pLo) * ratio };
+                                  const filteredBars = rawBars
+                                    .map((bar) => {
+                                      const barTime = new Date(bar.time || bar.t || 0).getTime();
+                                      return Number.isFinite(barTime) ? { ...bar, barTime } : null;
+                                    })
+                                    .filter(Boolean)
+                                    .filter((bar) => bar.barTime >= safeStartMs);
+                                  const baseline = Number(filteredBars[0]?.close);
+                                  const points = Number.isFinite(baseline) && baseline > 0
+                                    ? filteredBars.map((bar) => ({
+                                        timeMs: bar.barTime,
+                                        value: ((Number(bar.close) - baseline) / baseline) * 100,
+                                      }))
+                                    : [];
+                                  if (DEBUG_CHARTS) {
+                                    console.log("TRADING PORTFOLIO ENTRY CLIP", {
+                                      symbol: pos.symbol,
+                                      resolvedEntryOpenTimestamp: entryTimeMs ? new Date(entryTimeMs).toISOString() : null,
+                                      sourceFieldUsed: entryTimeSource || null,
+                                      selectedRangeStart: tradePortfolioRequestedStartMs ? new Date(tradePortfolioRequestedStartMs).toISOString() : null,
+                                      firstChartPointAfterClipping: filteredBars[0]?.barTime ? new Date(filteredBars[0].barTime).toISOString() : null,
+                                      chartPointCount: points.length,
+                                    });
+                                  }
+                                  return {
+                                    symbol: pos.symbol,
+                                    color: palette[pi % palette.length],
+                                    qty: Number(pos?.qty) || 0,
+                                    rawBars: filteredBars,
+                                    points,
+                                    entryTimeMs,
+                                  };
+                                });
+                                const portfolioLines = lineInputs
+                                  .map((line) => ({
+                                    ...line,
+                                    series: line.points.map((point) => point.value),
+                                    xRatios: line.points.map((point) => {
+                                      const startMs = tradePortfolioRequestedStartMs ?? point.timeMs;
+                                      const endMs = tradePortfolioNowMs;
+                                      const denom = Math.max(1, endMs - startMs);
+                                      return (point.timeMs - startMs) / denom;
+                                    }),
+                                  }))
+                                  .filter((line) => line.series.length >= 2);
+                                const totalPortfolioPoints = (() => {
+                                  if (!tradeIsPortfolioTotalMode) return [];
+                                  const timeMap = new Map();
+                                  lineInputs.forEach((line) => {
+                                    line.points.forEach((point) => {
+                                      const existing = timeMap.get(point.timeMs) || {};
+                                      existing[line.symbol] = point;
+                                      timeMap.set(point.timeMs, existing);
+                                    });
                                   });
+                                  const sortedTimes = Array.from(timeMap.keys()).sort((a, b) => a - b);
+                                  const latestBySymbol = {};
+                                  const totals = [];
+                                  sortedTimes.forEach((timeMs) => {
+                                    const updates = timeMap.get(timeMs) || {};
+                                    Object.entries(updates).forEach(([symbol, point]) => {
+                                      latestBySymbol[symbol] = point;
+                                    });
+                                    let totalValue = 0;
+                                    let contributing = 0;
+                                    lineInputs.forEach((line) => {
+                                      const latest = latestBySymbol[line.symbol];
+                                      if (!latest) return;
+                                      let matchingRawBar = null;
+                                      for (let index = 0; index < line.rawBars.length; index += 1) {
+                                        const rawBar = line.rawBars[index];
+                                        if (rawBar.barTime <= timeMs) {
+                                          matchingRawBar = rawBar;
+                                        } else {
+                                          break;
+                                        }
+                                      }
+                                      const closeValue = Number(matchingRawBar?.close);
+                                      if (!Number.isFinite(closeValue)) return;
+                                      totalValue += closeValue * line.qty;
+                                      contributing += 1;
+                                    });
+                                    if (contributing > 0 && Number.isFinite(totalValue)) {
+                                      totals.push({ timeMs, value: totalValue });
+                                    }
+                                  });
+                                  const baseline = Number(totals[0]?.value);
+                                  if (!Number.isFinite(baseline) || baseline <= 0) return [];
+                                  return totals.map((point) => ({
+                                    timeMs: point.timeMs,
+                                    value: ((point.value - baseline) / baseline) * 100,
+                                    rawValue: point.value,
+                                  }));
+                                })();
+                                const displayedLines = tradeIsPortfolioTotalMode
+                                  ? [{
+                                      symbol: "Portfolio",
+                                      color: "#7CC4FF",
+                                      series: totalPortfolioPoints.map((point) => point.value),
+                                      xRatios: totalPortfolioPoints.map((point) => {
+                                        const startMs = tradePortfolioRequestedStartMs ?? point.timeMs;
+                                        const endMs = tradePortfolioNowMs;
+                                        const denom = Math.max(1, endMs - startMs);
+                                        return (point.timeMs - startMs) / denom;
+                                      }),
+                                      points: totalPortfolioPoints,
+                                    }]
+                                  : portfolioLines;
+                                const allVals = displayedLines.flatMap((l) => l.series).filter(Number.isFinite);
+                                if (allVals.length < 2) {
                                   return (
-                                    <div style={{ height: 260, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "10px 6px 6px 6px" }}>
-                                      <svg viewBox="0 0 210 120" style={{ width: "100%", height: "100%" }}>
-                                        {ySteps.map(({ y, val }, i) => (
-                                          <g key={i}>
-                                            <line x1={xL} y1={y} x2={xR} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
-                                            <text x={xL - 1} y={y + 1.5} textAnchor="end" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{val >= 0 ? "+" : ""}{val.toFixed(1)}%</text>
-                                          </g>
-                                        ))}
-                                        <line x1={xL} y1={yT} x2={xL} y2={yB} stroke="rgba(255,255,255,0.1)" strokeWidth="0.4" />
-                                        <line x1={xL} y1={yB} x2={xR} y2={yB} stroke="rgba(255,255,255,0.1)" strokeWidth="0.4" />
-                                        {portfolioLines.map(({ symbol, series, color }) => {
-                                          const n = series.length;
-                                          if (n < 2) return null;
-                                          const pts = series.map((v, i) => `${xL + (i / (n - 1)) * chartW},${vy(v)}`).join(" ");
-                                          return <polyline key={symbol} points={pts} fill="none" stroke={color} strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />;
-                                        })}
-                                        {portfolioLines.map(({ symbol, series, color }) => {
-                                          const n = series.length;
-                                          const lastV = series[n - 1];
-                                          const dotX = xL + chartW;
-                                          const dotY = Math.max(8, Math.min(vy(lastV), yB - 2));
-                                          return (
-                                            <g key={symbol}>
-                                              <circle cx={dotX} cy={dotY} r="3" fill={color} opacity="0.25">
-                                                <animate attributeName="r" values="2;5;2" dur="2s" repeatCount="indefinite" />
-                                                <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
-                                              </circle>
-                                              <circle cx={dotX} cy={dotY} r="2" fill={color} />
-                                              <text x={dotX + 3} y={dotY + 1.8} fontSize="5.5" fill={color} fontFamily="monospace" fontWeight="bold">{symbol}</text>
-                                            </g>
-                                          );
-                                        })}
-                                      </svg>
+                                    <div style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                                      {tradePortfolioChartsLoading ? "Loading portfolio chart..." : "No portfolio comparison data available"}
                                     </div>
                                   );
-                                })() : (
-                                  <div style={{ height: 260, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
-                                    {tradeMarketChartLoading && extractChartBars(tradeMarketChart).length < 2 ? (
-                                      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
-                                        Loading chart...
-                                      </div>
-                                    ) : extractChartBars(tradeMarketChart).length < 2 ? (
+                                }
+                                const pMin = Math.min(...allVals), pMax = Math.max(...allVals);
+                                const pPad = (pMax - pMin) * 0.14 || 0.5;
+                                const pLo = pMin - pPad, pHi = pMax + pPad;
+                                const vy = (v) => yB - ((v - pLo) / (pHi - pLo || 1)) * chartH;
+                                const ySteps = Array.from({ length: 4 }, (_, i) => {
+                                  const ratio = i / 3;
+                                  return { y: yT + chartH * ratio, val: pHi - (pHi - pLo) * ratio };
+                                });
+                                const tickStartMs = tradePortfolioRequestedStartMs ?? Math.min(...displayedLines.flatMap((line) => line.points.map((point) => point.timeMs)));
+                                const tickEndMs = tradePortfolioNowMs;
+                                const xTicks = buildTradePortfolioTicks(tickStartMs, tickEndMs, tradeChartRange);
+                                return (
+                                  <div style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "10px 6px 6px 6px" }}>
+                                    <svg viewBox="0 0 210 120" style={{ width: "100%", height: "100%" }}>
+                                      {ySteps.map(({ y, val }, i) => (
+                                        <g key={i}>
+                                          <line x1={xL} y1={y} x2={xR} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
+                                          <text x={xL - 2} y={y + 1.5} textAnchor="end" fontSize="5.5" fill="#7f8ea3" fontFamily="monospace">{val >= 0 ? "+" : ""}{val.toFixed(1)}%</text>
+                                        </g>
+                                      ))}
+                                      <line x1={xL} y1={yT} x2={xL} y2={yB} stroke="rgba(255,255,255,0.1)" strokeWidth="0.4" />
+                                      <line x1={xL} y1={yB} x2={xR} y2={yB} stroke="rgba(255,255,255,0.1)" strokeWidth="0.4" />
+                                      {displayedLines.map(({ symbol, series, color, xRatios }) => {
+                                        const n = series.length;
+                                        if (n < 2) return null;
+                                        const pts = series.map((v, i) => `${xL + (xRatios?.[i] ?? (i / (n - 1))) * chartW},${vy(v)}`).join(" ");
+                                        return <polyline key={symbol} points={pts} fill="none" stroke={color} strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />;
+                                      })}
+                                      {xTicks.map((tick, index) => (
+                                        <g key={`tick-${index}`}>
+                                          <line x1={xL + tick.ratio * chartW} y1={yT} x2={xL + tick.ratio * chartW} y2={yB} stroke="rgba(255,255,255,0.025)" strokeWidth="0.4" />
+                                          {tick.label ? (
+                                            <text x={xL + tick.ratio * chartW} y={114.5} textAnchor="middle" fontSize="5.2" fill="#7f8ea3" fontFamily="monospace">
+                                              {tick.label}
+                                            </text>
+                                          ) : null}
+                                        </g>
+                                      ))}
+                                      {displayedLines.map(({ symbol, series, color, xRatios }) => {
+                                        const n = series.length;
+                                        const lastV = series[n - 1];
+                                        const dotX = xL + (xRatios?.[n - 1] ?? 1) * chartW;
+                                        const dotY = Math.max(8, Math.min(vy(lastV), yB - 2));
+                                        return (
+                                          <g key={symbol}>
+                                            <circle cx={dotX} cy={dotY} r="3" fill={color} opacity="0.25">
+                                              <animate attributeName="r" values="2;5;2" dur="2s" repeatCount="indefinite" />
+                                              <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
+                                            </circle>
+                                            <circle cx={dotX} cy={dotY} r="2" fill={color} />
+                                          </g>
+                                        );
+                                      })}
+                                    </svg>
+                                  </div>
+                                );
+                              })() : (
+                                <div>
+                                  <MarketClosedBanner assetType={tradePanelAssetType} updatedLabel={tradeChartUpdatedLabel} />
+                                  <div style={{ height: 560, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                    {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
-                                        <div>Chart unavailable</div>
-                                        <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                                        <div>Live chart unavailable</div>
+                                        <div>Alpaca does not currently support trading this asset.</div>
                                       </div>
                                     ) : (
-                                      <TradeChart
-                                        bars={extractChartBars(tradeMarketChart)}
-                                        mode={tradeChartMode}
-                                        latestPrice={tradePanelCurrentPrice}
-                                        assetSymbol={tradePanelSymbol}
-                                        assetName={tradePanelAsset?.description || tradePanelAsset?.name || tradePanelSymbol}
+                                      <TradingViewLiveChart
+                                        asset={tradeChartAsset}
+                                        height="100%"
+                                        interval={tradeChartRange}
+                                        chartType="trades_live"
                                       />
                                     )}
                                   </div>
-                                )}
+                                </div>
+                              )}
+                              {tradeIsComparisonMode ? (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                                  {(tradeIsPortfolioTotalMode
+                                    ? [{ symbol: "Portfolio", color: "#7CC4FF" }]
+                                    : tradePortfolioDisplayedPositions.map((position, index) => ({
+                                        symbol: position.symbol,
+                                        color: ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"][index % 6],
+                                      }))
+                                  ).map((item) => {
+                                    const { symbol, color } = item;
+                                    return (
+                                      <div key={symbol} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#cbd5e1", fontWeight: 600 }}>
+                                        <span style={{ width: 10, height: 10, borderRadius: 999, background: color, boxShadow: `0 0 0 1px ${color}33` }} />
+                                        <span>{symbol}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                                   <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Qty Held</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{tradePanelMatchingPosition ? tradePanelMatchingPosition.qty : "--"}</div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{tradeIsComparisonMode ? "Assets Selected" : "Qty Held"}</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{tradeIsComparisonMode ? (tradeIsPortfolioTotalMode ? tradePortfolioAllSymbols.length : tradePortfolioDisplayedPositions.length) : tradeChartMatchingPosition ? tradeChartMatchingPosition.qty : "--"}</div>
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Entry</div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{tradeIsComparisonMode ? "Comparison Mode" : "Avg Entry"}</div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
-                                      {tradePanelMatchingPosition ? formatCurrency(tradePanelMatchingPosition.avgEntryPrice) : "--"}
+                                      {tradeIsComparisonMode ? (tradeIsPortfolioTotalMode ? "Portfolio" : "% change") : tradeChartMatchingPosition ? formatCurrency(tradeChartMatchingPosition.avgEntryPrice) : "--"}
                                     </div>
                                   </div>
                                   <div>
                                     <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Position Value</div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
-                                      {tradePanelMatchingPosition && Number.isFinite(tradePanelMatchingPosition.marketValue) ? formatCurrency(tradePanelMatchingPosition.marketValue) : "--"}
+                                      {tradeIsComparisonMode
+                                        ? formatCurrency(tradePortfolioCombinedMarketValue)
+                                        : tradeChartMatchingPosition && Number.isFinite(tradeChartMatchingPosition.marketValue) ? formatCurrency(tradeChartMatchingPosition.marketValue) : "--"}
                                     </div>
                                   </div>
                                   <div>
                                     <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Unrealized P/L</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: tradePanelMatchingPosition?.unrealizedPl >= 0 ? "#4ade80" : tradePanelMatchingPosition ? "#f87171" : "#e2e8f0" }}>
-                                      {tradePanelMatchingPosition && Number.isFinite(tradePanelMatchingPosition.unrealizedPl)
-                                        ? `${tradePanelMatchingPosition.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradePanelMatchingPosition.unrealizedPl)}${Number.isFinite(tradePanelMatchingPosition.unrealizedPlpc) ? ` (${tradePanelMatchingPosition.unrealizedPlpc >= 0 ? "+" : ""}${(tradePanelMatchingPosition.unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: tradeIsComparisonMode ? (tradePortfolioCombinedUnrealizedPl >= 0 ? "#4ade80" : "#f87171") : tradeChartMatchingPosition?.unrealizedPl >= 0 ? "#4ade80" : tradeChartMatchingPosition ? "#f87171" : "#e2e8f0" }}>
+                                      {tradeIsComparisonMode
+                                        ? `${tradePortfolioCombinedUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradePortfolioCombinedUnrealizedPl)}`
+                                        : tradeChartMatchingPosition && Number.isFinite(tradeChartMatchingPosition.unrealizedPl)
+                                        ? `${tradeChartMatchingPosition.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradeChartMatchingPosition.unrealizedPl)}${Number.isFinite(tradeChartMatchingPosition.unrealizedPlpc) ? ` (${tradeChartMatchingPosition.unrealizedPlpc >= 0 ? "+" : ""}${(tradeChartMatchingPosition.unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
                                         : "--"}
                                     </div>
                                   </div>
@@ -7714,71 +12734,164 @@ return (
                         );
                       })()}
 
-                      <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ order: 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                          Trade Order
+                          Order Ticket
                         </div>
                         {(() => {
                           const selectedSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
                           if (!selectedSymbol) return null;
 
                           const matchingPosition = alpacaPositions.find((position) => position.symbol === selectedSymbol) || null;
+                          const selectedOrderQuote = getKnownStockQuoteData(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                           const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && selectedSymbol === tradePanelSymbol
                             ? tradePanelCurrentPrice
                             : getKnownStockQuotePrice(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+                          const selectedOrderBid = Number(selectedOrderQuote?.bid);
+                          const selectedOrderAsk = Number(selectedOrderQuote?.ask);
+                          const selectedOrderLastTradePrice = Number(selectedOrderQuote?.lastTradePrice ?? selectedOrderQuote?.price);
+                          const selectedOrderSpread = getQuoteSpread(selectedOrderQuote);
+                          const orderQuoteIsFresh = isQuoteFresh(selectedOrderQuote);
                           const currentPositionPrice = Number.isFinite(selectedOrderAssetPrice)
                             ? selectedOrderAssetPrice
                             : matchingPosition?.currentPrice;
                           const unrealizedPl = matchingPosition?.unrealizedPl ?? null;
                           const unrealizedPlpc = matchingPosition?.unrealizedPlpc ?? null;
+                          const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === selectedSymbol)
+                            || (tradeSelectedBrokerAsset?.symbol === selectedSymbol ? tradeSelectedBrokerAsset : null);
+                          const accountMultiplier = Math.max(1, Number(alpacaAccount?.raw?.multiplier ?? 1) || 1);
+                          const leverageAvailable = accountMultiplier > 1 && selectedBrokerAsset?.marginable;
+                          const capabilityBadges = getBrokerCapabilityBadges({
+                            tradable: selectedBrokerAsset?.tradable ?? true,
+                            marginable: selectedBrokerAsset?.marginable ?? false,
+                            shortable: selectedBrokerAsset?.shortable ?? false,
+                            easyToBorrow: selectedBrokerAsset?.easyToBorrow ?? false,
+                            assetClass: selectedBrokerAsset?.assetClass || matchingPosition?.assetClass || tradePanelAsset?.type || "us_equity",
+                          });
 
                           return (
                             <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                                Position Summary
-                              </div>
-                              {matchingPosition ? (
-                                <>
+                              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                                <div>
+                                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 6 }}>
+                                    Selected Asset
+                                  </div>
                                   <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{selectedSymbol}</div>
-                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-                                    <div>
-                                      <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Shares</div>
-                                      <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{matchingPosition.qty}</div>
+                                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                                    {selectedBrokerAsset?.name || tradePanelAsset?.description || (matchingPosition ? "Connected broker position" : "Searching broker asset details")}
+                                  </div>
+                                </div>
+                                {Number.isFinite(currentPositionPrice) ? (
+                                  <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+                                    {formatCurrency(currentPositionPrice)}
+                                  </div>
+                                ) : null}
+                              </div>
+                              {capabilityBadges.length ? (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                  {capabilityBadges.map((badge) => (
+                                    <div
+                                      key={badge.label}
+                                      style={{
+                                        padding: "4px 8px",
+                                        borderRadius: 999,
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        letterSpacing: "0.5px",
+                                        ...getCapabilityBadgeStyle(badge.tone),
+                                      }}
+                                    >
+                                      {badge.label}
                                     </div>
-                                    <div>
-                                      <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Price</div>
-                                      <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatCurrency(matchingPosition.avgEntryPrice)}</div>
-                                    </div>
-                                    <div>
-                                      <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Current Price</div>
-                                      <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
-                                        {Number.isFinite(currentPositionPrice) ? formatCurrency(currentPositionPrice) : "--"}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Unrealized P/L</div>
-                                      <div style={{ fontSize: 14, fontWeight: 700, color: unrealizedPl >= 0 ? "#4ade80" : "#f87171" }}>
-                                        {Number.isFinite(unrealizedPl)
-                                          ? `${unrealizedPl >= 0 ? "+" : ""}${formatCurrency(unrealizedPl)}${Number.isFinite(unrealizedPlpc) ? ` (${unrealizedPlpc >= 0 ? "+" : ""}${(unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
-                                          : "--"}
-                                      </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {matchingPosition ? (
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+                                  <div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Shares</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{matchingPosition.qty}</div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Price</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatCurrency(matchingPosition.avgEntryPrice)}</div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Current Price</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
+                                      {Number.isFinite(currentPositionPrice) ? formatCurrency(currentPositionPrice) : "--"}
                                     </div>
                                   </div>
-                                </>
+                                  <div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                                      <div style={{ fontSize: 12, color: "#7f8ea3" }}>Unrealized P/L</div>
+                                      <InlineHelpButton topic="unrealizedPnL" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                    </div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: unrealizedPl >= 0 ? "#4ade80" : "#f87171" }}>
+                                      {Number.isFinite(unrealizedPl)
+                                        ? `${unrealizedPl >= 0 ? "+" : ""}${formatCurrency(unrealizedPl)}${Number.isFinite(unrealizedPlpc) ? ` (${unrealizedPlpc >= 0 ? "+" : ""}${(unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
+                                        : "--"}
+                                    </div>
+                                    {tradeHelpTopic === "unrealizedPnL" ? <InlineHelpCard topic="unrealizedPnL" /> : null}
+                                  </div>
+                                </div>
                               ) : (
                                 <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
                                   {`No current position in ${selectedSymbol}.`}
                                 </div>
                               )}
+                              <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                                    Margin / Leverage
+                                  </div>
+                                  <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                </div>
+                                <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                                  {leverageAvailable
+                                    ? `Your account currently supports up to ${accountMultiplier}x buying power on marginable assets like ${selectedSymbol}. Leverage lets you control a bigger trade with less of your own money. It can make wins bigger, but it can also make losses bigger.`
+                                    : "Leverage is not available for this Alpaca account."}
+                                </div>
+                                {tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
+                              </div>
+                              <div style={{ padding: 10, borderRadius: 10, background: "rgba(8,12,18,0.82)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+                                <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.5 }}>
+                                  Chart is for visual reference. Rayla orders use Alpaca live market data.
+                                </div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "#f8fbff" }}>
+                                  Current Alpaca price: {Number.isFinite(selectedOrderAssetPrice) ? formatCurrency(selectedOrderAssetPrice) : "--"}
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                                    Bid: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderBid) ? formatCurrency(selectedOrderBid) : "--"}</span>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                                    Ask: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderAsk) ? formatCurrency(selectedOrderAsk) : "--"}</span>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                                    Last trade: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderLastTradePrice) ? formatCurrency(selectedOrderLastTradePrice) : "--"}</span>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                                    Spread: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderSpread) ? formatCurrency(selectedOrderSpread) : "--"}</span>
+                                  </div>
+                                </div>
+                                <div style={{ fontSize: 11, color: orderQuoteIsFresh ? "#7f8ea3" : "#fca5a5", lineHeight: 1.5 }}>
+                                  {orderQuoteIsFresh
+                                    ? `Last Alpaca update ${formatQuoteUpdatedAt(selectedOrderQuote?.updatedAt)}`
+                                    : "Waiting for fresh Alpaca market data before placing order."}
+                                </div>
+                              </div>
                             </div>
                           );
                         })()}
-                        <form onSubmit={handleSubmitAlpacaOrder} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        <form onSubmit={handleSubmitAlpacaOrder} style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                           <div style={{ position: "relative" }}>
                             {(() => {
+                              const selectedOrderQuote = getKnownStockQuoteData(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                               const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && String(alpacaOrderForm.symbol || "").trim().toUpperCase() === tradePanelSymbol
                                 ? tradePanelCurrentPrice
                                 : getKnownStockQuotePrice(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+                              const orderQuoteIsFresh = isQuoteFresh(selectedOrderQuote);
                               return (
                                 <>
                             <input
@@ -7786,7 +12899,9 @@ return (
                               placeholder="Search tradable asset (AAPL)"
                               value={alpacaOrderForm.symbol}
                               onChange={(e) => {
-                                setAlpacaOrderForm((prev) => ({ ...prev, symbol: e.target.value.toUpperCase() }));
+                                const nextSymbol = e.target.value.toUpperCase();
+                                setAlpacaOrderForm((prev) => ({ ...prev, symbol: nextSymbol }));
+                                setAlpacaSelectedAssetMeta((prev) => (prev?.symbol === nextSymbol ? prev : null));
                                 setAlpacaAssetSearchError("");
                                 setAlpacaAssetSearchOpen(Boolean(e.target.value.trim()));
                               }}
@@ -7815,7 +12930,7 @@ return (
                               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, maxHeight: 220, overflowY: "auto" }}>
                                 {alpacaAssetSearchLoading ? (
                                   <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
-                                    Searching tradable Alpaca assets...
+                                    Searching tradable broker assets...
                                   </div>
                                 ) : alpacaAssetSearchError ? (
                                   <div style={{ padding: "10px 14px", fontSize: 12, color: "#fca5a5" }}>
@@ -7828,6 +12943,7 @@ return (
                                       type="button"
                                       onClick={() => {
                                         setAlpacaOrderForm((prev) => ({ ...prev, symbol: asset.symbol }));
+                                        setAlpacaSelectedAssetMeta(asset);
                                         setAlpacaAssetSearchResults([]);
                                         setAlpacaAssetSearchError("");
                                         setAlpacaAssetSearchOpen(false);
@@ -7837,6 +12953,23 @@ return (
                                       <div>
                                         <div style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{asset.symbol}</div>
                                         <div style={{ color: "#7f8ea3", fontSize: 12, marginTop: 2 }}>{asset.name}</div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+                                          {getBrokerCapabilityBadges(asset).map((badge) => (
+                                            <span
+                                              key={`${asset.symbol}-${badge.label}`}
+                                              style={{
+                                                padding: "3px 7px",
+                                                borderRadius: 999,
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                letterSpacing: "0.4px",
+                                                ...getCapabilityBadgeStyle(badge.tone),
+                                              }}
+                                            >
+                                              {badge.label}
+                                            </span>
+                                          ))}
+                                        </div>
                                         {Number.isFinite(getKnownStockQuotePrice(asset.symbol, simulationQuotes, marketItems, alpacaAssetQuotes)) ? (
                                           <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
                                             {`${asset.exchange || "--"} · ${formatCurrency(getKnownStockQuotePrice(asset.symbol, simulationQuotes, marketItems, alpacaAssetQuotes))}`}
@@ -7851,7 +12984,7 @@ return (
                                   ))
                                 ) : alpacaOrderForm.symbol.trim() ? (
                                   <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
-                                    No tradable Alpaca asset found
+                                    No tradable broker asset found
                                   </div>
                                 ) : null}
                               </div>
@@ -7860,47 +12993,203 @@ return (
                               );
                             })()}
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-                            <select
-                              className="authInput"
-                              value={alpacaOrderForm.side}
-                              onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, side: e.target.value }))}
-                            >
-                              <option value="buy">Buy</option>
-                              <option value="sell">Sell</option>
-                            </select>
-                            <input
-                              className="authInput"
-                              type="number"
-                              min="0"
-                              step="0.0001"
-                              placeholder="Qty"
-                              value={alpacaOrderForm.qty}
-                              onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
-                            />
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <div>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Action</div>
+                              <select
+                                className="authInput"
+                                value={alpacaOrderForm.side}
+                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, side: e.target.value }))}
+                              >
+                                <option value="buy">Buy</option>
+                                <option value="sell">Sell</option>
+                                <option value="short_sell">Short Sell</option>
+                                <option value="buy_to_cover">Buy to Cover</option>
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Quantity</div>
+                                <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                              </div>
+                              <input
+                                className="authInput"
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                placeholder="Qty"
+                                value={alpacaOrderForm.qty}
+                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
+                              />
+                              {tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
+                            </div>
                           </div>
-                          <select
-                            className="authInput"
-                            value={alpacaOrderForm.type}
-                            onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, type: e.target.value }))}
-                          >
-                            <option value="market">Market</option>
-                            <option value="limit">Limit</option>
-                          </select>
-                          {alpacaOrderForm.type === "limit" && (
-                            <input
-                              className="authInput"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="Limit Price"
-                              value={alpacaOrderForm.limitPrice}
-                              onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, limitPrice: e.target.value }))}
-                            />
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {[
+                              { label: "Buy", value: "buy" },
+                              { label: "Sell", value: "sell" },
+                              { label: "Short Sell", value: "short_sell" },
+                              { label: "Buy to Cover", value: "buy_to_cover" },
+                            ].map((item) => (
+                              <button
+                                key={item.label}
+                                type="button"
+                                onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: alpacaOrderForm.side === item.value ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.03)",
+                                  color: alpacaOrderForm.side === item.value ? "#f8fbff" : "#cbd5e1",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Type</div>
+                                <InlineHelpButton topic="orderType" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                              </div>
+                              <select
+                                className="authInput"
+                                value={alpacaOrderForm.type}
+                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, type: e.target.value }))}
+                              >
+                                <option value="market">Market</option>
+                                <option value="limit">Limit</option>
+                                <option value="stop">Stop</option>
+                                <option value="stop_limit">Stop Limit</option>
+                              </select>
+                              {tradeHelpTopic === "orderType" ? <InlineHelpCard topic="orderType" /> : null}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
+                              <select
+                                className="authInput"
+                                value={alpacaOrderForm.timeInForce}
+                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
+                              >
+                                <option value="gtc">GTC</option>
+                                <option value="ioc">IOC</option>
+                                <option value="fok">FOK</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {[
+                              { label: "GTC", value: "gtc", field: "timeInForce" },
+                              { label: "IOC", value: "ioc", field: "timeInForce" },
+                              { label: "FOK", value: "fok", field: "timeInForce" },
+                              { label: "Stop", value: "stop", field: "type" },
+                              { label: "Stop Limit", value: "stop_limit", field: "type" },
+                            ].map((item) => (
+                              <button
+                                key={item.label}
+                                type="button"
+                                onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, [item.field]: item.value }))}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: alpacaOrderForm[item.field] === item.value ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.03)",
+                                  color: alpacaOrderForm[item.field] === item.value ? "#f8fbff" : "#cbd5e1",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                          {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit" || alpacaOrderForm.type === "stop") && (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+                              {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit") ? (
+                                <input
+                                  className="authInput"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="Limit Price"
+                                  value={alpacaOrderForm.limitPrice}
+                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, limitPrice: e.target.value }))}
+                                />
+                              ) : null}
+                              {(alpacaOrderForm.type === "stop" || alpacaOrderForm.type === "stop_limit") ? (
+                                <input
+                                  className="authInput"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="Stop Price"
+                                  value={alpacaOrderForm.stopPrice}
+                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
+                                />
+                              ) : null}
+                            </div>
                           )}
-                          <button type="submit" className="ghostButton" disabled={alpacaOrderSubmitting}>
-                            {alpacaOrderSubmitting ? "Submitting..." : "Submit Paper Order"}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Leverage / Margin</div>
+                            <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                          </div>
+                          {tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
+                          <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 8 }}>
+                            {alpacaOrderValidation.leverageAvailable ? (
+                              <>
+                                <select
+                                  className="authInput"
+                                  value={alpacaOrderForm.leverage}
+                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, leverage: e.target.value }))}
+                                >
+                                  {tradeSelectedLeverageOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                                <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                                  Your account currently supports up to {alpacaOrderValidation.accountMultiplier}x buying power.
+                                </div>
+                                <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                                  Leverage lets you control a bigger trade with less of your own money. It can make wins bigger, but it can also make losses bigger.
+                                </div>
+                                <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.55 }}>
+                                  Buying power available at {alpacaOrderValidation.effectiveLeverage}x: {formatCurrency(alpacaOrderValidation.buyingPowerLimit)}
+                                </div>
+                                {alpacaOrderValidation.effectiveLeverage > 1 ? (
+                                  <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.5 }}>
+                                    Higher leverage increases risk because the same price move affects a larger position.
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                                Leverage is not available for this Alpaca account.
+                              </div>
+                            )}
+                          </div>
+                          {alpacaOrderValidation.estimatedValue != null ? (
+                            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                              Estimated order value: <span style={{ color: "#e2e8f0" }}>{formatCurrency(alpacaOrderValidation.estimatedValue)}</span>
+                            </div>
+                          ) : null}
+                          <button
+                            type="submit"
+                            className="ghostButton"
+                            disabled={alpacaOrderSubmitting || Boolean(alpacaOrderValidation.error)}
+                            title={alpacaOrderValidation.error || undefined}
+                          >
+                            {alpacaOrderSubmitting ? "Submitting..." : "Submit Rayla Paper Order"}
                           </button>
+                          {alpacaOrderValidation.error ? (
+                            <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.5 }}>
+                              {alpacaOrderValidation.error}
+                            </div>
+                          ) : null}
                         </form>
                         {alpacaOrderResult && (
                           <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.6, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)" }}>
@@ -7921,60 +13210,80 @@ return (
                 </div>
               </div>
 
-              <div style={{ marginBottom: 16 }}>
-                <BrokerTradeLogCard
-                  trades={brokerTradeLog}
-                  isLoading={brokerTradeLogLoading}
-                  onRefresh={() => fetchBrokerTradeLog({ sync: true })}
-                />
-              </div>
-
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <button type="button" className="ghostButton" onClick={() => setTradeView("log")} style={{ opacity: tradeView === "log" ? 1 : 0.5 }}>Log Trade</button>
-                <button type="button" className="ghostButton" onClick={() => setTradeView("recent")} style={{ opacity: tradeView === "recent" ? 1 : 0.5 }}>Recent Trades</button>
-                <button type="button" className="ghostButton" onClick={() => setTradeView("all")} style={{ opacity: tradeView === "all" ? 1 : 0.5 }}>All Trades</button>
-              </div>
-              {tradeView === "log" && (
-                <div className="card">
-                  <h3>Log Trade</h3>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", background: "rgba(124,196,255,0.08)", border: "1px dashed rgba(124,196,255,0.3)", borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#7CC4FF", fontWeight: 600 }}>
-                      📸 Upload Trade Screenshot
-                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} />
-                    </label>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1.15fr) minmax(360px, 1fr)", gap: 16, alignItems: "start", marginBottom: 16 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Broker Trade History</div>
+                      <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
+                        Recent broker-synced orders and fills from your connected Rayla paper trading workspace.
+                      </div>
+                    </div>
                   </div>
-                  <form onSubmit={handleAddTrade} className="tradeEntryRow">
-                    <input className="authInput" placeholder="Asset (BTC, AAPL)" value={tradeForm.asset} onChange={(e) => setTradeForm({ ...tradeForm, asset: e.target.value })} />
-                    <input className="authInput" placeholder="Entry Price" value={tradeForm.entryPrice} onChange={(e) => setTradeForm({ ...tradeForm, entryPrice: e.target.value })} />
-                    <input className="authInput" placeholder="Size ($)" value={tradeForm.size} onChange={(e) => setTradeForm({ ...tradeForm, size: e.target.value })} />
-                    <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => setTradeForm({ ...tradeForm, entryTime: e.target.value })} />
-                    <select className="authInput" value={tradeForm.setup} onChange={(e) => setTradeForm({ ...tradeForm, setup: e.target.value })}>
-                      <option value="">Select Setup (optional)</option>
-                      {SETUP_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <select className="authInput" value={tradeForm.session} onChange={(e) => setTradeForm({ ...tradeForm, session: e.target.value })}>
-                      <option value="">Select Session (optional)</option>
-                      {SESSION_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <select className="authInput" value={tradeForm.direction} onChange={(e) => setTradeForm({ ...tradeForm, direction: e.target.value })}>
-                      <option value="">Direction (optional)</option>
-                      <option value="long">Long</option>
-                      <option value="short">Short</option>
-                    </select>
-                    <select className="authInput" value={tradeForm.marketCondition} onChange={(e) => setTradeForm({ ...tradeForm, marketCondition: e.target.value })}>
-                      <option value="">Market Condition (optional)</option>
-                      <option value="trending">Trending</option>
-                      <option value="ranging">Ranging</option>
-                      <option value="volatile">Volatile</option>
-                      <option value="weak_trend">Weak Trend</option>
-                    </select>
-                    <input className="authInput" placeholder="Result (R)" value={tradeForm.result} onChange={(e) => setTradeForm({ ...tradeForm, result: e.target.value })} />
-                    <button type="submit" className="ghostButton">Save Trade</button>
-                  </form>
+                  <BrokerTradeLogCard
+                    trades={brokerTradeLog}
+                    isLoading={brokerTradeLogLoading}
+                    onRefresh={() => fetchBrokerTradeLog({ sync: true })}
+                  />
                 </div>
-              )}
-              {tradeView === "recent" && <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />}
-              {tradeView === "all" && <RecentTradesCard recentTrades={trades} onDeleteTrade={handleDeleteTrade} />}
+
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Manual Trade Journal</div>
+                      <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
+                        Keep Rayla journal entries separate from broker fills so manual review and execution history stay easy to scan.
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                    <button type="button" className="ghostButton" onClick={() => setTradeView("log")} style={{ opacity: tradeView === "log" ? 1 : 0.5 }}>Log Trade</button>
+                    <button type="button" className="ghostButton" onClick={() => setTradeView("recent")} style={{ opacity: tradeView === "recent" ? 1 : 0.5 }}>Recent Trades</button>
+                    <button type="button" className="ghostButton" onClick={() => setTradeView("all")} style={{ opacity: tradeView === "all" ? 1 : 0.5 }}>All Trades</button>
+                  </div>
+                  {tradeView === "log" && (
+                    <div className="card">
+                      <h3>Log Trade</h3>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", background: "rgba(124,196,255,0.08)", border: "1px dashed rgba(124,196,255,0.3)", borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#7CC4FF", fontWeight: 600 }}>
+                          📸 Upload Trade Screenshot
+                          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} />
+                        </label>
+                      </div>
+                      <form onSubmit={handleAddTrade} className="tradeEntryRow">
+                        <input className="authInput" placeholder="Asset (BTC, AAPL)" value={tradeForm.asset} onChange={(e) => setTradeForm({ ...tradeForm, asset: e.target.value })} />
+                        <input className="authInput" placeholder="Entry Price" value={tradeForm.entryPrice} onChange={(e) => setTradeForm({ ...tradeForm, entryPrice: e.target.value })} />
+                        <input className="authInput" placeholder="Size ($)" value={tradeForm.size} onChange={(e) => setTradeForm({ ...tradeForm, size: e.target.value })} />
+                        <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => setTradeForm({ ...tradeForm, entryTime: e.target.value })} />
+                        <select className="authInput" value={tradeForm.setup} onChange={(e) => setTradeForm({ ...tradeForm, setup: e.target.value })}>
+                          <option value="">Select Setup (optional)</option>
+                          {SETUP_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <select className="authInput" value={tradeForm.session} onChange={(e) => setTradeForm({ ...tradeForm, session: e.target.value })}>
+                          <option value="">Select Session (optional)</option>
+                          {SESSION_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <select className="authInput" value={tradeForm.direction} onChange={(e) => setTradeForm({ ...tradeForm, direction: e.target.value })}>
+                          <option value="">Direction (optional)</option>
+                          <option value="long">Long</option>
+                          <option value="short">Short</option>
+                        </select>
+                        <select className="authInput" value={tradeForm.marketCondition} onChange={(e) => setTradeForm({ ...tradeForm, marketCondition: e.target.value })}>
+                          <option value="">Market Condition (optional)</option>
+                          <option value="trending">Trending</option>
+                          <option value="ranging">Ranging</option>
+                          <option value="volatile">Volatile</option>
+                          <option value="weak_trend">Weak Trend</option>
+                        </select>
+                        <input className="authInput" placeholder="Result (R)" value={tradeForm.result} onChange={(e) => setTradeForm({ ...tradeForm, result: e.target.value })} />
+                        <button type="submit" className="ghostButton">Save Trade</button>
+                      </form>
+                    </div>
+                  )}
+                  {tradeView === "recent" && <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />}
+                  {tradeView === "all" && <RecentTradesCard recentTrades={trades} onDeleteTrade={handleDeleteTrade} />}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -8005,10 +13314,16 @@ return (
                       <div>
                         <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>Simulation Mode</div>
                         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, lineHeight: 1.55 }}>
-                          Live follows current market quotes. Scenario creates structured training conditions for practice.
+                          {simulationMode === "live"
+                            ? "Live mode uses current market quotes so you can practice execution on real movement without risking capital."
+                            : "Scenario mode creates structured training conditions so you can rehearse setups, risk, and decision-making faster."}
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <RaylaLaunchButton
+                          label="Ask Rayla about this simulation"
+                          onClick={() => openGlobalRaylaPopup("Ask Rayla about this simulation", simulationRaylaContext)}
+                        />
                         <button
                           type="button"
                           className="ghostButton"
@@ -8032,6 +13347,22 @@ return (
                         {capitalGuideScenarioIntro}
                       </div>
                     )}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        className="ghostButton"
+                        onClick={openSimulationWalkthrough}
+                      >
+                        {simulationMode === "scenario" ? "Guided simulated scenario trade" : "Guided simulated live trade"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghostButton"
+                        onClick={() => setShowSimulationHelp((prev) => !prev)}
+                      >
+                        {showSimulationHelp ? "Hide Beginner Help" : "Show Beginner Help"}
+                      </button>
+                    </div>
                   </div>
 
                   {guidedSimulationDraft && (
@@ -8159,31 +13490,11 @@ return (
                     </div>
                   )}
 
-                  <div style={{ padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  {showSimulationHelp && (
+                    <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
                         {simulationHowToTitle}
                       </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          className="ghostButton"
-                          onClick={openSimulationWalkthrough}
-                        >
-                          {hasCompletedFirstTradeOnboarding
-                            ? simulationMode === "scenario" ? "Guided simulated scenario trade" : "Guided simulated live trade"
-                            : simulationMode === "scenario" ? "Guided simulated scenario trade" : "Guided simulated live trade"}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghostButton"
-                          onClick={() => setShowSimulationHelp((prev) => !prev)}
-                        >
-                          {showSimulationHelp ? "Hide Beginner Help" : "Show Beginner Help"}
-                        </button>
-                      </div>
-                    </div>
-                    {showSimulationHelp && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
                         {simulationHowToSteps.map((step) => (
                           <div key={step}>{step}</div>
@@ -8194,27 +13505,10 @@ return (
                           </div>
                         )}
                       </div>
-                    )}
-                    {!showSimulationHelp && activeGuidedSimulation && (
-                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        Guided trade mode is leading the learning right now. Open Beginner Help anytime if you want the extra reference walkthrough.
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                    Practice trading with fake money and simulated outcomes.
-                  </div>
-
-                  <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                      Rayla Coach
                     </div>
-                    <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
-                      {simulationCoachMessage}
-                    </div>
-                  </div>
+                  )}
 
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
                   <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
@@ -8231,7 +13525,7 @@ return (
                     </div>
                     {simulationMode === "scenario" && (
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        Set up your trade, then press Play to begin the scenario. Realistic mode is the best place to practice full rep review with detailed AI coaching.
+                        Set up the trade and press Play. Realistic mode unlocks AI coaching after close.
                       </div>
                     )}
 
@@ -8326,7 +13620,7 @@ return (
                             </select>
                           )}
                           <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.5 }}>
-                            Realistic mode gives you the fullest rep review with detailed AI coaching.
+                            Realistic mode unlocks AI coaching after close.
                           </div>
                         </div>
                       )}
@@ -8371,6 +13665,19 @@ return (
                           value={simulationAmount}
                           onChange={(e) => setSimulationAmount(e.target.value)}
                         />
+                        <select
+                          className="authInput"
+                          value={simulationLeverage}
+                          onChange={(e) => setSimulationLeverage(e.target.value)}
+                        >
+                          <option value="1x">Leverage: 1x</option>
+                          <option value="2x">Leverage: 2x</option>
+                          <option value="5x">Leverage: 5x</option>
+                          <option value="10x">Leverage: 10x</option>
+                        </select>
+                        <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
+                          Leverage increases simulated exposure and P/L only inside Simulation. Default is 1x.
+                        </div>
                       </div>
 
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -8560,6 +13867,7 @@ return (
                     {renderSimulationInfoCard("risk")}
                   </div>
 
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -8571,17 +13879,16 @@ return (
                     </div>
                   </div>
 
+                  {simulationMode === "scenario" ? (
                   <div ref={setSimulationSectionRef("account")} style={getSimulationSectionStyle("account", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                          {simulationMode === "scenario" ? "Scenario simulator P/L" : "Live simulator P/L"}
+                          Scenario simulator P/L
                         </div>
-                        {simulationMode === "scenario" && (
-                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
-                            Based on Realistic mode trades.
-                          </div>
-                        )}
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+                          Based on Realistic mode trades.
+                        </div>
                       </div>
                       {renderSimulationInfoButton("account")}
                     </div>
@@ -8607,6 +13914,7 @@ return (
                     </div>
                     {renderSimulationInfoCard("account")}
                   </div>
+                  ) : null}
 
                   <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -8677,47 +13985,9 @@ return (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         {simulationMode === "scenario" && (
                           <>
-                            <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                              {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"} · {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
-                            </div>
-                            <button
-                              type="button"
-                              className="ghostButton"
-                              onClick={handleStartScenarioRep}
-                              style={{ padding: "5px 10px", fontSize: 11, color: "#cbd5e1" }}
-                            >
-                              {!simulationScenarioIsPlaying && scenarioPlaybackElapsedMsRef.current === 0
-                                ? "Play"
-                                : simulationScenarioIsPlaying
-                                  ? "Pause"
-                                  : "Resume"}
-                            </button>
-                          </>
-                        )}
-                        {simulationMode === "live" && (
-                          <>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                {["1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"].map((range) => (
-                                  <button
-                                    key={range}
-                                    type="button"
-                                    className="ghostButton"
-                                    onClick={() => setSimulationLiveChartRange(range)}
-                                    style={{
-                                      padding: "3px 9px",
-                                      fontSize: 10,
-                                      borderRadius: 6,
-                                      borderColor: simulationLiveChartRange === range ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                      background: simulationLiveChartRange === range ? "rgba(124,196,255,0.13)" : "transparent",
-                                      color: simulationLiveChartRange === range ? "#d7efff" : "#7f8ea3",
-                                      fontWeight: 700,
-                                      letterSpacing: "0.5px",
-                                    }}
-                                  >
-                                    {range}
-                                  </button>
-                                ))}
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                                <ChartTimeframeDropdown value={simulationChartTimeframe} onChange={setSimulationChartTimeframe} />
                               </div>
                               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
                                 {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
@@ -8725,14 +13995,14 @@ return (
                                     key={mode}
                                     type="button"
                                     className="ghostButton"
-                                    onClick={() => setSimulationLiveChartMode(mode)}
+                                    onClick={() => setSimulationScenarioChartMode(mode)}
                                     style={{
                                       padding: "3px 9px",
                                       fontSize: 10,
                                       borderRadius: 6,
-                                      borderColor: simulationLiveChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                      background: simulationLiveChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
-                                      color: simulationLiveChartMode === mode ? "#d7efff" : "#7f8ea3",
+                                      borderColor: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                      background: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
+                                      color: simulationScenarioChartMode === mode ? "#d7efff" : "#7f8ea3",
                                       fontWeight: 700,
                                       letterSpacing: "0.5px",
                                     }}
@@ -8741,10 +14011,145 @@ return (
                                   </button>
                                 ))}
                               </div>
+                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {[
+                                  ["horizontal", "Line"],
+                                  ["profit", "Profit Line"],
+                                  ["loss", "Loss Line"],
+                                ].map(([tool, label]) => (
+                                  <button
+                                    key={tool}
+                                    type="button"
+                                    className="ghostButton"
+                                    onClick={() => setSimulationScenarioDrawingMode((prev) => (prev === tool ? "none" : tool))}
+                                    style={{
+                                      padding: "3px 9px",
+                                      fontSize: 10,
+                                      borderRadius: 6,
+                                      borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
+                                      background: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.13)" : "transparent",
+                                      color: simulationScenarioDrawingMode === tool ? "#d7efff" : "#7f8ea3",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.5px",
+                                    }}
+                                  >
+                                    {label}
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  className="ghostButton"
+                                  onClick={() => undoStoredChartDrawing(scenarioDrawingStorageKey)}
+                                  style={{
+                                    padding: "3px 9px",
+                                    fontSize: 10,
+                                    borderRadius: 6,
+                                    borderColor: "rgba(255,255,255,0.1)",
+                                    color: "#cbd5e1",
+                                    fontWeight: 700,
+                                    letterSpacing: "0.5px",
+                                  }}
+                                >
+                                  Undo
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghostButton"
+                                  onClick={clearScenarioDrawings}
+                                  style={{
+                                    padding: "3px 9px",
+                                    fontSize: 10,
+                                    borderRadius: 6,
+                                    borderColor: "rgba(248,113,113,0.24)",
+                                    color: "#fca5a5",
+                                    fontWeight: 700,
+                                    letterSpacing: "0.5px",
+                                  }}
+                                >
+                                  Clear Chart
+                                </button>
+                              </div>
+                              <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "right" }}>
+                                {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"} · {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
+                              </div>
+                              {scenarioDrawingStatus ? (
+                                <div style={{ fontSize: 11, color: "#cbd5e1", textAlign: "right", lineHeight: 1.4 }}>
+                                  {scenarioDrawingStatus}
+                                </div>
+                              ) : null}
                             </div>
-                            {simulationLiveChartLastUpdated && (
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={handleStartScenarioRep}
+                              style={{
+                                padding: "9px 16px",
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: simulationScenarioIsPlaying ? "#e2e8f0" : "#0b1017",
+                                background: simulationScenarioIsPlaying ? "rgba(255,255,255,0.06)" : "#7CC4FF",
+                                borderColor: simulationScenarioIsPlaying ? "rgba(255,255,255,0.1)" : "rgba(124,196,255,0.38)",
+                                boxShadow: simulationScenarioIsPlaying ? "none" : "0 10px 24px rgba(124,196,255,0.18)",
+                              }}
+                            >
+                              {!simulationScenarioIsPlaying && scenarioPlaybackElapsedMsRef.current === 0
+                                ? "Play"
+                                : simulationScenarioIsPlaying
+                                  ? "Pause"
+                                  : "Resume"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={resetScenarioPlayback}
+                            >
+                              Reset
+                            </button>
+                          </>
+                        )}
+                        {simulationMode === "live" && (
+                          <>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", flex: 1, minWidth: 0 }}>
+                              <ChartTimeframeDropdown
+                                value={simulationLiveChartRange}
+                                onChange={setSimulationLiveChartRange}
+                                options={LIVE_WIDGET_INTERVAL_OPTIONS}
+                                width={88}
+                              />
+                              {simulationLivePaused ? (
+                                <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.4 }}>
+                                  Simulation paused
+                                </div>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={simulationLivePaused ? resumeLiveSimulation : pauseLiveSimulation}
+                              style={{
+                                padding: "9px 16px",
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: simulationLivePaused ? "#0b1017" : "#e2e8f0",
+                                background: simulationLivePaused ? "#fbbf24" : "rgba(255,255,255,0.06)",
+                                borderColor: simulationLivePaused ? "rgba(251,191,36,0.36)" : "rgba(255,255,255,0.1)",
+                                boxShadow: simulationLivePaused ? "0 10px 24px rgba(251,191,36,0.18)" : "none",
+                              }}
+                            >
+                              {simulationLivePaused ? "Resume" : "Pause"}
+                            </button>
+                            {simulationLivePaused ? (
+                              <button
+                                type="button"
+                                className="ghostButton"
+                                onClick={returnLiveSimulationToCurrentMarket}
+                              >
+                                Return to Live
+                              </button>
+                            ) : null}
+                            {simulationLiveChartUpdatedLabel && (
                               <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                                Updated {simulationLiveChartLastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                Last updated: {simulationLiveChartUpdatedLabel}
                               </div>
                             )}
                           </>
@@ -8752,55 +14157,24 @@ return (
                         {renderSimulationInfoButton("chart")}
                       </div>
                     </div>
-                  <div className="tradingviewFrameWrapFull" style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" }}>
-                    {simulationMode === "scenario" ? (
-                      <div style={{ minHeight: 336, padding: 16, background: "linear-gradient(180deg, rgba(8,12,18,0.99) 0%, rgba(11,16,25,0.96) 52%, rgba(9,14,22,0.99) 100%)", display: "flex", flexDirection: "column", gap: 12 }}>
-                        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <div style={{ fontSize: 11, color: "#7f8ea3", letterSpacing: "1px", textTransform: "uppercase" }}>Scenario Price</div>
-                            <div style={{ fontSize: 24, fontWeight: 700, color: "#f8fafc", lineHeight: 1 }}>
-                              {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
-                            </div>
-                          </div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                          <div style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", fontSize: 11, color: "#cbd5e1" }}>
-                              Scenario Training
-                          </div>
-                          <div style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)", fontSize: 11, color: "#dbeafe" }}>
-                            {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"}
-                          </div>
-                          <div style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", fontSize: 11, color: "#cbd5e1" }}>
-                            {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
-                          </div>
-                          <div style={{ display: "flex", gap: 6, marginLeft: 2 }}>
-                            <button
-                              type="button"
-                              className="ghostButton"
-                              onClick={handleStartScenarioRep}
-                              style={{ padding: "5px 10px", fontSize: 11, color: "#cbd5e1" }}
-                            >
-                              {simulationScenarioIsPlaying
-                                ? "Pause"
-                                : simulationScenarioTick > 0 || scenarioPlaybackElapsedMsRef.current > 0
-                                  ? "Resume"
-                                  : "Play"}
-                            </button>
-                            <button
-                              type="button"
-                              className="ghostButton"
-                              onClick={resetScenarioPlayback}
-                              style={{ padding: "5px 10px", fontSize: 11, color: "#cbd5e1" }}
-                            >
-                              Reset
-                            </button>
+                    {simulationMode === "scenario" && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <div style={{ fontSize: 11, color: "#7f8ea3", letterSpacing: "1px", textTransform: "uppercase" }}>Scenario Price</div>
+                          <div style={{ fontSize: 24, fontWeight: 700, color: "#f8fafc", lineHeight: 1 }}>
+                            {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
                           </div>
                         </div>
-                        </div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5, textAlign: "right", maxWidth: 420 }}>
                           Structured generated movement for practice. Use it like a training market, not a live feed.
                         </div>
+                      </div>
+                    )}
+                  <div className="tradingviewFrameWrapFull" style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" }}>
+                    {simulationMode === "scenario" ? (
+                      <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         {guidedScenarioActive && guidedScenarioMessage && (
-                          <div style={{ alignSelf: "flex-start", maxWidth: 420, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", boxShadow: "0 12px 24px rgba(8,12,18,0.18)" }}>
+                          <div style={{ margin: "14px 16px 0", maxWidth: 420, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", boxShadow: "0 12px 24px rgba(8,12,18,0.18)" }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.3px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
                               Rayla Guidance
                             </div>
@@ -8809,104 +14183,58 @@ return (
                             </div>
                           </div>
                         )}
-                        <div style={{ flex: 1, minHeight: 336, borderRadius: 16, border: "1px solid rgba(124,196,255,0.14)", background: "linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0.008) 100%)", padding: 10, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)" }}>
-                          <div style={{ position: "relative", width: "100%", height: "100%", minHeight: 316, paddingRight: 58, paddingBottom: 26 }}>
-                              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", top: 0, left: 0, right: 58, bottom: 26, width: "calc(100% - 58px)", height: "calc(100% - 26px)" }}>
-                                {[14, 28, 42, 56, 70, 84].map((y) => (
-                                  <line key={`h-${y}`} x1="0" y1={y} x2="100" y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="0.55" />
-                                ))}
-                                {[12, 24, 36, 48, 60, 72, 84].map((x) => (
-                                  <line key={`v-${x}`} x1={x} y1="10" x2={x} y2="90" stroke="rgba(255,255,255,0.035)" strokeWidth="0.55" />
-                                ))}
-                                <line x1={scenarioNowX} y1="10" x2={scenarioNowX} y2="90" stroke="rgba(124,196,255,0.12)" strokeWidth="0.7" strokeDasharray="1.2 2.8" />
-                                <polyline points={scenarioChartPoints} fill="none" stroke="rgba(124,196,255,0.42)" strokeWidth="1.15" strokeLinejoin="round" strokeLinecap="round" />
-                                {scenarioChartRecentPoints ? (
-                                  <polyline points={scenarioChartRecentPoints} fill="none" stroke="#d7efff" strokeWidth="1.55" strokeLinejoin="round" strokeLinecap="round" />
-                                ) : null}
-                                {selectedSimulationOpenPosition && scenarioEntryPoint ? (
-                                  <>
-                                    <line x1={scenarioEntryPoint.x} y1="10" x2={scenarioEntryPoint.x} y2="90" stroke="rgba(255,255,255,0.12)" strokeWidth="0.65" strokeDasharray="2 3" />
-                                    <circle cx={scenarioEntryPoint.x} cy={scenarioEntryPoint.y} r="1.15" fill="#f8fafc" />
-                                    <text x={scenarioEntryPoint.x} y={scenarioEntryLabelY} textAnchor="middle" fill="rgba(248,250,252,0.82)" fontSize="3.2">
-                                      Entry
-                                    </text>
-                                  </>
-                                ) : null}
-                                {scenarioChartCurrentPoint ? (
-                                  <>
-                                    {scenarioChartCurrentPoint.x > scenarioNowX ? (
-                                      <line x1={scenarioChartCurrentPoint.x} y1="10" x2={scenarioChartCurrentPoint.x} y2="90" stroke="rgba(124,196,255,0.09)" strokeWidth="0.65" strokeDasharray="1.2 2.8" />
-                                    ) : null}
-                                    <circle cx={scenarioChartCurrentPoint.x} cy={scenarioChartCurrentPoint.y} r={Math.max(1.5, scenarioChartPulseRadius - 0.45)} fill="rgba(124,196,255,0.16)" />
-                                    <circle cx={scenarioChartCurrentPoint.x} cy={scenarioChartCurrentPoint.y} r="1.1" fill="#eaf6ff" />
-                                    {selectedSimulationOpenPosition ? (
-                                      <text x={scenarioChartCurrentPoint.x} y={scenarioCurrentLabelY} textAnchor="middle" fill="rgba(191,229,255,0.82)" fontSize="3.2">
-                                        Current
-                                      </text>
-                                    ) : null}
-                                  </>
-                                ) : null}
-                              </svg>
-                              <div style={{ position: "absolute", top: 0, right: 0, bottom: 26, width: 54, pointerEvents: "none", borderLeft: "1px solid rgba(255,255,255,0.06)", background: "linear-gradient(180deg, rgba(8,12,18,0.36) 0%, rgba(8,12,18,0.18) 100%)" }}>
-                                {scenarioChartScale.map((mark) => (
-                                  <div
-                                    key={`${mark.y}-${mark.label}`}
-                                    style={{
-                                      position: "absolute",
-                                      top: `${mark.y}%`,
-                                      right: 6,
-                                      transform: "translateY(-50%)",
-                                      fontSize: 11,
-                                      color: "#7f8ea3",
-                                      lineHeight: 1,
-                                      letterSpacing: "0.2px",
-                                    }}
-                                  >
-                                    {mark.label}
-                                  </div>
-                                ))}
-                              </div>
-                              <div style={{ position: "absolute", left: 0, right: 58, bottom: 4, height: 18, fontSize: 11, color: "#7f8ea3", letterSpacing: "0.2px", pointerEvents: "none" }}>
-                                <span style={{ position: "absolute", left: 0, bottom: 0 }}>
-                                  {scenarioAxisLeftLabel}
-                                </span>
-
-                                <span style={{ position: "absolute", left: "14%", bottom: 0, transform: "translateX(-50%)" }}>
-                                  {scenarioAxisMidLabel}
-                                </span>
-
-                                <span style={{ position: "absolute", right: 0, bottom: 0 }}>
-                                  {scenarioAxisRightLabel}
-                                </span>
-                              </div>
-                          </div>
+                        <div style={{ height: 560, minHeight: 560, padding: guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
+                          {scenarioChartBars.length < 2 ? (
+                            <div style={{ minHeight: 560, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                              Scenario chart will appear once the generated move has enough data points.
+                            </div>
+                          ) : (
+                            <TradeChart
+                              bars={scenarioChartBars}
+                              mode={simulationScenarioChartMode}
+                              latestPrice={selectedSimulationPrice}
+                              assetSymbol={selectedSimulationItem?.id}
+                              assetName={selectedSimulationItem?.description || selectedSimulationItem?.name || selectedSimulationItem?.id}
+                              height="100%"
+                              chartRange={simulationChartTimeframe}
+                              tickMarkFormatter={scenarioTickMarkFormatter}
+                              secondsVisible={scenarioUsesSecondLabels}
+                              priceScaleMargins={{ top: 0.03, bottom: 0.03 }}
+                              fixedVisiblePriceRange={scenarioStablePriceRange}
+                              autoFitOnDataChange={false}
+                              visibleBarCount={SCENARIO_CHART_VISIBLE_BAR_COUNT}
+                              rightOffsetBars={SCENARIO_CHART_RIGHT_OFFSET_BARS}
+                              minBarSpacing={7}
+                              showVolume={false}
+                              zoomEnabled={true}
+                              annotations={scenarioVisibleDrawings}
+                              drawingMode={simulationScenarioDrawingMode}
+                              onChartClick={handleScenarioChartAnnotationClick}
+                            />
+                          )}
                         </div>
                       </div>
                     ) : selectedSimulationItem ? (
-                      <div style={{ height: 440, minHeight: 440, background: "#0d1117", paddingBottom: 10 }}>
-                        {simulationLiveChartLoading && simulationLiveChartBars.length < 2 ? (
-                          <div style={{ minHeight: 440, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
-                            Loading chart...
-                          </div>
-                        ) : simulationLiveChartBars.length < 2 ? (
-                          <div style={{ minHeight: 440, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
-                            <div>Chart unavailable</div>
-                            <div>Alpaca does not provide chart bars for this asset yet, but live quote data is still available and was added to your watchlist.</div>
+                      <div style={{ background: "#0d1117", paddingBottom: 10 }}>
+                        <MarketClosedBanner assetType={selectedSimulationItem.type} updatedLabel={simulationLiveChartUpdatedLabel} />
+                        <div style={{ height: 560, minHeight: 560 }}>
+                        {selectedSimulationAssetExplicitlyUnsupported ? (
+                          <div style={{ minHeight: 560, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                            <div>Live chart unavailable</div>
+                            <div>Alpaca does not currently support trading this asset.</div>
                           </div>
                         ) : (
-                          <TradeChart
-                            bars={simulationLiveChartBars}
-                            mode={simulationLiveChartMode}
-                            latestPrice={selectedSimulationPrice}
-                            assetSymbol={selectedSimulationItem.id}
-                            assetName={selectedSimulationItem.description || selectedSimulationItem.name || selectedSimulationItem.id}
-                            height={440}
+                          <TradingViewLiveChart
+                            asset={selectedSimulationItem}
+                            height="100%"
+                            interval={simulationLiveChartRange}
+                            chartType="simulation_live"
                           />
                         )}
+                        </div>
                       </div>
                     ) : null}
-                  </div>
-                  {renderSimulationInfoCard("chart")}
+                    {renderSimulationInfoCard("chart")}
                   </div>
 
                   {visibleSimulationPositions.length > 0 && (
@@ -8930,9 +14258,30 @@ return (
                           const currentPrice = getSimulationPrice(position.asset, position.marketMode || simulationMode);
                           const hasCurrentPrice = Number.isFinite(currentPrice);
                           const currentLiveQuote = getLiveQuoteByAssetId(simulationQuotes, position.asset, position.type, position.tvSymbol);
+                          const isScenarioPosition = (position.marketMode || simulationMode) === "scenario";
+                          const pendingDecision = isScenarioPosition
+                            ? (simulationPendingScenarioDecision?.positionId === position.id ? simulationPendingScenarioDecision : null)
+                            : (simulationPendingLiveDecision?.positionId === position.id ? simulationPendingLiveDecision : null);
                           const metrics = Number.isFinite(currentPrice)
                             ? calculateSimulationPnL(position, currentPrice)
                             : { profitLoss: 0, rMultiple: null };
+                          const tradeStatusLabel = pendingDecision
+                            ? pendingDecision.exitReason === "Target Hit" || pendingDecision.exitReason === "P/L Target Hit"
+                              ? "Target Hit"
+                              : "Stop Hit"
+                            : isScenarioPosition
+                              ? simulationScenarioIsPlaying
+                                ? "Running"
+                                : "Paused"
+                              : "Running";
+
+                          const tradeStatusColor = pendingDecision
+                            ? pendingDecision.exitReason === "Target Hit" || pendingDecision.exitReason === "P/L Target Hit"
+                              ? "#4ade80"
+                              : "#f87171"
+                            : isScenarioPosition && simulationScenarioIsPlaying
+                              ? "#7CC4FF"
+                              : "#e2e8f0";
 
                           return (
                             <div key={position.id} style={{ padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 14 }}>
@@ -8943,11 +14292,71 @@ return (
                                     {position.label || position.asset} · {position.direction === "short" ? "Short" : "Long"} · {position.marketMode === "scenario" ? "Scenario" : "Live"} · Time in trade {formatTimeInTrade(position)}
                                   </div>
                                 </div>
-                                <button type="button" className="ghostButton" onClick={() => handleCloseSimulationTrade(position.id)}>
-                                  Close Trade
-                                </button>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      letterSpacing: "0.8px",
+                                      textTransform: "uppercase",
+                                      color: pendingDecision
+                                        ? tradeStatusColor
+                                        : isScenarioPosition && simulationScenarioIsPlaying
+                                          ? "#7CC4FF"
+                                          : "#cbd5e1",
+                                      background: pendingDecision
+                                        ? pendingDecision.exitReason === "Target Hit" || pendingDecision.exitReason === "P/L Target Hit"
+                                          ? "rgba(74,222,128,0.12)"
+                                          : "rgba(248,113,113,0.12)"
+                                        : isScenarioPosition && simulationScenarioIsPlaying
+                                          ? "rgba(124,196,255,0.12)"
+                                          : "rgba(255,255,255,0.06)",
+                                      border: pendingDecision
+                                        ? pendingDecision.exitReason === "Target Hit" || pendingDecision.exitReason === "P/L Target Hit"
+                                          ? "1px solid rgba(74,222,128,0.2)"
+                                          : "1px solid rgba(248,113,113,0.2)"
+                                        : isScenarioPosition && simulationScenarioIsPlaying
+                                          ? "1px solid rgba(124,196,255,0.24)"
+                                          : "1px solid rgba(255,255,255,0.08)",
+                                      borderRadius: 999,
+                                      padding: "5px 10px",
+                                    }}
+                                  >
+                                    {tradeStatusLabel}
+                                  </div>
+                                  {pendingDecision ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="ghostButton"
+                                        style={{ borderColor: "rgba(74,222,128,0.28)", color: "#dcfce7", background: "rgba(74,222,128,0.1)" }}
+                                        onClick={() => (isScenarioPosition ? handleQuitAndSaveScenarioTrade(position.id) : handleQuitAndSaveLiveTrade(position.id))}
+                                      >
+                                        Quit & Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ghostButton"
+                                        style={{ borderColor: "rgba(124,196,255,0.28)", color: "#dbeafe", background: "rgba(124,196,255,0.1)" }}
+                                        onClick={() => (isScenarioPosition ? handleReopenAndContinueScenarioTrade(position.id) : handleReopenAndContinueLiveTrade(position.id))}
+                                      >
+                                        Reopen & Continue
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button type="button" className="ghostButton" onClick={() => handleCloseSimulationTrade(position.id)}>
+                                      Close Trade
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                                <div>
+                                  <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Status</div>
+                                  <div style={{ fontSize: 18, fontWeight: 700, color: tradeStatusColor }}>
+                                    {tradeStatusLabel}
+                                  </div>
+                                </div>
                                 <div>
                                   <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Entry Price</div>
                                   <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(position.entryPrice)}</div>
@@ -9174,13 +14583,25 @@ return (
                               </div>
                             </div>
                             <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Result</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: trade.profitLoss > 0 ? "#4ade80" : trade.profitLoss < 0 ? "#f87171" : "#e2e8f0" }}>
+                                {trade.profitLoss > 0 ? "Win" : trade.profitLoss < 0 ? "Loss" : "Flat"}
+                              </div>
+                            </div>
+                            <div>
                               <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>R Multiple</div>
                               <div style={{ fontSize: 15, fontWeight: 700, color: trade.rMultiple == null ? "#e2e8f0" : trade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
                                 {trade.rMultiple == null ? "--" : `${trade.rMultiple >= 0 ? "+" : ""}${trade.rMultiple.toFixed(2)}R`}
                               </div>
                             </div>
                             <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Reason</div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Duration</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                                {formatSimulationDuration(trade.durationMs)}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Close Reason</div>
                               <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.exitReason}</div>
                             </div>
                           </div>
@@ -9191,95 +14612,89 @@ return (
                         No closed {simulationMode === "scenario" ? "scenario" : "live"} trades yet.
                       </div>
                     )}
-                    {renderSimulationInfoCard("history")}
-                  </div>
-                </div>
-              </div>
-            </div>
+	                    {renderSimulationInfoCard("history")}
+	                  </div>
+	                </div>
+	                </div>
+	              </div>
+	            </div>
+	          </div>
+	        </div>
           </div>
         )}
 
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-
-              {/* Header */}
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: "#f3f7fc", letterSpacing: "-0.01em" }}>Performance Analysis</div>
                   <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Review your edge, discipline, and progress in one place.</div>
                 </div>
-                <div style={{ padding: "10px 18px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(18,26,38,0.86)", textAlign: "right" }}>
-                  <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 3 }}>Total R</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: parseFloat(totalR) >= 0 ? "#4ade80" : "#f87171" }}>{parseFloat(totalR) >= 0 ? "+" : ""}{totalR}R</div>
-                </div>
               </div>
-
-              {/* Stats overview */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
-                {[
-                  { label: "Trades", value: combinedHomeStats.totalTrackedTradeCount, color: "#f3f7fc" },
-                  { label: "Win Rate", value: winRate, color: combinedHomeStats.winRate >= 50 ? "#4ade80" : "#f87171" },
-                  { label: "Avg R", value: avgR, color: combinedHomeStats.journalAverageResult >= 0 ? "#4ade80" : "#f87171" },
-                  { label: "Avg Win", value: avgWin, color: "#4ade80" },
-                  { label: "Avg Loss", value: avgLoss, color: "#f87171" },
-                  ...(perfReport?.profitFactor != null ? [{ label: "Profit Factor", value: perfReport.profitFactor.toFixed(2), color: perfReport.profitFactor >= 1 ? "#4ade80" : "#f87171" }] : []),
-                ].map(item => (
-                  <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px", cursor: "default" }}>
-                    <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Beginner tooltip modals */}
-              {showTooltip === "winrate" && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => setShowTooltip(null)}>
-                  <div className="card" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
-                    <div className="cardHeader"><h2>Win Rate</h2></div>
-                    <div className="cardBody" style={{ lineHeight: 1.7 }}>Win rate is the percentage of your trades that were winners.<br /><br />Example: If you took 10 trades and 6 were profitable, your win rate is 60%.<br /><br />Higher doesn't always mean better — what matters is how much you make vs lose.</div>
-                    <button className="ghostButton" onClick={() => setShowTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
-                  </div>
-                </div>
-              )}
-              {showTooltip === "avgres" && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => setShowTooltip(null)}>
-                  <div className="card" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
-                    <div className="cardHeader"><h2>Average Result</h2></div>
-                    <div className="cardBody" style={{ lineHeight: 1.7 }}>Average Result shows how your trades are doing on average.<br /><br />A positive number means each trade makes you money on average. A negative number means the average trade is losing.</div>
-                    <button className="ghostButton" onClick={() => setShowTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
-                  </div>
-                </div>
-              )}
-              {showTooltip === "totalr" && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => setShowTooltip(null)}>
-                  <div className="card" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
-                    <div className="cardHeader"><h2>Overall Progress</h2></div>
-                    <div className="cardBody" style={{ lineHeight: 1.7 }}>Overall Progress is your total R-based performance across journaled trades.<br /><br />+5R means you've gained 5× your risk. -3R means you've lost 3× your risk.<br /><br />This is one of the most important numbers to track over time.</div>
-                    <button className="ghostButton" onClick={() => setShowTooltip(null)} style={{ marginTop: 10 }}>Got it</button>
-                  </div>
-                </div>
-              )}
-
-              {/* Equity curve */}
-              <EquityCurveCard equitySeries={filteredEquitySeries} sourceLabel={equitySourceLabel} chartRange={chartRange} setChartRange={setChartRange} />
-
-              {/* Edge + Setup + Asset analysis (no duplicate stats) */}
-              <AICoachTab
-                trades={trades}
-                onRunAnalysis={runAIAnalysis}
-                showNoNewTrades={showNoNewTrades}
+              <PerformanceDashboard
+                trades={combinedTrades}
+                equityPoints={filteredEquityPoints}
+                sourceLabel={equitySourceLabel}
+                chartRange={chartRange}
+                setChartRange={setChartRange}
+                benchmarkSymbol={equityBenchmarkSymbol}
+                benchmarkLabel={equityBenchmarkLabel}
+                onSelectBenchmark={(option) => {
+                  setEquityBenchmarkSymbol(option.symbol);
+                  setEquityBenchmarkType(option.type || "stock");
+                  setEquityBenchmarkLabel(option.label || option.symbol);
+                }}
+                benchmarkOptions={equityBenchmarkOptions}
+                benchmarkPoints={normalizedBenchmarkPoints}
+                benchmarkLoading={equityBenchmarkLoading}
+                alpacaConnected={Boolean(alpacaAccount)}
                 coachSummary={coachSummary}
-                hideOverall
+                showNoNewTrades={showNoNewTrades}
+                onRunAnalysis={runAIAnalysis}
+                onOpenRaylaPopup={openGlobalRaylaPopup}
+                alpacaPositions={alpacaPositions}
+                performanceLiveAppliedSelection={performanceLiveAppliedSelection}
+                setPerformanceLiveAppliedSelection={setPerformanceLiveAppliedSelection}
+                tradeAppliedSelection={tradeAppliedSelection}
+                applyTradeSelection={applyTradeSelection}
+                tradePortfolioAllSymbols={tradePortfolioAllSymbols}
+                tradeChartSymbol={tradeChartSymbol}
+                tradeChartCurrentPrice={tradeChartCurrentPrice}
+                tradeChartQuote={tradeChartQuote}
+                tradeChartMatchingPosition={tradeChartMatchingPosition}
+                tradeChartAsset={tradeChartAsset}
+                tradeChartAssetType={tradeChartAssetType}
+                tradeChartRange={tradeChartRange}
+                setTradeChartRange={setTradeChartRange}
+                tradeChartMode={tradeChartMode}
+                setTradeChartMode={setTradeChartMode}
+                tradeChartLastUpdated={tradeChartLastUpdated}
+                tradeIsComparisonMode={tradeIsComparisonMode}
+                tradeIsPortfolioTotalMode={tradeIsPortfolioTotalMode}
+                tradePortfolioCombinedUnrealizedPl={tradePortfolioCombinedUnrealizedPl}
+                tradePortfolioCombinedMarketValue={tradePortfolioCombinedMarketValue}
+                tradePortfolioDisplayedPositions={tradePortfolioDisplayedPositions}
+                tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+                tradePortfolioCharts={tradePortfolioCharts}
+                brokerTradeLog={brokerTradeLog}
+                tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
+                tradePortfolioNowMs={tradePortfolioNowMs}
+                tradeMarketChartLoading={tradeMarketChartLoading}
+                tradeMarketChart={tradeMarketChart}
               />
-
-              {/* Ask Rayla about performance */}
-              <CoachAskBox trades={trades} onAskRayla={requestRaylaAnswer} isLoading={isRaylaLoading} />
-
             </div>
           </div>
         )}
 
+
+        {activeTab === "journal" && (
+          <div className="mainGrid">
+            <div className="span12">
+              <JournalTab trades={combinedTrades} onOpenRaylaPopup={openGlobalRaylaPopup} />
+            </div>
+          </div>
+        )}
 
         {activeTab === "ask" && (
           <div
@@ -9313,7 +14728,7 @@ return (
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div className="askRaylaHeadline">
-                    Ask Rayla anything
+                    ASK RAYLA ANYTHING
                   </div>
                   <div style={{ fontSize: 16, color: "#94a3b8", lineHeight: 1.7 }}>
                     Understand trades, charts, risk, and strategy in seconds.
@@ -9691,9 +15106,23 @@ return (
           <div className="mainGrid">
             <div className="span12">
               <div className="card">
-                <h3>Market Intel</h3>
-                <div className="card" style={{ marginTop: 24 }}>
-                  <h4>Ask Rayla About The Market</h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  <div>
+                    <h3 style={{ margin: 0 }}>Market Intel</h3>
+                    <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 6 }}>
+                      Scanning a broader Alpaca-supported stock, ETF, and crypto universe for the strongest hot and cold opportunities.
+                    </div>
+                  </div>
+                <div style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 8 }}>
+                    Ask Rayla
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#f3f7fc", marginBottom: 8 }}>
+                    Ask Rayla about the market
+                  </div>
+                  <div style={{ fontSize: 13, color: "#7f8ea3", marginBottom: 12 }}>
+                    Ask about today&apos;s hot and cold names, sentiment shifts, or whether a move looks strong or weak.
+                  </div>
                   <form onSubmit={async e => {
                     e.preventDefault();
                     const question = e.target.elements.raylaq.value.trim();
@@ -9704,40 +15133,47 @@ return (
                     } catch {
                       setRaylaResponse("API error.");
                     }
-                  }} style={{ marginBottom: 16 }}>
-                    <input name="raylaq" type="text" placeholder="e.g. Is NVDA hot or cold today? What's the signal on BTC?" style={{ flex: 1, marginRight: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }} autoComplete="off" disabled={isRaylaLoading} />
-                    <button type="submit" disabled={isRaylaLoading} style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Ask Rayla</button>
+                  }} style={{ marginBottom: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 8 }}>
+                      <input name="raylaq" type="text" placeholder="e.g. Is NVDA hot or cold today? What's the signal on BTC?" style={{ flex: 1, background: "transparent", border: "none", padding: "10px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }} autoComplete="off" disabled={isRaylaLoading} />
+                      <button type="submit" disabled={isRaylaLoading} style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 10px 24px rgba(124,196,255,0.18)" }}>Ask Rayla</button>
+                    </div>
                   </form>
                   {isRaylaLoading && <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 8 }}>Thinking...</div>}
                   {raylaResponse && (
-                    <div style={{ marginTop: 10, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ marginTop: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 12 }}>
                       <div style={{ whiteSpace: "pre-wrap", fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>{raylaResponse}</div>
                     </div>
                   )}
                 </div>
-                {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "10px" }}>Loading today's report...</div>}
+                {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
-                  <>
-                    {[["Hot Stocks", "#ef4444", hotColdReport.stockHot], ["Cold Stocks", "#7CC4FF", hotColdReport.stockCold]].map(([label, color, items]) => (
-                      <div key={label} style={{ marginTop: "16px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+                    {[["Hottest Stocks / ETFs", "#ef4444", hotColdReport.stockHot], ["Coldest Stocks / ETFs", "#7CC4FF", hotColdReport.stockCold]].map(([label, color, items]) => (
+                      <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                           <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
                         </div>
-                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} onTrySimulation={handleTryIntelInSimulation} />)}
+                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} />)}
                       </div>
                     ))}
-                    {[["Hot Crypto", "#ef4444", hotColdReport.cryptoHot], ["Cold Crypto", "#7CC4FF", hotColdReport.cryptoCold]].map(([label, color, item]) => (
-                      <div key={label} style={{ marginTop: "22px" }}>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+                    {[["Hottest Crypto", "#ef4444", hotColdReport.cryptoHot], ["Coldest Crypto", "#7CC4FF", hotColdReport.cryptoCold]].map(([label, color, item]) => (
+                      <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                           <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
                         </div>
-                        {item && <IntelAssetCard item={item} onTrySimulation={handleTryIntelInSimulation} />}
+                        {item && <IntelAssetCard item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} />}
                       </div>
                     ))}
-                  </>
+                    </div>
+                  </div>
                 )}
+                </div>
               </div>
             </div>
           </div>
@@ -9952,7 +15388,11 @@ return (
                     }}
                   >
                     {message.loading ? (
-                      <div style={{ fontSize: 13, color: "#94a3b8" }}>Rayla is reading the chart...</div>
+                      <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                        {chartExplainPopupContext?.contextType === "simulation"
+                          ? "Rayla is reviewing this simulation..."
+                          : "Rayla is reading the chart..."}
+                      </div>
                     ) : (
                       <div style={{ fontSize: 13, lineHeight: 1.7 }}>
                         {message.role === "assistant" ? renderRaylaMessageContent(message.content) : message.content}
@@ -9961,6 +15401,138 @@ return (
                   </div>
                 ))}
               </div>
+
+              {intelSimulationSetupPrompt && (
+                <div
+                  style={{
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    padding: "12px 16px",
+                    background: "rgba(9,14,24,0.92)",
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleAcceptIntelSimulationSetupPrompt}
+                    style={{
+                      border: "1px solid rgba(124,196,255,0.35)",
+                      background: "#7CC4FF",
+                      color: "#0b1017",
+                      borderRadius: 12,
+                      padding: "10px 14px",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Yes, walk me through it
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDismissIntelSimulationSetupPrompt}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#cbd5e1",
+                      borderRadius: 12,
+                      padding: "10px 14px",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    No, I&apos;ll set it up
+                  </button>
+                </div>
+              )}
+
+              {intelSimulationSetupChecklist && (
+                <div
+                  style={{
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    padding: "12px 16px",
+                    background: "rgba(9,14,24,0.92)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                    Guided setup
+                  </div>
+                  <div style={{ fontSize: 13, color: "#dbeafe", lineHeight: 1.55 }}>
+                    {intelSimulationSetupChecklist.steps[intelSimulationSetupChecklist.currentStep]?.title}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={handleAdvanceIntelSimulationSetupChecklist}
+                      style={{
+                        border: "1px solid rgba(124,196,255,0.35)",
+                        background: "#7CC4FF",
+                        color: "#0b1017",
+                        borderRadius: 12,
+                        padding: "10px 14px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {intelSimulationSetupChecklist.currentStep >= intelSimulationSetupChecklist.steps.length - 1 ? "Done" : "Next step"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {chartExplainPopupContext?.contextType === "simulation"
+                && simulationRaylaPromptTradeId
+                && simulationRaylaGuidanceStateByTrade[simulationRaylaPromptTradeId] === "pending" && (
+                <div
+                  style={{
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    padding: "12px 16px",
+                    background: "rgba(9,14,24,0.92)",
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleEnableSimulationRaylaGuidance(simulationRaylaPromptTradeId)}
+                    style={{
+                      border: "1px solid rgba(124,196,255,0.35)",
+                      background: "#7CC4FF",
+                      color: "#0b1017",
+                      borderRadius: 12,
+                      padding: "10px 14px",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Yes, guide me
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDismissSimulationRaylaGuidance(simulationRaylaPromptTradeId)}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#cbd5e1",
+                      borderRadius: 12,
+                      padding: "10px 14px",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    No, I'm good
+                  </button>
+                </div>
+              )}
 
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: 12, background: "rgba(7,12,22,0.92)" }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
@@ -9974,7 +15546,13 @@ return (
                         await handleChartExplainPopupQuestion(chartExplainPopupInput, chartExplainPopupContext);
                       }
                     }}
-                    placeholder={chartExplainPopupContext ? "Ask a follow-up about this chart..." : "Ask Rayla anything..."}
+                    placeholder={
+                      chartExplainPopupContext
+                        ? chartExplainPopupContext.contextType === "simulation"
+                          ? "Ask a follow-up about this simulation..."
+                          : "Ask a follow-up about this chart..."
+                        : "Ask Rayla anything..."
+                    }
                     rows={1}
                     style={{
                       flex: 1,

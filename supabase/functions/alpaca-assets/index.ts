@@ -8,6 +8,10 @@ function normalizeAssetResult(asset: any) {
     exchange: asset?.exchange || "",
     assetClass: asset?.asset_class || "us_equity",
     tradable: Boolean(asset?.tradable),
+    marginable: Boolean(asset?.marginable),
+    shortable: Boolean(asset?.shortable),
+    easyToBorrow: Boolean(asset?.easy_to_borrow),
+    fractionable: Boolean(asset?.fractionable),
     status: asset?.status || "active",
   };
 }

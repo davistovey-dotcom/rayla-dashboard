@@ -2,6 +2,11 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.56/deno-dom-wasm.ts";
+import {
+  alpacaMarketDataRequest,
+  getAlpacaMarketDataEnv,
+  normalizeAlpacaSnapshot,
+} from "../_shared/alpaca.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,6 +66,62 @@ type AssetResult = {
 };
 
 const WIKI_SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies";
+const CRYPTO_SYMBOL_SET = new Set(CRYPTO_UNIVERSE.map((item) => item.symbol));
+const MAX_RAYLA_SYMBOLS = 24;
+const MAX_EQUITY_SCAN_SYMBOLS = 72;
+const MAX_STOCK_NEWS_ENRICHMENT = 36;
+const INTEL_OPTIONS_SCAN_ENABLED = false;
+
+const DEFAULT_EQUITY_UNIVERSE = [
+  { symbol: "SPY", name: "SPDR S&P 500 ETF Trust", assetClass: "etf" },
+  { symbol: "QQQ", name: "Invesco QQQ Trust", assetClass: "etf" },
+  { symbol: "DIA", name: "SPDR Dow Jones Industrial Average ETF", assetClass: "etf" },
+  { symbol: "IWM", name: "iShares Russell 2000 ETF", assetClass: "etf" },
+  { symbol: "SMH", name: "VanEck Semiconductor ETF", assetClass: "etf" },
+  { symbol: "XLK", name: "Technology Select Sector SPDR Fund", assetClass: "etf" },
+  { symbol: "XLF", name: "Financial Select Sector SPDR Fund", assetClass: "etf" },
+  { symbol: "XLE", name: "Energy Select Sector SPDR Fund", assetClass: "etf" },
+  { symbol: "ARKK", name: "ARK Innovation ETF", assetClass: "etf" },
+  { symbol: "TLT", name: "iShares 20+ Year Treasury Bond ETF", assetClass: "etf" },
+  { symbol: "GLD", name: "SPDR Gold Shares", assetClass: "etf" },
+  { symbol: "SLV", name: "iShares Silver Trust", assetClass: "etf" },
+  { symbol: "HYG", name: "iShares iBoxx High Yield Corporate Bond ETF", assetClass: "etf" },
+  { symbol: "AAPL", name: "Apple Inc.", assetClass: "stock" },
+  { symbol: "MSFT", name: "Microsoft Corporation", assetClass: "stock" },
+  { symbol: "NVDA", name: "NVIDIA Corporation", assetClass: "stock" },
+  { symbol: "AMZN", name: "Amazon.com, Inc.", assetClass: "stock" },
+  { symbol: "GOOGL", name: "Alphabet Inc.", assetClass: "stock" },
+  { symbol: "META", name: "Meta Platforms, Inc.", assetClass: "stock" },
+  { symbol: "TSLA", name: "Tesla, Inc.", assetClass: "stock" },
+  { symbol: "AMD", name: "Advanced Micro Devices, Inc.", assetClass: "stock" },
+  { symbol: "AVGO", name: "Broadcom Inc.", assetClass: "stock" },
+  { symbol: "NFLX", name: "Netflix, Inc.", assetClass: "stock" },
+  { symbol: "PLTR", name: "Palantir Technologies Inc.", assetClass: "stock" },
+  { symbol: "UBER", name: "Uber Technologies, Inc.", assetClass: "stock" },
+  { symbol: "COIN", name: "Coinbase Global, Inc.", assetClass: "stock" },
+  { symbol: "HOOD", name: "Robinhood Markets, Inc.", assetClass: "stock" },
+  { symbol: "MU", name: "Micron Technology, Inc.", assetClass: "stock" },
+  { symbol: "INTC", name: "Intel Corporation", assetClass: "stock" },
+  { symbol: "CRM", name: "Salesforce, Inc.", assetClass: "stock" },
+  { symbol: "ORCL", name: "Oracle Corporation", assetClass: "stock" },
+  { symbol: "JPM", name: "JPMorgan Chase & Co.", assetClass: "stock" },
+  { symbol: "BAC", name: "Bank of America Corporation", assetClass: "stock" },
+  { symbol: "WFC", name: "Wells Fargo & Company", assetClass: "stock" },
+  { symbol: "GS", name: "The Goldman Sachs Group, Inc.", assetClass: "stock" },
+  { symbol: "XOM", name: "Exxon Mobil Corporation", assetClass: "stock" },
+  { symbol: "CVX", name: "Chevron Corporation", assetClass: "stock" },
+  { symbol: "LLY", name: "Eli Lilly and Company", assetClass: "stock" },
+  { symbol: "UNH", name: "UnitedHealth Group Incorporated", assetClass: "stock" },
+  { symbol: "JNJ", name: "Johnson & Johnson", assetClass: "stock" },
+  { symbol: "COST", name: "Costco Wholesale Corporation", assetClass: "stock" },
+  { symbol: "WMT", name: "Walmart Inc.", assetClass: "stock" },
+  { symbol: "NKE", name: "NIKE, Inc.", assetClass: "stock" },
+  { symbol: "DIS", name: "The Walt Disney Company", assetClass: "stock" },
+  { symbol: "MCD", name: "McDonald's Corporation", assetClass: "stock" },
+  { symbol: "KO", name: "The Coca-Cola Company", assetClass: "stock" },
+  { symbol: "PFE", name: "Pfizer Inc.", assetClass: "stock" },
+  { symbol: "SHOP", name: "Shopify Inc.", assetClass: "stock" },
+];
 
 const CRYPTO_UNIVERSE = [
   { symbol: "BTC", name: "Bitcoin", yahoo: "BTC-USD", query: "Bitcoin crypto" },
@@ -477,6 +538,112 @@ async function fetchFinnhubQuotes(
   });
 
   return results.filter(Boolean) as QuoteData[];
+}
+
+async function fetchRecentRaylaSymbols(projectUrl: string, serviceKey: string) {
+  const headers = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+  };
+
+  const [manualRes, brokerRes] = await Promise.all([
+    fetch(`${projectUrl}/rest/v1/trades?select=asset,entry_time&order=entry_time.desc&limit=250`, { headers }),
+    fetch(`${projectUrl}/rest/v1/broker_trade_logs?select=symbol,submitted_at&order=submitted_at.desc&limit=250`, { headers }),
+  ]);
+
+  const symbols = new Set<string>();
+
+  if (manualRes.ok) {
+    const trades = await manualRes.json();
+    for (const row of Array.isArray(trades) ? trades : []) {
+      const symbol = String(row?.asset || "").trim().toUpperCase();
+      if (symbol) symbols.add(symbol);
+      if (symbols.size >= MAX_RAYLA_SYMBOLS) break;
+    }
+  }
+
+  if (brokerRes.ok && symbols.size < MAX_RAYLA_SYMBOLS) {
+    const brokerRows = await brokerRes.json();
+    for (const row of Array.isArray(brokerRows) ? brokerRows : []) {
+      const symbol = String(row?.symbol || "").trim().toUpperCase();
+      if (symbol) symbols.add(symbol);
+      if (symbols.size >= MAX_RAYLA_SYMBOLS) break;
+    }
+  }
+
+  return [...symbols];
+}
+
+function buildIntelEquityUniverse(raylaSymbols: string[]) {
+  const baseMap = new Map(
+    DEFAULT_EQUITY_UNIVERSE.map((item) => [item.symbol, item])
+  );
+
+  const orderedSymbols = [
+    ...raylaSymbols.filter((symbol) => !CRYPTO_SYMBOL_SET.has(symbol)),
+    ...DEFAULT_EQUITY_UNIVERSE.map((item) => item.symbol),
+  ];
+
+  const universe = [];
+  const seen = new Set<string>();
+  for (const symbol of orderedSymbols) {
+    if (!symbol || seen.has(symbol)) continue;
+    seen.add(symbol);
+    universe.push(
+      baseMap.get(symbol) || {
+        symbol,
+        name: symbol,
+        assetClass: "stock",
+      }
+    );
+    if (universe.length >= MAX_EQUITY_SCAN_SYMBOLS) break;
+  }
+
+  return universe;
+}
+
+async function fetchAlpacaQuoteSnapshots(
+  equities: { symbol: string; name: string; assetClass: string }[],
+  cryptos: typeof CRYPTO_UNIVERSE
+) {
+  const { stockFeed } = getAlpacaMarketDataEnv();
+  const stockQuotes: QuoteData[] = [];
+  const cryptoQuotes: QuoteData[] = [];
+
+  const stockBatches = [];
+  for (let index = 0; index < equities.length; index += 100) {
+    stockBatches.push(equities.slice(index, index + 100));
+  }
+
+  for (const batch of stockBatches) {
+    const symbols = batch.map((item) => item.symbol);
+    const data = await alpacaMarketDataRequest(`/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols.join(","))}&feed=${stockFeed}`);
+    for (const item of batch) {
+      const normalized = normalizeAlpacaSnapshot(item.symbol, data?.snapshots?.[item.symbol], "stock");
+      if (!normalized) continue;
+      stockQuotes.push({
+        symbol: item.symbol,
+        name: item.name,
+        dayChangePct: normalized.change,
+        price: normalized.price,
+      });
+    }
+  }
+
+  const cryptoPairs = cryptos.map((item) => `${item.symbol}/USD`);
+  const cryptoData = await alpacaMarketDataRequest(`/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(cryptoPairs.join(","))}`);
+  for (const item of cryptos) {
+    const normalized = normalizeAlpacaSnapshot(item.symbol, cryptoData?.snapshots?.[`${item.symbol}/USD`], "crypto");
+    if (!normalized) continue;
+    cryptoQuotes.push({
+      symbol: item.symbol,
+      name: item.name,
+      dayChangePct: normalized.change,
+      price: normalized.price,
+    });
+  }
+
+  return { stockQuotes, cryptoQuotes };
 }
 
 
@@ -1092,14 +1259,6 @@ Context: ${signalContext}`;
     if (!PROJECT_URL) throw new Error("Missing PROJECT_URL");
     if (!SERVICE_KEY) throw new Error("Missing SERVICE_ROLE_KEY");
 
-    // 5) Crypto quotes
-    const cryptoQuotes = await fetchFinnhubQuotes(CRYPTO_UNIVERSE, "crypto", FINNHUB_API_KEY);
-    
-    const cryptoAvgChange =
-      cryptoQuotes.length > 0
-        ? cryptoQuotes.reduce((sum, item) => sum + item.dayChangePct, 0) / cryptoQuotes.length
-        : 0;
-
     // 1. Return cached daily report if it exists in DB
     const today = new Date().toISOString().split("T")[0];
     const existingRes = await fetch(
@@ -1140,95 +1299,47 @@ Context: ${signalContext}`;
     }
     console.log(`[intel] No cached report for ${today}, computing fresh report.`);
 
-      // 1) Load S&P 500 universe with REAL company names (prefer Wikipedia; fallback to local JSON)
-      let sp500: { symbol: string; name: string }[] = [];
-      try {
-        sp500 = await fetchSp500Constituents();
-      } catch (err) {
-        console.error("fetchSp500Constituents failed; falling back to local sp500.json", err);
+    const raylaSymbols = await fetchRecentRaylaSymbols(PROJECT_URL, SERVICE_KEY);
+    const equityUniverse = buildIntelEquityUniverse(raylaSymbols);
+    let stockQuotes: QuoteData[] = [];
+    let cryptoQuotes: QuoteData[] = [];
 
-        const text = await Deno.readTextFile("../_shared/sp500.json");
-        const json = JSON.parse(text);
-
-        // Expect JSON to contain objects like: { symbol: "ABT", name: "Abbott Laboratories" }
-        const list: any[] = Array.isArray(json?.constituents)
-          ? json.constituents
-          : Array.isArray(json?.sp500)
-          ? json.sp500
-          : Array.isArray(json?.items)
-          ? json.items
-          : Array.isArray(json)
-          ? json
-          : [];
-
-        sp500 = list
-          .map((x) => ({
-            symbol: String(x?.symbol || "").trim().toUpperCase(),
-            name: String(x?.name || "").trim(),
-          }))
-          .filter((x) => x.symbol && x.name);
-      }
-
-    // Use Massive API for fast batch stock quotes
-const MASSIVE_KEY = Deno.env.get("POLYGON_API_KEY");
-let stockQuotes: QuoteData[] = [];
-
-try {
-  // Fetch in batches of 100 (Massive limit per request)
-  const batches = [];
-  for (let i = 0; i < sp500.length; i += 100) {
-    batches.push(sp500.slice(i, i + 100));
-  }
-
-  for (const batch of batches) {
-    const tickers = batch.map(s => s.symbol).join(",");
-    const url = `https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${encodeURIComponent(tickers)}&apiKey=${MASSIVE_KEY}`;
-    const res = await fetch(url);
-    const data = await res.json();
-
-    for (const ticker of data?.tickers || []) {
-      const sp = sp500.find(s => s.symbol === ticker.ticker);
-      if (!sp) continue;
-      const price = ticker.day?.c || ticker.lastTrade?.p || ticker.prevDay?.c || 0;
-      const prevClose = ticker.prevDay?.c || 0;
-      const dayChangePct = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-      stockQuotes.push({ symbol: ticker.ticker, name: sp.name, dayChangePct, price });
-    }
-  }
-  console.log(`Massive stock quotes returned: ${stockQuotes.length}`);
-} catch (err) {
-  console.error("Massive stock fetch failed, falling back to Finnhub:", err);
-  stockQuotes = await fetchFinnhubQuotes(sp500, "stock", FINNHUB_API_KEY);
-}
-
-    
-    
-
-    let stockCandidates: QuoteData[] = [];
-
-    if (stockQuotes.length >= 10) {
-      // Scan the full S&P 500, in the order returned by fetchFinnhubQuotes (no subset, no bias)
-      stockCandidates = stockQuotes;
-    } else {
-      // fallback: scan the full S&P 500 with 0% change if quotes missing
-      stockCandidates = sp500.map((item) => ({
-        symbol: item.symbol,
-        name: item.name,
-        dayChangePct: 0,
-        price: null,
-      }));
+    try {
+      const snapshotResult = await fetchAlpacaQuoteSnapshots(equityUniverse, CRYPTO_UNIVERSE);
+      stockQuotes = snapshotResult.stockQuotes;
+      cryptoQuotes = snapshotResult.cryptoQuotes;
+      console.log("[intel] Alpaca snapshot scan", {
+        stockEtfUniverseCount: equityUniverse.length,
+        cryptoUniverseCount: CRYPTO_UNIVERSE.length,
+        stockEtfQuotedCount: stockQuotes.length,
+        cryptoQuotedCount: cryptoQuotes.length,
+        raylaSymbolCount: raylaSymbols.length,
+        optionsScanEnabled: INTEL_OPTIONS_SCAN_ENABLED,
+      });
+    } catch (err) {
+      console.error("[intel] Alpaca snapshot scan failed, falling back to Finnhub stocks/crypto:", err);
+      stockQuotes = await fetchFinnhubQuotes(equityUniverse, "stock", FINNHUB_API_KEY);
+      cryptoQuotes = await fetchFinnhubQuotes(CRYPTO_UNIVERSE, "crypto", FINNHUB_API_KEY);
     }
 
-    
-    
- 
-// Step 1: rank ALL stocks by price movement (cheap, no API calls)
-const rankedStocks = [...stockCandidates].sort(
-  (a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct)
-);
+    const cryptoAvgChange =
+      cryptoQuotes.length > 0
+        ? cryptoQuotes.reduce((sum, item) => sum + item.dayChangePct, 0) / cryptoQuotes.length
+        : 0;
 
-// Step 2: take top 50 for news enrichment ONLY
-const topCandidates = rankedStocks.slice(0, 50);
+    const stockCandidates = stockQuotes.length >= 10
+      ? stockQuotes
+      : equityUniverse.map((item) => ({
+          symbol: item.symbol,
+          name: item.name,
+          dayChangePct: 0,
+          price: null,
+        }));
+
+    const rankedStocks = [...stockCandidates].sort(
+      (a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct)
+    );
+    const topCandidates = rankedStocks.slice(0, MAX_STOCK_NEWS_ENRICHMENT);
 
 // Step 3: score those with news
 const scoredStocksRaw = await mapWithConcurrency(topCandidates, 6, async (candidate) => {
@@ -1357,6 +1468,21 @@ const cryptoCold = [...scoredCrypto].sort((a, b) => a.score - b.score).find((ite
 
         
     
+    const articleCount = [
+      ...filteredStockHot,
+      ...filteredStockCold,
+      cryptoHotFinal,
+      cryptoColdFinal,
+    ].filter(Boolean).reduce((sum, asset) => sum + ((asset?.rawArticles?.length || 0) > 0 ? 1 : 0), 0);
+    console.log("[intel] Final scan summary", {
+      stockEtfUniverseCount: equityUniverse.length,
+      cryptoUniverseCount: CRYPTO_UNIVERSE.length,
+      scannedStockEtfCount: stockCandidates.length,
+      scoredStockEtfCount: topCandidates.length,
+      scoredCryptoCount: scoredCrypto.length,
+      articleCount,
+    });
+
 // Ensure correct fields used throughout
 const CRYPTO_SYMBOLS = new Set(CRYPTO_UNIVERSE.map(c => c.symbol));
 const filteredStockHot = stockHot.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));

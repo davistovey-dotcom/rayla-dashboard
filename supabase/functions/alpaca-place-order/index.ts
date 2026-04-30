@@ -11,7 +11,8 @@ function validateOrderBody(body: any) {
   const qty = Number(body?.qty);
   const type = body?.type;
   const limitPrice = body?.limit_price == null || body?.limit_price === "" ? null : Number(body.limit_price);
-  const timeInForce = body?.time_in_force || "day";
+  const stopPrice = body?.stop_price == null || body?.stop_price === "" ? null : Number(body.stop_price);
+  const timeInForce = String(body?.time_in_force || "gtc").toLowerCase();
 
   if (!/^[A-Z]{1,5}$/.test(symbol)) {
     throw new Error("Stocks only. Enter a valid stock symbol.");
@@ -25,16 +26,29 @@ function validateOrderBody(body: any) {
     throw new Error("Quantity must be a positive number.");
   }
 
-  if (type !== "market" && type !== "limit") {
-    throw new Error("Order type must be market or limit.");
+  if (!["market", "limit", "stop", "stop_limit"].includes(type)) {
+    throw new Error("Order type must be market, limit, stop, or stop limit.");
   }
 
   if (type === "limit" && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
     throw new Error("Limit orders require a positive limit price.");
   }
 
-  if (timeInForce !== "day") {
-    throw new Error("Only day time-in-force is supported in this first version.");
+  if (type === "stop" && (!Number.isFinite(stopPrice) || stopPrice <= 0)) {
+    throw new Error("Stop orders require a positive stop price.");
+  }
+
+  if (type === "stop_limit") {
+    if (!Number.isFinite(limitPrice) || limitPrice <= 0) {
+      throw new Error("Stop limit orders require a positive limit price.");
+    }
+    if (!Number.isFinite(stopPrice) || stopPrice <= 0) {
+      throw new Error("Stop limit orders require a positive stop price.");
+    }
+  }
+
+  if (!["gtc", "ioc", "fok"].includes(timeInForce)) {
+    throw new Error("Time in force must be GTC, IOC, or FOK.");
   }
 
   return {
@@ -42,8 +56,9 @@ function validateOrderBody(body: any) {
     side,
     qty,
     type,
-    time_in_force: "day",
-    ...(type === "limit" ? { limit_price: limitPrice } : {}),
+    time_in_force: timeInForce,
+    ...(type === "limit" || type === "stop_limit" ? { limit_price: limitPrice } : {}),
+    ...(type === "stop" || type === "stop_limit" ? { stop_price: stopPrice } : {}),
   };
 }
 

@@ -47,7 +47,7 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
       }
 
       // Wraparound — skip during smooth scroll to avoid position fights
-      if (!isHoveredRef.current && !isLockedRef.current && !isSmoothScrollingRef.current) {
+      if (!isSmoothScrollingRef.current) {
         const w = singleSetWidthRef.current;
         if (w > 0) {
           if (container.scrollLeft < w * 0.25) {
@@ -100,9 +100,9 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
       cardEl.offsetLeft - (container.clientWidth - cardEl.offsetWidth) / 2;
 
     container.scrollTo({
-      left: targetLeft,
-      behavior: "smooth",
-    });
+    left: targetLeft,
+    behavior: "smooth",
+  });
   }
 
   setTimeout(() => {
@@ -164,8 +164,8 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
                 borderRadius: 12,
                 cursor: "pointer",
                 background: isSelected
-                  ? "rgba(96,165,250,0.15)"
-                  : "rgba(255,255,255,0.04)",
+                  ? "rgba(111,160,216,0.15)"
+                  : "var(--rayla-blue)",
                 border: isSelected
                   ? "1.5px solid rgba(96,165,250,0.7)"
                   : "1.5px solid rgba(255,255,255,0.07)",

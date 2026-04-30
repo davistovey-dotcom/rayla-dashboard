@@ -213,6 +213,7 @@ h1 {
     rgba(124,196,255,0.03) 100%
   );
   padding: 10px 0 8px 0;
+  position: relative;
 }
 
 .equityChart svg {
@@ -241,6 +242,149 @@ h1 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.equityChartCanvasWrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  border-radius: 14px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(124,196,255,0.08), transparent 42%),
+    linear-gradient(180deg, rgba(13,17,23,0.92), rgba(15,23,34,0.98));
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.equityChartCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.equityChartTooltip {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  max-width: min(280px, calc(100% - 24px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(9,13,20,0.9);
+  border: 1px solid rgba(124,196,255,0.14);
+  box-shadow: 0 14px 34px rgba(2,6,23,0.22);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.equityChartTooltipDate {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fbff;
+}
+
+.equityChartTooltipValue {
+  font-size: 22px;
+  font-weight: 800;
+  color: #7cc4ff;
+  letter-spacing: -0.02em;
+}
+
+.equityChartTooltipRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.equityChartTooltipRow span {
+  color: #8ea0b8;
+}
+
+.equityChartTooltipRow strong {
+  color: #f8fbff;
+  font-weight: 700;
+  text-align: right;
+}
+
+.equityChartTooltipRow.equity strong {
+  color: #7cc4ff;
+}
+
+.equityChartTooltipRow.benchmarkPct strong {
+  color: #a78bfa;
+}
+
+.equityChartTooltipRow.benchmarkSim strong {
+  color: #7be495;
+}
+
+.equityChartTooltipRow.difference strong {
+  color: #e2e8f0;
+}
+
+.equityChartLegend {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(8,12,18,0.72);
+  border: 1px solid rgba(255,255,255,0.06);
+  pointer-events: none;
+}
+
+.equityChartLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cbd5e1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.equityChartLegendLine {
+  width: 18px;
+  height: 0;
+  border-top-width: 2px;
+  border-top-style: solid;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.equityChartLegendLine.equity {
+  border-top-color: #7cc4ff;
+}
+
+.equityChartLegendLine.benchmarkPct {
+  border-top-color: #a78bfa;
+  border-top-style: dashed;
+}
+
+.equityChartLegendLine.benchmarkSim {
+  border-top-color: #7be495;
+}
+
+.equityChartLegendLoading {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8ea0b8;
 }
 
 .marketCard {
