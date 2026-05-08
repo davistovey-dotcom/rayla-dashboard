@@ -204,7 +204,7 @@ function writeChartDrawingsToStorage(storageKey, drawings) {
 
 function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort("Request timed out"), timeoutMs);
 
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(timeout));
@@ -365,9 +365,11 @@ async function searchRaylaSupportedAssets(query, alpacaConnected) {
   return results;
 }
 
-const SUPABASE_FUNCTIONS_BASE_URL = "https://uoxzzhtnzmsolvcykynu.functions.supabase.co";
-const DAILY_INTEL_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
-const ASK_RAYLA_URL = `${SUPABASE_FUNCTIONS_BASE_URL}/ask-rayla`;
+const PRODUCT_SUPABASE_FUNCTIONS_BASE_URL = "https://uoxzzhtnzmsolvcykynu.functions.supabase.co";
+const LOCAL_SUPABASE_FUNCTIONS_BASE_URL = "http://localhost:54321/functions/v1";
+const SHOULD_USE_LOCAL_SUPABASE_FUNCTIONS = import.meta.env.VITE_USE_LOCAL_SUPABASE_FUNCTIONS === "true";
+const DAILY_INTEL_URL = `${PRODUCT_SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
+const ASK_RAYLA_URL = `${(SHOULD_USE_LOCAL_SUPABASE_FUNCTIONS ? LOCAL_SUPABASE_FUNCTIONS_BASE_URL : PRODUCT_SUPABASE_FUNCTIONS_BASE_URL)}/ask-rayla`;
 const SIMULATION_STARTING_BALANCE = 10000;
 const SIMULATION_STORAGE_KEYS = {
   tradeHistory: "rayla_sim_trade_history",
@@ -382,6 +384,15 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
+
+function isPopulatedIntelReport(report) {
+  if (!report || typeof report !== "object") return false;
+  const hasStockHot = Array.isArray(report.stockHot) && report.stockHot.length > 0;
+  const hasStockCold = Array.isArray(report.stockCold) && report.stockCold.length > 0;
+  const hasCryptoHot = Boolean(report.cryptoHot?.symbol);
+  const hasCryptoCold = Boolean(report.cryptoCold?.symbol);
+  return hasStockHot || hasStockCold || hasCryptoHot || hasCryptoCold;
+}
 
 const marketSeeds = [
   { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%", alpacaSupported: true, tradable: true },
@@ -1837,6 +1848,58 @@ function buildTradeStats(trades) {
   };
 }
 
+function buildEdgeSummary(stats) {
+  const sampleSize = Number(stats?.totalTrades || 0);
+  if (sampleSize < 3) return null;
+
+  const winRate = Number(stats?.winRate || 0);
+  const avgR = Number(stats?.avgR || 0);
+  const bestSetup = stats?.bestSetup?.name || null;
+  const bestAsset = stats?.bestAsset?.name || null;
+  const worstSetup = stats?.worstSetup?.name || null;
+  const recentLossStreak = Number(stats?.recentLossStreak || 0);
+  const confidence = sampleSize < 8 ? "Low" : sampleSize < 20 ? "Medium" : "High";
+
+  const currentEdge = bestSetup && bestAsset
+    ? `Your clearest edge right now looks strongest when you stay focused on ${bestSetup} setups in ${bestAsset}.`
+    : bestSetup
+      ? `Your clearest edge right now looks strongest in your ${bestSetup} setups.`
+      : bestAsset
+        ? `Your clearest edge right now looks strongest when you focus on ${bestAsset}.`
+        : avgR > 0
+          ? "Your current edge is positive overall, but it still needs more sample depth to feel proven."
+          : "Your edge is still forming, so the main job is finding what is repeatably working.";
+
+  const biggestStrength = bestSetup
+    ? `${bestSetup} is your biggest strength so far.`
+    : bestAsset
+      ? `${bestAsset} is your biggest strength so far.`
+      : avgR > 0
+        ? "Your overall results are still positive, which is the strongest signal right now."
+        : "You have some usable data now, but not enough to call a strong strength yet.";
+
+  const biggestLeak = worstSetup
+    ? `${worstSetup} is your biggest leak right now.`
+    : recentLossStreak >= 3
+      ? `Your recent ${recentLossStreak}-trade loss streak is the biggest leak right now.`
+      : avgR < 0
+        ? "Your average R is still negative, so consistency is the main leak right now."
+        : "The biggest leak is still unclear from the current sample.";
+
+  return {
+    currentEdge,
+    confidence,
+    biggestStrength,
+    biggestLeak,
+    bestSetup,
+    bestAsset,
+    worstSetup,
+    winRate,
+    avgR,
+    sampleSize,
+  };
+}
+
 function buildChartExplainContext({ symbol, assetName, assetType, range, bars, currentPrice, positionSummary = null }) {
   const normalizedBars = (Array.isArray(bars) ? bars : [])
     .filter((bar) => bar && Number.isFinite(Number(bar.close)) && Number(bar.close) > 0)
@@ -2078,15 +2141,18 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, recentConversation = null, raylaMode = "beginner" }) {
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner" }) {
+  const stats = buildTradeStats(trades);
   return {
     selectedMarketId,
     adaptiveProfile,
     chartContext,
     simulationContext,
+    selectedAssetContext,
     recentConversation: Array.isArray(recentConversation) && recentConversation.length > 0 ? recentConversation : null,
     raylaMode,
-    stats: buildTradeStats(trades),
+    stats,
+    edgeSummary: buildEdgeSummary(stats),
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
       setup: trade?.setup || "",
@@ -2095,6 +2161,133 @@ function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chart
       direction: trade?.direction || "",
       createdAt: trade?.created_at || trade?.entry_time || null,
     })),
+  };
+}
+
+function buildSelectedAssetChartSummary(chartContext) {
+  if (!chartContext) return null;
+  const bars = Array.isArray(chartContext?.recentBars) ? chartContext.recentBars : [];
+  const firstClose = Number(chartContext?.chartSummary?.firstClose);
+  const lastClose = Number(chartContext?.chartSummary?.lastClose);
+  const barCount = Number(chartContext?.chartSummary?.barCount);
+  const netChange = Number.isFinite(firstClose) && Number.isFinite(lastClose) ? lastClose - firstClose : null;
+  const netChangePct = Number.isFinite(firstClose) && firstClose !== 0 && Number.isFinite(lastClose)
+    ? ((lastClose - firstClose) / firstClose) * 100
+    : null;
+  return {
+    timeframe: chartContext?.timeframe || "1D",
+    barCount: Number.isFinite(barCount) ? barCount : bars.length || 0,
+    firstClose: Number.isFinite(firstClose) ? firstClose : null,
+    lastClose: Number.isFinite(lastClose) ? lastClose : null,
+    netChange: Number.isFinite(netChange) ? roundMetric(netChange) : null,
+    netChangePct: Number.isFinite(netChangePct) ? roundMetric(netChangePct) : null,
+  };
+}
+
+function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
+  const realTrades = Array.isArray(trades) ? trades : [];
+  const simTrades = Array.isArray(simulationTradeHistory) ? simulationTradeHistory : [];
+  const bucketMap = new Map();
+
+  const ensureBucket = (asset, assetType, direction) => {
+    const key = `${assetType}:${direction}:${asset}`;
+    if (!bucketMap.has(key)) {
+      bucketMap.set(key, {
+        asset,
+        assetType,
+        direction,
+        totalTrades: 0,
+        wins: 0,
+        totalR: 0,
+        realTrades: 0,
+        simTrades: 0,
+      });
+    }
+    return bucketMap.get(key);
+  };
+
+  realTrades.forEach((trade) => {
+    const asset = String(trade?.asset || "").trim().toUpperCase();
+    const direction = String(trade?.direction || "").trim().toLowerCase();
+    const resultR = parseTradeResult(trade?.result_r);
+    if (!asset || !Number.isFinite(resultR) || !["long", "short"].includes(direction)) return;
+    const assetType = CRYPTO_SYMBOL_SET.has(asset) ? "crypto" : "stock";
+    const bucket = ensureBucket(asset, assetType, direction);
+    bucket.totalTrades += 1;
+    bucket.realTrades += 1;
+    bucket.totalR += resultR;
+    if (resultR > 0) bucket.wins += 1;
+  });
+
+  simTrades.forEach((trade) => {
+    const asset = String(trade?.asset || "").trim().toUpperCase();
+    const direction = String(trade?.direction || "").trim().toLowerCase();
+    const resultR = Number(trade?.rMultiple);
+    if (!asset || !Number.isFinite(resultR) || !["long", "short"].includes(direction)) return;
+    const assetType = CRYPTO_SYMBOL_SET.has(asset) ? "crypto" : "stock";
+    const bucket = ensureBucket(asset, assetType, direction);
+    bucket.totalTrades += 1;
+    bucket.simTrades += 1;
+    bucket.totalR += resultR;
+    if (resultR > 0) bucket.wins += 1;
+  });
+
+  const ranked = Array.from(bucketMap.values())
+    .map((bucket) => ({
+      ...bucket,
+      avgR: bucket.totalTrades ? bucket.totalR / bucket.totalTrades : 0,
+      winRate: bucket.totalTrades ? (bucket.wins / bucket.totalTrades) * 100 : 0,
+    }))
+    .sort((a, b) => {
+      if (b.avgR !== a.avgR) return b.avgR - a.avgR;
+      if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+      return b.totalTrades - a.totalTrades;
+    });
+
+  const findBest = (assetType, direction) =>
+    ranked.find((entry) => entry.assetType === assetType && entry.direction === direction) || null;
+
+  const toPick = (entry, title) => {
+    if (!entry) {
+      return {
+        title,
+        asset: null,
+        directionBias: null,
+        explanation: "Not enough logged history yet in this category.",
+        progress: "Log a few more trades or simulations here to unlock a personalized pick.",
+        eligible: false,
+      };
+    }
+
+    const biasLabel = entry.direction === "short" ? "Short bias" : "Long bias";
+    const realLabel = `${entry.realTrades} real trade${entry.realTrades === 1 ? "" : "s"}`;
+    const simLabel = `${entry.simTrades} simulation trade${entry.simTrades === 1 ? "" : "s"}`;
+    const earlyRead = entry.totalTrades < 3;
+    const explanation = earlyRead
+      ? `${entry.asset} is the strongest early read in this bucket so far.`
+      : `${entry.asset} has the strongest relative edge in your logged history right now.`;
+    const progress = `Built from ${realLabel} and ${simLabel} in this direction.`;
+
+    return {
+      title,
+      asset: entry.asset,
+      directionBias: biasLabel,
+      explanation,
+      progress,
+      eligible: true,
+      avgR: entry.avgR,
+      winRate: entry.winRate,
+      totalTrades: entry.totalTrades,
+      realTrades: entry.realTrades,
+      simTrades: entry.simTrades,
+    };
+  };
+
+  return {
+    stockLong: toPick(findBest("stock", "long"), "Best Stock to Buy"),
+    stockShort: toPick(findBest("stock", "short"), "Best Stock to Short"),
+    cryptoLong: toPick(findBest("crypto", "long"), "Best Crypto to Buy"),
+    cryptoShort: toPick(findBest("crypto", "short"), "Best Crypto to Short"),
   };
 }
 
@@ -2881,7 +3074,7 @@ function PerformanceDashboard({
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <RaylaLaunchButton
-          label="Ask Rayla about your performance"
+          label="Ask Rayla"
           onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
         />
       </div>
@@ -5365,6 +5558,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   const drivers = item.breakdown
     ? Object.entries(item.breakdown).filter(([k]) => k !== "total").sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 2)
     : [];
+  const summaryText = String(item.summary || "").trim();
   const pillColors = {
     "hot": { bg: "rgba(239,68,68,0.15)", color: "#f87171" },
     "leaning-hot": { bg: "rgba(239,68,68,0.08)", color: "#fca5a5" },
@@ -5374,6 +5568,12 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   };
   const pill = pillColors[cls];
   const driverLabels = { demand: "Demand", costMargin: "Margin", guidance: "Guidance", narrative: "Narrative", priceConfirmation: "Price", liquidity: "Liquidity", sentiment: "Sentiment", momentum: "Momentum", catalyst: "Catalyst", relativeStrength: "Rel. Strength" };
+  const driverText = drivers.length
+    ? drivers
+      .map(([key, val]) => `${driverLabels[key] || key} ${val > 0 ? "positive" : val < 0 ? "negative" : "mixed"}`)
+      .join(" • ")
+    : "";
+  const articleSnippet = String(article?.description || "").trim();
 
   return (
     <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 14, marginBottom: 10 }}>
@@ -5399,6 +5599,21 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
           ))}
         </div>
       )}
+      {summaryText && (
+        <div style={{ marginBottom: 8, fontSize: 12, color: "#dbe7f3", lineHeight: 1.55 }}>
+          {summaryText}
+        </div>
+      )}
+      {driverText && (
+        <div style={{ marginBottom: 8, padding: "9px 10px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 4 }}>
+            What Is Driving It
+          </div>
+          <div style={{ fontSize: 11, color: "#aebfd3", lineHeight: 1.5 }}>
+            {driverText}
+          </div>
+        </div>
+      )}
       {article && (
         <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 10, textDecoration: "none", marginTop: 6, padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
           {article.image ? (
@@ -5409,7 +5624,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, color: "#7CC4FF", lineHeight: 1.4, marginBottom: 3 }}>{article.title}</div>
             <div style={{ fontSize: 10, color: "#7f8ea3" }}>{article.source?.name}</div>
-            {article.description && <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.4, marginTop: 4 }}>{article.description?.slice(0, 120)}...</div>}
+            {articleSnippet && <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.45, marginTop: 4 }}>{articleSnippet.slice(0, 160)}{articleSnippet.length > 160 ? "..." : ""}</div>}
           </div>
         </a>
       )}
@@ -5442,6 +5657,36 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function RaylaPickCard({ pick }) {
+  if (!pick) return null;
+  return (
+    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+        {pick.title}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff" }}>
+        {pick.asset || "Not enough data yet"}
+      </div>
+      {pick.directionBias && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", textTransform: "uppercase", letterSpacing: "0.8px" }}>
+          {pick.directionBias}
+        </div>
+      )}
+      <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.55 }}>
+        {pick.explanation}
+      </div>
+      {pick.eligible && Number.isFinite(pick.winRate) && Number.isFinite(pick.totalTrades) ? (
+        <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
+          Win rate {pick.winRate.toFixed(0)}% · Avg {pick.avgR >= 0 ? "+" : ""}{pick.avgR.toFixed(2)}R · {pick.totalTrades} trade{pick.totalTrades === 1 ? "" : "s"}
+        </div>
+      ) : null}
+      <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
+        {pick.progress}
+      </div>
     </div>
   );
 }
@@ -5748,7 +5993,7 @@ function JournalTab({ trades, onOpenRaylaPopup }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <RaylaLaunchButton
-          label="Ask Rayla anything about your trades"
+          label="Ask Rayla"
           onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
         />
       </div>
@@ -6094,7 +6339,8 @@ useEffect(() => {
   const [intelLoading, setIntelLoading] = useState(false);
   const [hotColdReport, setHotColdReport] = useState(() => {
     try {
-      return JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null");
+      const cached = JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null");
+      return isPopulatedIntelReport(cached) ? cached : null;
     } catch {
       return null;
     }
@@ -6417,7 +6663,38 @@ useEffect(() => {
   const tradeIsPortfolioTotalMode = activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "portfolio";
   const tradeIsPortfolioBreakdownMode = activeTradeChartSelection.mode === "multi"
     || (activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "breakdown");
-  const [simulationAsset, setSimulationAsset] = useState(null);
+  const [simulationAsset, setSimulationAsset] = useState(() => {
+    const storedPosition = readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.openPosition,
+      [],
+      (value) => value === null || Array.isArray(value) || (typeof value === "object" && !Array.isArray(value))
+    );
+    const normalizedPositions = Array.isArray(storedPosition)
+      ? storedPosition
+      : storedPosition && typeof storedPosition === "object"
+        ? [storedPosition]
+        : [];
+    const latestStoredPosition = [...normalizedPositions]
+      .sort((a, b) => Number(b?.openedAt || 0) - Number(a?.openedAt || 0))[0];
+    if (latestStoredPosition?.asset) {
+      return buildSimulationAssetFromPosition(latestStoredPosition);
+    }
+
+    const storedGuidedDraft = readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.guidedDraft,
+      null,
+      (value) => value === null || (typeof value === "object" && !Array.isArray(value))
+    );
+    if (storedGuidedDraft?.asset) {
+      return buildMarketAsset({
+        symbol: storedGuidedDraft.asset,
+        description: storedGuidedDraft.label || storedGuidedDraft.asset,
+        tvSymbol: storedGuidedDraft.tvSymbol,
+      });
+    }
+
+    return buildMarketAsset("BTC");
+  });
   const [simulationMode, setSimulationMode] = useState("live");
   const [simulationScenarioType, setSimulationScenarioType] = useState("uptrend");
   const [simulationScenarioSpeed, setSimulationScenarioSpeed] = useState("1x");
@@ -6460,6 +6737,20 @@ useEffect(() => {
     if (stored && typeof stored === "object") return [stored];
     return [];
   });
+  const [selectedSimulationPositionId, setSelectedSimulationPositionId] = useState(() => {
+    const stored = readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.openPosition,
+      [],
+      (value) => value === null || Array.isArray(value) || (typeof value === "object" && !Array.isArray(value))
+    );
+    const normalized = Array.isArray(stored)
+      ? stored
+      : stored && typeof stored === "object"
+        ? [stored]
+        : [];
+    const latest = [...normalized].sort((a, b) => Number(b?.openedAt || 0) - Number(a?.openedAt || 0))[0];
+    return latest?.id || null;
+  });
   const [simulationPendingScenarioDecision, setSimulationPendingScenarioDecision] = useState(null);
   const [simulationPendingLiveDecision, setSimulationPendingLiveDecision] = useState(null);
   const [simulationClosedTrade, setSimulationClosedTrade] = useState(() =>
@@ -6482,6 +6773,10 @@ useEffect(() => {
       [],
       (value) => Array.isArray(value)
     )
+  );
+  const raylaPicksContext = useMemo(
+    () => buildRaylaPicksContext({ trades, simulationTradeHistory }),
+    [trades, simulationTradeHistory]
   );
   const [guidedSimulationDraft, setGuidedSimulationDraft] = useState(() =>
     readSimulationStorage(
@@ -7971,14 +8266,28 @@ useEffect(() => {
     if (hotColdReport !== null) return;
     setIntelLoading(true);
     fetch(DAILY_INTEL_URL)
-      .then(r => r.json())
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data?.ok === false) {
+          throw new Error(data?.error || `daily-intel failed with status ${response.status}`);
+        }
+        return data;
+      })
       .then(data => {
         const report = { stockHot: data.stockHot || [], stockCold: data.stockCold || [], cryptoHot: data.cryptoHot || null, cryptoCold: data.cryptoCold || null };
+        if (!isPopulatedIntelReport(report)) {
+          throw new Error("daily-intel returned an empty report");
+        }
         sessionStorage.setItem("rayla-intel-report", JSON.stringify(report));
         setHotColdReport(report);
         setIntelLoading(false);
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error("daily-intel fetch failed", {
+          url: DAILY_INTEL_URL,
+          error: error instanceof Error ? error.message : error,
+        });
+        sessionStorage.removeItem("rayla-intel-report");
         setHotColdReport({ stockHot: [], stockCold: [], cryptoHot: null, cryptoCold: null });
         setIntelLoading(false);
       });
@@ -8514,6 +8823,139 @@ useEffect(() => {
       selectedMarketId,
     });
 
+    function formatSelectedAssetDrivers(breakdown) {
+      if (!breakdown || typeof breakdown !== "object") return [];
+      const driverLabels = {
+        demand: "demand",
+        costMargin: "margin pressure",
+        guidance: "guidance",
+        narrative: "narrative",
+        priceConfirmation: "price confirmation",
+        liquidity: "liquidity",
+        sentiment: "sentiment",
+        momentum: "momentum",
+        catalyst: "catalyst",
+        relativeStrength: "relative strength",
+      };
+      return Object.entries(breakdown)
+        .filter(([key, value]) => key !== "total" && Number.isFinite(Number(value)) && Number(value) !== 0)
+        .sort((a, b) => Math.abs(Number(b[1]) || 0) - Math.abs(Number(a[1]) || 0))
+        .slice(0, 2)
+        .map(([key, value]) => `${Number(value) > 0 ? "positive" : "negative"} ${driverLabels[key] || key}`);
+    }
+
+    function findMatchingIntelAsset(symbol) {
+      if (!symbol || !hotColdReport) return null;
+      const normalizedSymbol = String(symbol).trim().toUpperCase();
+      const groups = [
+        { bucket: "stockHot", label: "hot stock", items: Array.isArray(hotColdReport.stockHot) ? hotColdReport.stockHot : [] },
+        { bucket: "stockCold", label: "cold stock", items: Array.isArray(hotColdReport.stockCold) ? hotColdReport.stockCold : [] },
+        { bucket: "cryptoHot", label: "hot crypto", items: hotColdReport.cryptoHot ? [hotColdReport.cryptoHot] : [] },
+        { bucket: "cryptoCold", label: "cold crypto", items: hotColdReport.cryptoCold ? [hotColdReport.cryptoCold] : [] },
+      ];
+      for (const group of groups) {
+        const index = group.items.findIndex((item) => String(item?.symbol || "").trim().toUpperCase() === normalizedSymbol);
+        if (index >= 0) {
+          return {
+            bucket: group.bucket,
+            bucketLabel: group.label,
+            rank: index + 1,
+            item: group.items[index],
+          };
+        }
+      }
+      return null;
+    }
+
+    function findMatchingRaylaPick(symbol) {
+      if (!symbol || !raylaPicksContext) return null;
+      const normalizedSymbol = String(symbol).trim().toUpperCase();
+      const entries = Object.entries(raylaPicksContext);
+      for (const [bucket, pick] of entries) {
+        if (String(pick?.asset || "").trim().toUpperCase() === normalizedSymbol) {
+          return { bucket, pick };
+        }
+      }
+      return null;
+    }
+
+    function buildSelectedAssetContext({ chartContext = null, simulationContext = null } = {}) {
+      const chartSymbol = String(chartContext?.symbol || "").trim().toUpperCase();
+      const simulationSymbol = String(simulationContext?.symbol || "").trim().toUpperCase();
+      const simulationAssetActive = Boolean(simulationContext && selectedSimulationItem);
+
+      const baseAsset = simulationAssetActive
+        ? selectedSimulationItem
+        : chartSymbol
+          ? (
+            marketItems.find((item) => item.id === chartSymbol)
+            || (homeMarketSelectedItem?.id === chartSymbol ? homeMarketSelectedItem : null)
+          )
+          : homeMarketSelectedItem;
+
+      const symbol = simulationAssetActive
+        ? String(selectedSimulationItem?.id || simulationSymbol).trim().toUpperCase()
+        : chartSymbol || String(baseAsset?.id || selectedMarketId || "").trim().toUpperCase();
+      if (!symbol) return null;
+
+      const intelMatch = findMatchingIntelAsset(symbol);
+      const pickMatch = findMatchingRaylaPick(symbol);
+      const homeQuote = getLiveQuoteByAssetId(homeMarketQuotes, symbol, baseAsset?.type, baseAsset?.tvSymbol);
+      const intelQuote = getLiveQuoteByAssetId(intelLiveQuotes, symbol, intelMatch?.item?.type, intelMatch?.item?.tvSymbol);
+      const quote = homeQuote || intelQuote || null;
+      const article = intelMatch?.item?.article || null;
+      const compactChartSummary = chartSymbol === symbol
+        ? buildSelectedAssetChartSummary(chartContext)
+        : homeMarketSelectedItem?.id === symbol && homeMarketChartMatchesSelection
+          ? buildSelectedAssetChartSummary(buildChartExplainContext({
+              symbol: homeMarketSelectedItem.id,
+              assetName: homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id,
+              assetType: homeMarketSelectedItem.type || "stock",
+              range: homeMarketChartRange,
+              bars: homeMarketVisibleBars,
+              currentPrice: getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price,
+            }))
+          : null;
+
+      return {
+        symbol,
+        assetName: simulationAssetActive
+          ? (simulationContext?.assetName || selectedSimulationItem?.label || selectedSimulationItem?.description || symbol)
+          : (chartContext?.assetName || baseAsset?.description || baseAsset?.name || intelMatch?.item?.name || symbol),
+        assetType: simulationAssetActive
+          ? (simulationContext?.assetType || selectedSimulationItem?.type || "stock")
+          : (chartContext?.assetType || baseAsset?.type || (CRYPTO_SYMBOL_SET.has(symbol) ? "crypto" : "stock")),
+        currentPrice: Number.isFinite(Number(simulationContext?.currentPrice))
+          ? Number(simulationContext.currentPrice)
+          : Number.isFinite(Number(chartContext?.currentPrice))
+            ? Number(chartContext.currentPrice)
+            : Number.isFinite(Number(quote?.price))
+              ? Number(quote.price)
+              : Number.isFinite(Number(baseAsset?.priceValue))
+                ? Number(baseAsset.priceValue)
+                : null,
+        change: Number.isFinite(Number(quote?.change))
+          ? Number(quote.change)
+          : Number.isFinite(Number(baseAsset?.changeValue))
+            ? Number(baseAsset.changeValue)
+            : null,
+        tvSymbol: simulationAssetActive
+          ? (selectedSimulationItem?.tvSymbol || null)
+          : (baseAsset?.tvSymbol || null),
+        intelScore: Number.isFinite(Number(intelMatch?.item?.score)) ? Number(intelMatch.item.score) : null,
+        intelSummary: String(intelMatch?.item?.summary || "").trim() || null,
+        topBreakdownDrivers: formatSelectedAssetDrivers(intelMatch?.item?.breakdown),
+        hotColdBucket: intelMatch?.bucketLabel
+          ? `${intelMatch.bucketLabel}${Number.isFinite(intelMatch.rank) ? ` #${intelMatch.rank}` : ""}`
+          : null,
+        raylaPickBucket: pickMatch?.bucket || null,
+        articleTitle: String(article?.title || "").trim() || null,
+        articleSource: String(article?.source?.name || "").trim() || null,
+        articleSummary: String(article?.description || "").trim() || null,
+        chartSummary: compactChartSummary,
+      };
+    }
+
     const directSimulationAnswer = buildDirectSimulationRaylaAnswer(
       trimmedQuestion,
       extraContext?.simulationContext || null
@@ -8724,6 +9166,23 @@ useEffect(() => {
 
     setCapitalGuideResult(null);
 
+    const askRaylaRequestPayload = {
+      question: trimmedQuestion,
+      context: buildAskRaylaContext({
+        trades,
+        selectedMarketId,
+        adaptiveProfile,
+        chartContext: extraContext?.chartContext || null,
+        simulationContext: extraContext?.simulationContext || null,
+        selectedAssetContext: buildSelectedAssetContext({
+          chartContext: extraContext?.chartContext || null,
+          simulationContext: extraContext?.simulationContext || null,
+        }),
+        recentConversation: extraContext?.recentConversation || null,
+        raylaMode,
+      }),
+    };
+
     const response = await fetchWithTimeout(
       ASK_RAYLA_URL,
       {
@@ -8732,19 +9191,9 @@ useEffect(() => {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({
-          question: trimmedQuestion,
-          context: buildAskRaylaContext({
-            trades,
-            selectedMarketId,
-            adaptiveProfile,
-            chartContext: extraContext?.chartContext || null,
-            simulationContext: extraContext?.simulationContext || null,
-            recentConversation: extraContext?.recentConversation || null,
-            raylaMode,
-          }),
-        }),
-      }
+        body: JSON.stringify(askRaylaRequestPayload),
+      },
+      40000
     );
 
     const data = await response.json();
@@ -9026,6 +9475,8 @@ useEffect(() => {
       direction: intelLaunch.direction,
       directionLabel,
       intelSignal: intelLaunch.intelSignal,
+      launch: intelLaunch,
+      draft: intelLaunch.draft || null,
     });
   }
 
@@ -9038,6 +9489,9 @@ useEffect(() => {
     setIntelSimulationSetupChecklist({
       assetSymbol: intelSimulationSetupPrompt.assetSymbol,
       directionLabel: intelSimulationSetupPrompt.directionLabel,
+      mode: intelSimulationSetupPrompt.mode,
+      launch: intelSimulationSetupPrompt.launch || null,
+      draft: intelSimulationSetupPrompt.draft || null,
       steps,
       currentStep: 0,
     });
@@ -9066,9 +9520,13 @@ useEffect(() => {
           {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: "Setup complete. Hit Open Trade when ready.",
+            content: "Setup complete. Opening the simulator with this exact Intel setup.",
           },
         ]);
+        launchIntelPracticeMode(prev.mode, prev.launch && prev.draft ? {
+          launch: prev.launch,
+          draft: prev.draft,
+        } : null);
         return null;
       }
 
@@ -9100,14 +9558,189 @@ useEffect(() => {
     setIntelPracticeModeChoice(null);
   }
 
-  function launchIntelPracticeMode(mode) {
-    if (!intelPracticeModeChoice?.launch || !intelPracticeModeChoice?.draft) return;
+  function updateIntelPracticeModeChoice(patch) {
+    setIntelPracticeModeChoice((prev) => (prev ? { ...prev, ...patch, error: "" } : prev));
+  }
 
+  function parseLooseNumericValue(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\$/g, "")
+      .replace(/,/g, "")
+      .replace(/\s+/g, "");
+    if (!normalized) return null;
+    const multiplier = normalized.endsWith("k") ? 1000 : 1;
+    const raw = multiplier === 1000 ? normalized.slice(0, -1) : normalized;
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return null;
+    return parsed * multiplier;
+  }
+
+  function normalizeIntelWizardPlValue(value, kind) {
+    const parsed = parseLooseNumericValue(value);
+    if (!Number.isFinite(parsed)) return null;
+    if (kind === "stopLoss") return -Math.abs(parsed);
+    if (kind === "takeProfit") return Math.abs(parsed);
+    return parsed;
+  }
+
+  function handleIntelPracticeUseCurrentPrice() {
+    const currentPrice = intelPracticeModeChoice?.launch?.asset?.id
+      ? getSimulationPrice(intelPracticeModeChoice.launch.asset.id, intelPracticeModeChoice.mode || "live")
+      : null;
+    if (!Number.isFinite(currentPrice)) return;
+    updateIntelPracticeModeChoice({
+      entry: String(currentPrice),
+      entryValue: currentPrice,
+      entryInputType: "price",
+    });
+  }
+
+  function handleIntelPracticeWizardBack() {
+    setIntelPracticeModeChoice((prev) => (
+      prev
+        ? { ...prev, wizardStep: Math.max(0, (prev.wizardStep || 0) - 1), error: "" }
+        : prev
+    ));
+  }
+
+  function handleIntelPracticeWizardNext() {
+    setIntelPracticeModeChoice((prev) => {
+      if (!prev) return prev;
+      const currentStep = prev.wizardStep || 0;
+
+      if (currentStep === 0) {
+        if (!prev.mode) return { ...prev, error: "Choose Live or Scenario first." };
+        return { ...prev, wizardStep: 1, error: "" };
+      }
+
+      if (currentStep === 1) {
+        if (!prev.direction) return { ...prev, error: "Choose Long or Short first." };
+        return { ...prev, wizardStep: 2, error: "" };
+      }
+
+      if (currentStep === 2) {
+        const plannedRiskValue = parseLooseNumericValue(prev.plannedRisk);
+        if (!Number.isFinite(plannedRiskValue) || plannedRiskValue <= 0) {
+          return { ...prev, error: "Enter a dollar risk like 50 or $50." };
+        }
+        return { ...prev, plannedRiskValue, wizardStep: 3, error: "" };
+      }
+
+      if (currentStep === 3) {
+        const entryValue = parseLooseNumericValue(prev.entry);
+        if (!Number.isFinite(entryValue)) {
+          return { ...prev, error: "Enter an entry price like 183.40." };
+        }
+        return { ...prev, entryValue, wizardStep: 4, error: "" };
+      }
+
+      if (currentStep === 4) {
+        const stopLossValue = (prev.stopLossInputType || "price") === "pnl"
+          ? normalizeIntelWizardPlValue(prev.stopLoss, "stopLoss")
+          : parseLooseNumericValue(prev.stopLoss);
+        if (!Number.isFinite(stopLossValue)) {
+          return { ...prev, error: "Enter a stop loss value like 183.40 or 15." };
+        }
+        return { ...prev, stopLossValue, wizardStep: 5, error: "" };
+      }
+
+      if (currentStep === 5) {
+        const takeProfitValue = (prev.takeProfitInputType || "price") === "pnl"
+          ? normalizeIntelWizardPlValue(prev.takeProfit, "takeProfit")
+          : parseLooseNumericValue(prev.takeProfit);
+        if (!Number.isFinite(takeProfitValue)) {
+          return { ...prev, error: "Enter a take profit value like 183.40 or 25." };
+        }
+        return { ...prev, takeProfitValue, wizardStep: 6, error: "" };
+      }
+
+      return prev;
+    });
+  }
+
+  function handleConfirmIntelPracticeModeChoice() {
+    setIntelPracticeModeChoice((prev) => {
+      if (!prev?.launch?.asset || !prev?.draft) return prev;
+
+      const plannedRiskValue = Number.isFinite(prev.plannedRiskValue)
+        ? prev.plannedRiskValue
+        : parseLooseNumericValue(prev.plannedRisk);
+      const entryValue = Number.isFinite(prev.entryValue)
+        ? prev.entryValue
+        : parseLooseNumericValue(prev.entry);
+      const stopLossValue = Number.isFinite(prev.stopLossValue)
+        ? prev.stopLossValue
+        : ((prev.stopLossInputType || "price") === "pnl"
+          ? normalizeIntelWizardPlValue(prev.stopLoss, "stopLoss")
+          : parseLooseNumericValue(prev.stopLoss));
+      const takeProfitValue = Number.isFinite(prev.takeProfitValue)
+        ? prev.takeProfitValue
+        : ((prev.takeProfitInputType || "price") === "pnl"
+          ? normalizeIntelWizardPlValue(prev.takeProfit, "takeProfit")
+          : parseLooseNumericValue(prev.takeProfit));
+
+      if (!prev.mode || !prev.direction || !Number.isFinite(plannedRiskValue) || !Number.isFinite(entryValue) || !Number.isFinite(stopLossValue) || !Number.isFinite(takeProfitValue)) {
+        return { ...prev, error: "Finish the setup fields before opening the simulator." };
+      }
+
+      const nextAsset = prev.launch.asset;
+      if (nextAsset) {
+        setSimulationAsset(nextAsset);
+      }
+      setSimulationSearchQuery(prev.draft.asset || "");
+      setSimulationSearchResults([]);
+      setSimulationDirection(prev.direction);
+      setSimulationMode(prev.mode === "scenario" ? "scenario" : "live");
+      setSimulationAmount(String(plannedRiskValue));
+      setSimulationAmountMode("dollars");
+      setSimulationExitMode((prev.stopLossInputType || "price") === "pnl" || (prev.takeProfitInputType || "price") === "pnl" ? "pnl" : "price");
+      setSimulationStopLoss(String(stopLossValue));
+      setSimulationTakeProfit(String(takeProfitValue));
+      setSelectedSimulationPositionId(null);
+
+      const createdPosition = handleOpenSimulationTrade({
+        assetOverride: nextAsset,
+        modeOverride: prev.mode === "scenario" ? "scenario" : "live",
+        directionOverride: prev.direction,
+        amountOverride: plannedRiskValue,
+        amountModeOverride: "dollars",
+        exitModeOverride: (prev.stopLossInputType || "price") === "pnl" || (prev.takeProfitInputType || "price") === "pnl" ? "pnl" : "price",
+        stopLossOverride: stopLossValue,
+        takeProfitOverride: takeProfitValue,
+        entryPriceOverride: entryValue,
+        skipCoachPopup: true,
+        guidedOverride: false,
+      });
+
+      if (!createdPosition) {
+        return {
+          ...prev,
+          plannedRiskValue,
+          entryValue,
+          stopLossValue,
+          takeProfitValue,
+          error: "I couldn’t open that simulation yet. Check the values and try again.",
+        };
+      }
+
+      setSelectedSimulationPositionId(createdPosition.id || null);
+      setActiveTab("simulation");
+      return null;
+    });
+  }
+
+  function launchIntelPracticeMode(mode, choiceOverride = null) {
+    const choice = choiceOverride || intelPracticeModeChoice;
+    if (!choice?.launch || !choice?.draft) return;
     const nextMode = mode === "scenario" ? "scenario" : "live";
-    const { launch, draft } = intelPracticeModeChoice;
+    const { launch, draft } = choice;
     const nextAsset = launch.asset;
 
     if (nextAsset) {
+      setSelectedSimulationPositionId(null);
       setSimulationAsset(nextAsset);
     }
     setSimulationSearchQuery(draft.asset || "");
@@ -9135,20 +9768,24 @@ useEffect(() => {
         intelSignal: launch.intelSignal,
         message: launch.message,
       });
-      setPendingIntelSimulationLaunch({ ...launch, mode: "scenario" });
+      if (!launch.skipRaylaPopup) {
+        setPendingIntelSimulationLaunch({ ...launch, mode: "scenario" });
+      }
       return;
     }
 
     setSimulationMode("live");
-    setPendingIntelSimulationLaunch({ ...launch, mode: "live" });
+    if (!launch.skipRaylaPopup) {
+      setPendingIntelSimulationLaunch({ ...launch, mode: "live" });
+    }
   }
 
   function handleStartIntelLiveSimulation() {
-    launchIntelPracticeMode("live");
+    updateIntelPracticeModeChoice({ mode: "live" });
   }
 
   function handleStartIntelScenarioSimulation() {
-    launchIntelPracticeMode("scenario");
+    updateIntelPracticeModeChoice({ mode: "scenario" });
   }
 
   function handleEnableSimulationRaylaGuidance(positionId) {
@@ -9817,21 +10454,37 @@ useEffect(() => {
     setSimulatedBalance((prev) => prev + profitLoss);
     setSimulationTradeHistory((prev) => [closedTrade, ...prev]);
     setSimulationPositions((prev) => prev.filter((item) => item.id !== positionId));
+    setSelectedSimulationPositionId((prev) => (prev === positionId ? null : prev));
     setSimulationPendingScenarioDecision((prev) => prev?.positionId === positionId ? null : prev);
     setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
   }
 
-  function handleOpenSimulationTrade() {
-    const amount = Number.parseFloat(simulationAmount);
-    const entryPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
-    const parsedStopLoss = Number.parseFloat(simulationStopLoss);
-    const parsedTakeProfit = Number.parseFloat(simulationTakeProfit);
+  function handleOpenSimulationTrade(options = null) {
+    const effectiveAsset = options?.assetOverride || selectedSimulationItem;
+    const effectiveMode = options?.modeOverride || simulationMode;
+    const effectiveDirection = options?.directionOverride || simulationDirection;
+    const effectiveAmountMode = options?.amountModeOverride || simulationAmountMode;
+    const effectiveExitMode = options?.exitModeOverride || simulationExitMode;
+    const effectiveLeverage = options?.leverageOverride || simulationLeverage;
+    const amount = Number.parseFloat(options?.amountOverride ?? simulationAmount);
+    const entryPrice = Number.isFinite(options?.entryPriceOverride)
+      ? Number(options.entryPriceOverride)
+      : effectiveAsset
+        ? getSimulationPrice(effectiveAsset.id, effectiveMode)
+        : null;
+    const parsedStopLoss = Number.parseFloat(options?.stopLossOverride ?? simulationStopLoss);
+    const parsedTakeProfit = Number.parseFloat(options?.takeProfitOverride ?? simulationTakeProfit);
     const stopLoss = Number.isFinite(parsedStopLoss) ? parsedStopLoss : null;
     const takeProfit = Number.isFinite(parsedTakeProfit) ? parsedTakeProfit : null;
-    const leverageMultiplier = getSimulationLeverageMultiplier(simulationLeverage);
+    const leverageMultiplier = getSimulationLeverageMultiplier(effectiveLeverage);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       showToast("Enter a valid amount to simulate.", "warning");
+      return false;
+    }
+
+    if (!effectiveAsset) {
+      showToast("Choose an asset before opening the trade.", "warning");
       return false;
     }
 
@@ -9841,16 +10494,16 @@ useEffect(() => {
     }
 
     if (simulationPositions.some((position) =>
-      (position.marketMode || "live") === simulationMode
-      && normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)
+      (position.marketMode || "live") === effectiveMode
+      && normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(effectiveAsset.id, effectiveAsset.type, effectiveAsset.tvSymbol)
     )) {
       showToast("You already have an open trade on this asset.", "warning");
       return false;
     }
 
-    if (simulationExitMode === "price") {
+    if (effectiveExitMode === "price") {
       if (stopLoss != null) {
-        const stopLossValid = simulationDirection === "long" ? stopLoss < entryPrice : stopLoss > entryPrice;
+        const stopLossValid = effectiveDirection === "long" ? stopLoss < entryPrice : stopLoss > entryPrice;
         if (!stopLossValid) {
           showToast("For longs: stop below entry. For shorts: stop above entry.", "warning");
           return false;
@@ -9858,32 +10511,32 @@ useEffect(() => {
       }
 
       if (takeProfit != null) {
-        const takeProfitValid = simulationDirection === "long" ? takeProfit > entryPrice : takeProfit < entryPrice;
+        const takeProfitValid = effectiveDirection === "long" ? takeProfit > entryPrice : takeProfit < entryPrice;
         if (!takeProfitValid) {
           showToast("For longs: target above entry. For shorts: target below entry.", "warning");
           return false;
         }
       }
     } else {
-      if (stopLoss != null && stopLoss <= 0) {
-        showToast("Enter a positive max loss in dollars.", "warning");
+      if (stopLoss != null && stopLoss >= 0) {
+        showToast("Enter a negative stop loss in dollars, like -50.", "warning");
         return false;
       }
       if (takeProfit != null && takeProfit <= 0) {
-        showToast("Enter a positive profit target in dollars.", "warning");
+        showToast("Enter a positive profit target in dollars, like 50.", "warning");
         return false;
       }
     }
 
-    const riskPerUnit = simulationExitMode !== "price" || stopLoss == null
+    const riskPerUnit = effectiveExitMode !== "price" || stopLoss == null
       ? null
-      : simulationDirection === "long"
+      : effectiveDirection === "long"
         ? entryPrice - stopLoss
         : stopLoss - entryPrice;
-    const leveragedQuantity = simulationAmountMode === "shares"
+    const leveragedQuantity = effectiveAmountMode === "shares"
       ? amount * leverageMultiplier
       : (amount * leverageMultiplier) / entryPrice;
-    const plannedRisk = simulationExitMode === "pnl"
+    const plannedRisk = effectiveExitMode === "pnl"
       ? stopLoss
       : riskPerUnit == null
         ? null
@@ -9891,47 +10544,50 @@ useEffect(() => {
 
     const newPosition = {
       id: crypto.randomUUID(),
-      asset: selectedSimulationItem.id,
-      label: selectedSimulationItem.label,
-      tvSymbol: selectedSimulationItem.tvSymbol,
-      type: selectedSimulationItem.type,
-      marketMode: simulationMode,
-      scenarioType: simulationMode === "scenario" ? simulationScenarioType : null,
-      scenarioSpeed: simulationMode === "scenario" ? simulationScenarioSpeed : null,
-      openedScenarioTick: simulationMode === "scenario" ? simulationScenarioTick : null,
-      openedScenarioSeriesIndex: simulationMode === "scenario"
-        ? Math.max(0, (simulationScenarioSeries[selectedSimulationItem.id] || []).length - 1)
+      asset: effectiveAsset.id,
+      label: effectiveAsset.label,
+      tvSymbol: effectiveAsset.tvSymbol,
+      type: effectiveAsset.type,
+      marketMode: effectiveMode,
+      scenarioType: effectiveMode === "scenario" ? simulationScenarioType : null,
+      scenarioSpeed: effectiveMode === "scenario" ? simulationScenarioSpeed : null,
+      openedScenarioTick: effectiveMode === "scenario" ? simulationScenarioTick : null,
+      openedScenarioSeriesIndex: effectiveMode === "scenario"
+        ? Math.max(0, (simulationScenarioSeries[effectiveAsset.id] || []).length - 1)
         : null,
-      guided: !!activeGuidedSimulation,
-      guidedId: activeGuidedSimulation?.id || null,
-      direction: simulationDirection,
+      guided: options?.guidedOverride != null ? !!options.guidedOverride : !!activeGuidedSimulation,
+      guidedId: options?.guidedIdOverride != null ? options.guidedIdOverride : (activeGuidedSimulation?.id || null),
+      direction: effectiveDirection,
       amount,
-      amountMode: simulationAmountMode,
-      leverage: simulationLeverage,
-      exitMode: simulationExitMode,
+      amountMode: effectiveAmountMode,
+      leverage: effectiveLeverage,
+      exitMode: effectiveExitMode,
       entryPrice,
       stopLoss,
       takeProfit,
-      scenarioNoLimit: simulationMode === "scenario" ? simulationScenarioNoLimit : null,
-      scenarioDurationMs: simulationMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationMs : null,
-      scenarioDurationPointCount: simulationMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationPointCount : null,
+      scenarioNoLimit: effectiveMode === "scenario" ? simulationScenarioNoLimit : null,
+      scenarioDurationMs: effectiveMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationMs : null,
+      scenarioDurationPointCount: effectiveMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationPointCount : null,
       riskPerUnit,
       plannedRisk,
       openedAt: Date.now(),
     };
 
     setSimulationClosedTrade(null);
-    if (simulationMode === "scenario") {
+    if (effectiveMode === "scenario") {
       setSimulationPendingScenarioDecision(null);
     } else {
       setSimulationPendingLiveDecision(null);
     }
     setSimulationPositions((prev) => [...prev, newPosition]);
-    openSimulationRaylaHelper(newPosition);
-    if (activeGuidedSimulation) {
+    setSelectedSimulationPositionId(newPosition.id);
+    if (!options?.skipCoachPopup) {
+      openSimulationRaylaHelper(newPosition);
+    }
+    if ((options?.guidedOverride != null ? options.guidedOverride : activeGuidedSimulation)) {
       setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "position-open" } : prev));
     }
-    return true;
+    return newPosition;
   }
 
   function handleStartScenarioRep() {
@@ -10153,6 +10809,16 @@ function buildMarketAsset(rawOrResult) {
   };
 }
 
+function buildSimulationAssetFromPosition(position) {
+  if (!position?.asset) return null;
+  return buildMarketAsset({
+    symbol: position.asset,
+    description: position.label || position.asset,
+    tvSymbol: position.tvSymbol,
+    type: position.type || "stock",
+  });
+}
+
   function handleAddSymbol(overrideSymbol) {
 
   const raw = (typeof overrideSymbol === "string" ? overrideSymbol : overrideSymbol?.symbol || newSymbol).trim();
@@ -10194,9 +10860,6 @@ function buildMarketAsset(rawOrResult) {
 
   async function handleSimulationSearchChange(value) {
     setSimulationSearchQuery(value);
-    if (simulationAsset && value.trim().toUpperCase() !== simulationAsset.id) {
-      setSimulationAsset(null);
-    }
     if (simulationSearchTimeoutRef.current) clearTimeout(simulationSearchTimeoutRef.current);
     if (value.length < 1) {
       setSimulationSearchResults([]);
@@ -10215,6 +10878,18 @@ function buildMarketAsset(rawOrResult) {
   function handleSelectSimulationAsset(result) {
     const nextAsset = buildMarketAsset(result);
     if (!nextAsset) return;
+    setSelectedSimulationPositionId(null);
+    setSimulationAsset(nextAsset);
+    setSimulationSearchQuery(nextAsset.id);
+    setSimulationSearchResults([]);
+  }
+
+  function handleSelectSimulationTradeAsset(position) {
+    if (!position) return;
+    const nextAsset = buildSimulationAssetFromPosition(position);
+    if (!nextAsset) return;
+    setSelectedSimulationPositionId(position.id || null);
+    setSimulationMode(position.marketMode || "live");
     setSimulationAsset(nextAsset);
     setSimulationSearchQuery(nextAsset.id);
     setSimulationSearchResults([]);
@@ -10317,6 +10992,20 @@ function buildMarketAsset(rawOrResult) {
     setIntelPracticeModeChoice({
       launch,
       draft,
+      wizardStep: 0,
+      mode: "",
+      direction: draft.direction || "long",
+      plannedRisk: "",
+      plannedRiskValue: null,
+      entry: "",
+      entryValue: null,
+      stopLoss: "",
+      stopLossValue: null,
+      stopLossInputType: "price",
+      takeProfit: "",
+      takeProfitValue: null,
+      takeProfitInputType: "price",
+      error: "",
     });
   }
 
@@ -10330,6 +11019,7 @@ function buildMarketAsset(rawOrResult) {
     });
 
     if (nextAsset) {
+      setSelectedSimulationPositionId(null);
       setSimulationAsset(nextAsset);
     }
     setSimulationSearchQuery(guidedSimulationDraft.asset || "");
@@ -10414,7 +11104,25 @@ function buildMarketAsset(rawOrResult) {
     }
   }
 
-  const selectedSimulationItem = simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
+  const visibleSimulationPositions = useMemo(
+    () => simulationPositions.filter((position) => (position.marketMode || "live") === simulationMode),
+    [simulationPositions, simulationMode]
+  );
+  const selectedSimulationPositionAsset = useMemo(() => {
+    const exactSelection = selectedSimulationPositionId
+      ? visibleSimulationPositions.find((position) => position.id === selectedSimulationPositionId) || null
+      : null;
+    const newestVisiblePosition = [...visibleSimulationPositions]
+      .sort((a, b) => Number(b?.openedAt || 0) - Number(a?.openedAt || 0))[0] || null;
+    const assetMatchPosition = simulationAsset
+      ? visibleSimulationPositions.find((position) => (
+        normalizeAssetId(position.asset, position.type, position.tvSymbol)
+          === normalizeAssetId(simulationAsset.id, simulationAsset.type, simulationAsset.tvSymbol)
+      )) || null
+      : null;
+    return buildSimulationAssetFromPosition(exactSelection || assetMatchPosition || newestVisiblePosition);
+  }, [visibleSimulationPositions, selectedSimulationPositionId, simulationAsset]);
+  const selectedSimulationItem = selectedSimulationPositionAsset || simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
   const selectedSimulationAssetExplicitlyUnsupported = selectedSimulationItem?.alpacaSupported === false || selectedSimulationItem?.tradable === false;
   const previousSelectedSimulationAssetIdRef = useRef(simulationAsset?.id || null);
   const selectedSimulationPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
@@ -10503,13 +11211,23 @@ function buildMarketAsset(rawOrResult) {
   const scenarioDisplayedDurationMs = simulationScenarioNoLimit
     ? visibleNoLimitScenarioDurationMs
     : scenarioDurationMs;
-  const selectedSimulationOpenPosition = selectedSimulationItem
-    ? simulationPositions.find((position) => normalizeAssetId(position.asset, position.type, position.tvSymbol) === normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol) && (position.marketMode || "live") === simulationMode) || null
-    : null;
-  const visibleSimulationPositions = useMemo(
-    () => simulationPositions.filter((position) => (position.marketMode || "live") === simulationMode),
-    [simulationPositions, simulationMode]
-  );
+  const selectedSimulationOpenPosition = useMemo(() => {
+    const explicitSelection = selectedSimulationPositionId
+      ? visibleSimulationPositions.find((position) => position.id === selectedSimulationPositionId) || null
+      : null;
+    if (explicitSelection) return explicitSelection;
+
+    if (selectedSimulationItem) {
+      const assetMatch = visibleSimulationPositions.find((position) => (
+        normalizeAssetId(position.asset, position.type, position.tvSymbol)
+          === normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)
+      )) || null;
+      if (assetMatch) return assetMatch;
+    }
+
+    return [...visibleSimulationPositions]
+      .sort((a, b) => Number(b?.openedAt || 0) - Number(a?.openedAt || 0))[0] || null;
+  }, [visibleSimulationPositions, selectedSimulationPositionId, selectedSimulationItem]);
   const visibleSimulationTradeHistory = useMemo(
     () => simulationTradeHistory.filter((trade) => (trade.marketMode || "live") === simulationMode),
     [simulationTradeHistory, simulationMode]
@@ -10801,6 +11519,18 @@ function buildMarketAsset(rawOrResult) {
     }
     previousSelectedSimulationAssetIdRef.current = currentAssetId;
   }, [simulationAsset?.id]);
+
+  useEffect(() => {
+    if (activeTab !== "simulation" || !selectedSimulationOpenPosition) return;
+    const nextAsset = buildSimulationAssetFromPosition(selectedSimulationOpenPosition);
+    if (!nextAsset) return;
+    if (simulationAsset?.id !== nextAsset.id) {
+      setSimulationAsset(nextAsset);
+    }
+    if (!simulationSearchQuery || simulationSearchQuery === simulationAsset?.id) {
+      setSimulationSearchQuery(nextAsset.id);
+    }
+  }, [activeTab, selectedSimulationOpenPosition, simulationAsset?.id, simulationSearchQuery]);
 
   useEffect(() => {
     if (!simulationPendingScenarioDecision || selectedSimulationOpenPosition?.id !== simulationPendingScenarioDecision.positionId) return;
@@ -12091,6 +12821,12 @@ return (
         {activeTab === "trades" && (
           <div className="mainGrid" style={{ overflow: "visible" }}>
             <div className="span12">
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+                <RaylaLaunchButton
+                  label="Ask Rayla"
+                  onClick={() => openGlobalRaylaPopup("Ask Rayla")}
+                />
+              </div>
               {pendingAlpacaOrderConfirmation && (
                 <div
                   style={{
@@ -13372,8 +14108,8 @@ return (
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         <RaylaLaunchButton
-                          label="Ask Rayla about this simulation"
-                          onClick={() => openGlobalRaylaPopup("Ask Rayla about this simulation", simulationRaylaContext)}
+                          label="Ask Rayla"
+                          onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
                         />
                         <button
                           type="button"
@@ -14310,6 +15046,7 @@ return (
                           const hasCurrentPrice = Number.isFinite(currentPrice);
                           const currentLiveQuote = getLiveQuoteByAssetId(simulationQuotes, position.asset, position.type, position.tvSymbol);
                           const isScenarioPosition = (position.marketMode || simulationMode) === "scenario";
+                          const isSelectedSimulationPosition = selectedSimulationOpenPosition?.id === position.id;
                           const pendingDecision = isScenarioPosition
                             ? (simulationPendingScenarioDecision?.positionId === position.id ? simulationPendingScenarioDecision : null)
                             : (simulationPendingLiveDecision?.positionId === position.id ? simulationPendingLiveDecision : null);
@@ -14335,7 +15072,20 @@ return (
                               : "#e2e8f0";
 
                           return (
-                            <div key={position.id} style={{ padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 14 }}>
+                            <div
+                              key={position.id}
+                              onClick={() => handleSelectSimulationTradeAsset(position)}
+                              style={{
+                                padding: 14,
+                                borderRadius: 12,
+                                background: isSelectedSimulationPosition ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
+                                border: isSelectedSimulationPosition ? "1px solid rgba(124,196,255,0.28)" : "1px solid rgba(255,255,255,0.06)",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 14,
+                                cursor: "pointer",
+                              }}
+                            >
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                                 <div>
                                   <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>{position.asset}</div>
@@ -14381,7 +15131,10 @@ return (
                                         type="button"
                                         className="ghostButton"
                                         style={{ borderColor: "rgba(74,222,128,0.28)", color: "#dcfce7", background: "rgba(74,222,128,0.1)" }}
-                                        onClick={() => (isScenarioPosition ? handleQuitAndSaveScenarioTrade(position.id) : handleQuitAndSaveLiveTrade(position.id))}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          isScenarioPosition ? handleQuitAndSaveScenarioTrade(position.id) : handleQuitAndSaveLiveTrade(position.id);
+                                        }}
                                       >
                                         Quit & Save
                                       </button>
@@ -14389,13 +15142,23 @@ return (
                                         type="button"
                                         className="ghostButton"
                                         style={{ borderColor: "rgba(124,196,255,0.28)", color: "#dbeafe", background: "rgba(124,196,255,0.1)" }}
-                                        onClick={() => (isScenarioPosition ? handleReopenAndContinueScenarioTrade(position.id) : handleReopenAndContinueLiveTrade(position.id))}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          isScenarioPosition ? handleReopenAndContinueScenarioTrade(position.id) : handleReopenAndContinueLiveTrade(position.id);
+                                        }}
                                       >
                                         Reopen & Continue
                                       </button>
                                     </>
                                   ) : (
-                                    <button type="button" className="ghostButton" onClick={() => handleCloseSimulationTrade(position.id)}>
+                                    <button
+                                      type="button"
+                                      className="ghostButton"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleCloseSimulationTrade(position.id);
+                                      }}
+                                    >
                                       Close Trade
                                     </button>
                                   )}
@@ -15158,48 +15921,34 @@ return (
             <div className="span12">
               <div className="card">
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                  <div>
-                    <h3 style={{ margin: 0 }}>Market Intel</h3>
-                    <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 6 }}>
-                      Scanning a broader Alpaca-supported stock, ETF, and crypto universe for the strongest hot and cold opportunities.
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <h3 style={{ margin: 0 }}>Market Intel</h3>
+                      <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 6 }}>
+                        Scanning a broader Alpaca-supported stock, ETF, and crypto universe for the strongest hot and cold opportunities.
+                      </div>
                     </div>
+                    <RaylaLaunchButton label="Ask Rayla" onClick={() => openGlobalRaylaPopup("Ask Rayla")} />
                   </div>
-                <div style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 8 }}>
-                    Ask Rayla
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#f3f7fc", marginBottom: 8 }}>
-                    Ask Rayla about the market
-                  </div>
-                  <div style={{ fontSize: 13, color: "#7f8ea3", marginBottom: 12 }}>
-                    Ask about today&apos;s hot and cold names, sentiment shifts, or whether a move looks strong or weak.
-                  </div>
-                  <form onSubmit={async e => {
-                    e.preventDefault();
-                    const question = e.target.elements.raylaq.value.trim();
-                    if (!question) return;
-                    try {
-                      await handleAskRaylaQuestion(question);
-                      e.target.reset();
-                    } catch {
-                      setRaylaResponse("API error.");
-                    }
-                  }} style={{ marginBottom: 0 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 8 }}>
-                      <input name="raylaq" type="text" placeholder="e.g. Is NVDA hot or cold today? What's the signal on BTC?" style={{ flex: 1, background: "transparent", border: "none", padding: "10px 12px", fontSize: 13, color: "#e2e8f0", outline: "none" }} autoComplete="off" disabled={isRaylaLoading} />
-                      <button type="submit" disabled={isRaylaLoading} style={{ background: "#7CC4FF", color: "#0b1017", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 10px 24px rgba(124,196,255,0.18)" }}>Ask Rayla</button>
-                    </div>
-                  </form>
-                  {isRaylaLoading && <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 8 }}>Thinking...</div>}
-                  {raylaResponse && (
-                    <div style={{ marginTop: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 12 }}>
-                      <div style={{ whiteSpace: "pre-wrap", fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>{raylaResponse}</div>
-                    </div>
-                  )}
-                </div>
                 {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                    <div style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: "#f3f7fc", marginBottom: 6 }}>
+                        Rayla&apos;s Picks for You
+                      </div>
+                      <div style={{ fontSize: 13, color: "#7f8ea3", marginBottom: 14 }}>
+                        Personalized ideas based on how your real trades and completed simulations have actually performed.
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                        {[raylaPicksContext.stockLong, raylaPicksContext.stockShort, raylaPicksContext.cryptoLong, raylaPicksContext.cryptoShort].map((pick) => (
+                          <RaylaPickCard key={pick.title} pick={pick} />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 12 }}>
+                        These picks are based on your logged trade and simulation history. They are not guarantees or financial advice.
+                      </div>
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
                     {[["Hottest Stocks / ETFs", "#ef4444", hotColdReport.stockHot], ["Coldest Stocks / ETFs", "#7CC4FF", hotColdReport.stockCold]].map(([label, color, items]) => (
                       <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
@@ -15642,6 +16391,357 @@ return (
                     Send
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {intelPracticeModeChoice && (
+          <div
+            onClick={handleCancelIntelPracticeModeChoice}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 11900,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+              background: "rgba(4,8,16,0.6)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <div
+              className="card"
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: "min(460px, 100%)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+                border: "1px solid rgba(124,196,255,0.14)",
+                background: "linear-gradient(180deg, rgba(10,16,28,0.98), rgba(7,12,22,0.98))",
+                boxShadow: "0 28px 80px rgba(0,0,0,0.42)",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                  Simulate From Intel
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff" }}>
+                  {intelPracticeModeChoice.draft?.label || intelPracticeModeChoice.draft?.asset || "Selected asset"}
+                </div>
+                <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                  Build the setup here first, then open the simulator only after final confirmation.
+                </div>
+              </div>
+
+              {(() => {
+                const currentStep = intelPracticeModeChoice.wizardStep || 0;
+                const currentPrice = intelPracticeModeChoice.launch?.asset?.id
+                  ? getSimulationPrice(intelPracticeModeChoice.launch.asset.id, intelPracticeModeChoice.mode || "live")
+                  : null;
+                const sectionStyle = {
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  borderRadius: 16,
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                };
+                const optionStyle = (active) => ({
+                  border: "1px solid",
+                  borderColor: active ? "rgba(124,196,255,0.38)" : "rgba(255,255,255,0.1)",
+                  background: active ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
+                  color: active ? "#f8fbff" : "#cbd5e1",
+                  borderRadius: 14,
+                  padding: "12px 14px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  flex: 1,
+                });
+                const inputTypeStyle = (active) => ({
+                  border: "1px solid",
+                  borderColor: active ? "rgba(124,196,255,0.38)" : "rgba(255,255,255,0.1)",
+                  background: active ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
+                  color: active ? "#f8fbff" : "#cbd5e1",
+                  borderRadius: 999,
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                });
+
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.8px" }}>
+                      {["Mode", "Direction", "Risk", "Entry", "Stop", "Target", "Review"].map((label, index) => (
+                        <div
+                          key={label}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: index === currentStep ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.03)",
+                            color: index === currentStep ? "#dbeafe" : "#94a3b8",
+                          }}
+                        >
+                          {label}
+                        </div>
+                      ))}
+                    </div>
+
+                    {currentStep === 0 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Mode</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          Pick how you want to practice this trade.
+                        </div>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <button type="button" onClick={handleStartIntelLiveSimulation} style={optionStyle(intelPracticeModeChoice.mode === "live")}>Live</button>
+                          <button type="button" onClick={handleStartIntelScenarioSimulation} style={optionStyle(intelPracticeModeChoice.mode === "scenario")}>Scenario</button>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                          Live means you practice using the real market price right now. Scenario means you practice on a replay so you cannot see what happens next.
+                        </div>
+                      </div>
+                    )}
+
+                    {currentStep === 1 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Direction</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          Pick whether you think the price will go up or down.
+                        </div>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <button type="button" onClick={() => updateIntelPracticeModeChoice({ direction: "long" })} style={optionStyle(intelPracticeModeChoice.direction === "long")}>Long</button>
+                          <button type="button" onClick={() => updateIntelPracticeModeChoice({ direction: "short" })} style={optionStyle(intelPracticeModeChoice.direction === "short")}>Short</button>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                          Long means you make money if the price goes up. Short means you make money if the price goes down.
+                        </div>
+                      </div>
+                    )}
+
+                    {currentStep === 2 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Planned Risk ($)</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          How much money you are willing to lose if the stop is hit. Example values: `50`, `$50`, `100`.
+                        </div>
+                        <input
+                          className="authInput"
+                          value={intelPracticeModeChoice.plannedRisk || ""}
+                          onChange={(event) => updateIntelPracticeModeChoice({ plannedRisk: event.target.value })}
+                          placeholder="e.g. 50"
+                        />
+                      </div>
+                    )}
+
+                    {currentStep === 3 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Entry</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          This is the price where you want to start the trade.
+                        </div>
+                        <input
+                          className="authInput"
+                          value={intelPracticeModeChoice.entry || ""}
+                          onChange={(event) => updateIntelPracticeModeChoice({ entry: event.target.value })}
+                          placeholder="e.g. 183.40"
+                        />
+                        {Number.isFinite(currentPrice) && (
+                          <button
+                            type="button"
+                            onClick={handleIntelPracticeUseCurrentPrice}
+                            style={optionStyle(false)}
+                          >
+                            Use current price {formatCurrency(currentPrice)}
+                          </button>
+                        )}
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                          If you are not sure, you can use the current market price as your starting point.
+                        </div>
+                      </div>
+                    )}
+
+                    {currentStep === 4 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Stop Loss</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          The price/level where this trade is wrong. Rayla uses this with dollar risk to size the simulation.
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => updateIntelPracticeModeChoice({ stopLossInputType: "price" })}
+                            style={inputTypeStyle((intelPracticeModeChoice.stopLossInputType || "price") === "price")}
+                          >
+                            Price
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateIntelPracticeModeChoice({ stopLossInputType: "pnl" })}
+                            style={inputTypeStyle((intelPracticeModeChoice.stopLossInputType || "price") === "pnl")}
+                          >
+                            P/L
+                          </button>
+                        </div>
+                        <input
+                          className="authInput"
+                          value={intelPracticeModeChoice.stopLoss || ""}
+                          onChange={(event) => updateIntelPracticeModeChoice({ stopLoss: event.target.value })}
+                          placeholder={(intelPracticeModeChoice.stopLossInputType || "price") === "pnl" ? "e.g. 15" : "e.g. 183.40"}
+                        />
+                        {(intelPracticeModeChoice.stopLossInputType || "price") === "pnl" && (
+                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                            In P/L mode, typing `15` means you are willing to lose $15.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {currentStep === 5 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Take Profit</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          This is where you want to lock in your win.
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => updateIntelPracticeModeChoice({ takeProfitInputType: "price" })}
+                            style={inputTypeStyle((intelPracticeModeChoice.takeProfitInputType || "price") === "price")}
+                          >
+                            Price
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateIntelPracticeModeChoice({ takeProfitInputType: "pnl" })}
+                            style={inputTypeStyle((intelPracticeModeChoice.takeProfitInputType || "price") === "pnl")}
+                          >
+                            P/L
+                          </button>
+                        </div>
+                        <input
+                          className="authInput"
+                          value={intelPracticeModeChoice.takeProfit || ""}
+                          onChange={(event) => updateIntelPracticeModeChoice({ takeProfit: event.target.value })}
+                          placeholder={(intelPracticeModeChoice.takeProfitInputType || "price") === "pnl" ? "e.g. 25" : "e.g. 183.40"}
+                        />
+                        {(intelPracticeModeChoice.takeProfitInputType || "price") === "pnl" && (
+                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                            In P/L mode, typing `25` means you want to make $25.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {currentStep === 6 && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fbff" }}>Final Review</div>
+                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                          Check that everything looks right before opening the simulator.
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13, color: "#dbeafe" }}>
+                          <div>Mode: <span style={{ color: "#f8fbff" }}>{intelPracticeModeChoice.mode || "—"}</span></div>
+                          <div>Direction: <span style={{ color: "#f8fbff" }}>{intelPracticeModeChoice.direction || "—"}</span></div>
+                          <div>Risk: <span style={{ color: "#f8fbff" }}>{Number.isFinite(intelPracticeModeChoice.plannedRiskValue) ? formatCurrency(intelPracticeModeChoice.plannedRiskValue) : "—"}</span></div>
+                          <div>Entry: <span style={{ color: "#f8fbff" }}>{Number.isFinite(intelPracticeModeChoice.entryValue) ? formatCurrency(intelPracticeModeChoice.entryValue) : "—"}</span></div>
+                          <div>Stop: <span style={{ color: "#f8fbff" }}>{Number.isFinite(intelPracticeModeChoice.stopLossValue) ? `${(intelPracticeModeChoice.stopLossInputType || "price") === "pnl" ? "P/L " : ""}${formatCurrency(intelPracticeModeChoice.stopLossValue)}` : "—"}</span></div>
+                          <div>Target: <span style={{ color: "#f8fbff" }}>{Number.isFinite(intelPracticeModeChoice.takeProfitValue) ? `${(intelPracticeModeChoice.takeProfitInputType || "price") === "pnl" ? "P/L " : ""}${formatCurrency(intelPracticeModeChoice.takeProfitValue)}` : "—"}</span></div>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                          Confirm this setup to open the simulator on {intelPracticeModeChoice.draft?.asset || "the selected asset"}.
+                        </div>
+                      </div>
+                    )}
+
+                    {intelPracticeModeChoice.error && (
+                      <div style={{ fontSize: 13, color: "#fca5a5", lineHeight: 1.6 }}>
+                        {intelPracticeModeChoice.error}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <button
+                        type="button"
+                        onClick={handleIntelPracticeWizardBack}
+                        disabled={(intelPracticeModeChoice.wizardStep || 0) === 0}
+                        style={{
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          background: (intelPracticeModeChoice.wizardStep || 0) === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.04)",
+                          color: (intelPracticeModeChoice.wizardStep || 0) === 0 ? "#64748b" : "#cbd5e1",
+                          borderRadius: 12,
+                          padding: "10px 14px",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: (intelPracticeModeChoice.wizardStep || 0) === 0 ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Back
+                      </button>
+
+                      {(intelPracticeModeChoice.wizardStep || 0) >= 6 ? (
+                        <button
+                          type="button"
+                          onClick={handleConfirmIntelPracticeModeChoice}
+                          style={{
+                            border: "1px solid rgba(124,196,255,0.35)",
+                            background: "#7CC4FF",
+                            color: "#0b1017",
+                            borderRadius: 12,
+                            padding: "10px 14px",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Confirm and Open Simulator
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleIntelPracticeWizardNext}
+                          style={{
+                            border: "1px solid rgba(124,196,255,0.35)",
+                            background: "#7CC4FF",
+                            color: "#0b1017",
+                            borderRadius: 12,
+                            padding: "10px 14px",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Continue
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={handleCancelIntelPracticeModeChoice}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#cbd5e1",
+                    borderRadius: 12,
+                    padding: "10px 14px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
