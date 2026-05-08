@@ -345,6 +345,24 @@ function buildSelectedAssetSummary(context: any) {
   return [parts.join(", "), ...extra].join("\n");
 }
 
+function buildPostTradeReviewBlock(context: any) {
+  const ct = context?.simulationContext?.closedTrade ?? null;
+  if (!ct) return "";
+  const symbol = context?.simulationContext?.symbol || context?.simulationContext?.assetName || "unknown";
+  const direction = ct.direction || context?.simulationContext?.direction || "unknown";
+  const parts = [
+    `Closed simulation trade: ${symbol} ${direction}`,
+    Number.isFinite(Number(ct.rMultiple)) ? `R-multiple: ${Number(ct.rMultiple).toFixed(2)}R` : "",
+    Number.isFinite(Number(ct.profitLoss)) ? `P&L: $${Number(ct.profitLoss).toFixed(2)}` : "",
+    ct.exitReason ? `Exit reason: ${ct.exitReason}` : "",
+    ct.executionGradeLabel ? `Execution: ${ct.executionGradeLabel}` : "",
+    ct.outcomeLabel ? `Outcome: ${ct.outcomeLabel}` : "",
+    ct.coachingInsight ? `Coaching insight: ${ct.coachingInsight}` : "",
+    ct.feedback ? `Feedback: ${ct.feedback}` : "",
+  ].filter(Boolean).join("\n");
+  return parts;
+}
+
 function buildSimulationSummary(context: any) {
   const simulationContext = context?.simulationContext ?? null;
   if (!simulationContext) return "";
@@ -508,6 +526,18 @@ function buildSystemPrompt(context: any, intent: string) {
     "- General trading knowledge is allowed only after you clearly anchor to the supplied context, or when the relevant supplied context is absent.",
   ].join("\n");
 
+  const postTradeReviewGuidance = context?.simulationContext?.closedTrade
+    ? [
+      "Post-trade review guidance:",
+      "- The user just closed a simulation trade. Give a natural, conversational mentor-style review.",
+      "- Cover briefly: whether the setup made sense, whether execution was disciplined, whether risk/reward was appropriate, and how this fits their developing edge.",
+      "- Keep it to 2-3 short paragraphs. No bullet grading. No fake certainty. No robotic scoring.",
+      "- Use the closed trade data (rMultiple, executionGrade, feedback, coachingInsight) as raw material — do not quote the grade directly or make it feel like a report card.",
+      "- Connect to sessionStats or edgeSummary if they add something useful. Do not force it.",
+      "- End naturally with one thing worth repeating and one thing to tighten next time.",
+    ].join("\n")
+    : "";
+
   const strategyTeachingGuidance = [
     "Strategy teaching guidance:",
     "- When the user asks to learn a strategy, teach it beginner-first in clear, practical language.",
@@ -537,9 +567,11 @@ function buildSystemPrompt(context: any, intent: string) {
     // Behavioral rules
     evidenceGroundingRules,
     strategyTeachingGuidance,
+    postTradeReviewGuidance,
     // Active scene context — what the user is looking at right now
     buildChartSummary(context),
     buildSimulationSummary(context),
+    buildPostTradeReviewBlock(context),
     buildSelectedAssetSummary(context),
     context?.visualChartContext || "",
     // Intel + market context

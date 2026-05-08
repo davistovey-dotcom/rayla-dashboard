@@ -1946,6 +1946,7 @@ function buildSimulationRaylaContext({
   sessionStats,
   intelSignal = null,
   activeTrade = null,
+  closedTrade = null,
 }) {
   return {
     contextType: "simulation",
@@ -1963,6 +1964,18 @@ function buildSimulationRaylaContext({
     sessionStats: sessionStats || null,
     intelSignal,
     activeTrade,
+    closedTrade: closedTrade ? {
+      exitPrice: closedTrade.exitPrice ?? null,
+      exitReason: closedTrade.exitReason || "",
+      profitLoss: Number.isFinite(Number(closedTrade.profitLoss)) ? Number(closedTrade.profitLoss) : null,
+      rMultiple: Number.isFinite(Number(closedTrade.rMultiple)) ? Number(closedTrade.rMultiple) : null,
+      durationMs: Number.isFinite(Number(closedTrade.durationMs)) ? Number(closedTrade.durationMs) : null,
+      executionGrade: closedTrade.executionGrade || "",
+      executionGradeLabel: closedTrade.executionGradeLabel || "",
+      outcomeLabel: closedTrade.outcomeLabel || "",
+      coachingInsight: closedTrade.coachingInsight || "",
+      feedback: closedTrade.feedback || "",
+    } : null,
   };
 }
 
@@ -6810,6 +6823,7 @@ useEffect(() => {
   const scenarioPlaybackStartedAtRef = useRef(null);
   const scenarioPlaybackElapsedMsRef = useRef(0);
   const pendingScenarioCompletionRef = useRef(null);
+  const lastPostTradeReviewIdRef = useRef(null);
   const simulationTrackedAssets = useMemo(() => ([
     ...watchlist,
     ...(simulationAsset ? [simulationAsset] : []),
@@ -9422,6 +9436,45 @@ useEffect(() => {
     setSimulationRaylaPromptTradeId(position.id);
   }
 
+  function openPostTradeRaylaReview(closedTrade) {
+    if (!closedTrade?.asset) return;
+    const directionLabel = closedTrade.direction === "short" ? "Short" : "Long";
+    const symbol = String(closedTrade.asset).toUpperCase();
+    const question = `Walk me through my ${directionLabel} ${symbol} trade — what happened, was the execution disciplined, and how does this connect to how I'm developing as a trader?`;
+    const reviewContext = buildSimulationRaylaContext({
+      mode: closedTrade.marketMode === "scenario" ? "Scenario" : "Live",
+      symbol: closedTrade.asset,
+      assetName: closedTrade.label || closedTrade.asset,
+      assetType: closedTrade.type || "stock",
+      timeframe: closedTrade.marketMode === "scenario"
+        ? simulationChartTimeframeConfig.label
+        : getChartSelectionConfig(simulationLiveChartRange).label,
+      currentPrice: closedTrade.exitPrice ?? null,
+      direction: closedTrade.direction,
+      amount: closedTrade.amount,
+      amountMode: closedTrade.amountMode,
+      stopLoss: closedTrade.stopLoss != null ? String(closedTrade.stopLoss) : "",
+      takeProfit: closedTrade.takeProfit != null ? String(closedTrade.takeProfit) : "",
+      closedTrade,
+      sessionStats: {
+        totalPnL: simulationStatsTotalPnL,
+        closedTrades: simulationStatsTradeHistory.length,
+        avgProfitLoss: simulationStatsProfile.avgProfitLoss,
+        totalTrades: simulationStatsProfile.totalTrades,
+        winRate: simulationStatsProfile.winRate,
+        avgRMultiple: simulationStatsProfile.avgRMultiple,
+      },
+    });
+    setIntelSimulationSetupPrompt(null);
+    setIntelSimulationSetupChecklist(null);
+    setChartExplainPopupContext(reviewContext);
+    setChartExplainPopupMessages([]);
+    setChartExplainPopupInput("");
+    setChartExplainPopupTitle("Trade Review");
+    setChartExplainPopupOpen(true);
+    handleChartExplainPopupQuestion(question, reviewContext, { resetThread: true });
+  }
+
   function openIntelSimulationRaylaPopup(intelLaunch) {
     if (!intelLaunch) return;
 
@@ -11054,6 +11107,15 @@ function buildSimulationAssetFromPosition(position) {
     if (!isActiveGuidedTradeClosed || activeGuidedSimulation?.step === "trade-closed") return;
     setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "trade-closed" } : prev));
   }, [isActiveGuidedTradeClosed, activeGuidedSimulation]);
+
+  useEffect(() => {
+    if (!visibleSimulationClosedTrade) return;
+    if (chartExplainPopupOpen) return;
+    if (lastPostTradeReviewIdRef.current === visibleSimulationClosedTrade.id) return;
+    lastPostTradeReviewIdRef.current = visibleSimulationClosedTrade.id;
+    openPostTradeRaylaReview(visibleSimulationClosedTrade);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSimulationClosedTrade?.id]);
 
   const guidedSimulationTips = [];
   if (activeGuidedSimulation) {
