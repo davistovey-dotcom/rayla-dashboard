@@ -5342,7 +5342,7 @@ function getScoreLabel(score) {
   return { label: "Neutral", cls: "neutral" };
 }
 
-function IntelAssetCard({ item, onTrySimulation = null, quoteOverride = null }) {
+function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quoteOverride = null }) {
   if (!item) return null;
   const { label, cls } = getScoreLabel(item.score);
   const liveChangeValue = Number(quoteOverride?.change);
@@ -5400,18 +5400,33 @@ function IntelAssetCard({ item, onTrySimulation = null, quoteOverride = null }) 
           </div>
         </a>
       )}
-      {onTrySimulation && (
-        <div style={{ marginTop: 10 }}>
-          <button
-            type="button"
-            className="ghostButton"
-            onClick={(e) => {
-              e.stopPropagation();
-              onTrySimulation(item);
-            }}
-          >
-            Try in Simulation
-          </button>
+      {(onTrySimulation || onAskRayla) && (
+        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {onAskRayla && (
+            <button
+              type="button"
+              className="ghostButton"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAskRayla(item);
+              }}
+              style={{ fontSize: 12, opacity: 0.85 }}
+            >
+              Ask Rayla why →
+            </button>
+          )}
+          {onTrySimulation && (
+            <button
+              type="button"
+              className="ghostButton"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTrySimulation(item);
+              }}
+            >
+              Simulate
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -10199,6 +10214,19 @@ function buildMarketAsset(rawOrResult) {
     setGuidedSimulationDraft(null);
   }
 
+  function handleBeginnerIntelExplain(item) {
+    if (!item?.symbol) return;
+    const symbol = String(item.symbol).toUpperCase();
+    const question = `Why is ${symbol} on the radar right now, and what kind of setup does this suggest for a beginner trader?`;
+    const intelContext = {
+      contextType: "chart",
+      symbol,
+      assetName: item.name || symbol,
+      assetType: CRYPTO_SYMBOL_SET.has(symbol) ? "crypto" : "stock",
+    };
+    openChartExplainPopup(intelContext, question);
+  }
+
   function handleTryIntelInSimulation(item) {
     if (!item?.symbol) return;
 
@@ -10242,6 +10270,7 @@ function buildMarketAsset(rawOrResult) {
       intelSignal,
       message: buildIntelSimulationPrompt(intelSignal),
       requestedAt: Date.now(),
+      skipRaylaPopup: true,
     };
 
     if (simulationPositions.some((position) =>
@@ -10262,6 +10291,8 @@ function buildMarketAsset(rawOrResult) {
       showToast("Finish the current guided trade before starting another.", "warning");
       return;
     }
+
+    handleBeginnerIntelExplain(item);
 
     setIntelPracticeModeChoice({
       launch,
@@ -15156,7 +15187,7 @@ return (
                           <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
                         </div>
-                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} />)}
+                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />)}
                       </div>
                     ))}
                     </div>
@@ -15167,7 +15198,7 @@ return (
                           <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
                         </div>
-                        {item && <IntelAssetCard item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} />}
+                        {item && <IntelAssetCard item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />}
                       </div>
                     ))}
                     </div>
