@@ -7861,7 +7861,7 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, activeTradeChartSelection.mode, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, trades, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl, tradePortfolioRequestedStartMs]);
+  }, [activeTab, activeTradeChartSelection.mode, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, trades, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl]);
 
   useEffect(() => {
   supabase.auth.getSession().then(({ data }) => {
