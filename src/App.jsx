@@ -2066,12 +2066,25 @@ function buildDirectSimulationRaylaAnswer(question, simulationContext) {
   return null;
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, raylaMode = "beginner" }) {
+function normalizeConversationSlice(messages, maxTurns = 6) {
+  return (Array.isArray(messages) ? messages : [])
+    .filter((m) =>
+      m &&
+      (m.role === "user" || m.role === "assistant") &&
+      !m.loading &&
+      String(m.content || "").trim().length > 0
+    )
+    .slice(-maxTurns)
+    .map((m) => ({ role: m.role, content: String(m.content) }));
+}
+
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, recentConversation = null, raylaMode = "beginner" }) {
   return {
     selectedMarketId,
     adaptiveProfile,
     chartContext,
     simulationContext,
+    recentConversation: Array.isArray(recentConversation) && recentConversation.length > 0 ? recentConversation : null,
     raylaMode,
     stats: buildTradeStats(trades),
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
@@ -8727,6 +8740,7 @@ useEffect(() => {
             adaptiveProfile,
             chartContext: extraContext?.chartContext || null,
             simulationContext: extraContext?.simulationContext || null,
+            recentConversation: extraContext?.recentConversation || null,
             raylaMode,
           }),
         }),
@@ -8770,7 +8784,10 @@ useEffect(() => {
     setRaylaResponse("");
 
     try {
-      const answer = await requestRaylaAnswer(trimmedQuestion, extraContext);
+      const answer = await requestRaylaAnswer(trimmedQuestion, {
+        ...extraContext,
+        recentConversation: normalizeConversationSlice(raylaChatMessages),
+      });
       setRaylaResponse(answer);
       if (useChat) {
         setRaylaChatMessages((prev) => prev.map((message) => (
@@ -8837,11 +8854,14 @@ useEffect(() => {
     try {
       const answer = await requestRaylaAnswer(
         trimmedQuestion,
-        nextContext
-          ? nextContext.contextType === "simulation"
-            ? { simulationContext: nextContext }
-            : { chartContext: nextContext }
-          : null
+        {
+          ...(nextContext
+            ? nextContext.contextType === "simulation"
+              ? { simulationContext: nextContext }
+              : { chartContext: nextContext }
+            : {}),
+          recentConversation: resetThread ? [] : normalizeConversationSlice(chartExplainPopupMessages),
+        }
       );
       setChartExplainPopupMessages((prev) => prev.map((message) => (
         message.id === pendingMessageId
