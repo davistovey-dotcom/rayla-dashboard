@@ -5656,7 +5656,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
         </div>
       </div>
       {drivers.length > 0 && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <div className="intelDriverTags" style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           {drivers.map(([key, val]) => (
             <div key={key} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 999, background: val > 0 ? "rgba(74,222,128,0.1)" : val < 0 ? "rgba(248,113,113,0.1)" : "rgba(255,255,255,0.06)", color: val > 0 ? "#4ade80" : val < 0 ? "#f87171" : "#7f8ea3", fontWeight: 600 }}>
               {driverLabels[key] || key} {val > 0 ? "↑" : val < 0 ? "↓" : "—"}
@@ -5729,7 +5729,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
 function RaylaPickCard({ pick }) {
   if (!pick) return null;
   return (
-    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
         {pick.title}
       </div>
@@ -12752,9 +12752,9 @@ return (
             <div className="homeLayout">
               {/* Mobile segmented control — hidden on desktop via inline conditional */}
               {isMobileView && (
-                <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, margin: "12px 16px 8px", gap: 2, flexShrink: 0 }}>
+                <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 5, margin: "12px 16px 10px", gap: 2, flexShrink: 0 }}>
                   {[{ label: "Ask Rayla", index: 0 }, { label: "Live Market", index: 1 }].map(({ label, index }) => (
-                    <button key={label} type="button" onClick={() => setHomeMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: homeMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: homeMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: homeMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", whiteSpace: "nowrap", overflow: "hidden" }}>{label}</button>
+                    <button key={label} type="button" onClick={() => setHomeMobileTab(index)} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: homeMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: homeMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: homeMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", whiteSpace: "nowrap", overflow: "hidden" }}>{label}</button>
                   ))}
                 </div>
               )}
@@ -12764,7 +12764,7 @@ return (
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <img src="/badger.png" alt="" style={{ width: 32, height: 32, objectFit: "contain", animation: "badgerPulse 3s ease-in-out infinite" }} />
-                  <span style={{ color: "#7aa8d8", fontSize: 15, fontWeight: 600 }}>Ask Rayla</span>
+                  <span style={{ color: "#7aa8d8", fontSize: 16, fontWeight: 600 }}>Ask Rayla</span>
                 </div>
                 {/* Scrollable middle */}
                 <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -12778,7 +12778,7 @@ return (
                         {ASK_RAYLA_SUGGESTIONS.map((suggestion) => (
                           <button key={suggestion} type="button" disabled={isRaylaLoading}
                             onClick={async () => { try { await handleAskRaylaQuestion(suggestion, { clearInput: true, useChat: true }); } catch (err) { console.error("ASK RAYLA SUGGESTION ERROR:", err); } }}
-                            style={{ background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.2)", color: "#7aa8d8", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}
+                            style={{ background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.2)", color: "#7aa8d8", borderRadius: 20, padding: "6px 14px", fontSize: 13, cursor: "pointer" }}
                           >{suggestion}</button>
                         ))}
                       </div>
@@ -14494,12 +14494,12 @@ return (
                   )}
 
                   {isMobileView && (
-                    <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, gap: 2, flexShrink: 0, marginBottom: 12 }}>
+                    <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 5, gap: 2, flexShrink: 0, marginBottom: 12 }}>
                       {[
                         { label: "Setup", index: 0 },
                         { label: "Chart", index: 1, badge: simulationPositions.length > 0 ? String(simulationPositions.length) : undefined },
                       ].map(({ label, index, badge }) => (
-                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
+                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
                           {label}
                           {badge && <span style={{ background: "#7CC4FF", color: "#050d1f", borderRadius: 8, fontSize: 10, fontWeight: 700, padding: "1px 5px", lineHeight: 1.4 }}>{badge}</span>}
                         </button>

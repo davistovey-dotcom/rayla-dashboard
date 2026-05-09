@@ -849,7 +849,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     min-height: 100dvh;
     padding:
       calc(18px + env(safe-area-inset-top))
-      10px
+      14px
       calc(110px + env(safe-area-inset-bottom));
     max-width: 100vw;
     overflow-x: hidden;
@@ -902,6 +902,8 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .cardBody { gap: 18px; }
   .cardHeader h2 { margin: 0 0 16px 0; }
+
+  .intelDriverTags { display: none; }
 
   .mobileNav { display: flex; }
 

@@ -26,9 +26,9 @@ export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
       <div style={{
         display: "flex",
         background: "rgba(255,255,255,0.05)",
-        borderRadius: 12,
-        padding: 4,
-        marginBottom: 16,
+        borderRadius: 14,
+        padding: 5,
+        marginBottom: 14,
         gap: 2,
         flexShrink: 0,
       }}>
@@ -39,8 +39,8 @@ export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
             onClick={() => setActiveIndex(i)}
             style={{
               flex: 1,
-              padding: "9px 0",
-              borderRadius: 9,
+              padding: "10px 0",
+              borderRadius: 10,
               border: "none",
               background: activeIndex === i ? "rgba(124,196,255,0.14)" : "transparent",
               color: activeIndex === i ? "#7CC4FF" : "#64748b",
