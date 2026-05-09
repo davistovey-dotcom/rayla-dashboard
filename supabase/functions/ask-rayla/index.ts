@@ -465,6 +465,38 @@ function buildRaylaPicksSummary(context: any) {
   return `Rayla picks context: ${JSON.stringify(picks)}`;
 }
 
+function buildBehavioralPatternBlock(context: any) {
+  const bp = context?.behavioralPatternContext;
+  if (!bp || !bp.patternThresholdMet) return "";
+
+  const parts = [`Behavioral pattern data (last ${bp.sampleSize} sim trades):`];
+  parts.push(`- Win rate: ${bp.winRate}%`);
+
+  if (bp.longWinRate !== null && bp.longTradeCount >= 4) {
+    parts.push(`- Long win rate: ${bp.longWinRate}% (${bp.longTradeCount} trades)`);
+  }
+  if (bp.shortWinRate !== null && bp.shortTradeCount >= 4) {
+    parts.push(`- Short win rate: ${bp.shortWinRate}% (${bp.shortTradeCount} trades)`);
+  }
+  if (bp.currentStreak && bp.currentStreak.count >= 2) {
+    parts.push(`- Current streak: ${bp.currentStreak.count} consecutive ${bp.currentStreak.type}s`);
+  }
+  if (bp.cutEarlyCount >= 2) {
+    parts.push(`- Cut winners early: ${bp.cutEarlyCount} of last ${bp.sampleSize} trades`);
+  }
+  if (bp.heldTooLongCount >= 2) {
+    parts.push(`- Held losers too long: ${bp.heldTooLongCount} of last ${bp.sampleSize} trades`);
+  }
+  if (bp.strongExecCount >= 2) {
+    parts.push(`- Strong execution (A/B grade): ${bp.strongExecCount} trades`);
+  }
+  if (bp.poorExecCount >= 2) {
+    parts.push(`- Poor execution (D grade): ${bp.poorExecCount} trades`);
+  }
+
+  return parts.join("\n");
+}
+
 function buildRecentTradesSummary(context: any) {
   const recentTrades = Array.isArray(context?.recentTrades) ? context.recentTrades.slice(0, 8) : [];
   if (!recentTrades.length) return "";
@@ -542,6 +574,7 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     simulationContext: context.simulationContext ?? null,
     marketIntelContext: context.marketIntelContext ?? null,
     raylaPicksContext: context.raylaPicksContext ?? null,
+    behavioralPatternContext: context.behavioralPatternContext ?? null,
     selectedAssetContext: context.selectedAssetContext ?? null,
     appContext: context.appContext ?? null,
     recentConversation: context.recentConversation ?? [],
@@ -655,6 +688,21 @@ function buildSystemPrompt(context: any, intent: string) {
     ].join("\n")
     : "";
 
+  const behaviorPatternGuidance = context?.behavioralPatternContext?.patternThresholdMet
+    ? [
+      "Behavioral pattern guidance:",
+      "- Behavioral pattern data from the user's recent simulation trades is available below.",
+      "- Reference a behavioral observation only when directly relevant to the current trade setup, post-trade review, or a direct question about performance.",
+      "- Ground every observation in the specific count: '4 of your last 8 trades' — never 'you always' or 'you never'.",
+      "- Surface at most one behavioral observation per response. Do not stack multiple pattern callouts.",
+      "- Do not repeat a behavioral observation that was already made in the immediately prior response.",
+      "- Permitted framing: 'tends to', 'has been', 'recently', 'in the last N trades'.",
+      "- Forbidden framing: 'you always', 'you never', 'you are', 'you struggle with', anything inferring emotion, motivation, or personality.",
+      "- Do not surface behavioral patterns in chart-only questions or general trading knowledge questions.",
+      "- Do not infer cause — only describe what the numbers show.",
+    ].join("\n")
+    : "";
+
   const marketNarrativeGuidance = context?.marketIntelContext
     ? [
       "Market narrative guidance:",
@@ -696,6 +744,7 @@ function buildSystemPrompt(context: any, intent: string) {
     // Behavioral rules
     evidenceGroundingRules,
     marketNarrativeGuidance,
+    behaviorPatternGuidance,
     strategyTeachingGuidance,
     chartGroundedCoachingGuidance,
     preTradeSetupGuidance,
@@ -712,6 +761,7 @@ function buildSystemPrompt(context: any, intent: string) {
     buildAppContextSummary(context),
     // Background reference — edge/performance, used only when directly relevant
     buildBackgroundReferenceBlock(context),
+    buildBehavioralPatternBlock(context),
   ].filter(Boolean).join("\n\n");
 }
 

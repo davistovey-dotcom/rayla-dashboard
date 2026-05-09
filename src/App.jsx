@@ -2159,7 +2159,7 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null }) {
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
   const stats = buildTradeStats(trades);
   return {
     selectedMarketId,
@@ -2173,6 +2173,7 @@ function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chart
     edgeSummary: buildEdgeSummary(stats),
     marketIntelContext: marketIntelContext || null,
     raylaPicksContext: raylaPicksContext || null,
+    behavioralPatternContext: behavioralPatternContext || null,
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
       setup: trade?.setup || "",
@@ -2181,6 +2182,49 @@ function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chart
       direction: trade?.direction || "",
       createdAt: trade?.created_at || trade?.entry_time || null,
     })),
+  };
+}
+
+function buildBehavioralPatternSummary(simTrades) {
+  const trades = Array.isArray(simTrades) ? simTrades : [];
+  if (trades.length < 5) return null;
+
+  const recent = trades.slice(-15);
+  const totalRecent = recent.length;
+
+  const wins = recent.filter((t) => (t.profitLoss || 0) > 0);
+  const longs = recent.filter((t) => t.direction === "long");
+  const shorts = recent.filter((t) => t.direction === "short");
+  const longWins = longs.filter((t) => (t.profitLoss || 0) > 0);
+  const shortWins = shorts.filter((t) => (t.profitLoss || 0) > 0);
+
+  let streakCount = 0;
+  let streakType = null;
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const type = (recent[i].profitLoss || 0) > 0 ? "win" : "loss";
+    if (streakType === null) { streakType = type; streakCount = 1; }
+    else if (type === streakType) streakCount++;
+    else break;
+  }
+
+  const cutEarlyCount = recent.filter((t) => t.outcomeLabel === "Cut too early").length;
+  const heldTooLongCount = recent.filter((t) => t.outcomeLabel === "Held too long").length;
+  const strongExecCount = recent.filter((t) => t.executionGrade === "A" || t.executionGrade === "B").length;
+  const poorExecCount = recent.filter((t) => t.executionGrade === "D").length;
+
+  return {
+    sampleSize: totalRecent,
+    patternThresholdMet: totalRecent >= 5,
+    winRate: Math.round((wins.length / totalRecent) * 100),
+    longWinRate: longs.length >= 4 ? Math.round((longWins.length / longs.length) * 100) : null,
+    longTradeCount: longs.length,
+    shortWinRate: shorts.length >= 4 ? Math.round((shortWins.length / shorts.length) * 100) : null,
+    shortTradeCount: shorts.length,
+    currentStreak: streakType ? { type: streakType, count: streakCount } : null,
+    cutEarlyCount,
+    heldTooLongCount,
+    strongExecCount,
+    poorExecCount,
   };
 }
 
@@ -9209,6 +9253,7 @@ useEffect(() => {
         raylaMode,
         marketIntelContext: hotColdReport || null,
         raylaPicksContext: raylaPicksContext || null,
+        behavioralPatternContext: buildBehavioralPatternSummary(simulationTradeHistory),
       }),
     };
 
