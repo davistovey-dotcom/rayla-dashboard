@@ -12759,8 +12759,8 @@ return (
                 </div>
               )}
               {/* LEFT: Ask Rayla */}
-              {!isHomeLiveChartFullscreen && (
-              <div className="homeLeft" style={isMobileView && homeMobileTab !== 0 ? { display: "none" } : {}}>
+              {!isHomeLiveChartFullscreen && (!isMobileView || homeMobileTab === 0) && (
+              <div className="homeLeft">
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <img src="/badger.png" alt="" style={{ width: 32, height: 32, objectFit: "contain", animation: "badgerPulse 3s ease-in-out infinite" }} />
@@ -12877,7 +12877,8 @@ return (
               </div>
               )}
               {/* RIGHT: Live Market */}
-              <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`} style={isMobileView && homeMobileTab !== 1 ? { display: "none" } : {}}>
+              {(!isMobileView || homeMobileTab === 1) && (
+              <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
                 {/* Label */}
                 <div style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   Live Market
@@ -13010,6 +13011,7 @@ return (
                   </div>
                 )}
               </div>
+              )}
             </div>
           </>
         )}
@@ -14505,7 +14507,8 @@ return (
                     </div>
                   )}
                   <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: isMobileView && simMobileTab !== 0 ? "none" : "flex", flexDirection: "column", gap: 14 })}>
+                  {(!isMobileView || simMobileTab === 0) && (
+                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade Controls
@@ -14862,7 +14865,9 @@ return (
                     </div>
                     {renderSimulationInfoCard("risk")}
                   </div>
+                  )}
 
+                  {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
                   <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
@@ -15644,6 +15649,7 @@ return (
 	                  </div>
 	                </div>
 	                </div>
+                  )}
 	              </div>
 	            </div>
 	          </div>

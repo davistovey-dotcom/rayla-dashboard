@@ -1,15 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 // segments: [{ label: string, content: ReactNode, badge?: string }]
 // Desktop (>600px): renders all segment content sequentially (no pager)
-// Mobile (<=600px): segmented control + horizontal snap-scroll pager
+// Mobile (<=600px): segmented control + renders only the active segment (unmounts inactive)
 export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 600px)").matches : false
   );
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
-  const scrollRef = useRef(null);
-  const programmaticScrollRef = useRef(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 600px)");
@@ -17,27 +15,6 @@ export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
-
-  function goToIndex(index) {
-    setActiveIndex(index);
-    if (scrollRef.current) {
-      programmaticScrollRef.current = true;
-      scrollRef.current.scrollTo({
-        left: index * scrollRef.current.clientWidth,
-        behavior: "smooth",
-      });
-      setTimeout(() => { programmaticScrollRef.current = false; }, 400);
-    }
-  }
-
-  function handleScroll() {
-    if (!scrollRef.current || programmaticScrollRef.current) return;
-    const container = scrollRef.current;
-    const index = Math.round(container.scrollLeft / container.clientWidth);
-    if (index >= 0 && index < segments.length && index !== activeIndex) {
-      setActiveIndex(index);
-    }
-  }
 
   if (!isMobile) {
     return <>{segments.map((seg) => seg.content)}</>;
@@ -59,7 +36,7 @@ export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
           <button
             key={seg.label}
             type="button"
-            onClick={() => goToIndex(i)}
+            onClick={() => setActiveIndex(i)}
             style={{
               flex: 1,
               padding: "9px 0",
@@ -92,32 +69,9 @@ export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
           </button>
         ))}
       </div>
-      {/* Snap-scroll pager */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        style={{
-          display: "flex",
-          overflowX: "scroll",
-          scrollSnapType: "x mandatory",
-          scrollbarWidth: "none",
-          msOverflowStyle: "none",
-          WebkitOverflowScrolling: "touch",
-          width: "100%",
-        }}
-      >
-        {segments.map((seg) => (
-          <div
-            key={seg.label}
-            style={{
-              minWidth: "100%",
-              flexShrink: 0,
-              scrollSnapAlign: "start",
-            }}
-          >
-            {seg.content}
-          </div>
-        ))}
+      {/* Only render the active segment — inactive segments are unmounted */}
+      <div key={activeIndex}>
+        {segments[activeIndex]?.content}
       </div>
     </div>
   );
