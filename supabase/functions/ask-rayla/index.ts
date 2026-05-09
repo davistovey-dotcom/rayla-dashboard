@@ -312,6 +312,11 @@ function buildChartSummary(context: any) {
     }
   }
 
+  const tappedBar = chartContext?.tappedBar ?? null;
+  if (tappedBar) {
+    parts.push(`Tapped bar: direction=${tappedBar.direction}, price=~${Number(tappedBar.price).toFixed(2)}, open=${Number(tappedBar.open).toFixed(2)}, high=${Number(tappedBar.high).toFixed(2)}, low=${Number(tappedBar.low).toFixed(2)}, close=${Number(tappedBar.close).toFixed(2)}, position=${tappedBar.relativePosition}. Focus your response on what's happening at or near this specific price level.`);
+  }
+
   return parts.join("\n");
 }
 

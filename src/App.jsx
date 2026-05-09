@@ -9345,6 +9345,43 @@ useEffect(() => {
     }
   }
 
+  function handleChartTapCoachingQuestion(tapInfo, bars, chartCtx) {
+    if (!tapInfo?.time || !tapInfo?.price) return;
+    if (chartExplainPopupOpen) return;
+    const numericBars = (Array.isArray(bars) ? bars : [])
+      .filter((b) => Number.isFinite(Number(b?.close)) && Number(b.close) > 0);
+    const nearestBar = numericBars.reduce((best, b) => {
+      if (!best) return b;
+      return Math.abs(Number(b.time) - tapInfo.time) < Math.abs(Number(best.time) - tapInfo.time) ? b : best;
+    }, null);
+    if (!nearestBar) return;
+    const barDir = Number(nearestBar.close) >= Number(nearestBar.open) ? "up" : "down";
+    const allHighs = numericBars.map((b) => Number(b.high));
+    const allLows = numericBars.map((b) => Number(b.low));
+    const rangeHigh = Math.max(...allHighs);
+    const rangeLow = Math.min(...allLows);
+    const rangeSpan = rangeHigh - rangeLow;
+    const relativePos = rangeSpan > 0
+      ? tapInfo.price > rangeHigh - rangeSpan * 0.15 ? "near the top of the visible range"
+        : tapInfo.price < rangeLow + rangeSpan * 0.15 ? "near the bottom of the visible range"
+        : "mid-range"
+      : "mid-range";
+    const enrichedContext = {
+      ...chartCtx,
+      tappedBar: {
+        price: tapInfo.price,
+        time: tapInfo.time,
+        open: Number(nearestBar.open),
+        high: Number(nearestBar.high),
+        low: Number(nearestBar.low),
+        close: Number(nearestBar.close),
+        direction: barDir,
+        relativePosition: relativePos,
+      },
+    };
+    openChartExplainPopup(enrichedContext, "What's happening at this price level?");
+  }
+
   function openChartExplainPopup(chartContext, initialQuestion = "Explain this chart") {
     setIntelSimulationSetupPrompt(null);
     setIntelSimulationSetupChecklist(null);
@@ -11461,11 +11498,23 @@ function buildSimulationAssetFromPosition(position) {
   }
 
   function handleScenarioChartAnnotationClick(point) {
-    if (simulationMode !== "scenario" || !selectedSimulationItem || !point || simulationScenarioDrawingMode === "none") return;
-    const drawing = buildUserHorizontalDrawing(simulationScenarioDrawingMode, point, "Label this line:");
-    if (!drawing) return;
-    updateStoredChartDrawings(scenarioDrawingStorageKey, (prev) => [...prev, drawing]);
-    setSimulationScenarioDrawingMode("none");
+    if (simulationMode !== "scenario" || !selectedSimulationItem || !point) return;
+    if (simulationScenarioDrawingMode !== "none") {
+      const drawing = buildUserHorizontalDrawing(simulationScenarioDrawingMode, point, "Label this line:");
+      if (!drawing) return;
+      updateStoredChartDrawings(scenarioDrawingStorageKey, (prev) => [...prev, drawing]);
+      setSimulationScenarioDrawingMode("none");
+      return;
+    }
+    const chartCtx = buildChartExplainContext({
+      symbol: selectedSimulationItem.id,
+      assetName: selectedSimulationItem.description || selectedSimulationItem.name || selectedSimulationItem.id,
+      assetType: selectedSimulationItem.type || "stock",
+      range: simulationChartTimeframeConfig.label,
+      bars: scenarioChartBars,
+      currentPrice: getSimulationPrice(selectedSimulationItem.id, "scenario"),
+    });
+    handleChartTapCoachingQuestion(point, scenarioChartBars, chartCtx);
   }
 
   function clearScenarioDrawings() {
