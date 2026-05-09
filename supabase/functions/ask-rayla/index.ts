@@ -497,6 +497,32 @@ function buildBehavioralPatternBlock(context: any) {
   return parts.join("\n");
 }
 
+function derivePressureLevel(bp: any): "firm" | "neutral" | "light" {
+  if (!bp || !bp.patternThresholdMet || bp.sampleSize < 5) return "neutral";
+
+  let firmSignals = 0;
+  let lightSignals = 0;
+
+  // Primary: execution behavior (not outcomes — these reflect what the trader actually did)
+  if (bp.cutEarlyCount >= 3) firmSignals++;
+  if (bp.poorExecCount >= 3) firmSignals++;
+  if (bp.strongExecCount === 0 && bp.sampleSize >= 6) firmSignals++;
+  // Secondary: outcome signals (require primary signals to reach threshold)
+  if (bp.currentStreak?.type === "loss" && bp.currentStreak.count >= 3) firmSignals++;
+  if (bp.winRate < 35 && bp.sampleSize >= 10) firmSignals++;
+
+  // Primary: clean execution signals
+  if (bp.strongExecCount >= Math.ceil(bp.sampleSize * 0.6)) lightSignals++;
+  if (bp.cutEarlyCount === 0 && bp.poorExecCount === 0 && bp.sampleSize >= 5) lightSignals++;
+  // Secondary: outcome signals
+  if (bp.currentStreak?.type === "win" && bp.currentStreak.count >= 3) lightSignals++;
+  if (bp.winRate >= 60 && bp.sampleSize >= 10) lightSignals++;
+
+  if (firmSignals >= 2) return "firm";
+  if (lightSignals >= 2) return "light";
+  return "neutral";
+}
+
 function buildRecentTradesSummary(context: any) {
   const recentTrades = Array.isArray(context?.recentTrades) ? context.recentTrades.slice(0, 8) : [];
   if (!recentTrades.length) return "";
@@ -703,6 +729,32 @@ function buildSystemPrompt(context: any, intent: string) {
     ].join("\n")
     : "";
 
+  const pressureLevel = derivePressureLevel(context?.behavioralPatternContext);
+
+  const coachingPressureGuidance = pressureLevel === "firm"
+    ? [
+      "Coaching firmness: high",
+      "- Recent execution data shows a recurring pattern worth addressing (see behavioral data below).",
+      "- In setup coaching: lead with the invalidation level question before discussing entry.",
+      "- In post-trade reviews: end with one direct, specific corrective note — named, not hedged.",
+      "- Be slightly more deliberate before giving a directional read on a setup.",
+      "- Good firmer phrasing to draw from: 'I'd be stricter here.', 'This is probably a spot to slow down, not press.', 'You've been better when you wait for cleaner confirmation than when you force early entries.', 'This is the kind of setup where patience matters more than urgency.'",
+      "- Do not scold, express concern, or editorialize. Stay process-focused and calm.",
+      "- Do not repeat a corrective note already made in the immediately prior response.",
+      "- Forbidden phrasing: 'you need to', 'stop doing', 'you keep making the same mistake', 'you're being emotional', 'you're not disciplined enough'.",
+    ].join("\n")
+    : pressureLevel === "light"
+      ? [
+        "Coaching firmness: low",
+        "- Recent execution data shows clean, disciplined trading.",
+        "- Affirm briefly when execution warrants it, then move to what is next.",
+        "- Ask fewer confirming process questions — the user has been demonstrating good execution.",
+        "- In post-trade reviews: keep it short and forward-looking; do not manufacture a corrective note when execution was clean.",
+        "- Good lighter phrasing to draw from: 'Your process has looked cleaner lately.', 'This is one of the spots where your patience has been helping.', 'You don't need much more than clean confirmation here.'",
+        "- Stay observational rather than corrective.",
+      ].join("\n")
+      : "";
+
   const marketNarrativeGuidance = context?.marketIntelContext
     ? [
       "Market narrative guidance:",
@@ -749,6 +801,7 @@ function buildSystemPrompt(context: any, intent: string) {
     chartGroundedCoachingGuidance,
     preTradeSetupGuidance,
     postTradeReviewGuidance,
+    coachingPressureGuidance,
     // Active scene context — what the user is looking at right now
     buildChartSummary(context),
     buildSimulationSummary(context),
