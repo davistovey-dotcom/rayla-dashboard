@@ -1901,6 +1901,192 @@ function buildEdgeSummary(stats) {
   };
 }
 
+function buildEdgeFacetsFromTrades(trades) {
+  const safeTrades = Array.isArray(trades) ? trades : [];
+  const normalizedTrades = safeTrades
+    .map((trade) => {
+      const manualResultR = parseTradeResult(trade?.result_r);
+      const simulationResultR = Number(trade?.rMultiple);
+      const resultR = Number.isFinite(manualResultR)
+        ? manualResultR
+        : Number.isFinite(simulationResultR)
+          ? simulationResultR
+          : null;
+
+      if (!Number.isFinite(resultR)) return null;
+
+      const asset = String(trade?.asset || "").trim().toUpperCase();
+      const setup = normalizeSetupType(trade?.setupType) || String(trade?.setup || "").trim();
+      const direction = String(trade?.direction || "").trim().toLowerCase();
+      const session = String(trade?.session || trade?.sessionSlot || "").trim();
+      const timestamp = trade?.closedAt || trade?.created_at || trade?.entry_time || trade?.exit_time || null;
+
+      return {
+        asset: asset || null,
+        setup: setup || null,
+        direction: direction || null,
+        session: session || null,
+        resultR,
+        win: resultR > 0 ? 1 : 0,
+        timestamp,
+      };
+    })
+    .filter(Boolean);
+
+  if (!normalizedTrades.length) return null;
+
+  const summarizeFacet = (items, key, { minCount = 3, maxItems = 6 } = {}) => {
+    const grouped = items.reduce((acc, trade) => {
+      const rawValue = trade?.[key];
+      const value = String(rawValue || "").trim();
+      if (!value || ["unknown", "other", "n/a", "na"].includes(value.toLowerCase())) return acc;
+
+      if (!acc[value]) {
+        acc[value] = { name: value, count: 0, wins: 0, totalR: 0 };
+      }
+      acc[value].count += 1;
+      acc[value].wins += trade.win;
+      acc[value].totalR += trade.resultR;
+      return acc;
+    }, {});
+
+    return Object.values(grouped)
+      .filter((group) => group.count >= minCount)
+      .map((group) => ({
+        name: group.name,
+        count: group.count,
+        wins: group.wins,
+        winRate: roundMetric((group.wins / group.count) * 100, 1),
+        avgR: roundMetric(group.totalR / group.count),
+      }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        if (b.avgR !== a.avgR) return b.avgR - a.avgR;
+        return b.winRate - a.winRate;
+      })
+      .slice(0, maxItems);
+  };
+
+  return {
+    overallSampleSize: normalizedTrades.length,
+    bySetup: summarizeFacet(normalizedTrades, "setup", { minCount: 3 }),
+    byAsset: summarizeFacet(normalizedTrades, "asset", { minCount: 3 }),
+    byDirection: summarizeFacet(normalizedTrades, "direction", { minCount: 3, maxItems: 2 }),
+    bySession: summarizeFacet(normalizedTrades, "session", { minCount: 3 }),
+  };
+}
+
+function normalizeSetupType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["range", "breakout", "pullback", "trend", "reversal", "other"].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+function deriveSessionSlot(timestamp) {
+  if (timestamp == null) return null;
+  const parsed = typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return null;
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+    timeZone: "America/New_York",
+  });
+  const parts = formatter.formatToParts(new Date(parsed));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || "0");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || "0");
+  const minutesSinceMidnight = hour * 60 + minute;
+
+  if (minutesSinceMidnight >= 240 && minutesSinceMidnight < 570) return "premarket";
+  if (minutesSinceMidnight >= 570 && minutesSinceMidnight < 660) return "early";
+  if (minutesSinceMidnight >= 660 && minutesSinceMidnight < 840) return "mid";
+  if (minutesSinceMidnight >= 840 && minutesSinceMidnight < 960) return "late";
+  return "afterhours";
+}
+
+function getTradeContextTimestampMs(trade) {
+  const timestamp = trade?.closedAt || trade?.created_at || trade?.exit_time || trade?.entry_time || null;
+  if (timestamp == null) return null;
+  const parsed = typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeTradeSourceType(sourceType) {
+  switch (sourceType) {
+    case "real_trade":
+      return { sourceType: "real_trade", sourceLabel: "Real trade" };
+    case "live_sim_trade":
+      return { sourceType: "live_sim_trade", sourceLabel: "Live sim trade" };
+    case "scenario_sim_trade":
+      return { sourceType: "scenario_sim_trade", sourceLabel: "Scenario sim trade" };
+    default:
+      return { sourceType: "unknown", sourceLabel: "Unknown" };
+  }
+}
+
+function detectSimulationTradeSourceType(trade) {
+  const marketMode = String(trade?.marketMode || "").trim().toLowerCase();
+  const scenarioType = String(trade?.scenarioType || "").trim().toLowerCase();
+  if (scenarioType) return "scenario_sim_trade";
+  if (marketMode === "live") return "live_sim_trade";
+  if (marketMode === "scenario") return "scenario_sim_trade";
+  return "live_sim_trade";
+}
+
+function normalizeTradeForRaylaContext(trade, sourceType) {
+  const sourceMeta = normalizeTradeSourceType(sourceType);
+  const manualResultR = parseTradeResult(trade?.result_r);
+  const simulationResultR = Number(trade?.rMultiple);
+  const resultR = Number.isFinite(manualResultR)
+    ? roundMetric(manualResultR)
+    : Number.isFinite(simulationResultR)
+      ? roundMetric(simulationResultR)
+      : null;
+
+  const setupType = normalizeSetupType(trade?.setupType);
+  const sessionSlot = String(trade?.sessionSlot || deriveSessionSlot(trade?.closedAt || trade?.created_at || trade?.entry_time || trade?.exit_time) || "").trim() || null;
+
+  return {
+    symbol: String(trade?.asset || "").trim().toUpperCase() || null,
+    sourceType: sourceMeta.sourceType,
+    sourceLabel: sourceMeta.sourceLabel,
+    closedAt: trade?.closedAt || trade?.created_at || trade?.exit_time || trade?.entry_time || null,
+    resultR,
+    direction: trade?.direction || "",
+    setup: String(trade?.setup || "").trim() || null,
+    setupType,
+    sessionSlot,
+    entryPrice: Number.isFinite(Number(trade?.entry_price)) ? Number(trade.entry_price) : Number.isFinite(Number(trade?.entryPrice)) ? Number(trade.entryPrice) : null,
+    exitPrice: Number.isFinite(Number(trade?.exit_price)) ? Number(trade.exit_price) : Number.isFinite(Number(trade?.exitPrice)) ? Number(trade.exitPrice) : null,
+    executionGrade: trade?.executionGrade || "",
+    executionGradeLabel: trade?.executionGradeLabel || "",
+    feedback: String(trade?.feedback || "").trim() || null,
+  };
+}
+
+function buildTradeSourceSummary({ trades, simulationTradeHistory }) {
+  const realTrades = (Array.isArray(trades) ? trades : [])
+    .map((trade) => normalizeTradeForRaylaContext(trade, "real_trade"))
+    .filter((trade) => trade.symbol);
+
+  const simTrades = (Array.isArray(simulationTradeHistory) ? simulationTradeHistory : [])
+    .map((trade) => normalizeTradeForRaylaContext(trade, detectSimulationTradeSourceType(trade)))
+    .filter((trade) => trade.symbol);
+
+  const findLatestByType = (items, sourceType) => items
+    .filter((trade) => trade.sourceType === sourceType)
+    .sort((a, b) => (getTradeContextTimestampMs(b) || 0) - (getTradeContextTimestampMs(a) || 0))[0] || null;
+
+  return {
+    lastRealTrade: findLatestByType(realTrades, "real_trade"),
+    lastLiveSimTrade: findLatestByType(simTrades, "live_sim_trade"),
+    lastScenarioSimTrade: findLatestByType(simTrades, "scenario_sim_trade"),
+  };
+}
+
 function buildChartExplainContext({ symbol, assetName, assetType, range, bars, currentPrice, positionSummary = null }) {
   const normalizedBars = (Array.isArray(bars) ? bars : [])
     .filter((bar) => bar && Number.isFinite(Number(bar.close)) && Number(bar.close) > 0)
@@ -1971,6 +2157,8 @@ function buildSimulationRaylaContext({
       exitReason: closedTrade.exitReason || "",
       profitLoss: Number.isFinite(Number(closedTrade.profitLoss)) ? Number(closedTrade.profitLoss) : null,
       rMultiple: Number.isFinite(Number(closedTrade.rMultiple)) ? Number(closedTrade.rMultiple) : null,
+      setupType: normalizeSetupType(closedTrade.setupType),
+      sessionSlot: closedTrade.sessionSlot || null,
       durationMs: Number.isFinite(Number(closedTrade.durationMs)) ? Number(closedTrade.durationMs) : null,
       executionGrade: closedTrade.executionGrade || "",
       executionGradeLabel: closedTrade.executionGradeLabel || "",
@@ -2160,8 +2348,12 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
   const stats = buildTradeStats(trades);
+  const edgeFacetTrades = [
+    ...(Array.isArray(trades) ? trades : []),
+    ...(Array.isArray(simulationTradeHistory) ? simulationTradeHistory : []),
+  ];
   return {
     selectedMarketId,
     adaptiveProfile,
@@ -2172,16 +2364,22 @@ function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chart
     raylaMode,
     stats,
     edgeSummary: buildEdgeSummary(stats),
+    edgeFacets: buildEdgeFacetsFromTrades(edgeFacetTrades),
+    tradeSourceSummary: buildTradeSourceSummary({ trades, simulationTradeHistory }),
     marketIntelContext: marketIntelContext || null,
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
       setup: trade?.setup || "",
+      setupType: normalizeSetupType(trade?.setupType),
       session: trade?.session || "",
+      sessionSlot: trade?.sessionSlot || null,
       resultR: roundMetric(parseTradeResult(trade?.result_r)),
       direction: trade?.direction || "",
       createdAt: trade?.created_at || trade?.entry_time || null,
+      sourceType: "real_trade",
+      sourceLabel: "Real trade",
     })),
   };
 }
@@ -9246,6 +9444,7 @@ useEffect(() => {
       question: trimmedQuestion,
       context: buildAskRaylaContext({
         trades,
+        simulationTradeHistory,
         selectedMarketId,
         adaptiveProfile,
         chartContext: extraContext?.chartContext || null,
@@ -10602,6 +10801,9 @@ useEffect(() => {
       guided: !!position.guided,
       guidedId: position.guidedId || null,
       closedAt,
+      setupType: normalizeSetupType(position.setupType),
+      sessionSlot: position.sessionSlot || deriveSessionSlot(position.openedAt || closedAt),
+      session: position.session || position.sessionSlot || deriveSessionSlot(position.openedAt || closedAt),
       durationMs,
       exitPrice,
       exitReason,
@@ -10708,6 +10910,9 @@ useEffect(() => {
         ? null
         : leveragedQuantity * riskPerUnit;
 
+    const openedAt = Date.now();
+    const setupType = normalizeSetupType(options?.setupTypeOverride ?? activeGuidedSimulation?.setupType ?? guidedSimulationDraft?.setupType ?? null);
+    const sessionSlot = deriveSessionSlot(openedAt);
     const newPosition = {
       id: crypto.randomUUID(),
       asset: effectiveAsset.id,
@@ -10736,7 +10941,10 @@ useEffect(() => {
       scenarioDurationPointCount: effectiveMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationPointCount : null,
       riskPerUnit,
       plannedRisk,
-      openedAt: Date.now(),
+      openedAt,
+      setupType,
+      sessionSlot,
+      session: sessionSlot,
     };
 
     setSimulationClosedTrade(null);
