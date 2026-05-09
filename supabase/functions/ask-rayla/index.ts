@@ -193,6 +193,53 @@ function buildMarketIntelSummary(context: any) {
   if (cryptoHot.length) sections.push(`Hot crypto: ${cryptoHot.map(formatIntelAsset).filter(Boolean).join(" | ")}`);
   if (cryptoCold.length) sections.push(`Cold crypto: ${cryptoCold.map(formatIntelAsset).filter(Boolean).join(" | ")}`);
 
+  // Derive market state from breadth, score spread, and dominant driver
+  const allHot = [...stockHot, ...cryptoHot];
+  const allCold = [...stockCold, ...cryptoCold];
+  const hotCount = allHot.length;
+  const coldCount = allCold.length;
+  const totalCount = hotCount + coldCount;
+
+  if (totalCount >= 2) {
+    const avgHotScore = hotCount > 0
+      ? allHot.reduce((sum, item) => sum + (Number(item?.score) || 0), 0) / hotCount
+      : 0;
+    const avgColdScore = coldCount > 0
+      ? allCold.reduce((sum, item) => sum + Math.abs(Number(item?.score) || 0), 0) / coldCount
+      : 0;
+    const scoreSpread = avgHotScore + avgColdScore;
+
+    // Most common top driver across hot assets
+    const driverCounts: Record<string, number> = {};
+    allHot.forEach((item) => {
+      if (!item?.breakdown || typeof item.breakdown !== "object") return;
+      const topDriver = Object.entries(item.breakdown)
+        .filter(([k, v]) => k !== "total" && Number(v) > 0)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0];
+      if (topDriver) driverCounts[topDriver] = (driverCounts[topDriver] || 0) + 1;
+    });
+    const dominantDriver = Object.entries(driverCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    const driverLabel = dominantDriver ? (driverLabels[dominantDriver] || dominantDriver) : null;
+
+    const narrativeLabel = hotCount > coldCount && scoreSpread >= 5
+      ? "directional"
+      : coldCount > hotCount && scoreSpread >= 5
+        ? "risk-off"
+        : Math.abs(hotCount - coldCount) <= 1
+          ? "rotational"
+          : "mixed";
+
+    const narrativeLine = narrativeLabel === "directional"
+      ? `Market state (today's intel): directional — hot names (${hotCount}) outnumber cold (${coldCount}), score spread ${scoreSpread.toFixed(1)}${driverLabel ? `, dominant driver: ${driverLabel}` : ""}. Conditions lean breakout-friendly but confirm before chasing.`
+      : narrativeLabel === "risk-off"
+        ? `Market state (today's intel): risk-off — cold names (${coldCount}) outnumber hot (${hotCount}), score spread ${scoreSpread.toFixed(1)}. Patience environment; quality setups over aggression.`
+        : narrativeLabel === "rotational"
+          ? `Market state (today's intel): rotational — hot (${hotCount}) and cold (${coldCount}) roughly balanced${driverLabel ? `, mixed drivers (${driverLabel} leading)` : ""}. Selectivity matters; breakouts need extra confirmation.`
+          : `Market state (today's intel): mixed — hot (${hotCount}), cold (${coldCount}), spread ${scoreSpread.toFixed(1)}. No clear session lean; treat each setup on its own merit.`;
+
+    sections.push(narrativeLine);
+  }
+
   return sections.join("\n");
 }
 
@@ -608,6 +655,18 @@ function buildSystemPrompt(context: any, intent: string) {
     ].join("\n")
     : "";
 
+  const marketNarrativeGuidance = context?.marketIntelContext
+    ? [
+      "Market narrative guidance:",
+      "- Market intel context is available. Use it to frame the session environment when directly relevant — not as a boilerplate opener on every response.",
+      "- Apply session framing when: the user asks about market conditions broadly, asks why a setup is behaving unexpectedly, or when the narrative directly explains the context.",
+      "- Use natural mentor language: 'based on today's intel, this leans more rotational than directional', 'this is more of a patience environment', 'breakouts need extra confirmation here', 'momentum is expanding on select names'.",
+      "- Chart read overrides market narrative for specific setups — if the chart shows a clear trend, lead with that, add session context if relevant.",
+      "- Do not use CNBC-style macro commentary. Do not invent catalysts, news, or economic data not present in the context.",
+      "- Do not state the market state label mechanically ('the market is directional'). Weave it in naturally.",
+    ].join("\n")
+    : "";
+
   const strategyTeachingGuidance = [
     "Strategy teaching guidance:",
     "- When the user asks to learn a strategy, teach it beginner-first in clear, practical language.",
@@ -636,6 +695,7 @@ function buildSystemPrompt(context: any, intent: string) {
     liveDataAvailability,
     // Behavioral rules
     evidenceGroundingRules,
+    marketNarrativeGuidance,
     strategyTeachingGuidance,
     chartGroundedCoachingGuidance,
     preTradeSetupGuidance,

@@ -2159,7 +2159,7 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
-function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner" }) {
+function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null }) {
   const stats = buildTradeStats(trades);
   return {
     selectedMarketId,
@@ -2171,6 +2171,8 @@ function buildAskRaylaContext({ trades, selectedMarketId, adaptiveProfile, chart
     raylaMode,
     stats,
     edgeSummary: buildEdgeSummary(stats),
+    marketIntelContext: marketIntelContext || null,
+    raylaPicksContext: raylaPicksContext || null,
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
       setup: trade?.setup || "",
@@ -9205,6 +9207,8 @@ useEffect(() => {
         }),
         recentConversation: extraContext?.recentConversation || null,
         raylaMode,
+        marketIntelContext: hotColdReport || null,
+        raylaPicksContext: raylaPicksContext || null,
       }),
     };
 
