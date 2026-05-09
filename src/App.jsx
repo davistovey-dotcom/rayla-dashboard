@@ -6824,6 +6824,7 @@ useEffect(() => {
   const scenarioPlaybackElapsedMsRef = useRef(0);
   const pendingScenarioCompletionRef = useRef(null);
   const lastPostTradeReviewIdRef = useRef(null);
+  const chartTapCooldownRef = useRef(0);
   const simulationTrackedAssets = useMemo(() => ([
     ...watchlist,
     ...(simulationAsset ? [simulationAsset] : []),
@@ -9347,7 +9348,6 @@ useEffect(() => {
 
   function handleChartTapCoachingQuestion(tapInfo, bars, chartCtx) {
     if (!tapInfo?.time || !tapInfo?.price) return;
-    if (chartExplainPopupOpen) return;
     const numericBars = (Array.isArray(bars) ? bars : [])
       .filter((b) => Number.isFinite(Number(b?.close)) && Number(b.close) > 0);
     const nearestBar = numericBars.reduce((best, b) => {
@@ -9379,6 +9379,11 @@ useEffect(() => {
         relativePosition: relativePos,
       },
     };
+    if (chartExplainPopupOpen) {
+      handleChartExplainPopupQuestion("What about this price level?", enrichedContext);
+      return;
+    }
+    if (Date.now() - chartTapCooldownRef.current < 700) return;
     openChartExplainPopup(enrichedContext, "What's happening at this price level?");
   }
 
@@ -16209,6 +16214,7 @@ return (
                 border: "1px solid rgba(124,196,255,0.18)",
                 background: "linear-gradient(180deg, rgba(10,16,28,0.98), rgba(7,12,22,0.98))",
                 boxShadow: "0 28px 80px rgba(0,0,0,0.48)",
+                animation: "fadeSlideIn 0.16s ease-out",
                 pointerEvents: "auto",
               }}
             >
@@ -16257,6 +16263,7 @@ return (
                   onClick={() => {
                     setChartExplainPopupOpen(false);
                     setChartExplainPopupLoading(false);
+                    chartTapCooldownRef.current = Date.now();
                   }}
                   style={{
                     width: 34,

@@ -575,6 +575,7 @@ function buildSystemPrompt(context: any, intent: string) {
       "- Distinguish trend from range before discussing setups — a pullback play only makes sense in a trend; a range fade needs clear boundaries.",
       "- Describe momentum in terms of energy: 'momentum is still expanding' vs 'this move is stalling and losing conviction'.",
       "- Keep chart reads short: one clear observation, one level or condition to watch, one implication. Do not produce a full TA report.",
+      "- When a specific bar was tapped (tappedBar is present in context), limit to 2–3 sentences focused only on that price level. Do not expand into a full chart read.",
       "- If chart context is thin or absent, say so briefly and give general framing — do not pretend to see details that are not there.",
     ].join("\n")
     : "";
