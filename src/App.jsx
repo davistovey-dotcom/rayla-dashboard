@@ -1947,6 +1947,7 @@ function buildSimulationRaylaContext({
   intelSignal = null,
   activeTrade = null,
   closedTrade = null,
+  isFirstSimTrade = false,
 }) {
   return {
     contextType: "simulation",
@@ -1975,6 +1976,7 @@ function buildSimulationRaylaContext({
       outcomeLabel: closedTrade.outcomeLabel || "",
       coachingInsight: closedTrade.coachingInsight || "",
       feedback: closedTrade.feedback || "",
+      isFirstSimTrade: Boolean(isFirstSimTrade),
     } : null,
   };
 }
@@ -2021,7 +2023,7 @@ function buildSimulationActiveTradeContext({ position, currentPrice, metrics, le
   };
 }
 
-function buildSimulationOpeningMessage(simulationContext) {
+function buildSimulationOpeningMessage(simulationContext, { beginnerMode = false } = {}) {
   const activeTrade = simulationContext?.activeTrade;
   const symbol = simulationContext?.assetName || simulationContext?.symbol || "";
   const mode = simulationContext?.mode || "Live";
@@ -2032,6 +2034,9 @@ function buildSimulationOpeningMessage(simulationContext) {
     const priceStr = Number.isFinite(price)
       ? ` at $${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : "";
+    if (beginnerMode) {
+      return `${mode} sim — setting up a ${dir} on ${symbol}${priceStr}. Before you open this, what's the chart doing — is price trending or ranging? And where would this trade be wrong?`;
+    }
     return `${mode} sim — setting up a ${dir} on ${symbol}${priceStr}. What do you want to think through before entering?`;
   }
 
@@ -6709,6 +6714,7 @@ useEffect(() => {
     return buildMarketAsset("BTC");
   });
   const [simulationMode, setSimulationMode] = useState("live");
+  const [scenarioTapHintDismissed, setScenarioTapHintDismissed] = useState(false);
   const [simulationScenarioType, setSimulationScenarioType] = useState("uptrend");
   const [simulationScenarioSpeed, setSimulationScenarioSpeed] = useState("1x");
   const [simulationScenarioPlaybackDuration, setSimulationScenarioPlaybackDuration] = useState("10s");
@@ -7144,6 +7150,10 @@ useEffect(() => {
     setGuidedScenarioMessage("");
     setGuidedScenarioMessageStep(0);
   }, [simulationMode, simulationScenarioType, simulationSymbolsKey, simulationChartTimeframe]);
+
+  useEffect(() => {
+    setScenarioTapHintDismissed(false);
+  }, [simulationAsset?.id]);
 
   function resetScenarioPlayback() {
     if (!simulationTrackedAssets.length) return;
@@ -9348,6 +9358,7 @@ useEffect(() => {
 
   function handleChartTapCoachingQuestion(tapInfo, bars, chartCtx) {
     if (!tapInfo?.time || !tapInfo?.price) return;
+    setScenarioTapHintDismissed(true);
     const numericBars = (Array.isArray(bars) ? bars : [])
       .filter((b) => Number.isFinite(Number(b?.close)) && Number(b.close) > 0);
     const nearestBar = numericBars.reduce((best, b) => {
@@ -9463,7 +9474,9 @@ useEffect(() => {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: buildSimulationOpeningMessage(helperContext),
+        content: buildSimulationOpeningMessage(helperContext, {
+          beginnerMode: raylaAdaptiveProfile?.explanationDepth === "simple" || simulationTradeHistory.length < 3,
+        }),
       },
     ]);
     setChartExplainPopupInput("");
@@ -9498,6 +9511,7 @@ useEffect(() => {
       stopLoss: closedTrade.stopLoss != null ? String(closedTrade.stopLoss) : "",
       takeProfit: closedTrade.takeProfit != null ? String(closedTrade.takeProfit) : "",
       closedTrade,
+      isFirstSimTrade: simulationTradeHistory.length === 0,
       sessionStats: {
         totalPnL: simulationStatsTotalPnL,
         closedTrades: simulationStatsTradeHistory.length,
@@ -9522,6 +9536,7 @@ useEffect(() => {
 
     const launchMode = intelLaunch.mode === "scenario" ? "scenario" : "live";
     const directionLabel = intelLaunch.direction === "short" ? "Sell / Short" : "Buy / Long";
+    const isBeginnerMode = raylaAdaptiveProfile?.explanationDepth === "simple" || simulationTradeHistory.length < 3;
 
     const nextContext = buildSimulationRaylaContext({
       mode: launchMode === "scenario" ? "Scenario" : "Live",
@@ -9553,9 +9568,11 @@ useEffect(() => {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: launchMode === "scenario"
-          ? `I loaded ${intelLaunch.asset.id} in Scenario Simulator with future candles hidden and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`
-          : `I loaded ${intelLaunch.asset.id} in Live Simulator and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`,
+        content: isBeginnerMode
+          ? `I loaded ${intelLaunch.asset.id} in ${launchMode === "scenario" ? "Scenario Simulator" : "Live Simulator"} and set the direction to ${directionLabel}. Before we set up the trade — what's the chart doing right now? Is price trending or ranging? And where would this ${intelLaunch.direction === "short" ? "short" : "long"} be wrong?`
+          : launchMode === "scenario"
+            ? `I loaded ${intelLaunch.asset.id} in Scenario Simulator with future candles hidden and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`
+            : `I loaded ${intelLaunch.asset.id} in Live Simulator and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`,
       },
     ]);
     setChartExplainPopupInput("");
@@ -15117,6 +15134,11 @@ return (
                             />
                           )}
                         </div>
+                        {!scenarioTapHintDismissed && scenarioChartBars.length >= 2 && simulationScenarioDrawingMode === "none" && (
+                          <div style={{ textAlign: "center", fontSize: 11, color: "#475569", padding: "4px 0 2px", pointerEvents: "none" }}>
+                            Tap any bar to ask Rayla about that price level
+                          </div>
+                        )}
                       </div>
                     ) : selectedSimulationItem ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>

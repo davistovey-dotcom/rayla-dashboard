@@ -580,6 +580,17 @@ function buildSystemPrompt(context: any, intent: string) {
     ].join("\n")
     : "";
 
+  const preTradeSetupGuidance = (context?.simulationContext && !context?.simulationContext?.activeTrade && !context?.simulationContext?.closedTrade)
+    ? [
+      "Pre-trade setup guidance (no open trade yet):",
+      "- Help the user build a thesis BEFORE they open the trade. Do not skip to mechanics.",
+      "- Ask or prompt one question at a time: is this trending or ranging? What's the entry rationale? Where would this trade be wrong (invalidation level)?",
+      "- For beginners, frame each concept briefly in plain language: 'trending means price is making higher highs and higher lows', 'invalidation is the price level where your reason for the trade no longer makes sense'.",
+      "- Do not just send them to open the trade. Build the reasoning together first.",
+      "- If the user has already described their thesis clearly, acknowledge it and move to the next step rather than repeating the question.",
+    ].join("\n")
+    : "";
+
   const postTradeReviewGuidance = context?.simulationContext?.closedTrade
     ? [
       "Post-trade review guidance:",
@@ -589,6 +600,11 @@ function buildSystemPrompt(context: any, intent: string) {
       "- Use the closed trade data (rMultiple, executionGrade, feedback, coachingInsight) as raw material — do not quote the grade directly or make it feel like a report card.",
       "- Connect to sessionStats or edgeSummary if they add something useful. Do not force it.",
       "- End naturally with one thing worth repeating and one thing to tighten next time.",
+      ...(context?.simulationContext?.closedTrade?.isFirstSimTrade ? [
+        "- This is the user's first simulation trade. Acknowledge the milestone briefly and without fanfare — mentor tone, not celebration.",
+        "- Frame the review around: did they have a thesis, did they hold to their plan. The goal wasn't to win — it was to have structure.",
+        "- End with one specific thing that would make the next rep better. Keep it encouraging but direct.",
+      ] : []),
     ].join("\n")
     : "";
 
@@ -622,6 +638,7 @@ function buildSystemPrompt(context: any, intent: string) {
     evidenceGroundingRules,
     strategyTeachingGuidance,
     chartGroundedCoachingGuidance,
+    preTradeSetupGuidance,
     postTradeReviewGuidance,
     // Active scene context — what the user is looking at right now
     buildChartSummary(context),
