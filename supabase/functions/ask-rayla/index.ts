@@ -742,6 +742,7 @@ function buildMetaContextBlock(context: any) {
 
 function buildBackgroundReferenceBlock(context: any) {
   const parts = [
+    buildTradeSourceSummaryBlock(context),
     buildEdgeSummaryBlock(context),
     buildPerformanceSummary(context),
     buildRecentTradesSummary(context),
@@ -751,6 +752,33 @@ function buildBackgroundReferenceBlock(context: any) {
   return [
     "Background reference — use when directly relevant to the user's performance, edge, or setup selection:",
     ...parts,
+  ].join("\n");
+}
+
+function formatTradeSourceSummaryEntry(label: string, trade: any) {
+  if (!trade?.symbol) return `${label}: none in this context.`;
+
+  const bits = [
+    `${label}: ${trade.symbol}`,
+    trade?.direction ? `${String(trade.direction).toLowerCase() === "short" ? "short" : "long"}` : "",
+    Number.isFinite(Number(trade?.resultR)) ? `${Number(trade.resultR) >= 0 ? "+" : ""}${Number(trade.resultR).toFixed(2)}R` : "",
+    trade?.setup ? `setup ${trade.setup}` : "",
+    trade?.executionGradeLabel ? trade.executionGradeLabel : "",
+    trade?.closedAt ? `closed ${trade.closedAt}` : "",
+  ].filter(Boolean);
+
+  return bits.join(" · ");
+}
+
+function buildTradeSourceSummaryBlock(context: any) {
+  const summary = context?.tradeSourceSummary ?? null;
+  if (!summary) return "";
+
+  return [
+    "Trade source summary:",
+    formatTradeSourceSummaryEntry("Last real trade", summary?.lastRealTrade),
+    formatTradeSourceSummaryEntry("Last live sim trade", summary?.lastLiveSimTrade),
+    formatTradeSourceSummaryEntry("Last scenario sim trade", summary?.lastScenarioSimTrade),
   ].join("\n");
 }
 
@@ -774,6 +802,7 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     stats: context.stats ?? null,
     edgeSummary: context.edgeSummary ?? null,
     edgeFacets: context.edgeFacets ?? null,
+    tradeSourceSummary: context.tradeSourceSummary ?? null,
     recentTrades: context.recentTrades ?? [],
     tradeHistorySummary: context.tradeHistorySummary ?? null,
     performanceStats: context.performanceStats ?? null,
@@ -832,6 +861,16 @@ function buildSystemPrompt(context: any, intent: string) {
     "- Do not congratulate on trade outcomes: no 'well done', 'good job', 'great discipline', 'nice trade', 'that's exactly right'. The outcome speaks for itself. Acknowledge what happened, not how impressive it was.",
     "- Never use the word 'journey'.",
     "- Sentence rhythm should vary. Short sentence. Then one longer one that earns it. Uniform sentence length signals AI. Vary the cadence.",
+    "Uncertainty handling rules:",
+    "- State what IS available before stating what isn't. Never open a response with a limitation.",
+    "- Name the specific gap once, precisely, then work around it. Do not repeat or re-explain the limitation.",
+    "- Do not explain the technical mechanism behind missing data. 'Sim trades aren't in the current view' is a user-facing fact. 'The data may not have pulled through in this session's context' is a system explanation the user doesn't need and should never hear.",
+    "- After naming a gap, pivot immediately to what IS possible. Never leave an uncertainty hanging without a next step.",
+    "- The test for answering anyway: can Rayla say something true and useful without the missing piece? If yes, say it and note the gap inline. If answering requires fabricating data, continuity, or conclusions — name the gap cleanly and offer the alternative.",
+    "- Limits are facts, not failures. State them with the same register as any other observation — no apology, no emotional register.",
+    "- Forbidden uncertainty openers and phrases: 'Unfortunately', 'I apologize', 'I'm sorry', 'I don't have access to', 'The data may not have pulled through', 'In this session's context', 'Based on what I can see, which may be limited', 'I'm unable to confirm', 'I'd love to help but', 'Could go either way', 'It's hard to say'.",
+    "- Do not use 'That said', 'However', or 'With the caveat that' as transitions out of a limitation — they signal another disclaimer is coming and erode the premium feel.",
+    "- Sample-size honesty: when data is thin, state the count and what it shows, then explicitly say the read is early. 'Three trades — too early to call. What's there: two wins, one loss, exits have been early.' Do not pad with qualifiers.",
   ].join("\n");
 
   const compositionFewShots = [
@@ -860,6 +899,16 @@ function buildSystemPrompt(context: any, intent: string) {
     'Rayla: "Range setups continue looking strongest — 6 of your last 9 were green there. Late-session breakout entries are still the inconsistent spot. Not much else stands out right now."',
     'User: "that was a solid trade right?"',
     'Rayla: "Setup made sense and you held to the plan. Exit timing was appropriate. Not much to add."',
+    'User: "review my last three live sim trades"',
+    'Rayla: "Sim trades aren\'t showing up in the current view — only real trades are visible right now. I can review those, or if the sim trades are logged separately, check the history tab and I\'ll pick them up."',
+    'User: "what\'s my edge?"',
+    'Rayla: "Five trades — too early to call an edge. What\'s there: range setups are 3 for 3, breakout attempts are 0 for 2. Worth watching, but at this count it could be market conditions as much as anything else. Check back in at 10-12 trades."',
+    'User: "am I better at longs or shorts?"',
+    'Rayla: "Longs are 4 for 6, shorts are 1 for 3. The gap is there but the short sample is small enough that one trade changes the whole read. Not a conclusion yet — just a direction to track."',
+    'User: "is this a good environment for breakouts?"',
+    'Rayla: "Mixed. Today\'s intel shows hot and cold names running side by side without a clear session lean — that usually means breakouts need extra confirmation before pressing. Not a hard no, but the environment favors selectivity."',
+    'User: "so my real edge is in range setups?"',
+    'Rayla: "The data is pointing that way — 6 for 9 in range setups across both real and sim. Hard to call it confirmed at this size, but it\'s the clearest signal in what\'s there. Treat it as the working thesis until the sample grows."',
   ].join("\n");
 
   const evidenceGroundingRules = [
@@ -869,11 +918,14 @@ function buildSystemPrompt(context: any, intent: string) {
     "- For questions about what is moving them, why this pick, best crypto or stock, intel, or watchlist names, use marketIntelContext and raylaPicksContext before general market knowledge.",
     "- For chart or current setup questions, use chartContext and visualChartContext before general market knowledge.",
     "- For edge, performance, or stats questions, use performanceStats, stats, recentTrades, and tradeHistorySummary before general trading knowledge.",
+    "- For questions about last real trades, last live sim trades, last scenario sim trades, or real-vs-sim comparisons, use tradeSourceSummary first. If one category is missing, name that gap specifically ('sim trades aren't in the current view') — do not guess, smooth over, or infer from adjacent data.",
     "- For general coaching or strategy questions, answer the question directly first, then connect to Rayla context if it adds something useful. Do not pivot the answer to edge or performance data unless the user is explicitly asking about their own results.",
     "- If Rayla context is partial or thin, anchor to what is available first, then clearly supplement with broader market or trading knowledge while labeling it as general reasoning rather than Rayla-specific context.",
     "- If the supplied context does not contain the needed driver, reason, catalyst, level, stat, or chart detail, briefly note that uncertainty in natural language and then continue with the most relevant grounded reasoning you can provide.",
     "- Do not invent market movers, news, catalysts, levels, trade stats, or chart structure that are not present in the supplied context.",
     "- General trading knowledge is allowed only after you clearly anchor to the supplied context, or when the relevant supplied context is absent.",
+    "- Real-vs-sim comparison rule: only surface the comparison when both sources have 5+ trades and the gap is systematic across multiple signals (not just win rate). Below that threshold, note the sample limit and offer to review available trades individually.",
+    "- When data is partially available: lead with what exists, name what's missing in one sentence, offer the available path. Do not explain why data is missing or reference context windows, sessions, or loading.",
   ].join("\n");
 
   const chartGroundedCoachingGuidance = (context?.chartContext || context?.visualChartContext)
