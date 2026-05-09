@@ -7,6 +7,7 @@ import KLineTradeChart from "./KLineTradeChart";
 import TradingViewLiveChart from "./TradingViewLiveChart";
 import EquityComparisonChart from "./EquityComparisonChart";
 import AssetCarousel from "./components/AssetCarousel";
+import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import { Tutorial } from "./Login";
 
@@ -6397,6 +6398,8 @@ useEffect(() => {
   const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
   const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
+  const [homeMobileTab, setHomeMobileTab] = useState(0);
+  const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
   const homeMarketSearchTimeoutRef = useRef(null);
 
@@ -6422,6 +6425,7 @@ useEffect(() => {
   const [chartExplainPopupTitle, setChartExplainPopupTitle] = useState("Ask Rayla");
   const [chartExplainPopupPosition, setChartExplainPopupPosition] = useState({ x: 24, y: 96 });
   const [chartExplainPopupIsMobile, setChartExplainPopupIsMobile] = useState(() => window.innerWidth < 768);
+  const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= 600);
   const [simulationRaylaGuidanceStateByTrade, setSimulationRaylaGuidanceStateByTrade] = useState({});
   const [simulationRaylaPromptTradeId, setSimulationRaylaPromptTradeId] = useState(null);
   const [pendingIntelSimulationLaunch, setPendingIntelSimulationLaunch] = useState(null);
@@ -8521,6 +8525,7 @@ useEffect(() => {
   useEffect(() => {
     function handleResize() {
       setChartExplainPopupIsMobile(window.innerWidth < 768);
+      setIsMobileView(window.innerWidth <= 600);
       if (!chartExplainPopupWindowRef.current) return;
       const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
       const maxX = Math.max(12, window.innerWidth - rect.width - 12);
@@ -12745,9 +12750,17 @@ return (
               }
             `}</style>
             <div className="homeLayout">
+              {/* Mobile segmented control — hidden on desktop via inline conditional */}
+              {isMobileView && (
+                <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, margin: "12px 12px 0", gap: 2, flexShrink: 0 }}>
+                  {[{ label: "Ask Rayla", index: 0 }, { label: "Live Market", index: 1 }].map(({ label, index }) => (
+                    <button key={label} type="button" onClick={() => setHomeMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: homeMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: homeMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: homeMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease" }}>{label}</button>
+                  ))}
+                </div>
+              )}
               {/* LEFT: Ask Rayla */}
               {!isHomeLiveChartFullscreen && (
-              <div className="homeLeft">
+              <div className="homeLeft" style={isMobileView && homeMobileTab !== 0 ? { display: "none" } : {}}>
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <img src="/badger.png" alt="" style={{ width: 32, height: 32, objectFit: "contain", animation: "badgerPulse 3s ease-in-out infinite" }} />
@@ -12864,7 +12877,7 @@ return (
               </div>
               )}
               {/* RIGHT: Live Market */}
-              <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
+              <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`} style={isMobileView && homeMobileTab !== 1 ? { display: "none" } : {}}>
                 {/* Label */}
                 <div style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   Live Market
@@ -14478,8 +14491,21 @@ return (
                     </div>
                   )}
 
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                  {isMobileView && (
+                    <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, gap: 2, flexShrink: 0 }}>
+                      {[
+                        { label: "Setup", index: 0 },
+                        { label: "Chart", index: 1, badge: simulationPositions.length > 0 ? String(simulationPositions.length) : undefined },
+                      ].map(({ label, index, badge }) => (
+                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          {label}
+                          {badge && <span style={{ background: "#7CC4FF", color: "#050d1f", borderRadius: 8, fontSize: 10, fontWeight: 700, padding: "1px 5px", lineHeight: 1.4 }}>{badge}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: isMobileView && simMobileTab !== 0 ? "none" : "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade Controls
@@ -14837,7 +14863,7 @@ return (
                     {renderSimulationInfoCard("risk")}
                   </div>
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                  <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -16120,46 +16146,58 @@ return (
                   </div>
                 {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                    <div style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#f3f7fc", marginBottom: 6 }}>
-                        Rayla&apos;s Picks for You
-                      </div>
-                      <div style={{ fontSize: 13, color: "#7f8ea3", marginBottom: 14 }}>
-                        Personalized ideas based on how your real trades and completed simulations have actually performed.
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                        {[raylaPicksContext.stockLong, raylaPicksContext.stockShort, raylaPicksContext.cryptoLong, raylaPicksContext.cryptoShort].map((pick) => (
-                          <RaylaPickCard key={pick.title} pick={pick} />
-                        ))}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 12 }}>
-                        These picks are based on your logged trade and simulation history. They are not guarantees or financial advice.
-                      </div>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-                    {[["Hottest Stocks / ETFs", "#ef4444", hotColdReport.stockHot], ["Coldest Stocks / ETFs", "#7CC4FF", hotColdReport.stockCold]].map(([label, color, items]) => (
-                      <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-                          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
+                  <MobileSegmentedPager segments={[
+                    {
+                      label: "Picks",
+                      content: (
+                        <div style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#f3f7fc", marginBottom: 6 }}>
+                            Rayla&apos;s Picks for You
+                          </div>
+                          <div style={{ fontSize: 13, color: "#7f8ea3", marginBottom: 14 }}>
+                            Personalized ideas based on how your real trades and completed simulations have actually performed.
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                            {[raylaPicksContext.stockLong, raylaPicksContext.stockShort, raylaPicksContext.cryptoLong, raylaPicksContext.cryptoShort].map((pick) => (
+                              <RaylaPickCard key={pick.title} pick={pick} />
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 12 }}>
+                            These picks are based on your logged trade and simulation history. They are not guarantees or financial advice.
+                          </div>
                         </div>
-                        {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />)}
-                      </div>
-                    ))}
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-                    {[["Hottest Crypto", "#ef4444", hotColdReport.cryptoHot], ["Coldest Crypto", "#7CC4FF", hotColdReport.cryptoCold]].map(([label, color, item]) => (
-                      <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-                          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
+                      ),
+                    },
+                    {
+                      label: "Market",
+                      content: (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+                            {[["Hottest Stocks / ETFs", "#ef4444", hotColdReport.stockHot], ["Coldest Stocks / ETFs", "#7CC4FF", hotColdReport.stockCold]].map(([label, color, items]) => (
+                              <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+                                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
+                                </div>
+                                {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />)}
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+                            {[["Hottest Crypto", "#ef4444", hotColdReport.cryptoHot], ["Coldest Crypto", "#7CC4FF", hotColdReport.cryptoCold]].map(([label, color, item]) => (
+                              <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+                                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
+                                </div>
+                                {item && <IntelAssetCard item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        {item && <IntelAssetCard item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />}
-                      </div>
-                    ))}
-                    </div>
-                  </div>
+                      ),
+                    },
+                  ]} />
                 )}
                 </div>
               </div>
