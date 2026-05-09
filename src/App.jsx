@@ -11108,15 +11108,6 @@ function buildSimulationAssetFromPosition(position) {
     setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "trade-closed" } : prev));
   }, [isActiveGuidedTradeClosed, activeGuidedSimulation]);
 
-  useEffect(() => {
-    if (!visibleSimulationClosedTrade) return;
-    if (chartExplainPopupOpen) return;
-    if (lastPostTradeReviewIdRef.current === visibleSimulationClosedTrade.id) return;
-    lastPostTradeReviewIdRef.current = visibleSimulationClosedTrade.id;
-    openPostTradeRaylaReview(visibleSimulationClosedTrade);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleSimulationClosedTrade?.id]);
-
   const guidedSimulationTips = [];
   if (activeGuidedSimulation) {
     if (!simulationAmount) {
@@ -11329,6 +11320,16 @@ function buildSimulationAssetFromPosition(position) {
   const visibleSimulationClosedTrade = simulationClosedTrade && (simulationClosedTrade.marketMode || "live") === simulationMode
     ? simulationClosedTrade
     : null;
+
+  useEffect(() => {
+    if (!visibleSimulationClosedTrade) return;
+    if (chartExplainPopupOpen) return;
+    if (lastPostTradeReviewIdRef.current === visibleSimulationClosedTrade.id) return;
+    lastPostTradeReviewIdRef.current = visibleSimulationClosedTrade.id;
+    openPostTradeRaylaReview(visibleSimulationClosedTrade);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSimulationClosedTrade?.id]);
+
   const selectedSimulationOpenPositionLevels = selectedSimulationOpenPosition
     ? getSimulationPriceLevels(selectedSimulationOpenPosition)
     : { entryPrice: null, stopPrice: null, targetPrice: null, quantity: null };
