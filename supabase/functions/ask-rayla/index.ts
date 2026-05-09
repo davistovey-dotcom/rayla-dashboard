@@ -275,10 +275,133 @@ function buildPerformanceSummary(context: any) {
   return parts.join("\n");
 }
 
+function safeNumber(value: any) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function buildDisciplineObservations(context: any) {
+  const observations: string[] = [];
+  const closedTrade = context?.simulationContext?.closedTrade ?? null;
+  const behavior = context?.behavioralPatternContext ?? null;
+
+  if (closedTrade?.outcomeLabel === "Cut too early") {
+    observations.push("Patience still matters once the trade starts working.");
+  } else if (closedTrade?.outcomeLabel === "Held too long") {
+    observations.push("The exit came after the setup had already started to weaken.");
+  } else if (closedTrade?.executionGrade === "A" || closedTrade?.executionGrade === "B") {
+    observations.push("Execution looked cleaner on this trade.");
+  } else if (closedTrade?.executionGrade === "D") {
+    observations.push("Management loosened once the trade stopped improving.");
+  }
+
+  if (behavior?.cutEarlyCount >= 2) {
+    observations.push(`Cutting winners early has shown up in ${behavior.cutEarlyCount} of the last ${behavior.sampleSize} sim trades.`);
+  } else if (behavior?.heldTooLongCount >= 2) {
+    observations.push(`Holding losers too long has shown up in ${behavior.heldTooLongCount} of the last ${behavior.sampleSize} sim trades.`);
+  } else if (behavior?.strongExecCount >= Math.max(2, Math.ceil((behavior.sampleSize || 0) * 0.5))) {
+    observations.push("Execution has looked steadier across the recent sim sample.");
+  } else if (behavior?.poorExecCount >= 2) {
+    observations.push(`Execution has been messy in ${behavior.poorExecCount} of the last ${behavior.sampleSize} sim trades.`);
+  }
+
+  return Array.from(new Set(observations)).slice(0, 2);
+}
+
+function buildEdgeSummary(context: any) {
+  const stats = context?.stats ?? {};
+  const suppliedSummary = context?.edgeSummary && typeof context.edgeSummary === "object"
+    ? context.edgeSummary
+    : null;
+  const recentTrades = Array.isArray(context?.recentTrades) ? context.recentTrades : [];
+
+  const sampleSize = Number(
+    suppliedSummary?.sampleSize
+    ?? stats?.totalTrades
+    ?? context?.performanceStats?.sampleSize
+    ?? recentTrades.length
+    ?? 0
+  );
+
+  if (sampleSize < 3) return null;
+
+  const winRate = safeNumber(suppliedSummary?.winRate ?? stats?.winRate) ?? 0;
+  const avgR = safeNumber(suppliedSummary?.avgR ?? stats?.avgR) ?? 0;
+  const bestSetup = String(suppliedSummary?.bestSetup || stats?.bestSetup?.name || "").trim() || null;
+  const bestAsset = String(suppliedSummary?.bestAsset || stats?.bestAsset?.name || "").trim() || null;
+  const worstSetup = String(suppliedSummary?.worstSetup || stats?.worstSetup?.name || "").trim() || null;
+  const recentLossStreak = Number(stats?.recentLossStreak || 0);
+  const confidence = sampleSize < 8 ? "Low" : sampleSize < 20 ? "Medium" : "High";
+
+  const currentEdge = String(
+    suppliedSummary?.currentEdge
+    || (bestSetup && bestAsset
+      ? `${bestSetup} setups in ${bestAsset} remain the clearest edge.`
+      : bestSetup
+        ? `${bestSetup} setups remain the clearest edge.`
+        : bestAsset
+          ? `${bestAsset} is still giving the clearest feedback.`
+          : avgR > 0
+            ? "The edge is positive overall, but still early."
+            : "The edge is still forming.")
+  ).trim();
+
+  const biggestStrength = String(
+    suppliedSummary?.biggestStrength
+    || (bestSetup
+      ? `${bestSetup} remains the biggest strength.`
+      : bestAsset
+        ? `${bestAsset} remains the biggest strength.`
+        : avgR > 0
+          ? "The overall process is still holding positive."
+          : "The strongest pattern is still developing."))
+    .trim();
+
+  const biggestLeak = String(
+    suppliedSummary?.biggestLeak
+    || (worstSetup
+      ? `${worstSetup} continues underperforming.`
+      : recentLossStreak >= 3
+        ? `The recent ${recentLossStreak}-trade loss streak is the main leak right now.`
+        : avgR < 0
+          ? "Average R is still lagging, so consistency is the main leak."
+          : "The main leak is still early."))
+    .trim();
+
+  const disciplineObservations = buildDisciplineObservations(context);
+
+  return {
+    currentEdge,
+    confidence,
+    biggestStrength,
+    biggestLeak,
+    bestSetup,
+    bestAsset,
+    worstSetup,
+    winRate,
+    avgR,
+    sampleSize,
+    disciplineObservation: disciplineObservations[0] || null,
+  };
+}
+
 function buildEdgeSummaryBlock(context: any) {
-  const edgeSummary = String(context?.edgeSummary || "").trim();
+  const edgeSummary = buildEdgeSummary(context);
   if (!edgeSummary) return "";
-  return `Trader edge context:\n${edgeSummary}`;
+
+  const parts = [
+    "Trader edge context:",
+    edgeSummary.currentEdge,
+    `Confidence: ${edgeSummary.confidence} (${edgeSummary.sampleSize} trades, ${edgeSummary.winRate.toFixed(1)}% win rate, ${edgeSummary.avgR >= 0 ? "+" : ""}${edgeSummary.avgR.toFixed(2)}R avg).`,
+    edgeSummary.biggestStrength ? `Strength: ${edgeSummary.biggestStrength}` : "",
+    edgeSummary.biggestLeak ? `Leak: ${edgeSummary.biggestLeak}` : "",
+    edgeSummary.bestSetup ? `Best setup: ${edgeSummary.bestSetup}.` : "",
+    edgeSummary.bestAsset ? `Best asset: ${edgeSummary.bestAsset}.` : "",
+    edgeSummary.worstSetup ? `Weakest setup: ${edgeSummary.worstSetup}.` : "",
+    edgeSummary.disciplineObservation ? `Discipline note: ${edgeSummary.disciplineObservation}` : "",
+  ].filter(Boolean);
+
+  return parts.join("\n");
 }
 
 function buildChartSummary(context: any) {
@@ -429,21 +552,80 @@ function buildSelectedAssetSummary(context: any) {
 }
 
 function buildPostTradeReviewBlock(context: any) {
-  const ct = context?.simulationContext?.closedTrade ?? null;
-  if (!ct) return "";
-  const symbol = context?.simulationContext?.symbol || context?.simulationContext?.assetName || "unknown";
-  const direction = ct.direction || context?.simulationContext?.direction || "unknown";
-  const parts = [
-    `Closed simulation trade: ${symbol} ${direction}`,
-    Number.isFinite(Number(ct.rMultiple)) ? `R-multiple: ${Number(ct.rMultiple).toFixed(2)}R` : "",
-    Number.isFinite(Number(ct.profitLoss)) ? `P&L: $${Number(ct.profitLoss).toFixed(2)}` : "",
-    ct.exitReason ? `Exit reason: ${ct.exitReason}` : "",
-    ct.executionGradeLabel ? `Execution: ${ct.executionGradeLabel}` : "",
-    ct.outcomeLabel ? `Outcome: ${ct.outcomeLabel}` : "",
-    ct.coachingInsight ? `Coaching insight: ${ct.coachingInsight}` : "",
-    ct.feedback ? `Feedback: ${ct.feedback}` : "",
+  const review = buildPostTradeReview(context);
+  if (!review) return "";
+
+  return [
+    "Post-trade review context:",
+    review.whatHappened,
+    review.whatWasGood ? `What was good: ${review.whatWasGood}` : "",
+    review.whatWasWeak ? `What needs tightening: ${review.whatWasWeak}` : "",
+    review.edgeConnection ? `Edge note: ${review.edgeConnection}` : "",
   ].filter(Boolean).join("\n");
-  return parts;
+}
+
+function buildPostTradeReview(context: any) {
+  const closedTrade = context?.simulationContext?.closedTrade ?? null;
+  if (!closedTrade) return null;
+
+  const symbol = String(
+    context?.simulationContext?.symbol
+    || context?.simulationContext?.assetName
+    || "unknown"
+  ).toUpperCase();
+  const direction = String(closedTrade.direction || context?.simulationContext?.direction || "unknown");
+  const rMultiple = safeNumber(closedTrade.rMultiple);
+  const profitLoss = safeNumber(closedTrade.profitLoss);
+  const edgeSummary = buildEdgeSummary(context);
+  const disciplineObservations = buildDisciplineObservations(context);
+
+  const resultLabel = rMultiple != null
+    ? `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(2)}R`
+    : profitLoss != null
+      ? `${profitLoss >= 0 ? "+" : ""}$${profitLoss.toFixed(2)}`
+      : "flat";
+
+  const whatHappened = [
+    `${symbol} ${direction} closed at ${resultLabel}.`,
+    closedTrade.exitReason ? `Exit reason: ${closedTrade.exitReason}.` : "",
+    closedTrade.outcomeLabel ? `${closedTrade.outcomeLabel}.` : "",
+  ].filter(Boolean).join(" ");
+
+  const whatWasGood = String(
+    closedTrade.feedback
+    || closedTrade.coachingInsight
+    || ((closedTrade.executionGrade === "A" || closedTrade.executionGrade === "B")
+      ? "Execution looked controlled and the trade stayed structured."
+      : rMultiple != null && rMultiple > 0
+        ? "The trade stayed on the right side of the move."
+        : "The rep still adds usable data."))
+    .trim();
+
+  const whatWasWeak = disciplineObservations[0]
+    || (closedTrade.outcomeLabel === "Cut too early"
+      ? "Patience still needs to hold after price starts working."
+      : closedTrade.outcomeLabel === "Held too long"
+        ? "The trade stayed on after the setup had already weakened."
+        : closedTrade.executionGrade === "D"
+          ? "Management loosened once the trade stopped improving."
+          : "The main refinement is still process consistency.")
+      .trim();
+
+  let edgeConnection = "";
+  if (edgeSummary?.bestAsset && symbol === edgeSummary.bestAsset) {
+    edgeConnection = `${symbol} continues to look like one of the clearer feedback markets.`;
+  } else if (edgeSummary?.bestSetup) {
+    edgeConnection = `This trade matters most as another rep against the broader ${edgeSummary.bestSetup} edge read.`;
+  } else if (edgeSummary) {
+    edgeConnection = `This is still part of an early edge sample, so the process matters more than the single outcome.`;
+  }
+
+  return {
+    whatHappened,
+    whatWasGood,
+    whatWasWeak,
+    edgeConnection,
+  };
 }
 
 function buildSimulationSummary(context: any) {
@@ -591,6 +773,7 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     question,
     stats: context.stats ?? null,
     edgeSummary: context.edgeSummary ?? null,
+    edgeFacets: context.edgeFacets ?? null,
     recentTrades: context.recentTrades ?? [],
     tradeHistorySummary: context.tradeHistorySummary ?? null,
     performanceStats: context.performanceStats ?? null,
@@ -641,6 +824,14 @@ function buildSystemPrompt(context: any, intent: string) {
     "- Rayla sounds honest, grounded, and conversational, not like a support article or cautious explainer.",
     "- Prefer compact natural prose over bullet-heavy teaching unless structure clearly helps.",
     "- Conviction should be proportional to evidence. Use setup quality spectrum language rather than binary good/bad calls.",
+    "- Response density must match the moment. A clean trade gets a short acknowledgment. A messy one gets one precise observation. Only a genuinely complex question earns a full response.",
+    "- One primary observation per response. If multiple things are worth noting, the most important one goes in — the others wait or surface on request.",
+    "- Rayla is permitted — and sometimes preferred — to end with one or two sentences when there is nothing more useful to add. Brevity is not a failure.",
+    "- Do not end a response with a sentence that restates or summarizes what was just said. If it was already said, stop there.",
+    "- Forbidden openers and fillers: 'Great question', 'Absolutely', 'I notice that', 'I've noticed', 'It looks like', 'Based on your', 'As we've discussed', 'That's a great point'. Cut straight to the observation.",
+    "- Do not congratulate on trade outcomes: no 'well done', 'good job', 'great discipline', 'nice trade', 'that's exactly right'. The outcome speaks for itself. Acknowledge what happened, not how impressive it was.",
+    "- Never use the word 'journey'.",
+    "- Sentence rhythm should vary. Short sentence. Then one longer one that earns it. Uniform sentence length signals AI. Vary the cadence.",
   ].join("\n");
 
   const compositionFewShots = [
@@ -661,6 +852,14 @@ function buildSystemPrompt(context: any, intent: string) {
     'Rayla: "The structure is cleaner than most of what\'s been setting up lately — tight range, decent risk-reward from here. It\'s not textbook, but it\'s workable. The main thing it still needs is follow-through above that recent high. If buyers step in and price holds above there, the trade extends. If it stalls and gives back that level, the thesis is off."',
     'User: "what\'s the market doing today?"',
     'Rayla: "The tape leans constructive, but momentum hasn\'t broadened fully yet — it\'s a few names carrying the index. That usually means you want to be selective on entries rather than pressing broadly. Setups on the leading names are cleaner right now; the broader field is still sorting itself out."',
+    'User: "I just closed +2.1R on that range trade"',
+    'Rayla: "Clean exit on a difficult hold. That\'s what the patience looks like when it holds."',
+    'User: "I got stopped out early again"',
+    'Rayla: "You left before the setup resolved. That\'s been the recurring spot — not the entry, the hold. Worth sitting with before the next rep."',
+    'User: "how am I doing overall?"',
+    'Rayla: "Range setups continue looking strongest — 6 of your last 9 were green there. Late-session breakout entries are still the inconsistent spot. Not much else stands out right now."',
+    'User: "that was a solid trade right?"',
+    'Rayla: "Setup made sense and you held to the plan. Exit timing was appropriate. Not much to add."',
   ].join("\n");
 
   const evidenceGroundingRules = [
@@ -706,15 +905,17 @@ function buildSystemPrompt(context: any, intent: string) {
     ? [
       "Post-trade review guidance:",
       "- The user just closed a simulation trade. Give a natural, conversational mentor-style review.",
-      "- Cover briefly: whether the setup made sense, whether execution was disciplined, whether risk/reward was appropriate, and how this fits their developing edge.",
-      "- Keep it to 2-3 short paragraphs. No bullet grading. No fake certainty. No robotic scoring.",
-      "- Use the closed trade data (rMultiple, executionGrade, feedback, coachingInsight) as raw material — do not quote the grade directly or make it feel like a report card.",
-      "- Connect to sessionStats or edgeSummary if they add something useful. Do not force it.",
-      "- End naturally with one thing worth repeating and one thing to tighten next time.",
+      "- Cover: whether the setup made sense, whether execution was disciplined, and how this fits their developing edge. Not all three need equal weight — lead with what matters most.",
+      "- If execution was clean and the outcome was appropriate, keep the review short. One or two sentences of acknowledgment, one observation. Do not manufacture a coaching point when there is nothing to correct. Let clean trades close cleanly.",
+      "- Keep it brief. No bullet grading. No fake certainty. No robotic scoring. No report card.",
+      "- Use the closed trade data (rMultiple, executionGrade, feedback, coachingInsight) as raw material — do not quote the grade directly.",
+      "- Connect to edgeSummary only if it adds something specific. Do not force it.",
+      "- Do not end with a sentence that restates what was just said.",
+      "- Do not congratulate. The trader knows the outcome. Acknowledge what happened precisely and stop.",
       ...(context?.simulationContext?.closedTrade?.isFirstSimTrade ? [
-        "- This is the user's first simulation trade. Acknowledge the milestone briefly and without fanfare — mentor tone, not celebration.",
+        "- This is the user's first simulation trade. Acknowledge it briefly — mentor tone, not celebration.",
         "- Frame the review around: did they have a thesis, did they hold to their plan. The goal wasn't to win — it was to have structure.",
-        "- End with one specific thing that would make the next rep better. Keep it encouraging but direct.",
+        "- End with one specific thing that would make the next rep better.",
       ] : []),
     ].join("\n")
     : "";
@@ -727,6 +928,7 @@ function buildSystemPrompt(context: any, intent: string) {
       "- Ground every observation in the specific count: '4 of your last 8 trades' — never 'you always' or 'you never'.",
       "- Surface at most one behavioral observation per response. Do not stack multiple pattern callouts.",
       "- Do not repeat a behavioral observation that was already made in the immediately prior response.",
+      "- If execution was clean this trade and no strong pattern is active, skip behavioral commentary entirely. Do not reach for an observation when the trade doesn't warrant one.",
       "- Permitted framing: 'tends to', 'has been', 'recently', 'in the last N trades'.",
       "- Forbidden framing: 'you always', 'you never', 'you are', 'you struggle with', anything inferring emotion, motivation, or personality.",
       "- Do not surface behavioral patterns in chart-only questions or general trading knowledge questions.",
@@ -752,11 +954,11 @@ function buildSystemPrompt(context: any, intent: string) {
       ? [
         "Coaching firmness: low",
         "- Recent execution data shows clean, disciplined trading.",
-        "- Affirm briefly when execution warrants it, then move to what is next.",
+        "- Affirm briefly when execution warrants it — one sentence maximum — then move to what is next or stop entirely.",
         "- Ask fewer confirming process questions — the user has been demonstrating good execution.",
         "- In post-trade reviews: keep it short and forward-looking; do not manufacture a corrective note when execution was clean.",
-        "- Good lighter phrasing to draw from: 'Your process has looked cleaner lately.', 'This is one of the spots where your patience has been helping.', 'You don't need much more than clean confirmation here.'",
-        "- Stay observational rather than corrective.",
+        "- Good lighter phrasing to draw from: 'Process has looked cleaner lately.', 'This is one of the spots where the patience has been helping.', 'You don't need much more than clean confirmation here.'",
+        "- Stay observational rather than corrective. The best response to clean trading is often a short one.",
       ].join("\n")
       : "";
 
