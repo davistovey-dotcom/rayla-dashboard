@@ -1984,6 +1984,12 @@ function normalizeSetupType(value) {
   return null;
 }
 
+function formatSetupTypeLabel(value) {
+  const normalized = normalizeSetupType(value);
+  if (!normalized) return "None";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function deriveSessionSlot(timestamp) {
   if (timestamp == null) return null;
   const parsed = typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
@@ -6977,6 +6983,7 @@ useEffect(() => {
   const [simulationScenarioMonths, setSimulationScenarioMonths] = useState("");
   const [simulationScenarioYears, setSimulationScenarioYears] = useState("");
   const [simulationDirection, setSimulationDirection] = useState("long");
+  const [simulationSetupType, setSimulationSetupType] = useState("");
   const [simulationAmount, setSimulationAmount] = useState("");
   const [simulationAmountMode, setSimulationAmountMode] = useState("dollars");
   const [simulationLeverage, setSimulationLeverage] = useState("1x");
@@ -10058,6 +10065,7 @@ useEffect(() => {
       setSimulationSearchQuery(prev.draft.asset || "");
       setSimulationSearchResults([]);
       setSimulationDirection(prev.direction);
+      setSimulationSetupType(normalizeSetupType(prev.draft?.setupType) || "");
       setSimulationMode(prev.mode === "scenario" ? "scenario" : "live");
       setSimulationAmount(String(plannedRiskValue));
       setSimulationAmountMode("dollars");
@@ -10111,6 +10119,7 @@ useEffect(() => {
     setSimulationSearchQuery(draft.asset || "");
     setSimulationSearchResults([]);
     setSimulationDirection(draft.direction);
+    setSimulationSetupType(normalizeSetupType(draft.setupType) || "");
     setSelectedSimulationInfoKey(null);
     setIsSimulationTutorialOpen(false);
     setActiveTab("simulation");
@@ -10911,7 +10920,13 @@ useEffect(() => {
         : leveragedQuantity * riskPerUnit;
 
     const openedAt = Date.now();
-    const setupType = normalizeSetupType(options?.setupTypeOverride ?? activeGuidedSimulation?.setupType ?? guidedSimulationDraft?.setupType ?? null);
+    const setupType = normalizeSetupType(
+      options?.setupTypeOverride
+      ?? simulationSetupType
+      ?? activeGuidedSimulation?.setupType
+      ?? guidedSimulationDraft?.setupType
+      ?? null
+    );
     const sessionSlot = deriveSessionSlot(openedAt);
     const newPosition = {
       id: crypto.randomUUID(),
@@ -11398,6 +11413,7 @@ function buildSimulationAssetFromPosition(position) {
     }
     setSimulationSearchQuery(guidedSimulationDraft.asset || "");
     setSimulationDirection(guidedSimulationDraft.direction || "long");
+    setSimulationSetupType(normalizeSetupType(guidedSimulationDraft.setupType) || "");
   }, [guidedSimulationDraft]);
 
   useEffect(() => {
@@ -14847,6 +14863,38 @@ return (
                           <option value="long">Buy / Long</option>
                           <option value="short">Sell / Short</option>
                         </select>
+                      </div>
+
+                      <div style={{ padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>
+                          Setup <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {["range", "breakout", "pullback", "reversal", "trend"].map((type) => {
+                            const active = simulationSetupType === type;
+                            return (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setSimulationSetupType(active ? "" : type)}
+                                style={{
+                                  padding: "6px 13px",
+                                  borderRadius: 20,
+                                  border: active ? "1px solid rgba(124,196,255,0.35)" : "1px solid rgba(255,255,255,0.08)",
+                                  background: active ? "rgba(124,196,255,0.13)" : "transparent",
+                                  color: active ? "#7CC4FF" : "#64748b",
+                                  fontSize: 12,
+                                  fontWeight: active ? 600 : 400,
+                                  cursor: "pointer",
+                                  transition: "color 0.12s, background 0.12s, border-color 0.12s",
+                                  letterSpacing: "0.01em",
+                                }}
+                              >
+                                {type}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
