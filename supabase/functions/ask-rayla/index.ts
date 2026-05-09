@@ -237,7 +237,6 @@ function buildEdgeSummaryBlock(context: any) {
 function buildChartSummary(context: any) {
   const chartContext = context?.chartContext ?? null;
   if (!chartContext) return "";
-  const bars = Array.isArray(chartContext?.recentBars) ? chartContext.recentBars.length : 0;
   const recentBars = Array.isArray(chartContext?.recentBars) ? chartContext.recentBars : [];
   const numericBars = recentBars
     .map((bar: any) => ({
@@ -248,40 +247,72 @@ function buildChartSummary(context: any) {
     }))
     .filter((bar) => [bar.open, bar.high, bar.low, bar.close].every(Number.isFinite));
 
-  let structureSummary = "";
+  const parts: string[] = [
+    `Chart context: symbol=${chartContext.symbol || chartContext.assetName || "unknown"}, type=${chartContext.assetType || "unknown"}, timeframe=${chartContext.range || chartContext.timeframe || "unknown"}, currentPrice=${chartContext.currentPrice ?? "n/a"}, bars=${recentBars.length}.`,
+  ];
+
   if (numericBars.length >= 2) {
     const firstBar = numericBars[0];
     const lastBar = numericBars[numericBars.length - 1];
-    const visibleHigh = Math.max(...numericBars.map((bar) => bar.high));
-    const visibleLow = Math.min(...numericBars.map((bar) => bar.low));
+    const visibleHigh = Math.max(...numericBars.map((b) => b.high));
+    const visibleLow = Math.min(...numericBars.map((b) => b.low));
     const netMove = lastBar.close - firstBar.close;
     const netMovePct = firstBar.close ? (netMove / firstBar.close) * 100 : null;
-    const highs = numericBars.map((bar) => bar.high);
-    const lows = numericBars.map((bar) => bar.low);
+
+    const highs = numericBars.map((b) => b.high);
+    const lows = numericBars.map((b) => b.low);
     const higherHighs = highs[highs.length - 1] > highs[0];
     const higherLows = lows[lows.length - 1] > lows[0];
     const lowerHighs = highs[highs.length - 1] < highs[0];
     const lowerLows = lows[lows.length - 1] < lows[0];
-    const trendLabel = higherHighs && higherLows
-      ? "uptrend"
-      : lowerHighs && lowerLows
-        ? "downtrend"
-        : "chop/range";
+    const trendLabel = higherHighs && higherLows ? "uptrend"
+      : lowerHighs && lowerLows ? "downtrend"
+      : "range/chop";
 
     const tailBars = numericBars.slice(-3);
     const tailMove = tailBars.length >= 2 ? tailBars[tailBars.length - 1].close - tailBars[0].close : 0;
     const behaviorLabel = trendLabel === "uptrend"
-      ? (tailMove > 0 ? "continuation" : tailMove < 0 ? "pullback" : "stall/chop")
+      ? (tailMove > 0 ? "continuation" : tailMove < 0 ? "pullback" : "stall")
       : trendLabel === "downtrend"
-        ? (tailMove < 0 ? "continuation" : tailMove > 0 ? "pullback" : "stall/chop")
-        : "stall/chop";
+        ? (tailMove < 0 ? "continuation" : tailMove > 0 ? "bounce/pullback" : "stall")
+        : "consolidating";
 
-    structureSummary = ` Visible range ${visibleLow} to ${visibleHigh}. Net move ${netMove >= 0 ? "+" : ""}${netMove.toFixed(2)}${Number.isFinite(netMovePct) ? ` (${netMovePct >= 0 ? "+" : ""}${netMovePct.toFixed(2)}%)` : ""}. Trend: ${trendLabel}. Recent behavior: ${behaviorLabel}.`;
+    parts.push(`Trend: ${trendLabel}. Recent behavior: ${behaviorLabel}.`);
+    parts.push(`Visible range: ${visibleLow.toFixed(2)} to ${visibleHigh.toFixed(2)}. Net move: ${netMove >= 0 ? "+" : ""}${netMove.toFixed(2)}${Number.isFinite(netMovePct) ? ` (${netMovePct >= 0 ? "+" : ""}${netMovePct.toFixed(2)}%)` : ""}.`);
+    parts.push(`Swing high: ~${visibleHigh.toFixed(2)}. Swing low: ~${visibleLow.toFixed(2)}.`);
+
+    if (behaviorLabel === "pullback" && trendLabel === "uptrend" && visibleHigh > 0) {
+      const pullbackPct = ((visibleHigh - lastBar.close) / visibleHigh) * 100;
+      if (pullbackPct > 0.1) {
+        parts.push(`Pullback depth: ~${pullbackPct.toFixed(1)}% off the recent swing high.`);
+      }
+    }
+    if (behaviorLabel === "bounce/pullback" && trendLabel === "downtrend" && visibleLow > 0) {
+      const bouncePct = ((lastBar.close - visibleLow) / visibleLow) * 100;
+      if (bouncePct > 0.1) {
+        parts.push(`Bounce depth: ~${bouncePct.toFixed(1)}% off the recent swing low.`);
+      }
+    }
+
+    if (numericBars.length >= 6) {
+      const third = Math.max(2, Math.floor(numericBars.length / 3));
+      const earlyBodies = numericBars.slice(0, third).map((b) => Math.abs(b.close - b.open));
+      const lateBodies = numericBars.slice(-third).map((b) => Math.abs(b.close - b.open));
+      const avgEarly = earlyBodies.reduce((a, b) => a + b, 0) / earlyBodies.length;
+      const avgLate = lateBodies.reduce((a, b) => a + b, 0) / lateBodies.length;
+      if (avgEarly > 0) {
+        const ratio = avgLate / avgEarly;
+        const momentumLabel = ratio > 1.25
+          ? "expanding (bars getting larger)"
+          : ratio < 0.75
+            ? "contracting (bars getting smaller, energy fading)"
+            : "steady";
+        parts.push(`Momentum: ${momentumLabel}.`);
+      }
+    }
   }
 
-  return [
-    `Chart context: symbol=${chartContext.symbol || chartContext.assetName || "unknown"}, type=${chartContext.assetType || "unknown"}, timeframe=${chartContext.range || chartContext.timeframe || "unknown"}, currentPrice=${chartContext.currentPrice ?? "n/a"}, bars=${bars}.${structureSummary}`,
-  ].join("\n");
+  return parts.join("\n");
 }
 
 function buildSelectedAssetSummary(context: any) {
@@ -510,6 +541,10 @@ function buildSystemPrompt(context: any, intent: string) {
     'Rayla: "First thing I\'d watch is whether buyers are still defending the recent push or if this is starting to stall out. I\'m not seeing enough chart detail to call exact levels confidently, but the real question is whether momentum is still expanding or rolling into a pullback."',
     'User: "does this btc move feel news-driven?"',
     'Rayla: "Not obviously. It reads more like normal crypto rotation or risk-off pressure unless price is reacting to a very specific headline, and nothing in the current context points cleanly to that kind of event."',
+    'User: "explain this chart"',
+    'Rayla: "This is pulling back inside an uptrend — price has come off the recent swing high and the question is whether buyers step back in here or this fade keeps going. The trend structure is still intact as long as the lower end of the visible range holds. If buyers defend that area and momentum picks back up, that\'s the setup. If that level gives way cleanly, the short-term bullish read is off."',
+    'User: "where\'s support on this?"',
+    'Rayla: "The swing low from the visible range is your structural anchor — that\'s where the setup either holds or breaks down. If price comes back to that area and reacts, buyers are still in control. If it loses that level cleanly and closes below it, the trade thesis is done for now and you wait for a new read."',
   ].join("\n");
 
   const evidenceGroundingRules = [
@@ -525,6 +560,19 @@ function buildSystemPrompt(context: any, intent: string) {
     "- Do not invent market movers, news, catalysts, levels, trade stats, or chart structure that are not present in the supplied context.",
     "- General trading knowledge is allowed only after you clearly anchor to the supplied context, or when the relevant supplied context is absent.",
   ].join("\n");
+
+  const chartGroundedCoachingGuidance = (context?.chartContext || context?.visualChartContext)
+    ? [
+      "Chart coaching guidance:",
+      "- Anchor chart responses to what the data actually shows. Do not invent levels, candle patterns, or price action details not present in the context.",
+      "- Frame structure in plain language: 'buyers have been defending around X', 'this is a pullback into the breakout level', 'the range is tightening'.",
+      "- Use invalidation language when it fits: 'if price loses X, the setup no longer makes sense', 'that level breaking changes the read entirely'.",
+      "- Distinguish trend from range before discussing setups — a pullback play only makes sense in a trend; a range fade needs clear boundaries.",
+      "- Describe momentum in terms of energy: 'momentum is still expanding' vs 'this move is stalling and losing conviction'.",
+      "- Keep chart reads short: one clear observation, one level or condition to watch, one implication. Do not produce a full TA report.",
+      "- If chart context is thin or absent, say so briefly and give general framing — do not pretend to see details that are not there.",
+    ].join("\n")
+    : "";
 
   const postTradeReviewGuidance = context?.simulationContext?.closedTrade
     ? [
@@ -567,6 +615,7 @@ function buildSystemPrompt(context: any, intent: string) {
     // Behavioral rules
     evidenceGroundingRules,
     strategyTeachingGuidance,
+    chartGroundedCoachingGuidance,
     postTradeReviewGuidance,
     // Active scene context — what the user is looking at right now
     buildChartSummary(context),
