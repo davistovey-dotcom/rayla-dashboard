@@ -52,6 +52,8 @@ export default function MobileSegmentedPager({ segments, defaultIndex = 0 }) {
               alignItems: "center",
               justifyContent: "center",
               gap: 6,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
             }}
           >
             {seg.label}

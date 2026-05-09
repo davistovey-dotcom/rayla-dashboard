@@ -12752,9 +12752,9 @@ return (
             <div className="homeLayout">
               {/* Mobile segmented control — hidden on desktop via inline conditional */}
               {isMobileView && (
-                <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, margin: "12px 12px 0", gap: 2, flexShrink: 0 }}>
+                <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, margin: "12px 16px 8px", gap: 2, flexShrink: 0 }}>
                   {[{ label: "Ask Rayla", index: 0 }, { label: "Live Market", index: 1 }].map(({ label, index }) => (
-                    <button key={label} type="button" onClick={() => setHomeMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: homeMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: homeMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: homeMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease" }}>{label}</button>
+                    <button key={label} type="button" onClick={() => setHomeMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: homeMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: homeMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: homeMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", whiteSpace: "nowrap", overflow: "hidden" }}>{label}</button>
                   ))}
                 </div>
               )}
@@ -14494,12 +14494,12 @@ return (
                   )}
 
                   {isMobileView && (
-                    <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, gap: 2, flexShrink: 0 }}>
+                    <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 4, gap: 2, flexShrink: 0, marginBottom: 12 }}>
                       {[
                         { label: "Setup", index: 0 },
                         { label: "Chart", index: 1, badge: simulationPositions.length > 0 ? String(simulationPositions.length) : undefined },
                       ].map(({ label, index, badge }) => (
-                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
                           {label}
                           {badge && <span style={{ background: "#7CC4FF", color: "#050d1f", borderRadius: 8, fontSize: 10, fontWeight: 700, padding: "1px 5px", lineHeight: 1.4 }}>{badge}</span>}
                         </button>
