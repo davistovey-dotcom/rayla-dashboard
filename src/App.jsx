@@ -2054,6 +2054,19 @@ function normalizeTradeForRaylaContext(trade, sourceType) {
 
   const setupType = normalizeSetupType(trade?.setupType);
   const sessionSlot = String(trade?.sessionSlot || deriveSessionSlot(trade?.closedAt || trade?.created_at || trade?.entry_time || trade?.exit_time) || "").trim() || null;
+  const profitLoss = Number.isFinite(Number(trade?.profitLoss))
+    ? Number(trade.profitLoss)
+    : Number.isFinite(Number(trade?.pnl))
+      ? Number(trade.pnl)
+      : Number.isFinite(Number(trade?.profitLossUsd))
+        ? Number(trade.profitLossUsd)
+        : Number.isFinite(Number(trade?.realizedPnl))
+          ? Number(trade.realizedPnl)
+          : Number.isFinite(Number(trade?.resultAmount))
+            ? Number(trade.resultAmount)
+          : Number.isFinite(Number(trade?.pnl_value))
+            ? Number(trade.pnl_value)
+            : null;
 
   return {
     symbol: String(trade?.asset || "").trim().toUpperCase() || null,
@@ -2061,6 +2074,11 @@ function normalizeTradeForRaylaContext(trade, sourceType) {
     sourceLabel: sourceMeta.sourceLabel,
     closedAt: trade?.closedAt || trade?.created_at || trade?.exit_time || trade?.entry_time || null,
     resultR,
+    profitLoss,
+    profitLossUsd: profitLoss,
+    pnl: profitLoss,
+    realizedPnl: profitLoss,
+    resultAmount: profitLoss,
     direction: trade?.direction || "",
     setup: String(trade?.setup || "").trim() || null,
     setupType,
@@ -2070,6 +2088,7 @@ function normalizeTradeForRaylaContext(trade, sourceType) {
     executionGrade: trade?.executionGrade || "",
     executionGradeLabel: trade?.executionGradeLabel || "",
     feedback: String(trade?.feedback || "").trim() || null,
+    outcome: String(trade?.outcome || trade?.outcomeLabel || "").trim() || null,
   };
 }
 
@@ -2091,6 +2110,84 @@ function buildTradeSourceSummary({ trades, simulationTradeHistory }) {
     lastLiveSimTrade: findLatestByType(simTrades, "live_sim_trade"),
     lastScenarioSimTrade: findLatestByType(simTrades, "scenario_sim_trade"),
   };
+}
+
+function resolveTradeSourceReferenceFromText(text) {
+  const normalized = String(text || "").trim().toLowerCase();
+  if (!normalized) return null;
+  const simplified = normalized
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = simplified ? simplified.split(" ") : [];
+  const hasLast = tokens.includes("last");
+  const hasScenario = tokens.some((token) => token === "scenario" || token === "scenrio");
+  const hasLive = tokens.includes("live");
+  const hasReal = tokens.includes("real");
+  const hasSim = tokens.some((token) => token === "sim" || token === "simulation");
+  const hasTradeWord = tokens.some((token) => (
+    token === "trade"
+    || token === "trde"
+    || token === "trad"
+    || token === "trd"
+  ));
+
+  if (hasLast && hasScenario && hasSim && hasTradeWord) return "lastScenarioSimTrade";
+  if (hasLast && hasLive && hasSim && hasTradeWord) return "lastLiveSimTrade";
+  if (hasLast && hasReal && hasTradeWord) return "lastRealTrade";
+  return null;
+}
+
+function buildActiveReviewedTrade({ recentConversation, tradeSourceSummary, simulationContext }) {
+  const explicitReference = (Array.isArray(recentConversation) ? recentConversation : [])
+    .slice()
+    .reverse()
+    .find((message) => message?.role === "user" && resolveTradeSourceReferenceFromText(message.content));
+  const referencedKey = resolveTradeSourceReferenceFromText(explicitReference?.content);
+
+  if (referencedKey && tradeSourceSummary?.[referencedKey]) {
+    return tradeSourceSummary[referencedKey];
+  }
+
+  const closedTrade = simulationContext?.closedTrade;
+  if (!closedTrade) return null;
+
+  const sourceType = simulationContext?.mode === "scenario" ? "scenario_sim_trade" : "live_sim_trade";
+  const sourceLabel = sourceType === "scenario_sim_trade" ? "Scenario sim trade" : "Live sim trade";
+  const symbol = String(simulationContext?.symbol || simulationContext?.assetName || "").trim().toUpperCase();
+  if (!symbol) return null;
+
+  return {
+    symbol,
+    sourceType,
+    sourceLabel,
+    closedAt: closedTrade?.closedAt || null,
+    resultR: Number.isFinite(Number(closedTrade?.rMultiple)) ? Number(closedTrade.rMultiple) : null,
+    profitLoss: Number.isFinite(Number(closedTrade?.profitLoss)) ? Number(closedTrade.profitLoss) : null,
+    profitLossUsd: Number.isFinite(Number(closedTrade?.profitLoss)) ? Number(closedTrade.profitLoss) : null,
+    pnl: Number.isFinite(Number(closedTrade?.profitLoss)) ? Number(closedTrade.profitLoss) : null,
+    realizedPnl: Number.isFinite(Number(closedTrade?.profitLoss)) ? Number(closedTrade.profitLoss) : null,
+    resultAmount: Number.isFinite(Number(closedTrade?.profitLoss)) ? Number(closedTrade.profitLoss) : null,
+    direction: simulationContext?.direction || "",
+    setupType: normalizeSetupType(closedTrade?.setupType),
+    sessionSlot: closedTrade?.sessionSlot || null,
+    entryPrice: Number.isFinite(Number(simulationContext?.activeTrade?.entryPrice))
+      ? Number(simulationContext.activeTrade.entryPrice)
+      : null,
+    exitPrice: Number.isFinite(Number(closedTrade?.exitPrice)) ? Number(closedTrade.exitPrice) : null,
+    executionGrade: closedTrade?.executionGrade || "",
+    executionGradeLabel: closedTrade?.executionGradeLabel || "",
+    feedback: String(closedTrade?.feedback || closedTrade?.coachingInsight || "").trim() || null,
+    outcome: String(closedTrade?.outcome || closedTrade?.outcomeLabel || "").trim() || null,
+  };
+}
+
+function resolveActiveReviewedTradeForQuestion({ question, tradeSourceSummary, fallbackTrade = null }) {
+  const referencedKey = resolveTradeSourceReferenceFromText(question);
+  if (referencedKey && tradeSourceSummary?.[referencedKey]) {
+    return tradeSourceSummary[referencedKey];
+  }
+  return fallbackTrade || null;
 }
 
 function buildChartExplainContext({ symbol, assetName, assetType, range, bars, currentPrice, positionSummary = null }) {
@@ -2354,12 +2451,13 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
     ...(Array.isArray(simulationTradeHistory) ? simulationTradeHistory : []),
   ];
+  const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory });
   return {
     selectedMarketId,
     adaptiveProfile,
@@ -2371,7 +2469,12 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedM
     stats,
     edgeSummary: buildEdgeSummary(stats),
     edgeFacets: buildEdgeFacetsFromTrades(edgeFacetTrades),
-    tradeSourceSummary: buildTradeSourceSummary({ trades, simulationTradeHistory }),
+    tradeSourceSummary,
+    activeReviewedTrade: activeReviewedTrade || buildActiveReviewedTrade({
+      recentConversation,
+      tradeSourceSummary,
+      simulationContext,
+    }),
     marketIntelContext: marketIntelContext || null,
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
@@ -6621,6 +6724,7 @@ useEffect(() => {
   const [raylaResponse, setRaylaResponse] = useState("");
   const [aiInput, setAiInput] = useState("");
   const [raylaChatMessages, setRaylaChatMessages] = useState([]);
+  const [raylaActiveReviewedTrade, setRaylaActiveReviewedTrade] = useState(null);
   const [chartExplainPopupOpen, setChartExplainPopupOpen] = useState(false);
   const [chartExplainPopupContext, setChartExplainPopupContext] = useState(null);
   const [chartExplainPopupMessages, setChartExplainPopupMessages] = useState([]);
@@ -9461,6 +9565,7 @@ useEffect(() => {
           simulationContext: extraContext?.simulationContext || null,
         }),
         recentConversation: extraContext?.recentConversation || null,
+        activeReviewedTrade: extraContext?.activeReviewedTrade || null,
         raylaMode,
         marketIntelContext: hotColdReport || null,
         raylaPicksContext: raylaPicksContext || null,
@@ -9496,6 +9601,12 @@ useEffect(() => {
 
     const trimmedQuestion = question.trim();
     const pendingMessageId = useChat ? crypto.randomUUID() : null;
+    const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory });
+    const nextActiveReviewedTrade = resolveActiveReviewedTradeForQuestion({
+      question: trimmedQuestion,
+      tradeSourceSummary,
+      fallbackTrade: extraContext?.activeReviewedTrade || raylaActiveReviewedTrade,
+    });
 
     if (useChat) {
       setRaylaChatMessages((prev) => [
@@ -9520,9 +9631,11 @@ useEffect(() => {
     try {
       const answer = await requestRaylaAnswer(trimmedQuestion, {
         ...extraContext,
+        activeReviewedTrade: nextActiveReviewedTrade,
         recentConversation: normalizeConversationSlice(raylaChatMessages),
       });
       setRaylaResponse(answer);
+      setRaylaActiveReviewedTrade(nextActiveReviewedTrade);
       if (useChat) {
         setRaylaChatMessages((prev) => prev.map((message) => (
           message.id === pendingMessageId

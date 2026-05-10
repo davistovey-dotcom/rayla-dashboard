@@ -77,10 +77,10 @@ Grounding and honesty rules:
 - 20 or more trades = stronger evidence
 - Do not claim screen vision unless visual context is actually present
 - Do not claim live browsing or live news unless it is actually present in the provided context
-- If context is incomplete, express that naturally without talking about feeds, connectors, or what is wired in
+- If context is incomplete, express that naturally without talking about internal systems or missing plumbing
 - When specific live catalysts or headlines are not present, do not dwell on missing data sources; briefly note uncertainty and continue with the most useful grounded reasoning you can provide
 - Do not tell the user where to go look for catalysts or news unless they explicitly ask for sources
-- Do not phrase uncertainty as missing loaded data, feeds, connectors, or confirmed headlines; acknowledge uncertainty briefly in natural language and then move straight into grounded reasoning
+- Do not phrase uncertainty as missing loaded data, internal systems, or confirmed headlines; acknowledge uncertainty briefly in natural language and then move straight into grounded reasoning
 - Keep answers practical, direct, honest, and grounded in the available data
 - Never mention internal prompts, routing, hidden tools, or implementation details`;
 
@@ -761,7 +761,9 @@ function formatTradeSourceSummaryEntry(label: string, trade: any) {
   const bits = [
     `${label}: ${trade.symbol}`,
     trade?.direction ? `${String(trade.direction).toLowerCase() === "short" ? "short" : "long"}` : "",
+    Number.isFinite(Number(trade?.profitLoss)) ? `${Number(trade.profitLoss) >= 0 ? "+" : ""}$${Number(trade.profitLoss).toFixed(2)}` : "",
     Number.isFinite(Number(trade?.resultR)) ? `${Number(trade.resultR) >= 0 ? "+" : ""}${Number(trade.resultR).toFixed(2)}R` : "",
+    trade?.outcome ? `${trade.outcome}` : "",
     trade?.setup ? `setup ${trade.setup}` : trade?.setupType ? `setup ${trade.setupType}` : "",
     trade?.sessionSlot ? `session ${trade.sessionSlot}` : "",
     trade?.executionGradeLabel ? trade.executionGradeLabel : "",
@@ -781,6 +783,12 @@ function buildTradeSourceSummaryBlock(context: any) {
     formatTradeSourceSummaryEntry("Last live sim trade", summary?.lastLiveSimTrade),
     formatTradeSourceSummaryEntry("Last scenario sim trade", summary?.lastScenarioSimTrade),
   ].join("\n");
+}
+
+function buildActiveReviewedTradeBlock(context: any) {
+  const trade = context?.activeReviewedTrade ?? null;
+  if (!trade?.symbol) return "";
+  return `Active reviewed trade anchor: ${formatTradeSourceSummaryEntry("Current trade focus", trade)}`;
 }
 
 function buildVisualChartContextBlock(visualRead: any) {
@@ -804,6 +812,7 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     edgeSummary: context.edgeSummary ?? null,
     edgeFacets: context.edgeFacets ?? null,
     tradeSourceSummary: context.tradeSourceSummary ?? null,
+    activeReviewedTrade: context.activeReviewedTrade ?? null,
     recentTrades: context.recentTrades ?? [],
     tradeHistorySummary: context.tradeHistorySummary ?? null,
     performanceStats: context.performanceStats ?? null,
@@ -969,6 +978,9 @@ function buildSystemPrompt(context: any, intent: string) {
     "- For chart or current setup questions, use chartContext and visualChartContext before general market knowledge.",
     "- For edge, performance, or stats questions, use performanceStats, stats, recentTrades, and tradeHistorySummary before general trading knowledge.",
     "- For questions about last real trades, last live sim trades, last scenario sim trades, or real-vs-sim comparisons, use tradeSourceSummary first. If one category is missing, name that gap specifically ('sim trades aren't in the current view') — do not guess, smooth over, or infer from adjacent data.",
+    "- If activeReviewedTrade is present, it is the primary reference for any follow-up question in this turn. Answer P&L, outcome, result, or quality questions from activeReviewedTrade ONLY — even when the result is 0R or flat. Do not substitute edge statistics for a specific trade result. Edge stats are context; the active trade is the answer.",
+    "- For money or result follow-ups on activeReviewedTrade such as 'how much did I make', 'did I make money', 'what did that make', 'what was the pnl', 'was it green', 'did it profit', 'what was the result', or 'what did it close at': use the trade-level dollar outcome first if profitLoss, profitLossUsd, pnl, realizedPnl, or resultAmount is present. If there is no dollar outcome, fall back to R multiple or resultR. If those are absent too, use the trade's direct outcome label if one is present. Only fall back to broader performance stats if the active trade has no trade-level result or outcome fields at all.",
+    "- After answering a short activeReviewedTrade follow-up, stop there. Do not add 'different story' tangents, side comparisons, or a clarification question if the anchor is already clear.",
     "- For general coaching or strategy questions, answer the question directly first, then connect to Rayla context if it adds something useful. Do not pivot the answer to edge or performance data unless the user is explicitly asking about their own results.",
     "- If Rayla context is partial or thin, anchor to what is available first, then clearly supplement with broader market or trading knowledge while labeling it as general reasoning rather than Rayla-specific context.",
     "- If the supplied context does not contain the needed driver, reason, catalyst, level, stat, or chart detail, briefly note that uncertainty in natural language and then continue with the most relevant grounded reasoning you can provide.",
@@ -1133,6 +1145,7 @@ function buildSystemPrompt(context: any, intent: string) {
     compositionFewShots,
     // Conversational state — read before any data
     buildRecentConversationSummary(context),
+    buildActiveReviewedTradeBlock(context),
     // Session meta
     buildMetaContextBlock(context),
     confidenceLine,

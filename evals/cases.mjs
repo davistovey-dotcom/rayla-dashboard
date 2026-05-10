@@ -8,6 +8,9 @@ const dotAnchorTrade = {
   sourceType: "scenario_sim_trade",
   sourceLabel: "Scenario sim trade",
   direction: "long",
+  profitLoss: 25.59,
+  profitLossUsd: 25.59,
+  pnl: 25.59,
   resultR: 1.4,
   rMultiple: 1.4,
   executionGrade: "A",
@@ -18,6 +21,46 @@ const dotAnchorTrade = {
 const dotConv = [
   { role: "user", content: "review my last scenario sim trade" },
   { role: "assistant", content: "DOT closed at +1.4R. Execution was clean — entry held, stop wasn't tested, and the exit was disciplined. Solid rep." },
+];
+
+const avaxAnchorTrade = {
+  symbol: "AVAX",
+  sourceType: "live_sim_trade",
+  sourceLabel: "Live sim trade",
+  direction: "short",
+  profitLoss: -12.4,
+  profitLossUsd: -12.4,
+  pnl: -12.4,
+  resultR: -0.7,
+  rMultiple: -0.7,
+  executionGrade: "B",
+  executionGradeLabel: "Clean execution",
+  outcome: "small loss",
+};
+
+const avaxConv = [
+  { role: "user", content: "review my last live sim trade" },
+  { role: "assistant", content: "AVAX closed red — about -0.7R. Execution was fine, the setup just didn't follow through." },
+];
+
+const solAnchorTrade = {
+  symbol: "SOL",
+  sourceType: "real_trade",
+  sourceLabel: "Real trade",
+  direction: "long",
+  profitLoss: 0,
+  profitLossUsd: 0,
+  pnl: 0,
+  resultR: 0,
+  rMultiple: 0,
+  executionGrade: "A",
+  executionGradeLabel: "Strong execution",
+  outcome: "flat",
+};
+
+const solConv = [
+  { role: "user", content: "review my last real trade" },
+  { role: "assistant", content: "SOL closed flat — no gain, no real damage either. Process was clean." },
 ];
 
 // ─── A: Conversational Anchoring ────────────────────────────────────────────
@@ -115,6 +158,202 @@ export const anchoringCases = [
         property: "scope_shift_recognized",
         judgePrompt:
           "After reviewing a DOT trade, the user asks 'how am I doing overall this week' — a scope shift to aggregate performance. Does the response broaden to overall/session stats rather than staying locked on the DOT trade? PASS if it addresses overall or weekly performance. FAIL if it only talks about DOT.",
+      },
+    ],
+  },
+  {
+    id: "anchor_6",
+    category: "conversational_anchoring",
+    priority: 1,
+    description: "Follow-up result question anchors from trade source summary and recent conversation",
+    prompt: "how much did it make",
+    context: {
+      tradeSourceSummary: {
+        lastRealTrade: {
+          symbol: "HOOD",
+          sourceType: "real_trade",
+          sourceLabel: "Real trade",
+          resultR: 3.2,
+          direction: "long",
+        },
+        lastLiveSimTrade: {
+          symbol: "BTC",
+          sourceType: "live_sim_trade",
+          sourceLabel: "Live sim trade",
+          resultR: 0.8,
+          direction: "long",
+        },
+        lastScenarioSimTrade: {
+          symbol: "DOT",
+          sourceType: "scenario_sim_trade",
+          sourceLabel: "Scenario sim trade",
+          resultR: 1.4,
+          direction: "long",
+        },
+      },
+      recentTrades: [
+        { asset: "BTC", resultR: 1.2, direction: "long", setup: "breakout" },
+        { asset: "BTC", resultR: -0.5, direction: "long", setup: "breakout" },
+      ],
+    },
+    recentConversation: dotConv,
+    checks: [
+      {
+        property: "anchor_holds_without_explicit_anchor_object",
+        judgePrompt:
+          "The previous conversation explicitly reviewed the last scenario sim trade, and tradeSourceSummary says that trade is DOT at about +1.4R. The user asks 'how much did it make'. Does the response answer about the DOT scenario sim trade result rather than drifting to BTC stats or broader edge data? PASS if it answers about DOT or +1.4R. FAIL if it pivots to BTC stats, win rates, or overall performance.",
+        forbiddenPatterns: ["win rate", "BTC", "18 sim trades", "83.33%"],
+      },
+    ],
+  },
+  {
+    id: "anchor_7",
+    category: "conversational_anchoring",
+    priority: 1,
+    description: "Typo in trade review request still anchors the follow-up",
+    prompt: "how much did it make",
+    context: {
+      tradeSourceSummary: {
+        lastRealTrade: {
+          symbol: "HOOD",
+          sourceType: "real_trade",
+          sourceLabel: "Real trade",
+          resultR: 3.2,
+          direction: "long",
+        },
+        lastLiveSimTrade: {
+          symbol: "BTC",
+          sourceType: "live_sim_trade",
+          sourceLabel: "Live sim trade",
+          resultR: 0.8,
+          direction: "long",
+        },
+        lastScenarioSimTrade: {
+          symbol: "DOT",
+          sourceType: "scenario_sim_trade",
+          sourceLabel: "Scenario sim trade",
+          resultR: 1.4,
+          direction: "long",
+        },
+      },
+      recentTrades: [
+        { asset: "BTC", resultR: 1.2, direction: "long", setup: "breakout" },
+        { asset: "BTC", resultR: -0.5, direction: "long", setup: "breakout" },
+      ],
+    },
+    recentConversation: [
+      { role: "user", content: "review my last scenario sim trde" },
+      { role: "assistant", content: "DOT closed at +1.4R. Execution was clean — entry held, stop wasn't tested, and the exit was disciplined." },
+    ],
+    checks: [
+      {
+        property: "anchor_holds_with_typo_reference",
+        judgePrompt:
+          "The earlier user message misspelled trade as 'trde' but clearly asked to review the last scenario sim trade, and tradeSourceSummary says that trade is DOT at about +1.4R. The user then asks 'how much did it make'. Does the response still answer about the DOT scenario sim trade result rather than drifting to BTC stats or asking which trade they meant? PASS if it answers about DOT or +1.4R. FAIL if it pivots to BTC, broad stats, or asks for clarification.",
+        forbiddenPatterns: ["which trade", "which one", "BTC", "18 sim trades", "83.33%"],
+      },
+    ],
+  },
+  {
+    id: "anchor_8",
+    category: "conversational_anchoring",
+    priority: 1,
+    description: "Anchored follow-up does not add BTC tangent or clarification",
+    prompt: "how much did it make",
+    context: {
+      activeReviewedTrade: {
+        symbol: "DOT",
+        sourceType: "scenario_sim_trade",
+        sourceLabel: "Scenario sim trade",
+        resultR: 0,
+        rMultiple: 0,
+        direction: "long",
+      },
+      recentTrades: [
+        { asset: "BTC", resultR: 1.2, direction: "long", setup: "breakout" },
+        { asset: "BTC", resultR: -0.5, direction: "long", setup: "breakout" },
+      ],
+    },
+    recentConversation: [
+      { role: "user", content: "review my last scenario sim trade" },
+      { role: "assistant", content: "DOT scenario sim trade closed flat — 0.00R, no gain." },
+    ],
+    checks: [
+      {
+        property: "no_side_tangent_after_anchor_answer",
+        judgePrompt:
+          "The active reviewed trade is DOT, and the user asks 'how much did it make'. Does the response answer the DOT result and stop there, without bringing in BTC, a different live sim trade, or asking which trade the user meant? PASS if it stays on DOT only. FAIL if it adds a BTC comparison, another asset, or a clarification question.",
+        forbiddenPatterns: ["BTC", "different story", "which one were you asking about", "which trade"],
+      },
+    ],
+  },
+  {
+    id: "anchor_9",
+    category: "conversational_anchoring",
+    priority: 1,
+    description: "Anchored money follow-up prefers trade-level dollar PnL",
+    prompt: "how much did i make",
+    context: {
+      activeReviewedTrade: dotAnchorTrade,
+      recentTrades: [
+        { asset: "BTC", resultR: 1.2, direction: "long", setup: "breakout" },
+        { asset: "BTC", resultR: -0.5, direction: "long", setup: "breakout" },
+      ],
+      stats: { totalTrades: 18, winRate: 83.33, avgR: 0.92 },
+    },
+    recentConversation: dotConv,
+    checks: [
+      {
+        property: "money_followup_prefers_trade_pnl",
+        judgePrompt:
+          "The active reviewed trade is DOT with trade-level dollar PnL of +25.59 and +1.4R. The user asks 'how much did i make'. Does the response answer from the DOT trade's dollar PnL first, rather than drifting to cumulative performance, win rate, average R, or expectancy? PASS if it answers with about $25.59 or clearly names the DOT trade outcome first. FAIL if it leads with aggregate stats or ignores the trade-level PnL.",
+        forbiddenPatterns: ["83.33%", "18 sim trades", "average r", "expectancy"],
+      },
+    ],
+  },
+  {
+    id: "anchor_10",
+    category: "conversational_anchoring",
+    priority: 1,
+    description: "Anchored did i make money question stays on trade-level outcome",
+    prompt: "did i make money",
+    context: {
+      activeReviewedTrade: avaxAnchorTrade,
+      recentTrades: [
+        { asset: "BTC", resultR: 1.2, direction: "long", setup: "breakout" },
+      ],
+      stats: { totalTrades: 18, winRate: 83.33, avgR: 0.92 },
+    },
+    recentConversation: avaxConv,
+    checks: [
+      {
+        property: "money_followup_stays_trade_local",
+        judgePrompt:
+          "The active reviewed trade is AVAX with trade-level dollar PnL of -$12.40 and about -0.7R. The user asks 'did i make money'. Does the response answer no from the AVAX trade itself rather than drifting to broad overall profitability, win rate, or expectancy? PASS if it answers from the anchored AVAX trade outcome. FAIL if it pivots to cumulative performance or ignores the trade-level loss.",
+        forbiddenPatterns: ["83.33%", "expectancy", "overall", "average r"],
+      },
+    ],
+  },
+  {
+    id: "anchor_11",
+    category: "conversational_anchoring",
+    priority: 1,
+    description: "Anchored PnL question uses trade-level dollar outcome",
+    prompt: "what was the pnl",
+    context: {
+      activeReviewedTrade: solAnchorTrade,
+      recentTrades: [
+        { asset: "BTC", resultR: 1.2, direction: "long", setup: "breakout" },
+      ],
+      stats: { totalTrades: 18, winRate: 83.33, avgR: 0.92 },
+    },
+    recentConversation: solConv,
+    checks: [
+      {
+        property: "pnl_followup_prefers_trade_pnl",
+        judgePrompt:
+          "The active reviewed trade is SOL with flat trade-level PnL of $0 and 0R. The user asks 'what was the pnl'. Does the response answer with the SOL trade's flat result instead of broad performance statistics? PASS if it answers around flat, break-even, or $0 on the trade itself. FAIL if it leads with cumulative stats, win rate, or expectancy.",
+        forbiddenPatterns: ["83.33%", "18 sim trades", "expectancy", "average r"],
       },
     ],
   },
