@@ -17,6 +17,8 @@ const RAYLA_HIGH_STAKES_ANSWER_MODEL = "anthropic/claude-opus-4.7";
 const OPENROUTER_CLASSIFIER_TIMEOUT_MS = 6000;
 const OPENROUTER_ANSWER_TIMEOUT_MS = 25000;
 const GROQ_FALLBACK_TIMEOUT_MS = 8000;
+const OPENROUTER_CLASSIFIER_MAX_TOKENS = 120;
+const OPENROUTER_ANSWER_MAX_TOKENS = 1800;
 
 // Prefer Supabase secret GEMINI_API_KEY
 // For local testing only, paste key in the placeholder
@@ -313,12 +315,15 @@ function buildEdgeSummary(context: any) {
   const suppliedSummary = context?.edgeSummary && typeof context.edgeSummary === "object"
     ? context.edgeSummary
     : null;
+  const performanceStats = context?.performanceStats && typeof context.performanceStats === "object"
+    ? context.performanceStats
+    : null;
   const recentTrades = Array.isArray(context?.recentTrades) ? context.recentTrades : [];
 
   const sampleSize = Number(
     suppliedSummary?.sampleSize
     ?? stats?.totalTrades
-    ?? context?.performanceStats?.sampleSize
+    ?? performanceStats?.sampleSize
     ?? recentTrades.length
     ?? 0
   );
@@ -806,6 +811,12 @@ function buildVisualChartContextBlock(visualRead: any) {
 
 function buildUnifiedRaylaContext(question: string, rawContext: any, visualChartContext = "") {
   const context = rawContext ?? {};
+  const performanceStats = context?.performanceStats && typeof context.performanceStats === "object"
+    ? context.performanceStats
+    : null;
+  const tradeHistorySummary = context?.tradeHistorySummary && typeof context.tradeHistorySummary === "object"
+    ? context.tradeHistorySummary
+    : null;
   return {
     question,
     stats: context.stats ?? null,
@@ -814,8 +825,8 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     tradeSourceSummary: context.tradeSourceSummary ?? null,
     activeReviewedTrade: context.activeReviewedTrade ?? null,
     recentTrades: context.recentTrades ?? [],
-    tradeHistorySummary: context.tradeHistorySummary ?? null,
-    performanceStats: context.performanceStats ?? null,
+    tradeHistorySummary,
+    performanceStats,
     chartContext: context.chartContext ?? null,
     visualContext: context.visualContext ?? null,
     visualChartContext: visualChartContext || context.visualChartContext || "",
@@ -830,8 +841,8 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     raylaMode: context.raylaMode ?? "beginner",
     sourceTab: context.sourceTab ?? null,
     sampleSize: Number(
-      context?.performanceStats?.sampleSize
-      ?? context?.tradeHistorySummary?.sampleSize
+      performanceStats?.sampleSize
+      ?? tradeHistorySummary?.sampleSize
       ?? context?.stats?.totalTrades
       ?? 0
     ),
@@ -1273,7 +1284,13 @@ async function callGeminiVision(visualContext: any) {
   }
 }
 
-async function callOpenRouter(apiKey: string, model: string, messages: any[], timeoutMs = OPENROUTER_ANSWER_TIMEOUT_MS) {
+async function callOpenRouter(
+  apiKey: string,
+  model: string,
+  messages: any[],
+  timeoutMs = OPENROUTER_ANSWER_TIMEOUT_MS,
+  maxTokens = OPENROUTER_ANSWER_MAX_TOKENS,
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     console.error("ask-rayla OpenRouter timeout triggered", { timeoutMs, model });
@@ -1293,6 +1310,7 @@ async function callOpenRouter(apiKey: string, model: string, messages: any[], ti
         model,
         messages,
         temperature: 0.35,
+        max_tokens: maxTokens,
       }),
       signal: controller.signal,
     });
@@ -1373,8 +1391,15 @@ async function classifyIntentWithHaiku(question: string, context: any, apiKey: s
     console.log("ask-rayla classifier request", {
       model: RAYLA_CLASSIFIER_MODEL,
       timeoutMs: OPENROUTER_CLASSIFIER_TIMEOUT_MS,
+      maxTokens: OPENROUTER_CLASSIFIER_MAX_TOKENS,
     });
-    const raw = await callOpenRouter(apiKey, RAYLA_CLASSIFIER_MODEL, classifierMessages, OPENROUTER_CLASSIFIER_TIMEOUT_MS);
+    const raw = await callOpenRouter(
+      apiKey,
+      RAYLA_CLASSIFIER_MODEL,
+      classifierMessages,
+      OPENROUTER_CLASSIFIER_TIMEOUT_MS,
+      OPENROUTER_CLASSIFIER_MAX_TOKENS,
+    );
     const parsed = JSON.parse(stripMarkdownCodeFence(raw));
     return String(parsed?.intent || "unknown").trim() || "unknown";
   } catch (error) {
@@ -1409,9 +1434,16 @@ async function generateOpenRouterAnswer(apiKey: string, model: string, question:
     questionLength: question.length,
     systemPromptLength: systemPrompt.length,
     timeoutMs: OPENROUTER_ANSWER_TIMEOUT_MS,
+    maxTokens: OPENROUTER_ANSWER_MAX_TOKENS,
   });
 
-  return await callOpenRouter(apiKey, model, messages);
+  return await callOpenRouter(
+    apiKey,
+    model,
+    messages,
+    OPENROUTER_ANSWER_TIMEOUT_MS,
+    OPENROUTER_ANSWER_MAX_TOKENS,
+  );
 }
 
 async function generateGroqFallbackAnswer(question: string, context: any, intent: string, groqKey: string) {
