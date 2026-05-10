@@ -55,6 +55,8 @@ const args = process.argv.slice(2);
 const filterCategory = args.includes("--category") ? args[args.indexOf("--category") + 1] : null;
 const filterId = args.includes("--id") ? args[args.indexOf("--id") + 1] : null;
 const p1Only = args.includes("--p1");
+// 32s sustains 2 RPM on Sonnet (60s window / 2 calls); --fast skips delay for single-case or local runs
+const INTER_CASE_DELAY_MS = args.includes("--fast") ? 0 : 32000;
 
 let cases = allCases;
 if (filterCategory) cases = cases.filter((c) => c.category === filterCategory);
@@ -171,6 +173,8 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 
+const RETRY_DELAY_MS = 65000;
+
 async function runCase(testCase) {
   process.stdout.write(`  ${DIM}${testCase.id}${RESET} ${testCase.description} … `);
 
@@ -182,10 +186,20 @@ async function runCase(testCase) {
     return { id: testCase.id, passed: false, error: err.message };
   }
 
-  // Detect function-level fallback (infrastructure issue, not a test failure)
+  // Rate limit fallback — wait and retry once
   if (raylaResponse.includes("temporarily unavailable")) {
-    console.log(`\x1b[33mSKIP\x1b[0m — function returned fallback (infrastructure issue)`);
-    return { id: testCase.id, passed: true, skipped: true };
+    process.stdout.write(`\x1b[33mretry\x1b[0m (rate limit, waiting ${RETRY_DELAY_MS / 1000}s) … `);
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    try {
+      raylaResponse = await callRayla(testCase.prompt, testCase.context, testCase.recentConversation);
+    } catch (err) {
+      console.log(`\x1b[33mERROR\x1b[0m — ${err.message}`);
+      return { id: testCase.id, passed: false, error: err.message };
+    }
+    if (raylaResponse.includes("temporarily unavailable")) {
+      console.log(`\x1b[33mSKIP\x1b[0m — function returned fallback after retry`);
+      return { id: testCase.id, passed: true, skipped: true };
+    }
   }
 
   const results = [];
@@ -223,8 +237,9 @@ async function main() {
     const label = category.replace(/_/g, " ");
     console.log(`${BOLD}${label}${RESET}`);
 
-    for (const testCase of categoryCases) {
-      const result = await runCase(testCase);
+    for (let i = 0; i < categoryCases.length; i++) {
+      if (i > 0 && INTER_CASE_DELAY_MS > 0) await new Promise((r) => setTimeout(r, INTER_CASE_DELAY_MS));
+      const result = await runCase(categoryCases[i]);
       allResults.push(result);
     }
     console.log();
