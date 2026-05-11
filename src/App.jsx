@@ -1990,6 +1990,74 @@ function formatSetupTypeLabel(value) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function formatSessionSlotLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  const labels = {
+    premarket: "Premarket",
+    early: "Early session",
+    mid: "Midday",
+    late: "Late session",
+    afterhours: "After hours",
+  };
+  return labels[normalized] || normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function splitReflectionSentences(text) {
+  return String(text || "")
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((part) => part.replace(/^[•\-\s]+/, "").trim())
+    .filter(Boolean);
+}
+
+function buildSimulationReflectionPreview(closedTrade) {
+  if (!closedTrade) return null;
+
+  const grade = closedTrade.executionGrade || "";
+  const gradeLabel = String(closedTrade.executionGradeLabel || "").trim();
+  const outcomeLabel = String(closedTrade.outcomeLabel || "").trim();
+  const coaching = String(closedTrade.coachingInsight || "").trim();
+  const feedback = String(closedTrade.feedback || "").trim();
+  const rMultiple = Number.isFinite(Number(closedTrade.rMultiple)) ? Number(closedTrade.rMultiple) : null;
+
+  const sentences = [];
+
+  const add = (text) => {
+    const t = String(text || "").trim();
+    if (!t) return;
+    if (sentences.length >= 2) return;
+    if (sentences.some((s) => s.toLowerCase() === t.toLowerCase())) return;
+    sentences.push(t);
+  };
+
+  // Primary: coaching insight is the most specific pre-generated observation
+  if (coaching) {
+    add(coaching);
+  } else if (grade === "D" && gradeLabel) {
+    // Poor execution with no coaching note — name the grade directly
+    add(`${gradeLabel}.`);
+  } else if (outcomeLabel && (outcomeLabel.toLowerCase().includes("cut") || outcomeLabel.toLowerCase().includes("held too"))) {
+    // Specific behavioral outcome label worth surfacing
+    add(`${outcomeLabel}.`);
+  } else if (grade === "A" || grade === "B") {
+    // Clean execution, no coaching note — only speak when result is noteworthy
+    if (rMultiple !== null && rMultiple <= 0) {
+      // Clean execution on a flat or loss — worth noting
+      add(rMultiple === 0 ? "Execution held up. The setup didn't deliver." : "Execution was clean. The setup didn't follow through.");
+    } else {
+      // Clean win with no coaching note — the card says enough, stay silent
+      return null;
+    }
+  }
+
+  // Secondary: execution feedback adds specificity when coaching is already present
+  if (sentences.length === 1 && feedback && feedback !== coaching) {
+    add(feedback);
+  }
+
+  return sentences.length ? sentences : null;
+}
+
 function deriveSessionSlot(timestamp) {
   if (timestamp == null) return null;
   const parsed = typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
@@ -7188,7 +7256,6 @@ useEffect(() => {
   const scenarioPlaybackStartedAtRef = useRef(null);
   const scenarioPlaybackElapsedMsRef = useRef(0);
   const pendingScenarioCompletionRef = useRef(null);
-  const lastPostTradeReviewIdRef = useRef(null);
   const chartTapCooldownRef = useRef(0);
   const simulationTrackedAssets = useMemo(() => ([
     ...watchlist,
@@ -11771,14 +11838,7 @@ function buildSimulationAssetFromPosition(position) {
     ? simulationClosedTrade
     : null;
 
-  useEffect(() => {
-    if (!visibleSimulationClosedTrade) return;
-    if (chartExplainPopupOpen) return;
-    if (lastPostTradeReviewIdRef.current === visibleSimulationClosedTrade.id) return;
-    lastPostTradeReviewIdRef.current = visibleSimulationClosedTrade.id;
-    openPostTradeRaylaReview(visibleSimulationClosedTrade);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleSimulationClosedTrade?.id]);
+  // Post-trade review opens via "Ask Rayla" in the inline reflection section, not automatically
 
   const selectedSimulationOpenPositionLevels = selectedSimulationOpenPosition
     ? getSimulationPriceLevels(selectedSimulationOpenPosition)
@@ -15944,6 +16004,27 @@ return (
                     <div style={{ marginTop: 8, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
                       {visibleSimulationClosedTrade.nextStep}
                     </div>
+                    {(() => {
+                      const raylaReviewPreview = buildSimulationReflectionPreview(visibleSimulationClosedTrade);
+                      if (!raylaReviewPreview) return null;
+                      return (
+                        <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                          <div style={{ fontSize: 11, fontWeight: 500, color: "#4a5568", marginBottom: 6, letterSpacing: "0.02em" }}>
+                            Rayla
+                          </div>
+                          <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.65 }}>
+                            {raylaReviewPreview.join(" ")}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openPostTradeRaylaReview(visibleSimulationClosedTrade)}
+                            style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, color: "#4a5568", textDecoration: "underline", textUnderlineOffset: 3 }}
+                          >
+                            Ask Rayla
+                          </button>
+                        </div>
+                      );
+                    })()}
                     {renderSimulationInfoCard("summary")}
                   </div>
                 )}
