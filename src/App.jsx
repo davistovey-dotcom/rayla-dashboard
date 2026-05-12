@@ -1039,6 +1039,41 @@ function buildIntelSimulationPrompt(signal) {
   return "Mixed signal here. Harder to have conviction — stay patient.";
 }
 
+function buildIntelSimulationRaylaIntro(intelLaunch) {
+  const symbol = intelLaunch?.asset?.id || "this asset";
+  const launchModeLabel = intelLaunch?.mode === "scenario" ? "Scenario Simulator" : "Live Simulator";
+  const directionWord = intelLaunch?.direction === "short" ? "short" : "long";
+  const score = Number(intelLaunch?.intelSignal?.score);
+
+  let setupRead = "the Intel read is mixed here";
+  if (score >= 1) {
+    setupRead = "Intel leans constructive here";
+  } else if (score <= -1) {
+    setupRead = "Intel leans weak here";
+  }
+
+  const watchClause = intelLaunch?.direction === "short"
+    ? "whether sellers stay in control or this snaps back"
+    : "whether buyers stay in control or this slips back into range";
+
+  return `I loaded ${symbol} ${directionWord} in ${launchModeLabel} — ${setupRead}, so the big watch is ${watchClause}.`;
+}
+
+function buildGuidedSimulationWatchLine({ direction, step, simulationMode }) {
+  if (step === "trade-closed") {
+    return "Trade closed. Review the result, then decide what to repeat.";
+  }
+  if (step === "position-open") {
+    return direction === "short"
+      ? "Watch whether sellers stay in control or the move starts snapping back."
+      : "Watch whether buyers stay in control or the move starts slipping back into range.";
+  }
+  if (simulationMode === "scenario") {
+    return "Intel is loaded. Let the scenario move first, then react to the structure you get.";
+  }
+  return "Intel is loaded. Set the risk cleanly, then open only if the read still holds.";
+}
+
 function buildIntelSimulationSetupSteps({ assetSymbol, directionLabel }) {
   return [
     {
@@ -6070,6 +6105,28 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
       )}
       {(onTrySimulation || onAskRayla) && (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {onTrySimulation && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTrySimulation(item);
+              }}
+              style={{
+                border: "1px solid rgba(124,196,255,0.34)",
+                background: "linear-gradient(180deg, rgba(124,196,255,0.94), rgba(82,169,255,0.9))",
+                color: "#08111b",
+                borderRadius: 999,
+                padding: "10px 14px",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+                boxShadow: "0 8px 20px rgba(20,116,214,0.22)",
+              }}
+            >
+              Simulate this trade
+            </button>
+          )}
           {onAskRayla && (
             <button
               type="button"
@@ -6081,18 +6138,6 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
               style={{ fontSize: 12, opacity: 0.85 }}
             >
               Ask Rayla why →
-            </button>
-          )}
-          {onTrySimulation && (
-            <button
-              type="button"
-              className="ghostButton"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTrySimulation(item);
-              }}
-            >
-              Simulate
             </button>
           )}
         </div>
@@ -9975,8 +10020,6 @@ useEffect(() => {
     if (!intelLaunch) return;
 
     const launchMode = intelLaunch.mode === "scenario" ? "scenario" : "live";
-    const directionLabel = intelLaunch.direction === "short" ? "Sell / Short" : "Buy / Long";
-    const isBeginnerMode = raylaAdaptiveProfile?.explanationDepth === "simple" || simulationTradeHistory.length < 3;
 
     const nextContext = buildSimulationRaylaContext({
       mode: launchMode === "scenario" ? "Scenario" : "Live",
@@ -10008,11 +10051,10 @@ useEffect(() => {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: isBeginnerMode
-          ? `I loaded ${intelLaunch.asset.id} in ${launchMode === "scenario" ? "Scenario Simulator" : "Live Simulator"} and set the direction to ${directionLabel}. Before we set up the trade — what's the chart doing right now? Is price trending or ranging? And where would this ${intelLaunch.direction === "short" ? "short" : "long"} be wrong?`
-          : launchMode === "scenario"
-            ? `I loaded ${intelLaunch.asset.id} in Scenario Simulator with future candles hidden and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`
-            : `I loaded ${intelLaunch.asset.id} in Live Simulator and set the direction to ${directionLabel} based on the Intel signal. Want me to walk you through the rest of the setup?`,
+        content: buildIntelSimulationRaylaIntro({
+          ...intelLaunch,
+          mode: launchMode,
+        }),
       },
     ]);
     setChartExplainPopupInput("");
@@ -10020,16 +10062,7 @@ useEffect(() => {
     setChartExplainPopupTitle(launchMode === "scenario" ? "Rayla Scenario Setup" : "Rayla Live Setup");
     setChartExplainPopupOpen(true);
     setIntelSimulationSetupChecklist(null);
-    setIntelSimulationSetupPrompt({
-      handoffId: intelLaunch.handoffId,
-      assetSymbol: intelLaunch.asset.id,
-      mode: launchMode,
-      direction: intelLaunch.direction,
-      directionLabel,
-      intelSignal: intelLaunch.intelSignal,
-      launch: intelLaunch,
-      draft: intelLaunch.draft || null,
-    });
+    setIntelSimulationSetupPrompt(null);
   }
 
   function handleAcceptIntelSimulationSetupPrompt() {
@@ -11534,7 +11567,7 @@ function buildSimulationAssetFromPosition(position) {
       intelSignal,
       message: buildIntelSimulationPrompt(intelSignal),
       requestedAt: Date.now(),
-      skipRaylaPopup: true,
+      skipRaylaPopup: false,
     };
 
     if (simulationPositions.some((position) =>
@@ -11556,25 +11589,9 @@ function buildSimulationAssetFromPosition(position) {
       return;
     }
 
-    handleBeginnerIntelExplain(item);
-
-    setIntelPracticeModeChoice({
+    launchIntelPracticeMode("live", {
       launch,
       draft,
-      wizardStep: 0,
-      mode: "",
-      direction: draft.direction || "long",
-      plannedRisk: "",
-      plannedRiskValue: null,
-      entry: "",
-      entryValue: null,
-      stopLoss: "",
-      stopLossValue: null,
-      stopLossInputType: "price",
-      takeProfit: "",
-      takeProfitValue: null,
-      takeProfitInputType: "price",
-      error: "",
     });
   }
 
@@ -14750,7 +14767,7 @@ return (
                   {guidedSimulationDraft && (
                     <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
-                        {simulationMode === "scenario" ? "Guided simulated scenario trade" : "Guided simulated live trade"}
+                        Intel briefing
                       </div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", lineHeight: 1.35 }}>
                         {guidedSimulationDraft.label || guidedSimulationDraft.asset} • {guidedSimulationDraft.direction === "short" ? "Short" : "Long"}
@@ -14760,11 +14777,13 @@ return (
                           {guidedSimulationDraft.thesis}
                         </div>
                       ) : null}
-                      {simulationMode === "scenario" && (
-                        <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.65 }}>
-                          Scenario mode uses generated training movement. The goal here is practicing execution and decision-making under a chosen market condition.
-                        </div>
-                      )}
+                      <div style={{ fontSize: 12, color: "#dbeafe", lineHeight: 1.6 }}>
+                        {buildGuidedSimulationWatchLine({
+                          direction: guidedSimulationDraft.direction,
+                          step: "review-controls",
+                          simulationMode,
+                        })}
+                      </div>
                       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                         {!activeGuidedSimulation ? (
                           <button
@@ -14810,7 +14829,7 @@ return (
                     <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
-                          {simulationMode === "scenario" ? "Guided simulated scenario trade" : "Guided simulated live trade"}
+                          Intel briefing
                         </div>
                         <div style={{ padding: "4px 10px", borderRadius: 999, background: activeGuidedSimulation.step === "trade-closed" ? "rgba(74,222,128,0.14)" : activeGuidedSimulation.step === "position-open" ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.08)", border: activeGuidedSimulation.step === "trade-closed" ? "1px solid rgba(74,222,128,0.22)" : "1px solid rgba(124,196,255,0.22)", fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: activeGuidedSimulation.step === "trade-closed" ? "#4ade80" : "#dbeafe" }}>
                           {activeGuidedSimulation.step === "ready-to-open"
@@ -14832,26 +14851,16 @@ return (
                               {activeGuidedSimulation.thesis}
                             </div>
                           ) : null}
-                          <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7CC4FF" }}>
-                              Current Rayla Coaching
-                            </div>
-                            <div style={{ fontSize: 13, color: activeGuidedSimulation.step === "trade-closed" ? "#86efac" : "#dbeafe", lineHeight: 1.6 }}>
-                              {guidedSimulationTips[0] || "Use this rep to watch the path first, then decide how you would want to manage it."}
-                            </div>
+                          <div style={{ fontSize: 12, color: activeGuidedSimulation.step === "trade-closed" ? "#86efac" : "#dbeafe", lineHeight: 1.6 }}>
+                            {buildGuidedSimulationWatchLine({
+                              direction: activeGuidedSimulation.direction,
+                              step: activeGuidedSimulation.step,
+                              simulationMode,
+                            })}
                           </div>
                         </>
                       ) : (
                         <>
-                          <div style={{ fontSize: 13, color: activeGuidedSimulation.step === "trade-closed" ? "#86efac" : "#cbd5e1", lineHeight: 1.6 }}>
-                            {activeGuidedSimulation.step === "ready-to-open"
-                              ? "Your live simulation plan is defined. Open the trade when you're ready."
-                              : activeGuidedSimulation.step === "position-open"
-                                ? "The live simulated trade is open. Use the chart and open-trade panel to manage it with discipline."
-                                : activeGuidedSimulation.step === "trade-closed"
-                                  ? "Nice — the trade is closed. Review the summary, Session Coach, and Live simulator P/L before you start another rep."
-                                  : "Set up the asset, direction, amount, and exit plan before you open the live simulated trade."}
-                          </div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", lineHeight: 1.35 }}>
                             {activeGuidedSimulation.label || activeGuidedSimulation.asset} • {activeGuidedSimulation.direction === "short" ? "Short" : "Long"}
                           </div>
@@ -14860,12 +14869,12 @@ return (
                               {activeGuidedSimulation.thesis}
                             </div>
                           ) : null}
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                            {guidedSimulationTips.map((tip) => (
-                              <div key={tip} style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
-                                • {tip}
-                              </div>
-                            ))}
+                          <div style={{ fontSize: 12, color: activeGuidedSimulation.step === "trade-closed" ? "#86efac" : "#dbeafe", lineHeight: 1.6 }}>
+                            {buildGuidedSimulationWatchLine({
+                              direction: activeGuidedSimulation.direction,
+                              step: activeGuidedSimulation.step,
+                              simulationMode,
+                            })}
                           </div>
                         </>
                       )}
@@ -15022,11 +15031,11 @@ return (
                       )}
 
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Trade direction</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Trade direction</div>
+                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                           {simulationMode === "scenario"
-                            ? "Long means you want the generated scenario price to rise. Short means you want the generated scenario price to fall."
-                            : "Long means you want price to go up. Short means you want price to go down."}
+                            ? "Direction for this rep. Flip it only if your read changes."
+                            : "Direction for this rep. Flip it only if your read changes."}
                         </div>
                         <select
                           className="authInput"
