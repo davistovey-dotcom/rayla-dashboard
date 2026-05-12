@@ -11309,6 +11309,14 @@ useEffect(() => {
       ?? null
     );
     const sessionSlot = deriveSessionSlot(openedAt);
+    const prevClosedAt = Number(simulationClosedTrade?.closedAt);
+    const prevRMultiple = Number(simulationClosedTrade?.rMultiple);
+    const rapidReentryGapMs = (
+      effectiveMode === "live"
+      && Number.isFinite(prevRMultiple) && prevRMultiple < 0
+      && Number.isFinite(prevClosedAt) && prevClosedAt > 0
+      && openedAt - prevClosedAt < 5 * 60 * 1000
+    ) ? openedAt - prevClosedAt : null;
     const newPosition = {
       id: crypto.randomUUID(),
       asset: effectiveAsset.id,
@@ -11333,6 +11341,7 @@ useEffect(() => {
       stopLoss,
       originalStopLoss: stopLoss,
       stopWidenedObserved: false,
+      rapidReentryGapMs,
       takeProfit,
       scenarioNoLimit: effectiveMode === "scenario" ? simulationScenarioNoLimit : null,
       scenarioDurationMs: effectiveMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationMs : null,
@@ -12026,6 +12035,14 @@ function buildSimulationAssetFromPosition(position) {
     && (simulationCoachPosition.marketMode || simulationMode) === "live"
     ? "Stop widened after entry."
     : null;
+  const simulationRapidReentryObservation = (() => {
+    const gap = simulationCoachPosition?.rapidReentryGapMs;
+    if (!Number.isFinite(gap) || gap <= 0) return null;
+    if ((simulationCoachPosition?.marketMode || simulationMode) !== "live") return null;
+    const mins = Math.floor(gap / 60000);
+    const label = mins < 1 ? "under a minute" : mins === 1 ? "1 minute" : `${mins} minutes`;
+    return `Back in ${label} after a loss.`;
+  })();
   const simulationActiveTradeContext = simulationCoachPosition
     ? buildSimulationActiveTradeContext({
         position: simulationCoachPosition,
@@ -15211,6 +15228,11 @@ return (
                     {simulationStopWidenObservation && (
                       <div style={{ fontSize: 12, color: "#9fb2c7", lineHeight: 1.5 }}>
                         {simulationStopWidenObservation}
+                      </div>
+                    )}
+                    {simulationRapidReentryObservation && (
+                      <div style={{ fontSize: 12, color: "#9fb2c7", lineHeight: 1.5 }}>
+                        {simulationRapidReentryObservation}
                       </div>
                     )}
                     {simulationMode === "scenario" && (
