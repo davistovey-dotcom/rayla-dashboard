@@ -10497,7 +10497,11 @@ useEffect(() => {
     setSelectedSimulationInfoKey(null);
     setIsSimulationTutorialOpen(false);
     setActiveTab("simulation");
-    setGuidedSimulationDraft(draft);
+    if (nextMode === "live" && launch.autoStartGuided) {
+      startGuidedSimulation(draft);
+    } else {
+      setGuidedSimulationDraft(draft);
+    }
     setIntelPracticeModeChoice(null);
 
     if (nextMode === "scenario") {
@@ -11751,6 +11755,7 @@ function buildSimulationAssetFromPosition(position) {
       intelSignal,
       message: buildIntelSimulationPrompt(intelSignal),
       requestedAt: Date.now(),
+      autoStartGuided: true,
       skipRaylaPopup: false,
     };
 
@@ -16212,10 +16217,10 @@ return (
                             </div>
                             <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
                               • {visibleSimulationClosedTrade.profitLoss > 0
-                                ? "Nice job — this one closed green."
+                                ? "This one closed green."
                                 : visibleSimulationClosedTrade.profitLoss < 0
-                                  ? "That one did not work, which is normal. The win is completing the process with a review."
-                                  : "That trade finished flat, which still counts as completing the process with a review."}
+                                  ? "This one closed red. The useful part now is the review."
+                                  : "This trade finished flat. The useful part now is the review."}
                             </div>
                             <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
                               • {visibleSimulationClosedTrade.executionGrade === "A" || visibleSimulationClosedTrade.executionGrade === "B"
@@ -16232,13 +16237,14 @@ return (
                               className="ghostButton"
                               style={{ background: "rgba(124,196,255,0.18)", borderColor: "rgba(124,196,255,0.38)", color: "#f8fafc", fontWeight: 700 }}
                               onClick={() => {
+                                openPostTradeRaylaReview(visibleSimulationClosedTrade);
                                 setActiveGuidedSimulation(null);
                                 setHasCompletedFirstTradeOnboarding(true);
                                 setHasAttemptedFirstTradeOnboardingAutoStart(true);
                                 showToast("Guided first trade complete.", "success");
                               }}
                             >
-                              Finish Guided Trade
+                              Review with Rayla
                             </button>
                           </div>
                         </div>
