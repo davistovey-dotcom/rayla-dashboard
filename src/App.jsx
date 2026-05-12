@@ -3726,7 +3726,13 @@ function PerformanceDashboard({
 
   const rStdDev = useMemo(() => {
     if (ft.length < 3) return null;
-    const rs = ft.map(t => getTradeOutcomeValue(t));
+    const rs = ft
+      .map(t => {
+        const r = Number(t?.result_r);
+        return Number.isFinite(r) ? r : null;
+      })
+      .filter(v => v !== null);
+    if (rs.length < 3) return null;
     const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
     const variance = rs.reduce((a, r) => a + (r - mean) ** 2, 0) / rs.length;
     return Math.sqrt(variance);
@@ -3745,11 +3751,11 @@ function PerformanceDashboard({
       ? `${report.bestCombo.setup} on ${report.bestCombo.asset} — ${report.bestCombo.avgR.toFixed(2)} avg across ${report.bestCombo.trades} trade${report.bestCombo.trades === 1 ? "" : "s"} · ${report.bestCombo.winRate.toFixed(0)}% win rate.${report.bestCombo.trades < 3 ? " Early signal — build sample size here before scaling." : ""}`
       : null);
   const diagnosisConsistencyNote = rStdDev != null
-    ? `Result std deviation: ${rStdDev.toFixed(2)}. ${rStdDev < 1.2
-      ? "Your outcomes are fairly consistent."
+    ? `R std deviation: ${rStdDev.toFixed(2)}. ${rStdDev < 1.2
+      ? "Outcomes are fairly consistent."
       : rStdDev < 2.5
-        ? "Moderate variance in outcomes. Review whether sizing and execution are staying consistent."
-        : "High variance in outcomes. Risk sizing or execution inconsistency is likely distorting results."}`
+        ? "Moderate variance in R outcomes. Review whether sizing and execution are staying consistent."
+        : "High variance in R outcomes. Risk sizing or execution inconsistency is likely a factor."}`
     : null;
   const weakestSetup = report?.setupStats?.length > 1 ? report.setupStats[report.setupStats.length - 1] : null;
   const fallbackDiagnosisWarning = report?.totalR < 0
@@ -3993,7 +3999,7 @@ function PerformanceDashboard({
             title="By Asset"
             rows={report.assetStats.map(a => ({ name: a.asset, trades: a.trades, winRate: a.winRate, avgR: a.avgR, totalR: a.totalR }))}
             nameColor="#e2e8f0"
-            maxHeight={260}
+            maxHeight={220}
           />
           {sessionStats.length > 0 && (
             <PerfBreakdownTable
