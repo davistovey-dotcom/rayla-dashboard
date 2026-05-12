@@ -786,6 +786,7 @@ function buildPerformanceSegmentMetrics(trades, { profitAccessor = getTradeProfi
 
 function normalizeSimulationTradeForPerformance(trade) {
   const asset = String(trade?.asset || "").trim().toUpperCase();
+  const symbol = asset || null;
   const resultR = Number(trade?.rMultiple);
   const profitValue = getTradeProfitValue(trade);
   const setup = normalizeSetupType(trade?.setupType) || String(trade?.setup || "").trim() || "";
@@ -802,19 +803,46 @@ function normalizeSimulationTradeForPerformance(trade) {
     const parsed = Date.parse(String(value || ""));
     return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
   };
+  const entryTime = normalizeTimestamp(trade?.entry_time || trade?.openedAt);
+  const exitTime = normalizeTimestamp(trade?.exit_time || trade?.closedAt);
+  const createdAt = normalizeTimestamp(trade?.created_at || trade?.openedAt || trade?.closedAt);
+  const closedAt = normalizeTimestamp(trade?.closed_at || trade?.closedAt || trade?.exit_time);
+  const entryPrice = Number.isFinite(Number(trade?.entry_price)) ? Number(trade.entry_price) : Number.isFinite(Number(trade?.entryPrice)) ? Number(trade.entryPrice) : null;
+  const exitPrice = Number.isFinite(Number(trade?.exit_price)) ? Number(trade.exit_price) : Number.isFinite(Number(trade?.exitPrice)) ? Number(trade.exitPrice) : null;
+  const amount = Number.isFinite(Number(trade?.amount)) ? Number(trade.amount) : null;
+  const amountMode = String(trade?.amountMode || "").trim().toLowerCase();
+  const entrySize = Number.isFinite(Number(trade?.entry_size))
+    ? Number(trade.entry_size)
+    : Number.isFinite(amount) && amountMode === "dollars"
+      ? amount
+      : Number.isFinite(amount) && Number.isFinite(entryPrice)
+        ? amount * entryPrice
+        : null;
 
   return {
     ...trade,
     id: trade?.id || `sim-${asset || "trade"}-${trade?.closedAt || trade?.openedAt || Date.now()}`,
     asset,
+    symbol,
+    ticker: symbol,
     setup,
     session,
+    direction: String(trade?.direction || "").trim().toLowerCase() || null,
     result_r: Number.isFinite(resultR) ? resultR : null,
     pnl_value: Number.isFinite(profitValue) ? profitValue : null,
-    entry_time: normalizeTimestamp(trade?.entry_time || trade?.openedAt),
-    exit_time: normalizeTimestamp(trade?.exit_time || trade?.closedAt),
-    entry_price: Number.isFinite(Number(trade?.entry_price)) ? Number(trade.entry_price) : Number.isFinite(Number(trade?.entryPrice)) ? Number(trade.entryPrice) : null,
-    exit_price: Number.isFinite(Number(trade?.exit_price)) ? Number(trade.exit_price) : Number.isFinite(Number(trade?.exitPrice)) ? Number(trade.exitPrice) : null,
+    profit_loss: Number.isFinite(profitValue) ? profitValue : null,
+    profitLoss: Number.isFinite(profitValue) ? profitValue : null,
+    profitLossUsd: Number.isFinite(profitValue) ? profitValue : null,
+    pnl: Number.isFinite(profitValue) ? profitValue : null,
+    entry_size: entrySize,
+    size: entrySize,
+    qty: Number.isFinite(amount) && amountMode !== "dollars" ? amount : null,
+    entry_time: entryTime,
+    exit_time: exitTime,
+    created_at: createdAt,
+    closed_at: closedAt,
+    entry_price: entryPrice,
+    exit_price: exitPrice,
     source: trade?.source || "live_simulation",
     source_label: trade?.source_label || "Live Simulation",
   };
@@ -2959,6 +2987,24 @@ function buildCoachReport(trades) {
   const assetStats = Object.entries(assetMap)
     .map(([asset, s]) => ({ asset, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
     .sort((a, b) => b.avgR - a.avgR);
+  const topAssetBucket = assetStats.slice(0, 2);
+  const remainingAssetBucket = assetStats.slice(2);
+  const topAssetTrades = topAssetBucket.reduce((sum, asset) => sum + asset.trades, 0);
+  const remainingAssetTrades = remainingAssetBucket.reduce((sum, asset) => sum + asset.trades, 0);
+  const topAssetAvg = topAssetTrades
+    ? topAssetBucket.reduce((sum, asset) => sum + (asset.avgR * asset.trades), 0) / topAssetTrades
+    : null;
+  const remainingAssetAvg = remainingAssetTrades
+    ? remainingAssetBucket.reduce((sum, asset) => sum + (asset.avgR * asset.trades), 0) / remainingAssetTrades
+    : null;
+  const broadAssetSpreadIsHurting =
+    assetStats.length > 4
+    && remainingAssetTrades >= 3
+    && Number.isFinite(topAssetAvg)
+    && Number.isFinite(remainingAssetAvg)
+    && topAssetAvg > 0
+    && remainingAssetAvg < 0
+    && (topAssetAvg - remainingAssetAvg) >= 0.5;
 
   const comboMap = {};
   trades.forEach(t => {
@@ -2979,7 +3025,7 @@ function buildCoachReport(trades) {
   if (avgLoss > avgWin && wins.length > 0 && losses.length > 0) warnings.push("Avg loss is larger than avg win — cutting winners too early or letting losers run.");
   if (profitFactor !== null && profitFactor < 1) warnings.push("Profit factor is below 1.0 — system is net negative. Review setups immediately.");
   if (trades.length >= 5 && winRate < 50) warnings.push("Win rate under 50% with 5+ trades — possible overtrading or setup quality issues.");
-  if (assetStats.length > 4) warnings.push(`You are trading ${assetStats.length} different assets. Consider narrowing focus.`);
+  if (broadAssetSpreadIsHurting) warnings.push(`Your weaker results are coming outside your top assets. Keep an eye on whether breadth is diluting edge quality.`);
   const recentLosses = trades.slice(0, 4).filter(t => getTradeOutcomeValue(t) < 0).length;
   if (recentLosses >= 3) warnings.push("3 or more losses in your last 4 trades — consider taking a break.");
 
@@ -3093,13 +3139,13 @@ function InlineHelpCard({ topic }) {
   );
 }
 
-function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8" }) {
+function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = null }) {
   if (!rows || rows.length === 0) return null;
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.totalR)), 0.01);
   return (
     <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "hidden" }}>
       <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
-      <div style={{ padding: "4px 0" }}>
+      <div style={{ padding: "4px 0", maxHeight: maxHeight || undefined, overflowY: maxHeight ? "auto" : "visible" }}>
         {rows.map((row, i) => (
           <div key={i} style={{ padding: "9px 16px", borderBottom: i < rows.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ minWidth: 88, maxWidth: 120, fontSize: 12, color: nameColor, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
@@ -3152,9 +3198,9 @@ function PerformanceLiveChartCard({
     () => trades
       .map((trade) => ({
         ...trade,
-        symbol: String(trade?.asset || "").trim().toUpperCase(),
+        symbol: String(trade?.asset || trade?.symbol || trade?.ticker || "").trim().toUpperCase(),
         timeMs: parseTradeTimeMs(trade),
-        pnl: calculateTradeDollarPnl(trade),
+        pnl: getTradeProfitValue(trade),
       }))
       .filter((trade) => trade.symbol && Number.isFinite(trade.timeMs) && Number.isFinite(trade.pnl)),
     [trades]
@@ -3915,6 +3961,7 @@ function PerformanceDashboard({
             title="By Asset"
             rows={report.assetStats.map(a => ({ name: a.asset, trades: a.trades, winRate: a.winRate, avgR: a.avgR, totalR: a.totalR }))}
             nameColor="#e2e8f0"
+            maxHeight={360}
           />
           {sessionStats.length > 0 && (
             <PerfBreakdownTable
@@ -4160,7 +4207,7 @@ function Card({ title, children, className = "" }) {
 class PerformanceRenderBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, componentStack: "" };
   }
 
   static getDerivedStateFromError(error) {
@@ -4169,19 +4216,28 @@ class PerformanceRenderBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error("Performance page render error:", error, info);
+    this.setState({ componentStack: info?.componentStack || "" });
   }
 
   componentDidUpdate(prevProps) {
     if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
-      this.setState({ error: null });
+      this.setState({ error: null, componentStack: "" });
     }
   }
 
   render() {
     if (this.state.error) {
       return (
-        <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 24, color: "#94a3b8" }}>
-          Performance is temporarily unavailable.
+        <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 24, color: "#94a3b8", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#f3f7fc" }}>Performance is temporarily unavailable.</div>
+          <div style={{ fontSize: 12, color: "#cbd5e1", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {String(this.state.error?.message || this.state.error || "Unknown render error")}
+          </div>
+          {this.state.componentStack ? (
+            <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {this.state.componentStack.trim()}
+            </div>
+          ) : null}
         </div>
       );
     }
@@ -4489,6 +4545,43 @@ function buildLoggedEquityCurvePoints(trades, startingEquity = 10000) {
       timestampField: group.timestampField,
       tradeCount: group.trades.length,
       trade: group.trades[group.trades.length - 1]?.trade || null,
+    };
+  });
+}
+
+function normalizeChartSeriesToStrictAscending(points) {
+  const normalizedPoints = Array.isArray(points) ? points : [];
+  if (!normalizedPoints.length) return [];
+
+  const sorted = [...normalizedPoints]
+    .map((point, index) => {
+      const parsedTimeMs = Number.isFinite(Number(point?.timeMs))
+        ? Number(point.timeMs)
+        : Date.parse(String(point?.time || ""));
+      return {
+        point,
+        index,
+        timeMs: Number.isFinite(parsedTimeMs) ? parsedTimeMs : null,
+      };
+    })
+    .filter((entry) => entry.timeMs != null)
+    .sort((a, b) => {
+      if (a.timeMs !== b.timeMs) return a.timeMs - b.timeMs;
+      return a.index - b.index;
+    });
+
+  let previousSecond = null;
+  return sorted.map(({ point, timeMs }) => {
+    let nextSecond = Math.floor(timeMs / 1000);
+    if (previousSecond != null && nextSecond <= previousSecond) {
+      nextSecond = previousSecond + 1;
+    }
+    previousSecond = nextSecond;
+    const nextTimeMs = nextSecond * 1000;
+    return {
+      ...point,
+      timeMs: nextTimeMs,
+      time: new Date(nextTimeMs).toISOString(),
     };
   });
 }
@@ -9312,12 +9405,20 @@ useEffect(() => {
     () => filterEquityCurvePointsByRange(selectedPerformanceEquityPoints, chartRange),
     [selectedPerformanceEquityPoints, chartRange]
   );
+  const strictFilteredEquityPoints = useMemo(
+    () => normalizeChartSeriesToStrictAscending(filteredEquityPoints),
+    [filteredEquityPoints]
+  );
   const normalizedBenchmarkPoints = useMemo(
     () => normalizeBenchmarkSeries(equityBenchmarkChart, filteredEquityPoints[0]?.equity || 10000),
     [equityBenchmarkChart, filteredEquityPoints]
   );
-  const equityBenchmarkVisibleStart = filteredEquityPoints[0]?.timeMs || 0;
-  const equityBenchmarkVisibleEnd = filteredEquityPoints[filteredEquityPoints.length - 1]?.timeMs || equityBenchmarkVisibleStart;
+  const strictBenchmarkPoints = useMemo(
+    () => normalizeChartSeriesToStrictAscending(normalizedBenchmarkPoints),
+    [normalizedBenchmarkPoints]
+  );
+  const equityBenchmarkVisibleStart = strictFilteredEquityPoints[0]?.timeMs || 0;
+  const equityBenchmarkVisibleEnd = strictFilteredEquityPoints[strictFilteredEquityPoints.length - 1]?.timeMs || equityBenchmarkVisibleStart;
   const selectedEquitySourceLabel = performanceAnalysisSource === "live_simulation"
     ? "Built from closed live simulation trades."
     : equitySourceLabel;
@@ -9369,12 +9470,6 @@ useEffect(() => {
       setEquityBenchmarkLabel("SPY");
     }
   }, [equityBenchmarkOptions, equityBenchmarkSymbol]);
-
-  useEffect(() => {
-    if (performanceAnalysisSource === "live_simulation") {
-      setPerformanceAnalysisSource("live_trades");
-    }
-  }, [performanceAnalysisSource]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -9509,8 +9604,8 @@ useEffect(() => {
         }
 
         const nextChart = data.chart || null;
-        const visibleStart = filteredEquityPoints[0]?.timeMs || 0;
-        const visibleEnd = filteredEquityPoints[filteredEquityPoints.length - 1]?.timeMs || visibleStart;
+        const visibleStart = strictFilteredEquityPoints[0]?.timeMs || 0;
+        const visibleEnd = strictFilteredEquityPoints[strictFilteredEquityPoints.length - 1]?.timeMs || visibleStart;
         const nextBars = sliceBenchmarkBarsToVisibleWindow(nextChart, visibleStart, visibleEnd);
 
         setEquityBenchmarkChart({
@@ -9531,7 +9626,7 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [chartRange, equityBenchmarkSymbol, equityBenchmarkType, equityBenchmarkOptions, filteredEquityPoints, alpacaPositions, brokerTradeLog, trades, equityBenchmarkVisibleStart, equityBenchmarkVisibleEnd]);
+  }, [chartRange, equityBenchmarkSymbol, equityBenchmarkType, equityBenchmarkOptions, strictFilteredEquityPoints, alpacaPositions, brokerTradeLog, trades, equityBenchmarkVisibleStart, equityBenchmarkVisibleEnd]);
 
   async function handleAddTrade(e) {
     e.preventDefault();
@@ -16553,28 +16648,24 @@ return (
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
                     {[
-                      { value: "live_trades", label: "Live Trades", disabled: false },
-                      { value: "live_simulation", label: "Live Simulation", disabled: true },
+                      { value: "live_trades", label: "Live Trades" },
+                      { value: "live_simulation", label: "Live Simulation" },
                     ].map((option) => {
-                      const active = performanceAnalysisSource === option.value && !option.disabled;
+                      const active = performanceAnalysisSource === option.value;
                       return (
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => {
-                            if (option.disabled) return;
-                            setPerformanceAnalysisSource(option.value);
-                          }}
-                          disabled={option.disabled}
+                          onClick={() => setPerformanceAnalysisSource(option.value)}
                           style={{
                             background: "transparent",
                             border: "none",
                             borderBottom: active ? "2px solid rgba(124,196,255,0.9)" : "2px solid transparent",
                             padding: "4px 0 6px",
-                            color: option.disabled ? "rgba(226,232,240,0.36)" : active ? "#e2f0ff" : "rgba(226,232,240,0.64)",
+                            color: active ? "#e2f0ff" : "rgba(226,232,240,0.64)",
                             fontSize: 13,
                             fontWeight: active ? 700 : 600,
-                            cursor: option.disabled ? "default" : "pointer",
+                            cursor: "pointer",
                           }}
                         >
                           {option.label}
@@ -16589,7 +16680,7 @@ return (
                   key={performanceAnalysisSource}
                   trades={selectedPerformanceTrades}
                   performanceSourceLabel={performanceAnalysisSource === "live_simulation" ? "Live Simulation" : "Live Trades"}
-                  equityPoints={filteredEquityPoints}
+                  equityPoints={strictFilteredEquityPoints}
                   sourceLabel={selectedEquitySourceLabel}
                   chartRange={chartRange}
                   setChartRange={setChartRange}
@@ -16601,7 +16692,7 @@ return (
                     setEquityBenchmarkLabel(option.label || option.symbol);
                   }}
                   benchmarkOptions={equityBenchmarkOptions}
-                  benchmarkPoints={normalizedBenchmarkPoints}
+                  benchmarkPoints={strictBenchmarkPoints}
                   benchmarkLoading={equityBenchmarkLoading}
                   alpacaConnected={Boolean(alpacaAccount)}
                   coachSummary={coachSummary}
