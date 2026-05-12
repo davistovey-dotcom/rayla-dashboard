@@ -7484,6 +7484,7 @@ useEffect(() => {
   const [showTooltip, setShowTooltip] = useState(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
+  const [isParsingScreenshot, setIsParsingScreenshot] = useState(false);
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
   });
@@ -10663,7 +10664,8 @@ useEffect(() => {
   async function handleScreenshotUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    showToast("Parsing screenshot...", "success");
+    e.target.value = "";
+    setIsParsingScreenshot(true);
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -10679,8 +10681,9 @@ useEffect(() => {
         const f = data.fields || {};
         setTradeForm({ asset: f.asset || "", entryPrice: f.entryPrice || "", size: f.size || "", entryTime: "", setup: f.setup || "", session: f.session || "", marketCondition: "", direction: f.direction || "", result: f.result?.toString() || "", exitPrice: "", exitTime: "" });
         const missing = data.missing || [];
-        showToast(`Prefilled — still need: ${missing.join(", ")}`, "warning");
+        if (missing.length) showToast(`Prefilled — review: ${missing.join(", ")}`, "warning");
       } catch { showToast("Could not parse screenshot — fill in manually.", "error"); }
+      finally { setIsParsingScreenshot(false); }
     };
     reader.readAsDataURL(file);
   }
@@ -12044,6 +12047,7 @@ function buildSimulationAssetFromPosition(position) {
     return `Back in ${label} after a loss.`;
   })();
   const simulationAmbientObservation = simulationStopWidenObservation || simulationRapidReentryObservation || null;
+  const simulationChartViewportHeight = isMobileView ? "min(420px, 52vh)" : 560;
   const simulationActiveTradeContext = simulationCoachPosition
     ? buildSimulationActiveTradeContext({
         position: simulationCoachPosition,
@@ -14942,9 +14946,9 @@ return (
                     <div className="card">
                       <h3>Log Trade</h3>
                       <div style={{ marginBottom: 12 }}>
-                        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", background: "rgba(124,196,255,0.08)", border: "1px dashed rgba(124,196,255,0.3)", borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#7CC4FF", fontWeight: 600 }}>
-                          📸 Upload Trade Screenshot
-                          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} />
+                        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", background: "rgba(124,196,255,0.08)", border: "1px dashed rgba(124,196,255,0.3)", borderRadius: 10, cursor: isParsingScreenshot ? "default" : "pointer", fontSize: 13, color: isParsingScreenshot ? "#4a5568" : "#7CC4FF", fontWeight: 600, opacity: isParsingScreenshot ? 0.6 : 1, pointerEvents: isParsingScreenshot ? "none" : "auto" }}>
+                          {isParsingScreenshot ? "Parsing…" : "📸 Upload Trade Screenshot"}
+                          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} disabled={isParsingScreenshot} />
                         </label>
                       </div>
                       <form onSubmit={handleAddTrade} className="tradeEntryRow">
@@ -15203,14 +15207,14 @@ return (
                         { label: "Setup", index: 0 },
                         { label: "Chart", index: 1, badge: simulationPositions.length > 0 ? String(simulationPositions.length) : undefined },
                       ].map(({ label, index, badge }) => (
-                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
+                        <button key={label} type="button" onClick={() => setSimMobileTab(index)} style={{ flex: 1, minHeight: 44, padding: "12px 0", borderRadius: 10, border: "none", background: simMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: simMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: simMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
                           {label}
                           {badge && <span style={{ background: "#7CC4FF", color: "#050d1f", borderRadius: 8, fontSize: 10, fontWeight: 700, padding: "1px 5px", lineHeight: 1.4 }}>{badge}</span>}
                         </button>
                       ))}
                     </div>
                   )}
-                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: 18, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : 18, alignItems: "start" }}>
                   {(!isMobileView || simMobileTab === 0) && (
                   <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -15627,6 +15631,7 @@ return (
                       display: "flex",
                       flexDirection: "column",
                       gap: 10,
+                      order: isMobileView ? 2 : 0,
                       opacity: 1,
                     })}
                   >
@@ -15703,7 +15708,7 @@ return (
                     {renderSimulationInfoCard("account")}
                   </div>
 
-                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0 })}>
+                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0, order: isMobileView ? 1 : 0 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         {simulationMode === "scenario" ? "Scenario Chart" : "Live Chart"}
@@ -15909,9 +15914,9 @@ return (
                             </div>
                           </div>
                         )}
-                        <div style={{ height: 560, minHeight: 560, padding: guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
+                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, padding: guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
                           {scenarioChartBars.length < 2 ? (
-                            <div style={{ minHeight: 560, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                            <div style={{ minHeight: simulationChartViewportHeight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                               Scenario chart will appear once the generated move has enough data points.
                             </div>
                           ) : (
@@ -15948,9 +15953,9 @@ return (
                     ) : selectedSimulationItem ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         <MarketClosedBanner assetType={selectedSimulationItem.type} updatedLabel={simulationLiveChartUpdatedLabel} />
-                        <div style={{ height: 560, minHeight: 560 }}>
+                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight }}>
                         {selectedSimulationAssetExplicitlyUnsupported ? (
-                          <div style={{ minHeight: 560, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                          <div style={{ minHeight: simulationChartViewportHeight, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                             <div>Live chart unavailable</div>
                             <div>Alpaca does not currently support trading this asset.</div>
                           </div>
