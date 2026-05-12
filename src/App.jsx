@@ -378,6 +378,7 @@ const SIMULATION_STORAGE_KEYS = {
   openPosition: "rayla_sim_open_position",
   balance: "rayla_sim_balance",
   guidedDraft: "rayla_sim_guided_draft",
+  quietUntil: "rayla_sim_post_loss_quiet_until",
 };
 const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
   completed: "rayla_first_trade_onboarding_completed",
@@ -7373,7 +7374,21 @@ useEffect(() => {
       (value) => value === null || (typeof value === "object" && !Array.isArray(value))
     )
   );
-  const [isPostLossQuiet, setIsPostLossQuiet] = useState(false);
+  const [postLossQuietUntil, setPostLossQuietUntil] = useState(() =>
+    readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.quietUntil,
+      0,
+      (value) => Number.isFinite(value)
+    )
+  );
+  const [isPostLossQuiet, setIsPostLossQuiet] = useState(() => {
+    const storedQuietUntil = readSimulationStorage(
+      SIMULATION_STORAGE_KEYS.quietUntil,
+      0,
+      (value) => Number.isFinite(value)
+    );
+    return Number.isFinite(storedQuietUntil) && storedQuietUntil > Date.now();
+  });
   const postLossQuietTimerRef = useRef(null);
   const [simulatedBalance, setSimulatedBalance] = useState(() =>
     readSimulationStorage(
@@ -7644,6 +7659,27 @@ useEffect(() => {
   useEffect(() => {
     writeSimulationStorage(SIMULATION_STORAGE_KEYS.guidedDraft, guidedSimulationDraft);
   }, [guidedSimulationDraft]);
+
+  useEffect(() => {
+    writeSimulationStorage(SIMULATION_STORAGE_KEYS.quietUntil, postLossQuietUntil);
+  }, [postLossQuietUntil]);
+
+  useEffect(() => {
+    clearTimeout(postLossQuietTimerRef.current);
+
+    if (!Number.isFinite(postLossQuietUntil) || postLossQuietUntil <= Date.now()) {
+      setIsPostLossQuiet(false);
+      return undefined;
+    }
+
+    setIsPostLossQuiet(true);
+    postLossQuietTimerRef.current = setTimeout(() => {
+      setIsPostLossQuiet(false);
+      setPostLossQuietUntil(0);
+    }, Math.max(0, postLossQuietUntil - Date.now()));
+
+    return () => clearTimeout(postLossQuietTimerRef.current);
+  }, [postLossQuietUntil]);
 
   useEffect(() => {
     writeSimulationStorage(FIRST_TRADE_ONBOARDING_STORAGE_KEYS.completed, hasCompletedFirstTradeOnboarding);
@@ -11173,9 +11209,11 @@ useEffect(() => {
     setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
 
     if (Number.isFinite(rMultiple) && rMultiple < 0) {
-      setIsPostLossQuiet(true);
+      setPostLossQuietUntil(Date.now() + 45000);
+    } else {
       clearTimeout(postLossQuietTimerRef.current);
-      postLossQuietTimerRef.current = setTimeout(() => setIsPostLossQuiet(false), 45000);
+      setPostLossQuietUntil(0);
+      setIsPostLossQuiet(false);
     }
   }
 
