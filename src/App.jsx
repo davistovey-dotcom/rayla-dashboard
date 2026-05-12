@@ -12043,6 +12043,7 @@ function buildSimulationAssetFromPosition(position) {
     const label = mins < 1 ? "under a minute" : mins === 1 ? "1 minute" : `${mins} minutes`;
     return `Back in ${label} after a loss.`;
   })();
+  const simulationAmbientObservation = simulationStopWidenObservation || simulationRapidReentryObservation || null;
   const simulationActiveTradeContext = simulationCoachPosition
     ? buildSimulationActiveTradeContext({
         position: simulationCoachPosition,
@@ -15225,14 +15226,9 @@ return (
                         )}
                       </div>
                     </div>
-                    {simulationStopWidenObservation && (
+                    {simulationAmbientObservation && (
                       <div style={{ fontSize: 12, color: "#9fb2c7", lineHeight: 1.5 }}>
-                        {simulationStopWidenObservation}
-                      </div>
-                    )}
-                    {simulationRapidReentryObservation && (
-                      <div style={{ fontSize: 12, color: "#9fb2c7", lineHeight: 1.5 }}>
-                        {simulationRapidReentryObservation}
+                        {simulationAmbientObservation}
                       </div>
                     )}
                     {simulationMode === "scenario" && (
