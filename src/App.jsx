@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
@@ -781,6 +781,42 @@ function buildPerformanceSegmentMetrics(trades, { profitAccessor = getTradeProfi
     avgR: rValues.length ? averageNumber(rValues) : null,
     maxDrawdown: tradeCount ? calculateProfitDrawdown(normalizedTrades, profitAccessor, timeAccessor) : null,
     isLowSample: tradeCount > 0 && tradeCount < 5,
+  };
+}
+
+function normalizeSimulationTradeForPerformance(trade) {
+  const asset = String(trade?.asset || "").trim().toUpperCase();
+  const resultR = Number(trade?.rMultiple);
+  const profitValue = getTradeProfitValue(trade);
+  const setup = normalizeSetupType(trade?.setupType) || String(trade?.setup || "").trim() || "";
+  const session = String(
+    trade?.session
+    || trade?.sessionSlot
+    || deriveSessionSlot(trade?.closedAt || trade?.openedAt || trade?.entry_time || trade?.exit_time)
+    || ""
+  ).trim();
+  const normalizeTimestamp = (value) => {
+    if (Number.isFinite(Number(value))) {
+      return new Date(Number(value)).toISOString();
+    }
+    const parsed = Date.parse(String(value || ""));
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  };
+
+  return {
+    ...trade,
+    id: trade?.id || `sim-${asset || "trade"}-${trade?.closedAt || trade?.openedAt || Date.now()}`,
+    asset,
+    setup,
+    session,
+    result_r: Number.isFinite(resultR) ? resultR : null,
+    pnl_value: Number.isFinite(profitValue) ? profitValue : null,
+    entry_time: normalizeTimestamp(trade?.entry_time || trade?.openedAt),
+    exit_time: normalizeTimestamp(trade?.exit_time || trade?.closedAt),
+    entry_price: Number.isFinite(Number(trade?.entry_price)) ? Number(trade.entry_price) : Number.isFinite(Number(trade?.entryPrice)) ? Number(trade.entryPrice) : null,
+    exit_price: Number.isFinite(Number(trade?.exit_price)) ? Number(trade.exit_price) : Number.isFinite(Number(trade?.exitPrice)) ? Number(trade.exitPrice) : null,
+    source: trade?.source || "live_simulation",
+    source_label: trade?.source_label || "Live Simulation",
   };
 }
 
@@ -3513,6 +3549,7 @@ function PerformanceLiveChartCard({
 
 function PerformanceDashboard({
   trades,
+  performanceSourceLabel = "Live Trades",
   equityPoints,
   sourceLabel,
   chartRange,
@@ -3558,6 +3595,10 @@ function PerformanceDashboard({
   tradeMarketChartLoading,
   tradeMarketChart,
 }) {
+  const isSimulationSource = performanceSourceLabel === "Live Simulation";
+  const effectiveCoachSummary = isSimulationSource ? null : coachSummary;
+  const effectiveShowNoNewTrades = isSimulationSource ? false : showNoNewTrades;
+  const canRunAiAnalysis = !isSimulationSource && typeof onRunAnalysis === "function";
   const [fAsset, setFAsset] = useState("all");
   const [fSetup, setFSetup] = useState("all");
   const [fSession, setFSession] = useState("all");
@@ -3627,7 +3668,7 @@ function PerformanceDashboard({
   };
 
   const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
-  const diagnosisStrongestEdge = coachSummary?.strongestEdge
+  const diagnosisStrongestEdge = effectiveCoachSummary?.strongestEdge
     || (report?.bestCombo
       ? `${report.bestCombo.setup} on ${report.bestCombo.asset} — ${report.bestCombo.avgR.toFixed(2)} avg across ${report.bestCombo.trades} trade${report.bestCombo.trades === 1 ? "" : "s"} · ${report.bestCombo.winRate.toFixed(0)}% win rate.${report.bestCombo.trades < 3 ? " Early signal — build sample size here before scaling." : ""}`
       : null);
@@ -3639,20 +3680,24 @@ function PerformanceDashboard({
         : "High variance in outcomes. Risk sizing or execution inconsistency is likely distorting results."}`
     : null;
   const weakestSetup = report?.setupStats?.length > 1 ? report.setupStats[report.setupStats.length - 1] : null;
-  const diagnosisWarning = coachSummary?.warning
+  const diagnosisWarning = effectiveCoachSummary?.warning
     || report?.warnings?.[0]
     || (weakestSetup && weakestSetup.avgR < 0
       ? `${weakestSetup.setup} is your weakest setup right now at ${weakestSetup.avgR.toFixed(2)} average per trade.`
       : null);
-  const diagnosisNextAction = coachSummary?.nextAction || report?.actions?.[0] || null;
+  const diagnosisNextAction = effectiveCoachSummary?.nextAction || report?.actions?.[0] || null;
 
   if (trades.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "80px 24px" }}>
         <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
-        <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>No trades to analyze yet</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>
+          {isSimulationSource ? "No live simulation trades to analyze yet" : "No trades to analyze yet"}
+        </div>
         <div style={{ fontSize: 14, color: "#64748b", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
-          Head to <strong style={{ color: "#7CC4FF" }}>My Trades</strong> and log your first trade. Your full analytics dashboard will unlock here.
+          {isSimulationSource
+            ? "Take a live simulation trade and it will show up here automatically."
+            : <>Head to <strong style={{ color: "#7CC4FF" }}>My Trades</strong> and log your first trade. Your full analytics dashboard will unlock here.</>}
         </div>
       </div>
     );
@@ -3910,11 +3955,13 @@ function PerformanceDashboard({
           <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla's Diagnosis</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {showNoNewTrades && <span style={{ fontSize: 11, color: "#334155" }}>No new trades since last run</span>}
-              <button type="button" onClick={onRunAnalysis}
-                style={{ background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.25)", borderRadius: 8, padding: "6px 14px", color: "#7CC4FF", fontSize: 12, cursor: "pointer" }}>
-                Run AI Analysis
-              </button>
+              {effectiveShowNoNewTrades && <span style={{ fontSize: 11, color: "#334155" }}>No new trades since last run</span>}
+              {canRunAiAnalysis ? (
+                <button type="button" onClick={onRunAnalysis}
+                  style={{ background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.25)", borderRadius: 8, padding: "6px 14px", color: "#7CC4FF", fontSize: 12, cursor: "pointer" }}>
+                  Run AI Analysis
+                </button>
+              ) : null}
             </div>
           </div>
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -4108,6 +4155,38 @@ function Card({ title, children, className = "" }) {
       <div className="cardBody">{children}</div>
     </section>
   );
+}
+
+class PerformanceRenderBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("Performance page render error:", error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 24, color: "#94a3b8" }}>
+          Performance is temporarily unavailable.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function formatNumber(value, digits = 2) {
@@ -6975,7 +7054,7 @@ useEffect(() => {
   const [intelPracticeModeChoice, setIntelPracticeModeChoice] = useState(null);
   const [intelSimulationSetupPrompt, setIntelSimulationSetupPrompt] = useState(null);
   const [intelSimulationSetupChecklist, setIntelSimulationSetupChecklist] = useState(null);
-  const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_simulation");
+  const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_trades");
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
     stepIndex: 0,
@@ -7014,6 +7093,7 @@ useEffect(() => {
   const [tradePortfolioSelectedSymbols, setTradePortfolioSelectedSymbols] = useState([]);
   const tradeChartSelection = getChartSelectionConfig(tradeChartRange);
   const [performanceLiveAppliedSelection, setPerformanceLiveAppliedSelection] = useState({ includePortfolio: true, symbols: [] });
+  const [performanceAnalysisSource, setPerformanceAnalysisSource] = useState("live_trades");
   const [tradePendingSelection, setTradePendingSelection] = useState({ mode: "asset", symbols: [] });
   const [tradeAppliedSelection, setTradeAppliedSelection] = useState({ mode: "asset", symbols: [] });
   const [simulationLiveChart, setSimulationLiveChart] = useState(null);
@@ -7609,6 +7689,14 @@ useEffect(() => {
       return bTime - aTime;
     });
   }, [trades, normalizedBrokerTrades]);
+
+  const liveSimulationPerformanceTrades = useMemo(
+    () => simulationTradeHistory
+      .filter((trade) => (trade?.marketMode || "live") === "live")
+      .map((trade) => normalizeSimulationTradeForPerformance(trade))
+      .filter((trade) => trade.asset),
+    [simulationTradeHistory]
+  );
 
   const usableClosedTradesForEquity = useMemo(() => {
     return [...combinedTrades]
@@ -9210,9 +9298,19 @@ useEffect(() => {
     () => buildLoggedEquityCurvePoints(combinedTrades),
     [combinedTrades]
   );
+  const liveSimulationEquityPoints = useMemo(
+    () => buildLoggedEquityCurvePoints(liveSimulationPerformanceTrades),
+    [liveSimulationPerformanceTrades]
+  );
+  const selectedPerformanceTrades = performanceAnalysisSource === "live_simulation"
+    ? liveSimulationPerformanceTrades
+    : combinedTrades;
+  const selectedPerformanceEquityPoints = performanceAnalysisSource === "live_simulation"
+    ? liveSimulationEquityPoints
+    : equityPoints;
   const filteredEquityPoints = useMemo(
-    () => filterEquityCurvePointsByRange(equityPoints, chartRange),
-    [equityPoints, chartRange]
+    () => filterEquityCurvePointsByRange(selectedPerformanceEquityPoints, chartRange),
+    [selectedPerformanceEquityPoints, chartRange]
   );
   const normalizedBenchmarkPoints = useMemo(
     () => normalizeBenchmarkSeries(equityBenchmarkChart, filteredEquityPoints[0]?.equity || 10000),
@@ -9220,13 +9318,16 @@ useEffect(() => {
   );
   const equityBenchmarkVisibleStart = filteredEquityPoints[0]?.timeMs || 0;
   const equityBenchmarkVisibleEnd = filteredEquityPoints[filteredEquityPoints.length - 1]?.timeMs || equityBenchmarkVisibleStart;
+  const selectedEquitySourceLabel = performanceAnalysisSource === "live_simulation"
+    ? "Built from closed live simulation trades."
+    : equitySourceLabel;
   const equityBenchmarkOptions = useMemo(() => {
     const tradedSymbols = [];
     const seen = new Set();
 
     seen.add("PORTFOLIO");
 
-    combinedTrades.forEach((trade) => {
+    selectedPerformanceTrades.forEach((trade) => {
       const symbol = String(trade?.asset || "").trim().toUpperCase();
       if (!symbol || seen.has(symbol)) return;
       seen.add(symbol);
@@ -9248,16 +9349,32 @@ useEffect(() => {
       }));
 
     return [
-      {
-        symbol: "Portfolio",
-        type: "portfolio",
-        label: "Portfolio Benchmark",
-        group: "Your benchmarks",
-      },
+      ...(performanceAnalysisSource === "live_simulation"
+        ? []
+        : [{
+            symbol: "Portfolio",
+            type: "portfolio",
+            label: "Portfolio Benchmark",
+            group: "Your benchmarks",
+          }]),
       ...tradedSymbols,
       ...defaultOptions,
     ];
-  }, [combinedTrades]);
+  }, [selectedPerformanceTrades, performanceAnalysisSource]);
+
+  useEffect(() => {
+    if (!equityBenchmarkOptions.some((option) => option.symbol === equityBenchmarkSymbol)) {
+      setEquityBenchmarkSymbol("SPY");
+      setEquityBenchmarkType("stock");
+      setEquityBenchmarkLabel("SPY");
+    }
+  }, [equityBenchmarkOptions, equityBenchmarkSymbol]);
+
+  useEffect(() => {
+    if (performanceAnalysisSource === "live_simulation") {
+      setPerformanceAnalysisSource("live_trades");
+    }
+  }, [performanceAnalysisSource]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -15646,38 +15763,46 @@ return (
                       </div>
                       {renderSimulationInfoButton("account")}
                     </div>
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontSize: 11, color: "#73869a", letterSpacing: "0.01em" }}>
+                        Source
+                      </div>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
                       {[
-                        { key: "live_trades", label: "Live Trades" },
-                        { key: "live_simulation", label: "Live Simulation" },
+                        { key: "live_trades", label: "Live Trades", disabled: false },
+                        { key: "live_simulation", label: "Live Simulation", disabled: true },
                       ].map((segment) => {
-                        const active = simulationPerformanceSegment === segment.key;
+                        const active = simulationPerformanceSegment === segment.key && !segment.disabled;
                         return (
                           <button
                             key={segment.key}
                             type="button"
-                            onClick={() => setSimulationPerformanceSegment(segment.key)}
+                            onClick={() => { if (!segment.disabled) setSimulationPerformanceSegment(segment.key); }}
+                            disabled={segment.disabled}
                             style={{
                               border: "none",
                               borderBottom: active
-                                ? "1px solid rgba(220,232,245,0.78)"
+                                ? "2px solid rgba(220,232,245,0.92)"
                                 : "1px solid transparent",
                               background: "transparent",
-                              color: active
-                                ? "#dce8f5"
-                                : "rgba(125,142,160,0.82)",
+                              color: segment.disabled
+                                ? "rgba(144,160,178,0.36)"
+                                : active
+                                  ? "#e6f0fa"
+                                  : "rgba(144,160,178,0.92)",
                               borderRadius: 0,
-                              padding: "4px 0 6px 0",
-                              fontSize: 12,
-                              fontWeight: active ? 600 : 500,
-                              cursor: "pointer",
-                              opacity: active ? 1 : 0.68,
+                              padding: "6px 0 8px 0",
+                              fontSize: 13,
+                              fontWeight: active ? 700 : 600,
+                              cursor: segment.disabled ? "default" : "pointer",
+                              opacity: segment.disabled ? 0.5 : active ? 1 : 0.84,
                             }}
                           >
                             {segment.label}
                           </button>
                         );
                       })}
+                      </div>
                     </div>
                     <div style={{ fontSize: 11, color: activeSimulationPerformanceMetrics?.isLowSample ? "#73869a" : "#8b9caf", lineHeight: 1.45 }}>
                       {performanceSegmentLabel}
@@ -16422,58 +16547,98 @@ return (
                   <div style={{ fontSize: 22, fontWeight: 700, color: "#f3f7fc", letterSpacing: "-0.01em" }}>Performance Analysis</div>
                   <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Review your edge, discipline, and progress in one place.</div>
                 </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
+                    Source
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+                    {[
+                      { value: "live_trades", label: "Live Trades", disabled: false },
+                      { value: "live_simulation", label: "Live Simulation", disabled: true },
+                    ].map((option) => {
+                      const active = performanceAnalysisSource === option.value && !option.disabled;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            if (option.disabled) return;
+                            setPerformanceAnalysisSource(option.value);
+                          }}
+                          disabled={option.disabled}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: active ? "2px solid rgba(124,196,255,0.9)" : "2px solid transparent",
+                            padding: "4px 0 6px",
+                            color: option.disabled ? "rgba(226,232,240,0.36)" : active ? "#e2f0ff" : "rgba(226,232,240,0.64)",
+                            fontSize: 13,
+                            fontWeight: active ? 700 : 600,
+                            cursor: option.disabled ? "default" : "pointer",
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <PerformanceDashboard
-                trades={combinedTrades}
-                equityPoints={filteredEquityPoints}
-                sourceLabel={equitySourceLabel}
-                chartRange={chartRange}
-                setChartRange={setChartRange}
-                benchmarkSymbol={equityBenchmarkSymbol}
-                benchmarkLabel={equityBenchmarkLabel}
-                onSelectBenchmark={(option) => {
-                  setEquityBenchmarkSymbol(option.symbol);
-                  setEquityBenchmarkType(option.type || "stock");
-                  setEquityBenchmarkLabel(option.label || option.symbol);
-                }}
-                benchmarkOptions={equityBenchmarkOptions}
-                benchmarkPoints={normalizedBenchmarkPoints}
-                benchmarkLoading={equityBenchmarkLoading}
-                alpacaConnected={Boolean(alpacaAccount)}
-                coachSummary={coachSummary}
-                showNoNewTrades={showNoNewTrades}
-                onRunAnalysis={runAIAnalysis}
-                onOpenRaylaPopup={openGlobalRaylaPopup}
-                alpacaPositions={alpacaPositions}
-                performanceLiveAppliedSelection={performanceLiveAppliedSelection}
-                setPerformanceLiveAppliedSelection={setPerformanceLiveAppliedSelection}
-                tradeAppliedSelection={tradeAppliedSelection}
-                applyTradeSelection={applyTradeSelection}
-                tradePortfolioAllSymbols={tradePortfolioAllSymbols}
-                tradeChartSymbol={tradeChartSymbol}
-                tradeChartCurrentPrice={tradeChartCurrentPrice}
-                tradeChartQuote={tradeChartQuote}
-                tradeChartMatchingPosition={tradeChartMatchingPosition}
-                tradeChartAsset={tradeChartAsset}
-                tradeChartAssetType={tradeChartAssetType}
-                tradeChartRange={tradeChartRange}
-                setTradeChartRange={setTradeChartRange}
-                tradeChartMode={tradeChartMode}
-                setTradeChartMode={setTradeChartMode}
-                tradeChartLastUpdated={tradeChartLastUpdated}
-                tradeIsComparisonMode={tradeIsComparisonMode}
-                tradeIsPortfolioTotalMode={tradeIsPortfolioTotalMode}
-                tradePortfolioCombinedUnrealizedPl={tradePortfolioCombinedUnrealizedPl}
-                tradePortfolioCombinedMarketValue={tradePortfolioCombinedMarketValue}
-                tradePortfolioDisplayedPositions={tradePortfolioDisplayedPositions}
-                tradePortfolioChartsLoading={tradePortfolioChartsLoading}
-                tradePortfolioCharts={tradePortfolioCharts}
-                brokerTradeLog={brokerTradeLog}
-                tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
-                tradePortfolioNowMs={tradePortfolioNowMs}
-                tradeMarketChartLoading={tradeMarketChartLoading}
-                tradeMarketChart={tradeMarketChart}
-              />
+              <PerformanceRenderBoundary resetKey={performanceAnalysisSource}>
+                <PerformanceDashboard
+                  key={performanceAnalysisSource}
+                  trades={selectedPerformanceTrades}
+                  performanceSourceLabel={performanceAnalysisSource === "live_simulation" ? "Live Simulation" : "Live Trades"}
+                  equityPoints={filteredEquityPoints}
+                  sourceLabel={selectedEquitySourceLabel}
+                  chartRange={chartRange}
+                  setChartRange={setChartRange}
+                  benchmarkSymbol={equityBenchmarkSymbol}
+                  benchmarkLabel={equityBenchmarkLabel}
+                  onSelectBenchmark={(option) => {
+                    setEquityBenchmarkSymbol(option.symbol);
+                    setEquityBenchmarkType(option.type || "stock");
+                    setEquityBenchmarkLabel(option.label || option.symbol);
+                  }}
+                  benchmarkOptions={equityBenchmarkOptions}
+                  benchmarkPoints={normalizedBenchmarkPoints}
+                  benchmarkLoading={equityBenchmarkLoading}
+                  alpacaConnected={Boolean(alpacaAccount)}
+                  coachSummary={coachSummary}
+                  showNoNewTrades={showNoNewTrades}
+                  onRunAnalysis={runAIAnalysis}
+                  onOpenRaylaPopup={openGlobalRaylaPopup}
+                  alpacaPositions={alpacaPositions}
+                  performanceLiveAppliedSelection={performanceLiveAppliedSelection}
+                  setPerformanceLiveAppliedSelection={setPerformanceLiveAppliedSelection}
+                  tradeAppliedSelection={tradeAppliedSelection}
+                  applyTradeSelection={applyTradeSelection}
+                  tradePortfolioAllSymbols={tradePortfolioAllSymbols}
+                  tradeChartSymbol={tradeChartSymbol}
+                  tradeChartCurrentPrice={tradeChartCurrentPrice}
+                  tradeChartQuote={tradeChartQuote}
+                  tradeChartMatchingPosition={tradeChartMatchingPosition}
+                  tradeChartAsset={tradeChartAsset}
+                  tradeChartAssetType={tradeChartAssetType}
+                  tradeChartRange={tradeChartRange}
+                  setTradeChartRange={setTradeChartRange}
+                  tradeChartMode={tradeChartMode}
+                  setTradeChartMode={setTradeChartMode}
+                  tradeChartLastUpdated={tradeChartLastUpdated}
+                  tradeIsComparisonMode={tradeIsComparisonMode}
+                  tradeIsPortfolioTotalMode={tradeIsPortfolioTotalMode}
+                  tradePortfolioCombinedUnrealizedPl={tradePortfolioCombinedUnrealizedPl}
+                  tradePortfolioCombinedMarketValue={tradePortfolioCombinedMarketValue}
+                  tradePortfolioDisplayedPositions={tradePortfolioDisplayedPositions}
+                  tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+                  tradePortfolioCharts={tradePortfolioCharts}
+                  brokerTradeLog={brokerTradeLog}
+                  tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
+                  tradePortfolioNowMs={tradePortfolioNowMs}
+                  tradeMarketChartLoading={tradeMarketChartLoading}
+                  tradeMarketChart={tradeMarketChart}
+                />
+              </PerformanceRenderBoundary>
             </div>
           </div>
         )}
