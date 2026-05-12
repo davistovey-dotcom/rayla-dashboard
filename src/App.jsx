@@ -3142,10 +3142,36 @@ function InlineHelpCard({ topic }) {
 function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = null }) {
   if (!rows || rows.length === 0) return null;
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.totalR)), 0.01);
+  const scrollHeight = Number.isFinite(Number(maxHeight)) ? Number(maxHeight) : null;
   return (
-    <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "hidden" }}>
-      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
-      <div style={{ padding: "4px 0", maxHeight: maxHeight || undefined, overflowY: maxHeight ? "auto" : "visible" }}>
+    <div
+      style={{
+        background: "rgba(18,26,38,0.86)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        alignSelf: "start",
+      }}
+    >
+      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
+        {rows.length > 0 && (
+          <div style={{ fontSize: 11, color: "#475569", whiteSpace: "nowrap" }}>{rows.length}</div>
+        )}
+      </div>
+      <div
+        style={{
+          padding: "4px 0",
+          height: scrollHeight || undefined,
+          overflowY: scrollHeight ? "scroll" : "visible",
+          overscrollBehavior: scrollHeight ? "contain" : undefined,
+          scrollbarGutter: scrollHeight ? "stable both-edges" : undefined,
+          WebkitOverflowScrolling: scrollHeight ? "touch" : undefined,
+          minHeight: 0,
+        }}
+      >
         {rows.map((row, i) => (
           <div key={i} style={{ padding: "9px 16px", borderBottom: i < rows.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ minWidth: 88, maxWidth: 120, fontSize: 12, color: nameColor, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
@@ -3642,9 +3668,9 @@ function PerformanceDashboard({
   tradeMarketChart,
 }) {
   const isSimulationSource = performanceSourceLabel === "Live Simulation";
-  const effectiveCoachSummary = isSimulationSource ? null : coachSummary;
-  const effectiveShowNoNewTrades = isSimulationSource ? false : showNoNewTrades;
-  const canRunAiAnalysis = !isSimulationSource && typeof onRunAnalysis === "function";
+  const effectiveCoachSummary = coachSummary;
+  const effectiveShowNoNewTrades = showNoNewTrades;
+  const canRunAiAnalysis = typeof onRunAnalysis === "function";
   const [fAsset, setFAsset] = useState("all");
   const [fSetup, setFSetup] = useState("all");
   const [fSession, setFSession] = useState("all");
@@ -3726,11 +3752,17 @@ function PerformanceDashboard({
         : "High variance in outcomes. Risk sizing or execution inconsistency is likely distorting results."}`
     : null;
   const weakestSetup = report?.setupStats?.length > 1 ? report.setupStats[report.setupStats.length - 1] : null;
+  const fallbackDiagnosisWarning = report?.totalR < 0
+    ? "The current sample is net negative. Focus on which setups or management decisions are doing the damage."
+    : report?.trades >= 3 && report?.winRate < 50
+      ? "The current sample is still below breakeven quality. Stay selective until one pattern is proving itself."
+      : null;
   const diagnosisWarning = effectiveCoachSummary?.warning
     || report?.warnings?.[0]
     || (weakestSetup && weakestSetup.avgR < 0
       ? `${weakestSetup.setup} is your weakest setup right now at ${weakestSetup.avgR.toFixed(2)} average per trade.`
-      : null);
+      : null)
+    || fallbackDiagnosisWarning;
   const diagnosisNextAction = effectiveCoachSummary?.nextAction || report?.actions?.[0] || null;
 
   if (trades.length === 0) {
@@ -3951,7 +3983,7 @@ function PerformanceDashboard({
 
       {/* Breakdown tables: Setup | Asset | Session */}
       {report && (report.setupStats.length > 0 || report.assetStats.length > 0 || sessionStats.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, alignItems: "start" }}>
           <PerfBreakdownTable
             title="By Setup"
             rows={report.setupStats.map(s => ({ name: s.setup, trades: s.trades, winRate: s.winRate, avgR: s.avgR, totalR: s.totalR }))}
@@ -3961,7 +3993,7 @@ function PerformanceDashboard({
             title="By Asset"
             rows={report.assetStats.map(a => ({ name: a.asset, trades: a.trades, winRate: a.winRate, avgR: a.avgR, totalR: a.totalR }))}
             nameColor="#e2e8f0"
-            maxHeight={360}
+            maxHeight={260}
           />
           {sessionStats.length > 0 && (
             <PerfBreakdownTable
@@ -3997,7 +4029,7 @@ function PerformanceDashboard({
       )}
 
       {/* Rayla Diagnosis */}
-      {report && (
+      {trades.length > 0 && (
         <div style={cardBase}>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla's Diagnosis</div>
@@ -4012,7 +4044,7 @@ function PerformanceDashboard({
             </div>
           </div>
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-            {ft.length < 20 && (
+            {ft.length > 0 && ft.length < 20 && (
               <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.15)", fontSize: 13, color: "#7CC4FF", lineHeight: 1.6 }}>
                 {ft.length < 5
                   ? `Only ${ft.length} trade${ft.length === 1 ? "" : "s"} logged — keep logging every trade to unlock meaningful patterns.`
@@ -4045,6 +4077,11 @@ function PerformanceDashboard({
                   <span style={{ color: "#7CC4FF", fontWeight: 700, flexShrink: 0 }}>1.</span>
                   <span>{diagnosisNextAction}</span>
                 </div>
+              </div>
+            )}
+            {!diagnosisStrongestEdge && !diagnosisConsistencyNote && !diagnosisWarning && !diagnosisNextAction && (
+              <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", fontSize: 13, color: "#7f8ea3", lineHeight: 1.6 }}>
+                Run AI Analysis to snapshot the current {isSimulationSource ? "live simulation" : "live trade"} dataset, or keep logging trades until the patterns are more distinct.
               </div>
             )}
           </div>
@@ -7266,9 +7303,9 @@ useEffect(() => {
   const [beginnerTutorialView, setBeginnerTutorialView] = useState("menu");
     const [beginnerTutorialStep, setBeginnerTutorialStep] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
-  const [lastAnalyzedCount, setLastAnalyzedCount] = useState(-1);
-  const [showNoNewTrades, setShowNoNewTrades] = useState(false);
-  const [coachSummary, setCoachSummary] = useState(null);
+  const [lastAnalyzedCounts, setLastAnalyzedCounts] = useState({ live_trades: -1, live_simulation: -1 });
+  const [showNoNewTradesBySource, setShowNoNewTradesBySource] = useState({ live_trades: false, live_simulation: false });
+  const [coachSummaries, setCoachSummaries] = useState({ live_trades: null, live_simulation: null });
   const [equitySourceLabel, setEquitySourceLabel] = useState("Built from manual and broker-imported trades with enough execution detail.");
   const [trades, setTrades] = useState([]);
   const [simulationQuotes, setSimulationQuotes] = useState(() => {
@@ -11711,21 +11748,36 @@ useEffect(() => {
     setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
   }
 
-  function runAIAnalysis() {
-  if (trades.length === 0) { showToast("No trades logged yet.", "warning"); return; }
-  if (trades.length === lastAnalyzedCount) { showToast("No new trades since last analysis.", "warning"); return; }
-  const r = buildCoachReport(trades);
-  if (!r) return;
-  setCoachSummary({
-    strongestEdge: r.bestCombo ? `${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)} avg, ${r.bestCombo.winRate.toFixed(0)}% win rate (${r.bestCombo.trades} trades)` : null,
-    weakestPattern: r.comboStats.length > 1 ? (() => { const w = r.comboStats[r.comboStats.length - 1]; return `${w.setup} on ${w.asset} — ${w.avgR.toFixed(2)} avg, ${w.winRate.toFixed(0)}% win rate`; })() : null,
-    warning: r.warnings[0] || null,
-    nextAction: r.actions[0] || null,
-    generatedAt: new Date().toLocaleTimeString(),
-  });
-  setLastAnalyzedCount(trades.length);
-  showToast("Analysis updated.", "success");
-}
+  function runAIAnalysis(sourceTrades = trades, sourceKey = "live_trades") {
+    const analyzedTrades = Array.isArray(sourceTrades) ? sourceTrades : [];
+    const sourceLabel = sourceKey === "live_simulation" ? "live simulation" : "live trades";
+    const lastAnalyzedCount = lastAnalyzedCounts[sourceKey] ?? -1;
+
+    if (analyzedTrades.length === 0) {
+      showToast(`No ${sourceLabel} available yet.`, "warning");
+      return;
+    }
+    if (analyzedTrades.length === lastAnalyzedCount) {
+      setShowNoNewTradesBySource((prev) => ({ ...prev, [sourceKey]: true }));
+      showToast("No new trades since last analysis.", "warning");
+      return;
+    }
+    const r = buildCoachReport(analyzedTrades);
+    if (!r) return;
+    setCoachSummaries((prev) => ({
+      ...prev,
+      [sourceKey]: {
+        strongestEdge: r.bestCombo ? `${r.bestCombo.setup} on ${r.bestCombo.asset} — ${r.bestCombo.avgR.toFixed(2)} avg, ${r.bestCombo.winRate.toFixed(0)}% win rate (${r.bestCombo.trades} trades)` : null,
+        weakestPattern: r.comboStats.length > 1 ? (() => { const w = r.comboStats[r.comboStats.length - 1]; return `${w.setup} on ${w.asset} — ${w.avgR.toFixed(2)} avg, ${w.winRate.toFixed(0)}% win rate`; })() : null,
+        warning: r.warnings[0] || null,
+        nextAction: r.actions[0] || null,
+        generatedAt: new Date().toLocaleTimeString(),
+      },
+    }));
+    setLastAnalyzedCounts((prev) => ({ ...prev, [sourceKey]: analyzedTrades.length }));
+    setShowNoNewTradesBySource((prev) => ({ ...prev, [sourceKey]: false }));
+    showToast("Analysis updated.", "success");
+  }
 
   async function fetchRaylaUserCount() {
     const { data, error } = await supabase.from("trades").select("user_id");
@@ -16695,9 +16747,9 @@ return (
                   benchmarkPoints={strictBenchmarkPoints}
                   benchmarkLoading={equityBenchmarkLoading}
                   alpacaConnected={Boolean(alpacaAccount)}
-                  coachSummary={coachSummary}
-                  showNoNewTrades={showNoNewTrades}
-                  onRunAnalysis={runAIAnalysis}
+                  coachSummary={coachSummaries[performanceAnalysisSource] || null}
+                  showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
+                  onRunAnalysis={() => runAIAnalysis(selectedPerformanceTrades, performanceAnalysisSource)}
                   onOpenRaylaPopup={openGlobalRaylaPopup}
                   alpacaPositions={alpacaPositions}
                   performanceLiveAppliedSelection={performanceLiveAppliedSelection}
