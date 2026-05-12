@@ -689,6 +689,100 @@ function getTradeOutcomeValue(trade) {
   return parseTradeResult(trade?.result_r);
 }
 
+function getTradeProfitValue(trade) {
+  const explicitProfit = Number(trade?.profitLoss);
+  if (Number.isFinite(explicitProfit)) return explicitProfit;
+  const explicitPnl = Number(trade?.pnl);
+  if (Number.isFinite(explicitPnl)) return explicitPnl;
+  const explicitUsd = Number(trade?.profitLossUsd);
+  if (Number.isFinite(explicitUsd)) return explicitUsd;
+  const explicitRealized = Number(trade?.realizedPnl);
+  if (Number.isFinite(explicitRealized)) return explicitRealized;
+  const explicitAmount = Number(trade?.resultAmount);
+  if (Number.isFinite(explicitAmount)) return explicitAmount;
+  const pnlValue = Number(trade?.pnl_value);
+  if (Number.isFinite(pnlValue)) return pnlValue;
+  return calculateTradeDollarPnl(trade);
+}
+
+function sortTradesForPerformance(trades, timeAccessor = null) {
+  return [...(Array.isArray(trades) ? trades : [])]
+    .map((trade, index) => ({
+      trade,
+      index,
+      timeMs: typeof timeAccessor === "function" ? timeAccessor(trade) : null,
+    }))
+    .sort((a, b) => {
+      const timeA = Number.isFinite(a.timeMs) ? a.timeMs : null;
+      const timeB = Number.isFinite(b.timeMs) ? b.timeMs : null;
+      if (timeA != null && timeB != null && timeA !== timeB) return timeA - timeB;
+      if (timeA != null && timeB == null) return -1;
+      if (timeA == null && timeB != null) return 1;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.trade);
+}
+
+function calculateProfitDrawdown(trades, profitAccessor = getTradeProfitValue, timeAccessor = null) {
+  const orderedTrades = sortTradesForPerformance(trades, timeAccessor);
+  let runningProfit = 0;
+  let peakProfit = 0;
+  let maxDrawdown = 0;
+
+  orderedTrades.forEach((trade) => {
+    const profitValue = typeof profitAccessor === "function" ? profitAccessor(trade) : null;
+    if (!Number.isFinite(profitValue)) return;
+    runningProfit += profitValue;
+    if (runningProfit > peakProfit) peakProfit = runningProfit;
+    const drawdown = runningProfit - peakProfit;
+    if (drawdown < maxDrawdown) maxDrawdown = drawdown;
+  });
+
+  return maxDrawdown;
+}
+
+function buildPerformanceSegmentMetrics(trades, { profitAccessor = getTradeProfitValue, rAccessor = null, timeAccessor = null } = {}) {
+  const normalizedTrades = Array.isArray(trades) ? trades : [];
+  const resolvedRAccessor = typeof rAccessor === "function"
+    ? rAccessor
+    : (trade) => {
+        const resultR = Number(trade?.result_r);
+        if (Number.isFinite(resultR)) return resultR;
+        const rMultiple = Number(trade?.rMultiple);
+        return Number.isFinite(rMultiple) ? rMultiple : null;
+      };
+
+  const tradeCount = normalizedTrades.length;
+  const pnlValues = normalizedTrades
+    .map((trade) => (typeof profitAccessor === "function" ? profitAccessor(trade) : null))
+    .filter((value) => Number.isFinite(value));
+  const rValues = normalizedTrades
+    .map((trade) => resolvedRAccessor(trade))
+    .filter((value) => Number.isFinite(value));
+
+  const winSourceValues = pnlValues.length === tradeCount
+    ? pnlValues
+    : normalizedTrades
+        .map((trade) => {
+          const profitValue = typeof profitAccessor === "function" ? profitAccessor(trade) : null;
+          if (Number.isFinite(profitValue)) return profitValue;
+          return resolvedRAccessor(trade);
+        })
+        .filter((value) => Number.isFinite(value));
+
+  const wins = winSourceValues.filter((value) => value > 0).length;
+  const winRate = tradeCount ? (wins / tradeCount) * 100 : 0;
+
+  return {
+    tradeCount,
+    totalPnl: pnlValues.length ? pnlValues.reduce((sum, value) => sum + value, 0) : null,
+    winRate: tradeCount ? winRate : null,
+    avgR: rValues.length ? averageNumber(rValues) : null,
+    maxDrawdown: tradeCount ? calculateProfitDrawdown(normalizedTrades, profitAccessor, timeAccessor) : null,
+    isLowSample: tradeCount > 0 && tradeCount < 5,
+  };
+}
+
 function parseBrokerFillPrice(trade) {
   const rawPayload = trade?.raw_payload || {};
   const candidates = [
@@ -947,6 +1041,33 @@ function getSimulationCoachMessage(position, currentPrice, metrics) {
   }
 
   return "Trade is open. Stick to the plan.";
+}
+
+function didLiveSimulationStopWiden(position, nextStopLoss) {
+  if (!position || (position.marketMode || "live") !== "live") return false;
+  if (position.stopWidenedObserved) return false;
+  if (position.exitMode !== "price") return false;
+
+  const entryPrice = Number(position.entryPrice);
+  const originalStopLoss = Number(position.originalStopLoss);
+  const candidateStopLoss = Number(nextStopLoss);
+
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(originalStopLoss) || !Number.isFinite(candidateStopLoss)) {
+    return false;
+  }
+
+  const originalDistance = Math.abs(entryPrice - originalStopLoss);
+  const nextDistance = Math.abs(entryPrice - candidateStopLoss);
+  if (!(nextDistance > originalDistance + 1e-9)) return false;
+
+  if (position.direction === "long") {
+    return candidateStopLoss < originalStopLoss && candidateStopLoss < entryPrice;
+  }
+  if (position.direction === "short") {
+    return candidateStopLoss > originalStopLoss && candidateStopLoss > entryPrice;
+  }
+
+  return false;
 }
 
 function getSimulationLeverageMultiplier(leverageValue) {
@@ -6853,6 +6974,7 @@ useEffect(() => {
   const [intelPracticeModeChoice, setIntelPracticeModeChoice] = useState(null);
   const [intelSimulationSetupPrompt, setIntelSimulationSetupPrompt] = useState(null);
   const [intelSimulationSetupChecklist, setIntelSimulationSetupChecklist] = useState(null);
+  const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_simulation");
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
     stepIndex: 0,
@@ -7251,6 +7373,8 @@ useEffect(() => {
       (value) => value === null || (typeof value === "object" && !Array.isArray(value))
     )
   );
+  const [isPostLossQuiet, setIsPostLossQuiet] = useState(false);
+  const postLossQuietTimerRef = useRef(null);
   const [simulatedBalance, setSimulatedBalance] = useState(() =>
     readSimulationStorage(
       SIMULATION_STORAGE_KEYS.balance,
@@ -11047,6 +11171,12 @@ useEffect(() => {
     setSelectedSimulationPositionId((prev) => (prev === positionId ? null : prev));
     setSimulationPendingScenarioDecision((prev) => prev?.positionId === positionId ? null : prev);
     setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
+
+    if (Number.isFinite(rMultiple) && rMultiple < 0) {
+      setIsPostLossQuiet(true);
+      clearTimeout(postLossQuietTimerRef.current);
+      postLossQuietTimerRef.current = setTimeout(() => setIsPostLossQuiet(false), 45000);
+    }
   }
 
   function handleOpenSimulationTrade(options = null) {
@@ -11163,6 +11293,8 @@ useEffect(() => {
       exitMode: effectiveExitMode,
       entryPrice,
       stopLoss,
+      originalStopLoss: stopLoss,
+      stopWidenedObserved: false,
       takeProfit,
       scenarioNoLimit: effectiveMode === "scenario" ? simulationScenarioNoLimit : null,
       scenarioDurationMs: effectiveMode === "scenario" && !simulationScenarioNoLimit ? scenarioDurationMs : null,
@@ -11298,6 +11430,7 @@ useEffect(() => {
         : riskPerUnit == null
           ? null
           : leveragedQuantity * riskPerUnit;
+      const stopWidenedObserved = position.stopWidenedObserved || didLiveSimulationStopWiden(position, nextStopLoss);
 
       return {
         ...position,
@@ -11306,6 +11439,7 @@ useEffect(() => {
         takeProfit: nextTakeProfit,
         riskPerUnit,
         plannedRisk,
+        stopWidenedObserved,
       };
     }));
     setSimulationPendingLiveDecision((prev) => prev?.positionId === positionId ? null : prev);
@@ -11691,6 +11825,22 @@ function buildSimulationAssetFromPosition(position) {
     }
   }
 
+  const simulationSecondaryPanelStyle = {
+    background: "rgba(255,255,255,0.014)",
+    border: "1px solid rgba(255,255,255,0.035)",
+  };
+  const simulationBriefingPanelStyle = {
+    background: "rgba(124,196,255,0.03)",
+    border: "1px solid rgba(124,196,255,0.1)",
+  };
+  const simulationQuietLabelStyle = {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: "1px",
+    textTransform: "uppercase",
+    color: "#6f839a",
+  };
+
   const visibleSimulationPositions = useMemo(
     () => simulationPositions.filter((position) => (position.marketMode || "live") === simulationMode),
     [simulationPositions, simulationMode]
@@ -11834,6 +11984,10 @@ function buildSimulationAssetFromPosition(position) {
   const simulationCoachLevels = simulationCoachPosition
     ? getSimulationPriceLevels(simulationCoachPosition)
     : { entryPrice: null, stopPrice: null, targetPrice: null, quantity: null };
+  const simulationStopWidenObservation = simulationCoachPosition?.stopWidenedObserved
+    && (simulationCoachPosition.marketMode || simulationMode) === "live"
+    ? "Stop widened after entry."
+    : null;
   const simulationActiveTradeContext = simulationCoachPosition
     ? buildSimulationActiveTradeContext({
         position: simulationCoachPosition,
@@ -12086,6 +12240,78 @@ function buildSimulationAssetFromPosition(position) {
     () => buildSimulationSessionInsights(simulationStatsProfile),
     [simulationStatsProfile]
   );
+  const simulationLivePerformanceMetrics = useMemo(
+    () => buildPerformanceSegmentMetrics(
+      simulationTradeHistory.filter((trade) => (trade.marketMode || "live") === "live"),
+      {
+        profitAccessor: (trade) => Number.isFinite(Number(trade?.profitLoss)) ? Number(trade.profitLoss) : null,
+        rAccessor: (trade) => Number.isFinite(Number(trade?.rMultiple)) ? Number(trade.rMultiple) : null,
+        timeAccessor: (trade) => Date.parse(String(trade?.closedAt || trade?.openedAt || "")),
+      }
+    ),
+    [simulationTradeHistory]
+  );
+  const realPerformanceMetrics = useMemo(
+    () => buildPerformanceSegmentMetrics(
+      trades,
+      {
+        profitAccessor: getTradeProfitValue,
+        rAccessor: (trade) => {
+          const resultR = Number(trade?.result_r);
+          return Number.isFinite(resultR) ? resultR : null;
+        },
+        timeAccessor: (trade) => resolveEquityTradeTimestamp(trade)?.timeMs ?? null,
+      }
+    ),
+    [trades]
+  );
+  const activeSimulationPerformanceMetrics = simulationPerformanceSegment === "live_trades"
+    ? realPerformanceMetrics
+    : simulationLivePerformanceMetrics;
+  const performanceSegmentLabel = simulationPerformanceSegment === "live_trades"
+    ? "Live trades"
+    : "Live simulation";
+  const simulationPerformanceMetricsRows = [
+    {
+      label: "P/L",
+      value: activeSimulationPerformanceMetrics?.totalPnl == null
+        ? "—"
+        : `${activeSimulationPerformanceMetrics.totalPnl >= 0 ? "+" : ""}$${activeSimulationPerformanceMetrics.totalPnl.toFixed(2)}`,
+      tone: activeSimulationPerformanceMetrics?.totalPnl == null
+        ? "neutral"
+        : activeSimulationPerformanceMetrics.totalPnl >= 0
+          ? "positive"
+          : "negative",
+    },
+    {
+      label: "Win rate",
+      value: activeSimulationPerformanceMetrics?.winRate == null ? "—" : `${activeSimulationPerformanceMetrics.winRate.toFixed(1)}%`,
+      tone: "neutral",
+    },
+    {
+      label: "Trades",
+      value: `${activeSimulationPerformanceMetrics?.tradeCount || 0}`,
+      tone: "neutral",
+    },
+    {
+      label: "Avg R",
+      value: activeSimulationPerformanceMetrics?.avgR == null
+        ? "—"
+        : `${activeSimulationPerformanceMetrics.avgR >= 0 ? "+" : ""}${activeSimulationPerformanceMetrics.avgR.toFixed(2)}R`,
+      tone: activeSimulationPerformanceMetrics?.avgR == null
+        ? "neutral"
+        : activeSimulationPerformanceMetrics.avgR >= 0
+          ? "positive"
+          : "negative",
+    },
+    {
+      label: "Max drawdown",
+      value: activeSimulationPerformanceMetrics?.maxDrawdown == null
+        ? "—"
+        : `-$${Math.abs(activeSimulationPerformanceMetrics.maxDrawdown).toFixed(2)}`,
+      tone: activeSimulationPerformanceMetrics?.maxDrawdown == null || activeSimulationPerformanceMetrics.maxDrawdown === 0 ? "neutral" : "negative",
+    },
+  ];
   const simulationRaylaContext = buildSimulationRaylaContext({
     mode: simulationModeLabel,
     symbol: selectedSimulationItem?.id || "",
@@ -12147,6 +12373,22 @@ function buildSimulationAssetFromPosition(position) {
     setSimulationStopLoss(selectedSimulationOpenPosition.stopLoss != null ? String(selectedSimulationOpenPosition.stopLoss) : "");
     setSimulationTakeProfit(selectedSimulationOpenPosition.takeProfit != null ? String(selectedSimulationOpenPosition.takeProfit) : "");
   }, [simulationPendingLiveDecision, selectedSimulationOpenPosition]);
+
+  useEffect(() => {
+    if (!selectedSimulationOpenPosition) return;
+    if ((selectedSimulationOpenPosition.marketMode || simulationMode) !== "live") return;
+    if (selectedSimulationOpenPosition.stopWidenedObserved) return;
+    if (selectedSimulationOpenPosition.exitMode !== "price") return;
+
+    const parsedStopLoss = Number.parseFloat(simulationStopLoss);
+    if (!didLiveSimulationStopWiden(selectedSimulationOpenPosition, parsedStopLoss)) return;
+
+    setSimulationPositions((prev) => prev.map((position) => (
+      position.id === selectedSimulationOpenPosition.id
+        ? { ...position, stopWidenedObserved: true }
+        : position
+    )));
+  }, [selectedSimulationOpenPosition, simulationMode, simulationStopLoss]);
 
   useEffect(() => {
     if (!pendingIntelSimulationLaunch) return;
@@ -14742,7 +14984,7 @@ return (
                       </div>
                   </div>
                     {simulationMode === "scenario" && capitalGuideScenarioIntro && (
-                      <div style={{ fontSize: 12, color: "#dbeafe", lineHeight: 1.6, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)" }}>
+                      <div style={{ ...simulationBriefingPanelStyle, fontSize: 12, color: "#dbeafe", lineHeight: 1.6, padding: 12, borderRadius: 12 }}>
                         {capitalGuideScenarioIntro}
                       </div>
                     )}
@@ -14765,8 +15007,8 @@ return (
                   </div>
 
                   {guidedSimulationDraft && (
-                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                    <div style={{ ...simulationBriefingPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div style={{ ...simulationQuietLabelStyle, color: "#7CC4FF" }}>
                         Intel briefing
                       </div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", lineHeight: 1.35 }}>
@@ -14826,9 +15068,9 @@ return (
                   )}
 
                   {activeGuidedSimulation && (
-                    <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ ...simulationBriefingPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
+                        <div style={{ ...simulationQuietLabelStyle, color: "#7CC4FF" }}>
                           Intel briefing
                         </div>
                         <div style={{ padding: "4px 10px", borderRadius: 999, background: activeGuidedSimulation.step === "trade-closed" ? "rgba(74,222,128,0.14)" : activeGuidedSimulation.step === "position-open" ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.08)", border: activeGuidedSimulation.step === "trade-closed" ? "1px solid rgba(74,222,128,0.22)" : "1px solid rgba(124,196,255,0.22)", fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: activeGuidedSimulation.step === "trade-closed" ? "#4ade80" : "#dbeafe" }}>
@@ -14882,7 +15124,7 @@ return (
                   )}
 
                   {showSimulationHelp && (
-                    <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
                         {simulationHowToTitle}
                       </div>
@@ -14900,7 +15142,7 @@ return (
                   )}
 
                   {isMobileView && (
-                    <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 5, gap: 2, flexShrink: 0, marginBottom: 12 }}>
+                    <div style={{ display: "flex", background: "rgba(255,255,255,0.025)", borderRadius: 14, padding: 4, gap: 2, flexShrink: 0, marginBottom: 10 }}>
                       {[
                         { label: "Setup", index: 0 },
                         { label: "Chart", index: 1, badge: simulationPositions.length > 0 ? String(simulationPositions.length) : undefined },
@@ -14912,11 +15154,11 @@ return (
                       ))}
                     </div>
                   )}
-                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: 18, alignItems: "start" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                      <div style={simulationQuietLabelStyle}>
                         Trade Controls
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -14928,9 +15170,14 @@ return (
                         )}
                       </div>
                     </div>
+                    {simulationStopWidenObservation && (
+                      <div style={{ fontSize: 12, color: "#9fb2c7", lineHeight: 1.5 }}>
+                        {simulationStopWidenObservation}
+                      </div>
+                    )}
                     {simulationMode === "scenario" && (
-                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        Set up the trade and press Play. Realistic mode unlocks AI coaching after close.
+                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                        Set the trade, then press Play.
                       </div>
                     )}
 
@@ -14959,7 +15206,7 @@ return (
                     <div style={{ position: "relative" }}>
                       {isBeginner && showSimulationHelp && (
                         <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, lineHeight: 1.55 }}>
-                          Start by searching for the asset you want to practice. Rayla will load the chart for you so you can review the setup before opening anything.
+                          Search the asset, then review the chart.
                         </div>
                       )}
                       <input
@@ -14992,13 +15239,13 @@ return (
 
                     <div
                       key={`simulation-controls-${simulationAsset?.id || "none"}`}
-                      style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, alignItems: "start" }}
+                      style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}
                     >
                       {simulationMode === "scenario" && (
-                        <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Scenario setup</div>
                           <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                            Pick the market condition first, then set how fast you want the rep to unfold.
+                            Choose the market condition and pace.
                           </div>
                           <select className="authInput" value={simulationScenarioType} onChange={(e) => setSimulationScenarioType(e.target.value)}>
                             <option value="uptrend">Uptrend</option>
@@ -15025,17 +15272,15 @@ return (
                             </select>
                           )}
                           <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.5 }}>
-                            Realistic mode unlocks AI coaching after close.
+                            Realistic unlocks AI review after close.
                           </div>
                         </div>
                       )}
 
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Trade direction</div>
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                          {simulationMode === "scenario"
-                            ? "Direction for this rep. Flip it only if your read changes."
-                            : "Direction for this rep. Flip it only if your read changes."}
+                          Direction for this rep.
                         </div>
                         <select
                           className="authInput"
@@ -15047,7 +15292,7 @@ return (
                         </select>
                       </div>
 
-                      <div style={{ padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ ...simulationSecondaryPanelStyle, padding: "10px 12px", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>
                           Setup <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
                         </div>
@@ -15079,12 +15324,12 @@ return (
                         </div>
                       </div>
 
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Amount</div>
                         <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                           {simulationMode === "scenario"
-                            ? "Choose whether you think about training size in total dollars or in shares/units, then enter the amount for this scenario rep."
-                            : "Choose whether you think about size in total dollars or in shares/units, then enter the amount you want to practice with."}
+                            ? "Set the size for this rep."
+                            : "Set the size for this rep."}
                         </div>
                         <select
                           className="authInput"
@@ -15117,12 +15362,12 @@ return (
                         </div>
                       </div>
 
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Exit plan</div>
                         <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                           {simulationMode === "scenario"
-                            ? "Price mode uses scenario chart levels. P/L mode uses total dollars gained or lost during the generated training move."
-                            : "Price mode uses chart levels. P/L mode uses total dollars gained or lost on the trade."}
+                            ? "Choose price levels or total P/L."
+                            : "Choose price levels or total P/L."}
                         </div>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button
@@ -15163,8 +15408,8 @@ return (
                             />
                             <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
                               {simulationExitMode === "price"
-                                ? "Stop loss is the price where you want to exit if the trade is not working."
-                                : "Max loss is the total dollar loss where Rayla should close the trade."}
+                                ? "Exit if price breaks the trade."
+                                : "Exit if the loss reaches this amount."}
                             </div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               <button
@@ -15196,8 +15441,8 @@ return (
                                 />
                                 <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
                                   {simulationExitMode === "price"
-                                    ? "Take profit is the price where you want to lock in a win."
-                                    : "Profit target is the total dollar gain where Rayla should close the trade."}
+                                    ? "Pay yourself at this level."
+                                    : "Take profit at this amount."}
                                 </div>
                               </>
                             )}
@@ -15206,10 +15451,10 @@ return (
                       </div>
 
                       {simulationMode === "scenario" && (
-                        <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Scenario duration</div>
                           <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                            Enter how long you want this training cycle to run. No limit keeps the scenario rolling continuously, while a set duration creates a bounded rep that can finish naturally.
+                            Set a bounded rep or leave it open-ended.
                           </div>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <button
@@ -15250,13 +15495,13 @@ return (
                         </div>
                       )}
 
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10, justifyContent: "space-between" }}>
+                      <div style={{ ...simulationBriefingPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 10, justifyContent: "space-between" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Before you open</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Ready to open</div>
                           <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.6 }}>
                             {simulationMode === "scenario"
-                              ? "Make sure your asset, scenario condition, size, and exit plan all make sense. The goal is practicing clean decisions in a structured market environment."
-                              : "Make sure your asset, size, and exit plan all make sense. This is practice, so the goal is learning how to plan a trade clearly."}
+                              ? "Check the asset, size, and exit plan."
+                              : "Check the asset, size, and exit plan."}
                           </div>
                         </div>
                         {simulationMode === "scenario" ? (
@@ -15271,7 +15516,7 @@ return (
                               lineHeight: 1.6,
                             }}
                           >
-                            Set up your trade, then press <span style={{ color: "#dbeafe", fontWeight: 700 }}>Play</span> on the chart to begin the scenario.
+                            Press <span style={{ color: "#dbeafe", fontWeight: 700 }}>Play</span> when the plan is set.
                           </div>
                         ) : (
                           <button
@@ -15289,13 +15534,11 @@ return (
                     
                     {showSimulationHelp && (
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        {simulationAmountMode === "dollars"
-                          ? "Amount in Dollars means your trade size is the total cash allocation."
-                          : "Amount in Shares means your trade size is the number of shares or units."}
+                        {simulationAmountMode === "dollars" ? "Dollar size sets allocation." : "Share size sets units."}
                         {" "}
                         {simulationExitMode === "price"
-                          ? "Exit by Price uses chart price levels for stop loss and take profit."
-                          : "Exit by P/L uses total trade profit or loss in dollars to auto-close the trade."}
+                          ? "Price exit uses chart levels."
+                          : "P/L exit uses total trade dollars."}
                       </div>
                     )}
                     <div ref={setSimulationSectionRef("risk")} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", fontSize: 12, color: "#94a3b8" }}>
@@ -15306,7 +15549,7 @@ return (
                   )}
 
                   {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
-                  <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                  <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -15318,107 +15561,95 @@ return (
                     </div>
                   </div>
 
-                  {simulationMode === "scenario" ? (
-                  <div ref={setSimulationSectionRef("account")} style={getSimulationSectionStyle("account", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                  <div
+                    ref={setSimulationSectionRef("account")}
+                    style={getSimulationSectionStyle("account", {
+                      background: "transparent",
+                      border: "1px solid rgba(255,255,255,0.025)",
+                      padding: 12,
+                      borderRadius: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                      opacity: 1,
+                    })}
+                  >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                          Scenario simulator P/L
-                        </div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
-                          Based on Realistic mode trades.
-                        </div>
+                      <div style={{ ...simulationQuietLabelStyle, color: "#8fb9dd" }}>
+                        Performance
                       </div>
                       {renderSimulationInfoButton("account")}
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-                      <div>
-                        <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Total P/L</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: simulationStatsTotalPnL >= 0 ? "#4ade80" : "#f87171" }}>
-                          {`${simulationStatsTotalPnL >= 0 ? "+" : ""}$${simulationStatsTotalPnL.toFixed(2)}`}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Closed Trades</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: "#e2e8f0" }}>
-                          {simulationStatsTradeHistory.length}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg P/L</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: simulationStatsProfile.avgProfitLoss >= 0 ? "#4ade80" : "#f87171" }}>
-                          {`${simulationStatsProfile.avgProfitLoss >= 0 ? "+" : ""}$${simulationStatsProfile.avgProfitLoss.toFixed(2)}`}
-                        </div>
-                      </div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                      {[
+                        { key: "live_trades", label: "Live Trades" },
+                        { key: "live_simulation", label: "Live Simulation" },
+                      ].map((segment) => {
+                        const active = simulationPerformanceSegment === segment.key;
+                        return (
+                          <button
+                            key={segment.key}
+                            type="button"
+                            onClick={() => setSimulationPerformanceSegment(segment.key)}
+                            style={{
+                              border: "none",
+                              borderBottom: active
+                                ? "1px solid rgba(220,232,245,0.78)"
+                                : "1px solid transparent",
+                              background: "transparent",
+                              color: active
+                                ? "#dce8f5"
+                                : "rgba(125,142,160,0.82)",
+                              borderRadius: 0,
+                              padding: "4px 0 6px 0",
+                              fontSize: 12,
+                              fontWeight: active ? 600 : 500,
+                              cursor: "pointer",
+                              opacity: active ? 1 : 0.68,
+                            }}
+                          >
+                            {segment.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 11, color: activeSimulationPerformanceMetrics?.isLowSample ? "#73869a" : "#8b9caf", lineHeight: 1.45 }}>
+                      {performanceSegmentLabel}
+                      {activeSimulationPerformanceMetrics?.tradeCount
+                        ? ` · ${activeSimulationPerformanceMetrics.tradeCount} trade${activeSimulationPerformanceMetrics.tradeCount === 1 ? "" : "s"}`
+                        : ""}
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))",
+                        gap: 10,
+                        paddingTop: 2,
+                        opacity: activeSimulationPerformanceMetrics?.isLowSample ? 0.7 : 1,
+                      }}
+                    >
+                      {simulationPerformanceMetricsRows.map((metric) => {
+                        const metricColor = metric.tone === "positive"
+                          ? "#4ade80"
+                          : metric.tone === "negative"
+                            ? "#f87171"
+                            : "#e2e8f0";
+                        return (
+                          <div key={metric.label} style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                            <div style={{ fontSize: 10, color: "#6f839a", letterSpacing: "0.01em" }}>{metric.label}</div>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: metricColor, letterSpacing: "-0.01em" }}>
+                              {metric.value}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                     {renderSimulationInfoCard("account")}
                   </div>
-                  ) : null}
 
-                  <div style={{ padding: 16, borderRadius: 14, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7CC4FF" }}>
-                        Session Coach
-                      </div>
-                      <div style={{ fontSize: 12, color: "#cbd5e1" }}>
-                        {simulationStatsProfile.totalTrades} {simulationMode === "scenario" ? "realistic scenario" : "live"} trades
-                      </div>
-                    </div>
-
-                    {simulationStatsProfile.totalTrades < 5 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                          Warming Up
-                        </div>
-                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
-                          Complete 5 simulation trades to unlock your trader profile and insights.
-                        </div>
-                        <div style={{ fontSize: 13, color: "#7CC4FF", fontWeight: 600 }}>
-                          {`${simulationStatsProfile.totalTrades} / 5 trades logged`}
-                        </div>
-                      </div>
-                    ) : simulationSessionInsights ? (
-                      <>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-                          <div>
-                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Win Rate</div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                              {`${simulationStatsProfile.winRate.toFixed(1)}%`}
-                            </div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg P/L</div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: simulationStatsProfile.avgProfitLoss >= 0 ? "#4ade80" : "#f87171" }}>
-                              {`${simulationStatsProfile.avgProfitLoss >= 0 ? "+" : ""}$${simulationStatsProfile.avgProfitLoss.toFixed(2)}`}
-                            </div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg R</div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: simulationStatsProfile.avgRMultiple == null ? "#e2e8f0" : simulationStatsProfile.avgRMultiple >= 0 ? "#4ade80" : "#f87171" }}>
-                              {simulationStatsProfile.avgRMultiple == null ? "--" : `${simulationStatsProfile.avgRMultiple >= 0 ? "+" : ""}${simulationStatsProfile.avgRMultiple.toFixed(2)}R`}
-                            </div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Duration</div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
-                              {formatSimulationDuration(simulationStatsProfile.avgDurationMs)}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {[simulationSessionInsights.primaryStrength, simulationSessionInsights.primaryWeakness, simulationSessionInsights.directionBias, simulationSessionInsights.executionPattern, simulationSessionInsights.marketFitNote].filter(Boolean).slice(0, 5).map((insight) => (
-                            <div key={insight} style={{ fontSize: 13, color: "#e2e8f0", lineHeight: 1.6 }}>
-                              • {insight}
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-
-                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 10, marginBottom: simulationMode === "scenario" ? 8 : 0 })}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                      <div style={simulationQuietLabelStyle}>
                         {simulationMode === "scenario" ? "Scenario Chart" : "Live Chart"}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -15609,7 +15840,7 @@ return (
                         </div>
                       </div>
                     )}
-                  <div className="tradingviewFrameWrapFull" style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" }}>
+                  <div className="tradingviewFrameWrapFull" style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden" }}>
                     {simulationMode === "scenario" ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         {guidedScenarioActive && guidedScenarioMessage && (
@@ -15682,7 +15913,7 @@ return (
                   </div>
 
                   {visibleSimulationPositions.length > 0 && (
-                    <div ref={setSimulationSectionRef("open-position")} style={getSimulationSectionStyle("open-position", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                    <div ref={setSimulationSectionRef("open-position")} style={getSimulationSectionStyle("open-position", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Open Trades
@@ -15900,9 +16131,9 @@ return (
                   )}
 
                   {visibleSimulationClosedTrade && (
-                    <div ref={setSimulationSectionRef("summary")} style={getSimulationSectionStyle("summary", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" })}>
+                    <div ref={setSimulationSectionRef("summary")} style={getSimulationSectionStyle("summary", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14 })}>
                       {isActiveGuidedTradeClosed && (
-                        <div style={{ marginBottom: 14, padding: 14, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div style={{ ...simulationBriefingPanelStyle, marginBottom: 14, padding: 14, borderRadius: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
                               Guided First Trade Complete
@@ -16015,7 +16246,7 @@ return (
                     </div>
                     {(() => {
                       const raylaReviewPreview = buildSimulationReflectionPreview(visibleSimulationClosedTrade);
-                      if (!raylaReviewPreview) return null;
+                      if (!raylaReviewPreview || isPostLossQuiet) return null;
                       return (
                         <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                           <div style={{ fontSize: 11, fontWeight: 500, color: "#4a5568", marginBottom: 6, letterSpacing: "0.02em" }}>
@@ -16038,7 +16269,7 @@ return (
                   </div>
                 )}
 
-                  <div ref={setSimulationSectionRef("history")} style={getSimulationSectionStyle("history", { padding: 16, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 })}>
+                    <div ref={setSimulationSectionRef("history")} style={getSimulationSectionStyle("history", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade History
@@ -16050,7 +16281,7 @@ return (
                         {visibleSimulationTradeHistory.slice(0, 8).map((trade, index) => (
                           <div
                             key={`${trade.asset}-${trade.closedAt || index}`}
-                            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)" }}
                           >
                             <div>
                               <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
