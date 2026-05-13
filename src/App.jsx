@@ -7275,6 +7275,7 @@ useEffect(() => {
   const [tradeChartLastUpdated, setTradeChartLastUpdated] = useState(null);
   const [tradeChartRefreshTick, setTradeChartRefreshTick] = useState(0);
   const [tradeViewMode, setTradeViewMode] = useState("asset");
+  const [tradeLogChartSymbol, setTradeLogChartSymbol] = useState("");
   const [tradePortfolioChartView, setTradePortfolioChartView] = useState("portfolio");
   const [tradePortfolioSelectedSymbols, setTradePortfolioSelectedSymbols] = useState([]);
   const tradeChartSelection = getChartSelectionConfig(tradeChartRange);
@@ -7460,7 +7461,7 @@ useEffect(() => {
   }, [performanceLiveAppliedSelection, tradePortfolioAllSymbols]);
   const activeTradeChartSelection = activeTab === "ai" ? performanceLiveLegacySelection : tradeAppliedSelection;
   const tradeChartSymbol = activeTradeChartSelection.mode === "asset"
-    ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
+    ? (tradeLogChartSymbol || activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
     : "";
   const tradeChartMatchingPosition = tradeChartSymbol
     ? alpacaPositions.find((position) => position.symbol === tradeChartSymbol) || null
@@ -7533,6 +7534,7 @@ useEffect(() => {
     const nextSelection = normalizeTradeSelection(selection);
     setTradePendingSelection(nextSelection);
     setTradeAppliedSelection(nextSelection);
+    setTradeLogChartSymbol("");
   };
   const tradePendingSelectionKey = buildTradeSelectionKey(tradePendingSelection);
   const tradeAppliedSelectionKey = buildTradeSelectionKey(tradeAppliedSelection);
@@ -7751,6 +7753,7 @@ useEffect(() => {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
   const [isParsingScreenshot, setIsParsingScreenshot] = useState(false);
+  const [screenshotParseNotice, setScreenshotParseNotice] = useState(null);
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
   });
@@ -10999,6 +11002,7 @@ useEffect(() => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+    setScreenshotParseNotice(null);
     setIsParsingScreenshot(true);
     const reader = new FileReader();
     reader.onload = async () => {
@@ -11013,11 +11017,103 @@ useEffect(() => {
         const data = await res.json();
         if (!data.ok) { showToast("Parse failed — fill in manually.", "error"); return; }
         const f = data.fields || {};
-        setTradeForm({ asset: f.asset || "", entryPrice: f.entryPrice || "", size: f.size || "", entryTime: "", setup: f.setup || "", session: f.session || "", marketCondition: "", direction: f.direction || "", result: f.result?.toString() || "", exitPrice: "", exitTime: "" });
-        const missing = data.missing || [];
-        if (missing.length) showToast(`Prefilled — review: ${missing.join(", ")}`, "warning");
-      } catch { showToast("Could not parse screenshot — fill in manually.", "error"); }
+        const firstParsedValue = (...values) =>
+          values.find((value) => String(value ?? "").trim() !== "") ?? "";
+        const normalizeParsedText = (value) => String(value || "").trim();
+        const normalizeParsedPositiveNumber = (value) => {
+          const parsed = Number.parseFloat(String(value ?? "").replace(/[$,]/g, ""));
+          return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : "";
+        };
+        const normalizeParsedResult = (value) => {
+          const parsed = Number.parseFloat(String(value ?? "").replace(/[rR]/g, ""));
+          return Number.isFinite(parsed) ? String(parsed) : "";
+        };
+        const normalizeParsedOption = (value, options) => {
+          const normalized = normalizeParsedText(value).toLowerCase();
+          return options.find((option) => option.toLowerCase() === normalized) || "";
+        };
+        const normalizedDirection = normalizeParsedText(firstParsedValue(f.direction, f.side, f.orderSide, f.action)).toLowerCase();
+        const parsedShareQuantity = normalizeParsedPositiveNumber(firstParsedValue(
+          f.fillQuantity,
+          f.filledQuantity,
+          f.quantity,
+          f.qty,
+          f.shares,
+          f.fractionalShares
+        ));
+        const parsedNotional = normalizeParsedPositiveNumber(firstParsedValue(
+          f.notional,
+          f.amount,
+          f.dollarAmount,
+          f.orderAmount,
+          f.total,
+          f.size
+        ));
+        const parsedFields = {
+          asset: normalizeParsedText(firstParsedValue(f.asset, f.ticker, f.symbol)).toUpperCase(),
+          entryPrice: normalizeParsedPositiveNumber(firstParsedValue(f.entryPrice, f.fillPrice, f.filledPrice, f.averagePrice, f.avgPrice, f.price)),
+          size: parsedNotional,
+          setup: normalizeParsedOption(f.setup, SETUP_OPTIONS),
+          session: normalizeParsedOption(f.session, SESSION_OPTIONS),
+          direction: normalizedDirection.includes("buy") || normalizedDirection === "long"
+            ? "long"
+            : normalizedDirection.includes("sell short") || normalizedDirection === "short"
+              ? "short"
+              : "",
+          result: normalizeParsedResult(f.result),
+        };
+        const appliedFields = Object.fromEntries(
+          Object.entries(parsedFields).filter(([, value]) => value !== "")
+        );
+
+        if (!Object.keys(appliedFields).length) {
+          setScreenshotParseNotice({
+            tone: "error",
+            message: "Rayla could not read reliable trade fields from that screenshot. Fill the trade manually.",
+          });
+          showToast("Could not read reliable fields — fill in manually.", "error");
+          return;
+        }
+
+        const nextTradeForm = { ...tradeForm, ...appliedFields };
+        setTradeForm((prev) => ({ ...prev, ...appliedFields }));
+        const parserMissing = Array.isArray(data.missing) ? data.missing.filter(Boolean) : [];
+        const detectedDetails = [];
+        if (parsedShareQuantity) detectedDetails.push(`${parsedShareQuantity} share${Number(parsedShareQuantity) === 1 ? "" : "s"}`);
+        if (parsedNotional) detectedDetails.push(`$${parsedNotional} amount`);
+        const requiredMissing = [
+          ["asset", "asset"],
+          ["entryPrice", "entry price"],
+          ["size", "size"],
+          ["entryTime", "entry time"],
+          ["result", "result"],
+        ]
+          .filter(([key]) => !String(nextTradeForm[key] || "").trim())
+          .map(([, label]) => label);
+        const reviewFields = [...new Set([...parserMissing, ...requiredMissing])];
+        setScreenshotParseNotice({
+          tone: reviewFields.length ? "warning" : "success",
+          message: reviewFields.length
+            ? `Screenshot filled ${Object.keys(appliedFields).length} field${Object.keys(appliedFields).length === 1 ? "" : "s"}${detectedDetails.length ? ` and detected ${detectedDetails.join(", ")}` : ""}. Review before saving; still needs ${reviewFields.join(", ")}.`
+            : `Screenshot filled ${Object.keys(appliedFields).length} field${Object.keys(appliedFields).length === 1 ? "" : "s"}${detectedDetails.length ? ` and detected ${detectedDetails.join(", ")}` : ""}. Review every field before saving.`,
+        });
+        showToast("Screenshot parsed — review fields before saving.", reviewFields.length ? "warning" : "success");
+      } catch {
+        setScreenshotParseNotice({
+          tone: "error",
+          message: "Rayla could not parse that screenshot. Fill the trade manually or upload a clearer screenshot.",
+        });
+        showToast("Could not parse screenshot — fill in manually.", "error");
+      }
       finally { setIsParsingScreenshot(false); }
+    };
+    reader.onerror = () => {
+      setScreenshotParseNotice({
+        tone: "error",
+        message: "Rayla could not read that image file. Try another screenshot or fill the trade manually.",
+      });
+      setIsParsingScreenshot(false);
+      showToast("Could not read image file.", "error");
     };
     reader.readAsDataURL(file);
   }
@@ -15310,9 +15406,37 @@ return (
                           {isParsingScreenshot ? "Parsing…" : "📸 Upload Trade Screenshot"}
                           <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} disabled={isParsingScreenshot} />
                         </label>
+                        {screenshotParseNotice && (
+                          <div
+                            style={{
+                              marginTop: 10,
+                              padding: "10px 12px",
+                              borderRadius: 10,
+                              border: screenshotParseNotice.tone === "error"
+                                ? "1px solid rgba(248,113,113,0.22)"
+                                : screenshotParseNotice.tone === "warning"
+                                  ? "1px solid rgba(251,191,36,0.22)"
+                                  : "1px solid rgba(74,222,128,0.2)",
+                              background: screenshotParseNotice.tone === "error"
+                                ? "rgba(248,113,113,0.08)"
+                                : screenshotParseNotice.tone === "warning"
+                                  ? "rgba(251,191,36,0.08)"
+                                  : "rgba(74,222,128,0.07)",
+                              color: screenshotParseNotice.tone === "error"
+                                ? "#fca5a5"
+                                : screenshotParseNotice.tone === "warning"
+                                  ? "#fbbf24"
+                                  : "#86efac",
+                              fontSize: 12,
+                              lineHeight: 1.55,
+                            }}
+                          >
+                            {screenshotParseNotice.message}
+                          </div>
+                        )}
                       </div>
                       <form onSubmit={handleAddTrade} className="tradeEntryRow">
-                        <input className="authInput" placeholder="Asset (BTC, AAPL)" value={tradeForm.asset} onChange={(e) => setTradeForm({ ...tradeForm, asset: e.target.value })} />
+                        <input className="authInput" placeholder="Asset (BTC, AAPL)" value={tradeForm.asset} onChange={(e) => setTradeForm({ ...tradeForm, asset: e.target.value })} onBlur={(e) => { const sym = resolveTickerAlias(e.target.value.trim()).toUpperCase(); if (sym) setTradeLogChartSymbol(sym); }} />
                         <input className="authInput" placeholder="Entry Price" value={tradeForm.entryPrice} onChange={(e) => setTradeForm({ ...tradeForm, entryPrice: e.target.value })} />
                         <input className="authInput" placeholder="Size ($)" value={tradeForm.size} onChange={(e) => setTradeForm({ ...tradeForm, size: e.target.value })} />
                         <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => setTradeForm({ ...tradeForm, entryTime: e.target.value })} />
@@ -15981,100 +16105,102 @@ return (
                     </div>
                   </div>
 
-                  <div
-                    ref={setSimulationSectionRef("account")}
-                    style={getSimulationSectionStyle("account", {
-                      background: "transparent",
-                      border: "1px solid rgba(255,255,255,0.025)",
-                      padding: 12,
-                      borderRadius: 12,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 10,
-                      order: isMobileView ? 2 : 0,
-                      opacity: 1,
-                    })}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ ...simulationQuietLabelStyle, color: "#8fb9dd" }}>
-                        Performance
-                      </div>
-                      {renderSimulationInfoButton("account")}
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={{ fontSize: 11, color: "#73869a", letterSpacing: "0.01em" }}>
-                        Source
-                      </div>
-                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
-                      {[
-                        { key: "live_trades", label: "Live Trades", disabled: false },
-                        { key: "live_simulation", label: "Live Simulation", disabled: false },
-                      ].map((segment) => {
-                        const active = simulationPerformanceSegment === segment.key && !segment.disabled;
-                        return (
-                          <button
-                            key={segment.key}
-                            type="button"
-                            onClick={() => { if (!segment.disabled) setSimulationPerformanceSegment(segment.key); }}
-                            disabled={segment.disabled}
-                            style={{
-                              border: "none",
-                              borderBottom: active
-                                ? "2px solid rgba(220,232,245,0.92)"
-                                : "1px solid transparent",
-                              background: "transparent",
-                              color: segment.disabled
-                                ? "rgba(144,160,178,0.36)"
-                                : active
-                                  ? "#e6f0fa"
-                                  : "rgba(144,160,178,0.92)",
-                              borderRadius: 0,
-                              padding: "6px 0 8px 0",
-                              fontSize: 13,
-                              fontWeight: active ? 700 : 600,
-                              cursor: segment.disabled ? "default" : "pointer",
-                              opacity: segment.disabled ? 0.5 : active ? 1 : 0.84,
-                            }}
-                          >
-                            {segment.label}
-                          </button>
-                        );
-                      })}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: activeSimulationPerformanceMetrics?.isLowSample ? "#73869a" : "#8b9caf", lineHeight: 1.45 }}>
-                      {performanceSegmentLabel}
-                      {activeSimulationPerformanceMetrics?.tradeCount
-                        ? ` · ${activeSimulationPerformanceMetrics.tradeCount} trade${activeSimulationPerformanceMetrics.tradeCount === 1 ? "" : "s"}`
-                        : ""}
-                    </div>
+                  {!isBeginner && (
                     <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))",
+                      ref={setSimulationSectionRef("account")}
+                      style={getSimulationSectionStyle("account", {
+                        background: "transparent",
+                        border: "1px solid rgba(255,255,255,0.025)",
+                        padding: 12,
+                        borderRadius: 12,
+                        display: "flex",
+                        flexDirection: "column",
                         gap: 10,
-                        paddingTop: 2,
-                        opacity: activeSimulationPerformanceMetrics?.isLowSample ? 0.7 : 1,
-                      }}
-                    >
-                      {simulationPerformanceMetricsRows.map((metric) => {
-                        const metricColor = metric.tone === "positive"
-                          ? "#4ade80"
-                          : metric.tone === "negative"
-                            ? "#f87171"
-                            : "#e2e8f0";
-                        return (
-                          <div key={metric.label} style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                            <div style={{ fontSize: 10, color: "#6f839a", letterSpacing: "0.01em" }}>{metric.label}</div>
-                            <div style={{ fontSize: 17, fontWeight: 700, color: metricColor, letterSpacing: "-0.01em" }}>
-                              {metric.value}
-                            </div>
-                          </div>
-                        );
+                        order: isMobileView ? 2 : 0,
+                        opacity: 1,
                       })}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ ...simulationQuietLabelStyle, color: "#8fb9dd" }}>
+                          Performance
+                        </div>
+                        {renderSimulationInfoButton("account")}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ fontSize: 11, color: "#73869a", letterSpacing: "0.01em" }}>
+                          Source
+                        </div>
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        {[
+                          { key: "live_trades", label: "Live Trades", disabled: false },
+                          { key: "live_simulation", label: "Live Simulation", disabled: false },
+                        ].map((segment) => {
+                          const active = simulationPerformanceSegment === segment.key && !segment.disabled;
+                          return (
+                            <button
+                              key={segment.key}
+                              type="button"
+                              onClick={() => { if (!segment.disabled) setSimulationPerformanceSegment(segment.key); }}
+                              disabled={segment.disabled}
+                              style={{
+                                border: "none",
+                                borderBottom: active
+                                  ? "2px solid rgba(220,232,245,0.92)"
+                                  : "1px solid transparent",
+                                background: "transparent",
+                                color: segment.disabled
+                                  ? "rgba(144,160,178,0.36)"
+                                  : active
+                                    ? "#e6f0fa"
+                                    : "rgba(144,160,178,0.92)",
+                                borderRadius: 0,
+                                padding: "6px 0 8px 0",
+                                fontSize: 13,
+                                fontWeight: active ? 700 : 600,
+                                cursor: segment.disabled ? "default" : "pointer",
+                                opacity: segment.disabled ? 0.5 : active ? 1 : 0.84,
+                              }}
+                            >
+                              {segment.label}
+                            </button>
+                          );
+                        })}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: activeSimulationPerformanceMetrics?.isLowSample ? "#73869a" : "#8b9caf", lineHeight: 1.45 }}>
+                        {performanceSegmentLabel}
+                        {activeSimulationPerformanceMetrics?.tradeCount
+                          ? ` · ${activeSimulationPerformanceMetrics.tradeCount} trade${activeSimulationPerformanceMetrics.tradeCount === 1 ? "" : "s"}`
+                          : ""}
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))",
+                          gap: 10,
+                          paddingTop: 2,
+                          opacity: activeSimulationPerformanceMetrics?.isLowSample ? 0.7 : 1,
+                        }}
+                      >
+                        {simulationPerformanceMetricsRows.map((metric) => {
+                          const metricColor = metric.tone === "positive"
+                            ? "#4ade80"
+                            : metric.tone === "negative"
+                              ? "#f87171"
+                              : "#e2e8f0";
+                          return (
+                            <div key={metric.label} style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                              <div style={{ fontSize: 10, color: "#6f839a", letterSpacing: "0.01em" }}>{metric.label}</div>
+                              <div style={{ fontSize: 17, fontWeight: 700, color: metricColor, letterSpacing: "-0.01em" }}>
+                                {metric.value}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {renderSimulationInfoCard("account")}
                     </div>
-                    {renderSimulationInfoCard("account")}
-                  </div>
+                  )}
 
                   <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0, order: isMobileView ? 1 : 0 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
