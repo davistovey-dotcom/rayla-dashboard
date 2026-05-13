@@ -1068,6 +1068,26 @@ function getAlpacaOrderActionLabel(action) {
   return "Buy";
 }
 
+async function getSupabaseFunctionErrorMessage(error, fallback = "Request failed.") {
+  const context = error?.context;
+  if (context && typeof context.json === "function") {
+    try {
+      const body = await context.json();
+      if (body?.error) return body.error;
+      if (body?.message) return body.message;
+      return JSON.stringify(body);
+    } catch {
+      try {
+        const text = typeof context.text === "function" ? await context.text() : "";
+        if (text) return text;
+      } catch {
+        // Fall through to the generic error message.
+      }
+    }
+  }
+  return error?.message || fallback;
+}
+
 function getAlpacaOrderTypeLabel(type) {
   if (type === "stop_limit") return "Stop Limit";
   if (type === "stop") return "Stop";
@@ -8779,7 +8799,14 @@ useEffect(() => {
         body: payload,
       });
 
-      if (error) throw error;
+      if (error) {
+        const message = await getSupabaseFunctionErrorMessage(error, "Could not place Alpaca paper order.");
+        console.error("alpaca-place-order failed", { payload, message, error });
+        throw new Error(message);
+      }
+      if (data?.ok === false) {
+        throw new Error(data?.error || "Could not place Alpaca paper order.");
+      }
       if (!data?.order) throw new Error("Order was not accepted.");
 
       setAlpacaOrderResult(data.order);

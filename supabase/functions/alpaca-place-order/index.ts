@@ -1,12 +1,26 @@
 import { alpacaPaperRequest, normalizeAlpacaOrder, upsertBrokerTradeLogs } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
-function normalizeSymbol(value: unknown) {
-  return String(value || "").trim().toUpperCase();
+const CRYPTO_BASE_SYMBOLS = new Set(["BTC", "ETH", "SOL", "XRP", "DOGE", "LTC", "BCH", "AAVE", "UNI", "LINK", "AVAX", "BAT", "CRV", "GRT", "MKR", "SHIB", "SUSHI", "USDT", "USDC"]);
+
+function normalizeOrderSymbol(value: unknown) {
+  const raw = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!raw) return "";
+  if (/^[A-Z0-9]{2,10}\/USD$/.test(raw)) return raw;
+
+  const compact = raw.replace(/[^A-Z0-9]/g, "");
+  const usdPair = compact.match(/^([A-Z0-9]{2,6})USD$/);
+  if (usdPair && CRYPTO_BASE_SYMBOLS.has(usdPair[1])) {
+    return `${usdPair[1]}/USD`;
+  }
+  if (CRYPTO_BASE_SYMBOLS.has(compact)) {
+    return `${compact}/USD`;
+  }
+  return compact;
 }
 
 function validateOrderBody(body: any) {
-  const symbol = normalizeSymbol(body?.symbol);
+  const symbol = normalizeOrderSymbol(body?.symbol);
   const side = body?.side;
   const qty = Number(body?.qty);
   const type = body?.type;
@@ -14,8 +28,8 @@ function validateOrderBody(body: any) {
   const stopPrice = body?.stop_price == null || body?.stop_price === "" ? null : Number(body.stop_price);
   const timeInForce = String(body?.time_in_force || "gtc").toLowerCase();
 
-  if (!/^[A-Z]{1,5}$/.test(symbol)) {
-    throw new Error("Stocks only. Enter a valid stock symbol.");
+  if (!(/^[A-Z][A-Z0-9.]{0,9}$/.test(symbol) || /^[A-Z0-9]{2,10}\/USD$/.test(symbol))) {
+    throw new Error("Enter a valid Alpaca stock or crypto symbol.");
   }
 
   if (side !== "buy" && side !== "sell") {
