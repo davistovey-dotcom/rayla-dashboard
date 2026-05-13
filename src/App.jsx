@@ -7463,9 +7463,11 @@ useEffect(() => {
     };
   }, [performanceLiveAppliedSelection, tradePortfolioAllSymbols]);
   const activeTradeChartSelection = activeTab === "ai" ? performanceLiveLegacySelection : tradeAppliedSelection;
-  const tradeChartSymbol = activeTradeChartSelection.mode === "asset"
-    ? (tradeLogChartSymbol || activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
-    : "";
+  const tradeChartSymbol = tradeLogChartSymbol
+    ? tradeLogChartSymbol
+    : activeTradeChartSelection.mode === "asset"
+      ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
+      : "";
   const tradeChartMatchingPosition = tradeChartSymbol
     ? alpacaPositions.find((position) => position.symbol === tradeChartSymbol) || null
     : null;
@@ -7542,7 +7544,7 @@ useEffect(() => {
   const tradePendingSelectionKey = buildTradeSelectionKey(tradePendingSelection);
   const tradeAppliedSelectionKey = buildTradeSelectionKey(tradeAppliedSelection);
   const tradeViewSelectionDirty = tradePendingSelectionKey !== tradeAppliedSelectionKey;
-  const tradeIsComparisonMode = activeTradeChartSelection.mode === "portfolio" || activeTradeChartSelection.mode === "multi";
+  const tradeIsComparisonMode = !tradeLogChartSymbol && (activeTradeChartSelection.mode === "portfolio" || activeTradeChartSelection.mode === "multi");
   const tradeIsPortfolioTotalMode = activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "portfolio";
   const tradeIsPortfolioBreakdownMode = activeTradeChartSelection.mode === "multi"
     || (activeTradeChartSelection.mode === "portfolio" && tradePortfolioChartView === "breakdown");
@@ -15107,6 +15109,7 @@ return (
                                         setAlpacaAssetSearchResults([]);
                                         setAlpacaAssetSearchError("");
                                         setAlpacaAssetSearchOpen(false);
+                                        setTradeLogChartSymbol(asset.symbol);
                                       }}
                                       style={{ width: "100%", textAlign: "left", padding: "10px 14px", cursor: "pointer", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
                                     >
