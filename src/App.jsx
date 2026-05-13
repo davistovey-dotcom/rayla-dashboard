@@ -2875,6 +2875,7 @@ function buildSelectedAssetChartSummary(chartContext) {
 function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
   const realTrades = Array.isArray(trades) ? trades : [];
   const simTrades = Array.isArray(simulationTradeHistory) ? simulationTradeHistory : [];
+  const minimumPickSample = 3;
   const bucketMap = new Map();
 
   const ensureBucket = (asset, assetType, direction) => {
@@ -2933,7 +2934,11 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
     });
 
   const findBest = (assetType, direction) =>
-    ranked.find((entry) => entry.assetType === assetType && entry.direction === direction) || null;
+    ranked.find((entry) =>
+      entry.assetType === assetType &&
+      entry.direction === direction &&
+      entry.totalTrades >= minimumPickSample
+    ) || null;
 
   const toPick = (entry, title) => {
     if (!entry) {
@@ -2950,10 +2955,7 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
     const biasLabel = entry.direction === "short" ? "Short bias" : "Long bias";
     const realLabel = `${entry.realTrades} real trade${entry.realTrades === 1 ? "" : "s"}`;
     const simLabel = `${entry.simTrades} simulation trade${entry.simTrades === 1 ? "" : "s"}`;
-    const earlyRead = entry.totalTrades < 3;
-    const explanation = earlyRead
-      ? `${entry.asset} is the strongest early read in this bucket so far.`
-      : `${entry.asset} has the strongest relative edge in your logged history right now.`;
+    const explanation = `${entry.asset} has the strongest relative edge in your logged history right now.`;
     const progress = `Built from ${realLabel} and ${simLabel} in this direction.`;
 
     return {
@@ -2979,25 +2981,33 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
   };
 }
 
+function getTradeRValue(trade) {
+  const r = Number(trade?.result_r);
+  if (Number.isFinite(r)) return r;
+  const rm = Number(trade?.rMultiple);
+  return Number.isFinite(rm) ? rm : 0;
+}
+
 function buildCoachReport(trades) {
   if (!trades || trades.length === 0) return null;
 
-  const wins = trades.filter(t => getTradeOutcomeValue(t) > 0);
-  const losses = trades.filter(t => getTradeOutcomeValue(t) < 0);
+  const wins = trades.filter(t => getTradeRValue(t) > 0);
+  const losses = trades.filter(t => getTradeRValue(t) < 0);
   const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
-  const avgR = trades.length ? trades.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / trades.length : 0;
-  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / wins.length : 0;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / losses.length) : 0;
-  const totalR = trades.reduce((s, t) => s + getTradeOutcomeValue(t), 0);
+  const avgR = trades.length ? trades.reduce((s, t) => s + getTradeRValue(t), 0) / trades.length : 0;
+  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeRValue(t), 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeRValue(t), 0) / losses.length) : 0;
+  const totalR = trades.reduce((s, t) => s + getTradeRValue(t), 0);
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
 
   const setupMap = {};
   trades.forEach(t => {
-    if (!t.setup) return;
-    if (!setupMap[t.setup]) setupMap[t.setup] = { trades: 0, wins: 0, totalR: 0 };
-    setupMap[t.setup].trades++;
-    setupMap[t.setup].totalR += getTradeOutcomeValue(t);
-    if (getTradeOutcomeValue(t) > 0) setupMap[t.setup].wins++;
+    const setup = normalizeSetupType(t.setupType) || String(t.setup || "").trim();
+    if (!setup) return;
+    if (!setupMap[setup]) setupMap[setup] = { trades: 0, wins: 0, totalR: 0 };
+    setupMap[setup].trades++;
+    setupMap[setup].totalR += getTradeRValue(t);
+    if (getTradeRValue(t) > 0) setupMap[setup].wins++;
   });
   const setupStats = Object.entries(setupMap)
     .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -3008,8 +3018,8 @@ function buildCoachReport(trades) {
     const asset = (t.asset || "Unknown").toUpperCase();
     if (!assetMap[asset]) assetMap[asset] = { trades: 0, wins: 0, totalR: 0 };
     assetMap[asset].trades++;
-    assetMap[asset].totalR += getTradeOutcomeValue(t);
-    if (getTradeOutcomeValue(t) > 0) assetMap[asset].wins++;
+    assetMap[asset].totalR += getTradeRValue(t);
+    if (getTradeRValue(t) > 0) assetMap[asset].wins++;
   });
   const assetStats = Object.entries(assetMap)
     .map(([asset, s]) => ({ asset, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -3035,12 +3045,13 @@ function buildCoachReport(trades) {
 
   const comboMap = {};
   trades.forEach(t => {
-    if (!t.setup?.trim()) return;
-    const key = `${(t.asset||"").toUpperCase()}_${t.setup.trim()}`;
-    if (!comboMap[key]) comboMap[key] = { asset: (t.asset||"").toUpperCase(), setup: t.setup.trim(), trades: 0, wins: 0, totalR: 0 };
+    const setup = normalizeSetupType(t.setupType) || String(t.setup || "").trim();
+    if (!setup) return;
+    const key = `${(t.asset||"").toUpperCase()}_${setup}`;
+    if (!comboMap[key]) comboMap[key] = { asset: (t.asset||"").toUpperCase(), setup, trades: 0, wins: 0, totalR: 0 };
     comboMap[key].trades++;
-    comboMap[key].totalR += getTradeOutcomeValue(t);
-    if (getTradeOutcomeValue(t) > 0) comboMap[key].wins++;
+    comboMap[key].totalR += getTradeRValue(t);
+    if (getTradeRValue(t) > 0) comboMap[key].wins++;
   });
   const comboStats = Object.values(comboMap)
     .map(c => ({ ...c, winRate: (c.wins / c.trades) * 100, avgR: c.totalR / c.trades }))
@@ -3048,12 +3059,12 @@ function buildCoachReport(trades) {
     .sort((a, b) => b.avgR - a.avgR);
 
   const warnings = [];
-  if (winRate < 40) warnings.push("Win rate is below 40% — entries need refinement.");
+  if (trades.length >= 3 && winRate < 40) warnings.push("Win rate is below 40% — entries need refinement.");
   if (avgLoss > avgWin && wins.length > 0 && losses.length > 0) warnings.push("Avg loss is larger than avg win — cutting winners too early or letting losers run.");
   if (profitFactor !== null && profitFactor < 1) warnings.push("Profit factor is below 1.0 — system is net negative. Review setups immediately.");
   if (trades.length >= 5 && winRate < 50) warnings.push("Win rate under 50% with 5+ trades — possible overtrading or setup quality issues.");
   if (broadAssetSpreadIsHurting) warnings.push(`Your weaker results are coming outside your top assets. Keep an eye on whether breadth is diluting edge quality.`);
-  const recentLosses = trades.slice(0, 4).filter(t => getTradeOutcomeValue(t) < 0).length;
+  const recentLosses = trades.slice(0, 4).filter(t => getTradeRValue(t) < 0).length;
   if (recentLosses >= 3) warnings.push("3 or more losses in your last 4 trades — consider taking a break.");
 
   const actions = [];
