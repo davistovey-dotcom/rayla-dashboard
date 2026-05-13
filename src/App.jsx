@@ -10471,6 +10471,31 @@ useEffect(() => {
     handleChartExplainPopupQuestion(question, reviewContext, { resetThread: true });
   }
 
+  function getIntelLaunchCurrentPrice(intelLaunch, launchMode) {
+    const launchAsset = intelLaunch?.asset;
+    if (!launchAsset?.id) return null;
+
+    const normalizedAssetId = normalizeAssetId(launchAsset.id, launchAsset.type, launchAsset.tvSymbol);
+    const directPrice = getSimulationPrice(launchAsset.id, launchMode);
+    if (Number.isFinite(directPrice) && directPrice > 0) return directPrice;
+
+    const selectedAssetMatches =
+      selectedSimulationItem &&
+      normalizeAssetId(selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol) === normalizedAssetId;
+    if (selectedAssetMatches && Number.isFinite(selectedSimulationPrice) && selectedSimulationPrice > 0) {
+      return selectedSimulationPrice;
+    }
+
+    const marketItem = marketItems.find((item) =>
+      normalizeAssetId(item.id, item.type, item.tvSymbol) === normalizedAssetId
+    );
+    if (Number.isFinite(marketItem?.priceValue) && marketItem.priceValue > 0) {
+      return marketItem.priceValue;
+    }
+
+    return Number.isFinite(directPrice) ? directPrice : null;
+  }
+
   function openIntelSimulationRaylaPopup(intelLaunch) {
     if (!intelLaunch) return;
 
@@ -10484,7 +10509,7 @@ useEffect(() => {
       timeframe: launchMode === "scenario"
         ? simulationChartTimeframeConfig.label
         : getChartSelectionConfig(simulationLiveChartRange).label,
-      currentPrice: getSimulationPrice(intelLaunch.asset.id, launchMode),
+      currentPrice: getIntelLaunchCurrentPrice(intelLaunch, launchMode),
       direction: intelLaunch.direction,
       amount: simulationAmount,
       amountMode: simulationAmountMode,
