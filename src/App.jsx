@@ -290,6 +290,9 @@ function rankSupportedSearchResult(result, query) {
   const normalizedQuery = String(query || "").trim().toUpperCase();
   const symbol = String(result?.symbol || "").trim().toUpperCase();
   const description = String(result?.description || "").trim().toUpperCase();
+  const isCanonicalCryptoQuery = SUPPORTED_CRYPTO_SEARCH_ASSETS.some((asset) => asset.symbol === normalizedQuery);
+  const isCanonicalCryptoMatch = isCanonicalCryptoQuery && result?.type === "crypto" && symbol === normalizedQuery;
+  if (isCanonicalCryptoMatch) return -1;
   if (symbol === normalizedQuery) return 0;
   if (description === normalizedQuery) return 1;
   if (symbol.startsWith(normalizedQuery)) return 2;
