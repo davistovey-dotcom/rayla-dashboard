@@ -693,6 +693,8 @@ function getTradeOutcomeValue(trade) {
 function getTradeProfitValue(trade) {
   const explicitProfit = Number(trade?.profitLoss);
   if (Number.isFinite(explicitProfit)) return explicitProfit;
+  const explicitPnlDollars = Number(trade?.pnl_dollars);
+  if (Number.isFinite(explicitPnlDollars)) return explicitPnlDollars;
   const explicitPnl = Number(trade?.pnl);
   if (Number.isFinite(explicitPnl)) return explicitPnl;
   const explicitUsd = Number(trade?.profitLossUsd);
@@ -785,7 +787,7 @@ function buildPerformanceSegmentMetrics(trades, { profitAccessor = getTradeProfi
 }
 
 function normalizeSimulationTradeForPerformance(trade) {
-  const asset = String(trade?.asset || "").trim().toUpperCase();
+  const asset = String(trade?.asset || trade?.symbol || trade?.ticker || "").trim().toUpperCase();
   const symbol = asset || null;
   const resultR = Number(trade?.rMultiple);
   const profitValue = getTradeProfitValue(trade);
@@ -846,6 +848,31 @@ function normalizeSimulationTradeForPerformance(trade) {
     source: trade?.source || "live_simulation",
     source_label: trade?.source_label || "Live Simulation",
   };
+}
+
+function getSimulationTradeMarketMode(trade) {
+  const explicitMode = String(trade?.marketMode || trade?.mode || trade?.simulationMode || "").trim().toLowerCase();
+  if (explicitMode === "scenario") return "scenario";
+  if (explicitMode === "live") return "live";
+  return trade?.scenarioType ? "scenario" : "live";
+}
+
+function isClosedSimulationTrade(trade) {
+  return Boolean(
+    trade?.closedAt
+    || trade?.closed_at
+    || trade?.exit_time
+    || trade?.exitPrice != null
+    || trade?.exit_price != null
+    || trade?.profitLoss != null
+    || trade?.profit_loss != null
+    || trade?.rMultiple != null
+    || trade?.result_r != null
+  );
+}
+
+function isClosedLiveSimulationTradeForPerformance(trade) {
+  return isClosedSimulationTrade(trade) && getSimulationTradeMarketMode(trade) === "live";
 }
 
 function parseBrokerFillPrice(trade) {
@@ -3142,9 +3169,16 @@ function InlineHelpCard({ topic }) {
 function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = null }) {
   if (!rows || rows.length === 0) return null;
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.totalR)), 0.01);
-  const scrollHeight = Number.isFinite(Number(maxHeight)) ? Number(maxHeight) : null;
+  const isAssetBreakdown = title === "By Asset";
+  const rowAreaHeight = isAssetBreakdown
+    ? 180
+    : Number.isFinite(Number(maxHeight))
+      ? Number(maxHeight)
+      : null;
+  const hasInternalScroll = Number.isFinite(rowAreaHeight);
   return (
     <div
+      data-perf-breakdown-card={title}
       style={{
         background: "rgba(18,26,38,0.86)",
         border: "1px solid rgba(255,255,255,0.07)",
@@ -3155,20 +3189,24 @@ function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = nu
         alignSelf: "start",
       }}
     >
-      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div data-perf-breakdown-header={title} style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
         {rows.length > 0 && (
           <div style={{ fontSize: 11, color: "#475569", whiteSpace: "nowrap" }}>{rows.length}</div>
         )}
       </div>
       <div
+        data-perf-breakdown-rows={title}
         style={{
+          display: "block",
           padding: "4px 0",
-          height: scrollHeight || undefined,
-          overflowY: scrollHeight ? "scroll" : "visible",
-          overscrollBehavior: scrollHeight ? "contain" : undefined,
-          scrollbarGutter: scrollHeight ? "stable both-edges" : undefined,
-          WebkitOverflowScrolling: scrollHeight ? "touch" : undefined,
+          height: rowAreaHeight || undefined,
+          maxHeight: rowAreaHeight || undefined,
+          overflowY: hasInternalScroll ? "auto" : "visible",
+          overscrollBehavior: hasInternalScroll ? "contain" : undefined,
+          scrollbarGutter: hasInternalScroll ? "stable both-edges" : undefined,
+          WebkitOverflowScrolling: hasInternalScroll ? "touch" : undefined,
+          flex: hasInternalScroll ? "0 0 auto" : undefined,
           minHeight: 0,
         }}
       >
@@ -3999,7 +4037,6 @@ function PerformanceDashboard({
             title="By Asset"
             rows={report.assetStats.map(a => ({ name: a.asset, trades: a.trades, winRate: a.winRate, avgR: a.avgR, totalR: a.totalR }))}
             nameColor="#e2e8f0"
-            maxHeight={220}
           />
           {sessionStats.length > 0 && (
             <PerfBreakdownTable
@@ -4506,6 +4543,8 @@ function parseTradeEntryTimeMs(trade) {
 function calculateTradeDollarPnl(trade) {
   const explicitPnl = Number(trade?.pnl_value);
   if (Number.isFinite(explicitPnl)) return explicitPnl;
+  const explicitPnlDollars = Number(trade?.pnl_dollars);
+  if (Number.isFinite(explicitPnlDollars)) return explicitPnlDollars;
 
   const entryPrice = Number(trade?.entry_price);
   const exitPrice = Number(trade?.exit_price);
@@ -7828,7 +7867,7 @@ useEffect(() => {
 
   const liveSimulationPerformanceTrades = useMemo(
     () => simulationTradeHistory
-      .filter((trade) => (trade?.marketMode || "live") === "live")
+      .filter(isClosedLiveSimulationTradeForPerformance)
       .map((trade) => normalizeSimulationTradeForPerformance(trade))
       .filter((trade) => trade.asset),
     [simulationTradeHistory]
@@ -11453,6 +11492,7 @@ useEffect(() => {
       exitReason,
       profitLoss,
       rMultiple,
+      result_r: Number.isFinite(rMultiple) ? rMultiple : null,
       outcomeLabel: summary.outcomeLabel,
       executionGrade: executionGrade.executionGrade,
       executionGradeLabel: executionGrade.executionGradeLabel,
@@ -12174,19 +12214,18 @@ function buildSimulationAssetFromPosition(position) {
     const exactSelection = selectedSimulationPositionId
       ? visibleSimulationPositions.find((position) => position.id === selectedSimulationPositionId) || null
       : null;
-    const newestVisiblePosition = [...visibleSimulationPositions]
-      .sort((a, b) => Number(b?.openedAt || 0) - Number(a?.openedAt || 0))[0] || null;
     const assetMatchPosition = simulationAsset
       ? visibleSimulationPositions.find((position) => (
         normalizeAssetId(position.asset, position.type, position.tvSymbol)
           === normalizeAssetId(simulationAsset.id, simulationAsset.type, simulationAsset.tvSymbol)
       )) || null
       : null;
-    return buildSimulationAssetFromPosition(exactSelection || assetMatchPosition || newestVisiblePosition);
+    return buildSimulationAssetFromPosition(exactSelection || assetMatchPosition);
   }, [visibleSimulationPositions, selectedSimulationPositionId, simulationAsset]);
   const selectedSimulationItem = selectedSimulationPositionAsset || simulationAsset || marketItems.find((item) => item.id === selectedMarketId) || marketItems[0];
   const selectedSimulationAssetExplicitlyUnsupported = selectedSimulationItem?.alpacaSupported === false || selectedSimulationItem?.tradable === false;
   const previousSelectedSimulationAssetIdRef = useRef(simulationAsset?.id || null);
+  const syncedSimulationSearchPositionIdRef = useRef(null);
   const selectedSimulationPrice = selectedSimulationItem ? getSimulationPrice(selectedSimulationItem.id) : null;
   const simulationLiveChartBars = extractVisibleChartBars(simulationLiveChart, simulationLiveChartRange);
   const selectedScenarioSeries = selectedSimulationItem
@@ -12287,8 +12326,7 @@ function buildSimulationAssetFromPosition(position) {
       if (assetMatch) return assetMatch;
     }
 
-    return [...visibleSimulationPositions]
-      .sort((a, b) => Number(b?.openedAt || 0) - Number(a?.openedAt || 0))[0] || null;
+    return null;
   }, [visibleSimulationPositions, selectedSimulationPositionId, selectedSimulationItem]);
   const visibleSimulationTradeHistory = useMemo(
     () => simulationTradeHistory.filter((trade) => (trade.marketMode || "live") === simulationMode),
@@ -12684,16 +12722,21 @@ function buildSimulationAssetFromPosition(position) {
   }, [simulationAsset?.id]);
 
   useEffect(() => {
-    if (activeTab !== "simulation" || !selectedSimulationOpenPosition) return;
+    if (activeTab !== "simulation" || !selectedSimulationOpenPosition) {
+      syncedSimulationSearchPositionIdRef.current = null;
+      return;
+    }
     const nextAsset = buildSimulationAssetFromPosition(selectedSimulationOpenPosition);
     if (!nextAsset) return;
     if (simulationAsset?.id !== nextAsset.id) {
       setSimulationAsset(nextAsset);
     }
-    if (!simulationSearchQuery || simulationSearchQuery === simulationAsset?.id) {
+    const positionId = selectedSimulationOpenPosition.id || nextAsset.id;
+    if (syncedSimulationSearchPositionIdRef.current !== positionId) {
       setSimulationSearchQuery(nextAsset.id);
+      syncedSimulationSearchPositionIdRef.current = positionId;
     }
-  }, [activeTab, selectedSimulationOpenPosition, simulationAsset?.id, simulationSearchQuery]);
+  }, [activeTab, selectedSimulationOpenPosition, simulationAsset?.id]);
 
   useEffect(() => {
     if (!simulationPendingScenarioDecision || selectedSimulationOpenPosition?.id !== simulationPendingScenarioDecision.positionId) return;
