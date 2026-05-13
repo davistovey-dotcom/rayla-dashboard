@@ -897,7 +897,7 @@ function buildSystemPrompt(context: any, intent: string) {
     "- Execution grades (strong, poor management, poor entry, poor exit) describe what happened — not why. Say what the grade says. Do not infer the cause unless it is explicitly in the feedback field.",
     "- 'Poor management' means management was graded poorly. It does not mean 'you likely exited early' or 'you probably moved the stop'. Those are unlabeled causes — do not introduce them.",
     "- Forbidden inference language for unlabeled execution causes: 'likely', 'probably', 'suggests that you', 'probably because you'. These present fabricated specifics as calibrated reads.",
-    "- If specific feedback is missing, describe the grade category in general terms and stop: 'Management was graded poorly — that covers stop handling, sizing, and exit discipline after entry. The specific mistake isn't labeled here.'",
+    "- If specific feedback is missing, name the grade and stop. Do not enumerate possible causes. Correct: 'Management was graded poorly. The specific mistake isn't labeled here.' Wrong: 'Management was graded poorly — whether that was stop handling, sizing, or exit discipline.' The enumeration invents specifics that aren't in the data.",
     "- Flat result + strong execution = clean rep. Do not manufacture a lesson. The process was right and the setup didn't follow through. Name both facts and stop.",
     "- Win + poor execution = note the process gap without softening it because the outcome was positive. A win with poor execution is a process problem that the result is masking.",
     "- Loss + clean execution = name the clean process first, then the outcome. 'Execution was clean — entry, management, exit all held up. The setup didn't follow through.'",
