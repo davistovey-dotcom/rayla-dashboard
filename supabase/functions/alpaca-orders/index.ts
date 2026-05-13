@@ -30,19 +30,29 @@ Deno.serve(async (req) => {
       });
     }
 
-    const orders = await alpacaPaperRequest(
+    const recentOrders = await alpacaPaperRequest(
       connection.access_token,
       "/v2/orders?status=all&direction=desc&limit=50&nested=false"
     );
+    const openOrders = await alpacaPaperRequest(
+      connection.access_token,
+      "/v2/orders?status=open&direction=desc&limit=500&nested=false"
+    );
+    const ordersById = new Map();
+    [...(Array.isArray(openOrders) ? openOrders : []), ...(Array.isArray(recentOrders) ? recentOrders : [])]
+      .forEach((order) => {
+        if (order?.id) ordersById.set(order.id, order);
+      });
+    const orders = [...ordersById.values()];
 
-    await upsertBrokerTradeLogs(supabase, user.id, "alpaca", Array.isArray(orders) ? orders : [], "alpaca_import");
+    await upsertBrokerTradeLogs(supabase, user.id, "alpaca", orders, "alpaca_import");
 
     return jsonResponse({
       ok: true,
       connected: true,
       provider: "alpaca",
       isPaper: true,
-      orders: Array.isArray(orders) ? orders.map(normalizeAlpacaOrder) : [],
+      orders: orders.map(normalizeAlpacaOrder),
     });
   } catch (error) {
     return jsonResponse(

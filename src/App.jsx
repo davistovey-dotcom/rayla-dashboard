@@ -454,6 +454,7 @@ const NAV_TABS = [
   { id: "journal", icon: <BookOpen size={18} />, label: "Journal" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
+const ACTIVE_TAB_STORAGE_KEY = "rayla-active-tab";
 const ASK_RAYLA_SUGGESTIONS = [
   "Explain this chart",
   "Is this a good entry?",
@@ -995,8 +996,11 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
   });
 }
 
-function getBrokerOrderStatusPresentation(rawStatus) {
+function getBrokerOrderStatusPresentation(rawStatus, submittedAt = null) {
   const status = String(rawStatus || "").trim().toLowerCase();
+  const submittedMs = submittedAt ? new Date(submittedAt).getTime() : null;
+  const ageMs = Number.isFinite(submittedMs) ? Date.now() - submittedMs : null;
+  const isStaleOpenOrder = Number.isFinite(ageMs) && ageMs > 24 * 60 * 60 * 1000;
 
   if (status === "filled") {
     return { label: "Order filled", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "rgba(74,222,128,0.24)" };
@@ -1005,7 +1009,13 @@ function getBrokerOrderStatusPresentation(rawStatus) {
     return { label: "Partially filled", color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.24)" };
   }
   if (status === "accepted" || status === "new" || status === "pending_new") {
+    if (isStaleOpenOrder) {
+      return { label: "Order still open in broker sync — refresh/check Alpaca", color: "#fca5a5", background: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.24)" };
+    }
     return { label: "Order accepted — may fill when market opens", color: "#fb923c", background: "rgba(251,146,60,0.12)", border: "rgba(251,146,60,0.24)" };
+  }
+  if (status === "done_for_day") {
+    return { label: "Order done for day", color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.24)" };
   }
   if (status === "canceled") {
     return { label: "Order canceled", color: "#f87171", background: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.24)" };
@@ -5731,7 +5741,7 @@ function BrokerTradeLogCard({ trades, isLoading, onRefresh }) {
           <div className="listSubtext">No broker trades synced yet. Place a Rayla paper order or refresh broker trades.</div>
         ) : (
           trades.map((trade) => {
-            const statusPresentation = getBrokerOrderStatusPresentation(trade.status);
+            const statusPresentation = getBrokerOrderStatusPresentation(trade.status, trade.submitted_at);
             return (
               <div className="listRow" key={trade.id}>
                 <div>
@@ -7263,6 +7273,8 @@ useEffect(() => {
   const [alpacaOrderSubmitting, setAlpacaOrderSubmitting] = useState(false);
   const [alpacaOrderResult, setAlpacaOrderResult] = useState(null);
   const [pendingAlpacaOrderConfirmation, setPendingAlpacaOrderConfirmation] = useState(null);
+  const [preparedCloseOrder, setPreparedCloseOrder] = useState(null);
+  const orderTicketRef = useRef(null);
   const [alpacaAssetSearchResults, setAlpacaAssetSearchResults] = useState([]);
   const [alpacaAssetSearchLoading, setAlpacaAssetSearchLoading] = useState(false);
   const [alpacaAssetSearchError, setAlpacaAssetSearchError] = useState("");
@@ -7321,7 +7333,21 @@ useEffect(() => {
     leverage: "1x",
   });
   const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
-  const [activeTab, setActiveTab] = useState("home");
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const storedTab = sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+      return NAV_TABS.some((tab) => tab.id === storedTab) ? storedTab : "home";
+    } catch {
+      return "home";
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+    } catch {
+      // Navigation still works if session storage is unavailable.
+    }
+  }, [activeTab]);
     const [newSymbol, setNewSymbol] = useState("");
   const [user, setUser] = useState(null);
   const [chartRange, setChartRange] = useState("ALL");
@@ -8645,6 +8671,20 @@ useEffect(() => {
 
   const alpacaOrderValidation = getAlpacaOrderValidationState();
 
+  useEffect(() => {
+    if (!preparedCloseOrder) return;
+    const currentSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
+    const currentQty = Number(alpacaOrderForm.qty);
+    const orderStillMatchesCloseIntent = (
+      currentSymbol === preparedCloseOrder.symbol
+      && alpacaOrderForm.side === preparedCloseOrder.side
+      && alpacaOrderForm.type === "market"
+      && Number.isFinite(currentQty)
+      && Math.abs(currentQty - preparedCloseOrder.qty) < 0.0001
+    );
+    if (!orderStillMatchesCloseIntent) setPreparedCloseOrder(null);
+  }, [alpacaOrderForm.symbol, alpacaOrderForm.side, alpacaOrderForm.qty, alpacaOrderForm.type, preparedCloseOrder]);
+
   async function handleSubmitAlpacaOrder(e) {
     e.preventDefault();
 
@@ -8746,12 +8786,45 @@ useEffect(() => {
       showToast(`Paper order submitted for ${data.order.symbol}.`, "success");
       setPendingAlpacaOrderConfirmation(null);
       await fetchAlpacaBrokerData({ silent: true });
-      await fetchBrokerTradeLog({ silent: true });
+      await fetchBrokerTradeLog({ sync: true, silent: true });
     } catch (error) {
       showToast(error?.message || "Could not place Alpaca paper order.", "error");
     } finally {
       setAlpacaOrderSubmitting(false);
     }
+  }
+
+  function prepareCloseAlpacaPosition(position) {
+    const symbol = String(position?.symbol || "").trim().toUpperCase();
+    const qty = Math.abs(Number(position?.qty ?? 0));
+    if (!symbol || !Number.isFinite(qty) || qty <= 0) return;
+
+    const closeSide = position?.side === "short" ? "buy_to_cover" : "sell";
+    setAlpacaOrderForm((prev) => ({
+      ...prev,
+      symbol,
+      side: closeSide,
+      qty: String(qty),
+      type: "market",
+      limitPrice: "",
+      stopPrice: "",
+      timeInForce: prev.timeInForce || "gtc",
+      leverage: "1x",
+    }));
+    setPreparedCloseOrder({
+      symbol,
+      side: closeSide,
+      qty,
+      positionSide: position?.side || "long",
+    });
+    setAlpacaSelectedAssetMeta(null);
+    setAlpacaAssetSearchOpen(false);
+    applyTradeSelection({ mode: "asset", symbols: [symbol] });
+    setTradeLogChartSymbol(symbol);
+    window.setTimeout(() => {
+      orderTicketRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    showToast(`Ready to close ${symbol}. Review the order ticket, then submit.`, "success");
   }
 
   useEffect(() => {
@@ -9198,7 +9271,7 @@ useEffect(() => {
     }
 
     fetchAlpacaBrokerData({ silent: true });
-    fetchBrokerTradeLog({ silent: true });
+    fetchBrokerTradeLog({ sync: true, silent: true });
   }, [session]);
 
   useEffect(() => {
@@ -14473,10 +14546,16 @@ return (
                               );
                             })()}
                             {alpacaPositions.map((position) => (
-                              <button
+                              <div
                                 key={position.symbol}
-                                type="button"
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => applyTradeSelection({ mode: "asset", symbols: [position.symbol] })}
+                                onKeyDown={(e) => {
+                                  if (e.key !== "Enter" && e.key !== " ") return;
+                                  e.preventDefault();
+                                  applyTradeSelection({ mode: "asset", symbols: [position.symbol] });
+                                }}
                                 style={{
                                   padding: 12,
                                   borderRadius: 12,
@@ -14503,14 +14582,37 @@ return (
                               >
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                                   <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
-                                  <div style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
-                                    {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    <div style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                                      {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        prepareCloseAlpacaPosition(position);
+                                      }}
+                                      style={{
+                                        padding: "5px 9px",
+                                        borderRadius: 8,
+                                        border: "1px solid rgba(248,113,113,0.28)",
+                                        background: "rgba(248,113,113,0.08)",
+                                        color: "#fecaca",
+                                        fontSize: 11,
+                                        fontWeight: 800,
+                                        cursor: "pointer",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      Close Trade
+                                    </button>
                                   </div>
                                 </div>
                                 <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
                                   Qty {position.qty} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(tradePanelSymbol === position.symbol && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
                                 </div>
-                              </button>
+                              </div>
                             ))}
                           </div>
                         ) : (
@@ -14896,10 +14998,20 @@ return (
                         );
                       })()}
 
-                      <div style={{ order: 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
+                      <div ref={orderTicketRef} style={{ order: 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
+                        {preparedCloseOrder ? (
+                          <div style={{ padding: 12, borderRadius: 12, background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.26)", display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.9px", textTransform: "uppercase", color: "#fecaca" }}>
+                              Ready to close {preparedCloseOrder.symbol}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#f8fafc", lineHeight: 1.55 }}>
+                              Review the {preparedCloseOrder.side === "buy_to_cover" ? "Buy to Cover" : "Sell"} market order for {preparedCloseOrder.qty} share(s), then submit to open the confirmation step.
+                            </div>
+                          </div>
+                        ) : null}
                         {(() => {
                           const selectedSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
                           if (!selectedSymbol) return null;
@@ -15345,8 +15457,9 @@ return (
                             className="ghostButton"
                             disabled={alpacaOrderSubmitting || Boolean(alpacaOrderValidation.error)}
                             title={alpacaOrderValidation.error || undefined}
+                            style={preparedCloseOrder ? { background: "rgba(248,113,113,0.12)", borderColor: "rgba(248,113,113,0.28)", color: "#fecaca" } : undefined}
                           >
-                            {alpacaOrderSubmitting ? "Submitting..." : "Submit Rayla Paper Order"}
+                            {alpacaOrderSubmitting ? "Submitting..." : preparedCloseOrder ? `Review Close ${preparedCloseOrder.symbol}` : "Submit Rayla Paper Order"}
                           </button>
                           {alpacaOrderValidation.error ? (
                             <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.5 }}>
@@ -15556,6 +15669,75 @@ return (
                     </div>
                   </div>
 
+                  {simulationPositions.length > 0 && (
+                    <div style={{ ...simulationBriefingPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>
+                        Close Open Trades
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {simulationPositions.map((position) => {
+                          const currentPrice = getSimulationPrice(position.asset, position.marketMode || simulationMode);
+                          const metrics = Number.isFinite(currentPrice)
+                            ? calculateSimulationPnL(position, currentPrice)
+                            : { profitLoss: 0, rMultiple: null };
+                          const metricLabel = Number.isFinite(currentPrice)
+                            ? `${metrics.profitLoss >= 0 ? "+" : ""}$${metrics.profitLoss.toFixed(2)}`
+                            : "Price loading";
+                          return (
+                            <div
+                              key={`top-close-${position.id}`}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                padding: "9px 10px",
+                                borderRadius: 10,
+                                background: "rgba(255,255,255,0.04)",
+                                border: "1px solid rgba(255,255,255,0.07)",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleSelectSimulationTradeAsset(position)}
+                                style={{
+                                  minWidth: 0,
+                                  flex: "1 1 auto",
+                                  border: "none",
+                                  background: "transparent",
+                                  padding: 0,
+                                  color: "#e2e8f0",
+                                  textAlign: "left",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {position.asset} · {position.direction === "short" ? "Short" : "Long"}
+                                </div>
+                                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                                  {position.marketMode === "scenario" ? "Scenario" : "Live"} · {metricLabel}
+                                </div>
+                              </button>
+                              <button
+                                type="button"
+                                className="ghostButton"
+                                onClick={() => handleCloseSimulationTrade(position.id)}
+                                style={{
+                                  flexShrink: 0,
+                                  borderColor: "rgba(248,113,113,0.28)",
+                                  color: "#fecaca",
+                                  background: "rgba(248,113,113,0.08)",
+                                }}
+                              >
+                                Close Trade
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {guidedSimulationDraft && (
                     <div style={{ ...simulationBriefingPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ ...simulationQuietLabelStyle, color: "#7CC4FF" }}>
@@ -15723,6 +15905,74 @@ return (
                     {simulationAmbientObservation && (
                       <div style={{ fontSize: 12, color: "#9fb2c7", lineHeight: 1.5 }}>
                         {simulationAmbientObservation}
+                      </div>
+                    )}
+                    {simulationPositions.length > 0 && (
+                      <div style={{ ...simulationBriefingPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>
+                          Open Trades
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {simulationPositions.map((position) => {
+                            const currentPrice = getSimulationPrice(position.asset, position.marketMode || simulationMode);
+                            const metrics = Number.isFinite(currentPrice)
+                              ? calculateSimulationPnL(position, currentPrice)
+                              : { profitLoss: 0, rMultiple: null };
+                            const metricLabel = Number.isFinite(currentPrice)
+                              ? `${metrics.profitLoss >= 0 ? "+" : ""}$${metrics.profitLoss.toFixed(2)}`
+                              : "Price loading";
+                            return (
+                              <div
+                                key={`controls-${position.id}`}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  padding: "9px 10px",
+                                  borderRadius: 10,
+                                  background: "rgba(255,255,255,0.04)",
+                                  border: "1px solid rgba(255,255,255,0.07)",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectSimulationTradeAsset(position)}
+                                  style={{
+                                    minWidth: 0,
+                                    flex: "1 1 auto",
+                                    border: "none",
+                                    background: "transparent",
+                                    padding: 0,
+                                    color: "#e2e8f0",
+                                    textAlign: "left",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {position.asset} · {position.direction === "short" ? "Short" : "Long"}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                                    {position.marketMode === "scenario" ? "Scenario" : "Live"} · {metricLabel}
+                                  </div>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghostButton"
+                                  onClick={() => handleCloseSimulationTrade(position.id)}
+                                  style={{
+                                    flexShrink: 0,
+                                    borderColor: "rgba(248,113,113,0.28)",
+                                    color: "#fecaca",
+                                    background: "rgba(248,113,113,0.08)",
+                                  }}
+                                >
+                                  Close Trade
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                     {simulationMode === "scenario" && (
