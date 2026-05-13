@@ -12796,7 +12796,13 @@ function buildSimulationAssetFromPosition(position) {
   useEffect(() => {
     if (!pendingIntelSimulationLaunch) return;
     if (activeTab !== "simulation" || simulationMode !== (pendingIntelSimulationLaunch.mode || "live")) return;
-    if (!simulationAsset || simulationAsset.id !== pendingIntelSimulationLaunch.asset?.id) return;
+
+    const launchAsset = pendingIntelSimulationLaunch.asset;
+    if (launchAsset && (!simulationAsset || simulationAsset.id !== launchAsset.id)) {
+      setSimulationAsset(launchAsset);
+      return;
+    }
+    if (!simulationAsset || simulationAsset.id !== launchAsset?.id) return;
 
     const chartNode = simulationSectionRefs.current.chart;
     if (!chartNode) return;
