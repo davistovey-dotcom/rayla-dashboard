@@ -7229,7 +7229,7 @@ useEffect(() => {
   const [intelPracticeModeChoice, setIntelPracticeModeChoice] = useState(null);
   const [intelSimulationSetupPrompt, setIntelSimulationSetupPrompt] = useState(null);
   const [intelSimulationSetupChecklist, setIntelSimulationSetupChecklist] = useState(null);
-  const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_trades");
+  const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_simulation");
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
     stepIndex: 0,
@@ -15966,7 +15966,7 @@ return (
                       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
                       {[
                         { key: "live_trades", label: "Live Trades", disabled: false },
-                        { key: "live_simulation", label: "Live Simulation", disabled: true },
+                        { key: "live_simulation", label: "Live Simulation", disabled: false },
                       ].map((segment) => {
                         const active = simulationPerformanceSegment === segment.key && !segment.disabled;
                         return (
