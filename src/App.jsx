@@ -62,6 +62,63 @@ const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
   { symbol: "VET", description: "VeChain", exchange: "CRYPTO", type: "crypto" },
 ];
 
+const CANONICAL_BROKER_CRYPTO_ASSETS = [
+  {
+    symbol: "BTC/USD",
+    name: "Bitcoin / US Dollar",
+    exchange: "Crypto",
+    assetClass: "crypto",
+    tradable: true,
+    marginable: false,
+    shortable: false,
+    easyToBorrow: false,
+    fractionable: true,
+    status: "active",
+  },
+  {
+    symbol: "ETH/USD",
+    name: "Ethereum / US Dollar",
+    exchange: "Crypto",
+    assetClass: "crypto",
+    tradable: true,
+    marginable: false,
+    shortable: false,
+    easyToBorrow: false,
+    fractionable: true,
+    status: "active",
+  },
+];
+
+function normalizeBrokerAssetSearchKey(symbol) {
+  return String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function getCanonicalBrokerCryptoAssetsForQuery(query) {
+  const compactQuery = normalizeBrokerAssetSearchKey(query);
+  if (!compactQuery) return [];
+
+  return CANONICAL_BROKER_CRYPTO_ASSETS.filter((asset) => {
+    const compactSymbol = normalizeBrokerAssetSearchKey(asset.symbol);
+    const baseSymbol = compactSymbol.endsWith("USD") ? compactSymbol.slice(0, -3) : compactSymbol;
+    return compactQuery === baseSymbol || compactQuery === compactSymbol;
+  });
+}
+
+function mergeBrokerAssetSearchResults(query, backendAssets) {
+  const merged = [
+    ...getCanonicalBrokerCryptoAssetsForQuery(query),
+    ...(Array.isArray(backendAssets) ? backendAssets : []),
+  ];
+  const seen = new Set();
+
+  return merged.filter((asset) => {
+    const key = normalizeBrokerAssetSearchKey(asset?.symbol);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 const SUPPORTED_POPULAR_STOCKS = [
   { symbol: "AAPL", description: "Apple Inc.", exchange: "NASDAQ", type: "stock" },
   { symbol: "MSFT", description: "Microsoft Corp.", exchange: "NASDAQ", type: "stock" },
@@ -879,6 +936,50 @@ function isClosedLiveSimulationTradeForPerformance(trade) {
   return isClosedSimulationTrade(trade) && getSimulationTradeMarketMode(trade) === "live";
 }
 
+function normalizePerformanceAssetKey(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function numbersNearlyEqual(a, b, tolerance = 0.0001) {
+  const left = Number(a);
+  const right = Number(b);
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= tolerance;
+}
+
+function timesNearlyEqual(a, b, toleranceMs = 2 * 60 * 1000) {
+  const left = Date.parse(String(a || ""));
+  const right = Date.parse(String(b || ""));
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= toleranceMs;
+}
+
+function doesManualTradeMirrorBrokerTrade(manualTrade, brokerTrade) {
+  if (!manualTrade || !brokerTrade) return false;
+  const manualBrokerKey = manualTrade?.broker_provider && manualTrade?.broker_order_id
+    ? `${manualTrade.broker_provider}:${manualTrade.broker_order_id}`
+    : "";
+  const brokerKey = brokerTrade?.broker_provider && brokerTrade?.broker_order_id
+    ? `${brokerTrade.broker_provider}:${brokerTrade.broker_order_id}`
+    : "";
+  if (manualBrokerKey && brokerKey && manualBrokerKey === brokerKey) return true;
+
+  const manualAsset = normalizePerformanceAssetKey(manualTrade?.asset || manualTrade?.symbol || manualTrade?.ticker);
+  const brokerAsset = normalizePerformanceAssetKey(brokerTrade?.asset || brokerTrade?.symbol || brokerTrade?.ticker);
+  if (!manualAsset || manualAsset !== brokerAsset) return false;
+
+  const sameExitTime = timesNearlyEqual(manualTrade?.exit_time || manualTrade?.closed_at, brokerTrade?.exit_time || brokerTrade?.closed_at || brokerTrade?.filled_at);
+  const sameEntryPrice = numbersNearlyEqual(manualTrade?.entry_price, brokerTrade?.entry_price, 0.01);
+  const sameExitPrice = numbersNearlyEqual(manualTrade?.exit_price, brokerTrade?.exit_price, 0.01);
+  const sameEntrySize = numbersNearlyEqual(manualTrade?.entry_size, brokerTrade?.entry_size, 0.5);
+  return sameExitTime && sameEntryPrice && sameExitPrice && sameEntrySize;
+}
+
+function filterBrokerTradesAlreadyLoggedManually(manualTrades, brokerTrades) {
+  const normalizedManualTrades = Array.isArray(manualTrades) ? manualTrades : [];
+  return (Array.isArray(brokerTrades) ? brokerTrades : []).filter((brokerTrade) =>
+    !normalizedManualTrades.some((manualTrade) => doesManualTradeMirrorBrokerTrade(manualTrade, brokerTrade))
+  );
+}
+
 function parseBrokerFillPrice(trade) {
   const rawPayload = trade?.raw_payload || {};
   const candidates = [
@@ -976,7 +1077,7 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
         entry_size: matchedCost,
         entry_time: earliestEntryTime || trade.filled_at,
         exit_time: trade.filled_at,
-        result_r: realizedPnl,
+        result_r: null,
         pnl_value: realizedPnl,
         source: trade.source === "rayla" ? "rayla" : "broker",
         source_label: trade.source === "rayla" ? "Placed in Rayla" : "Imported from Alpaca",
@@ -3021,38 +3122,46 @@ function getTradeRValue(trade) {
   return Number.isFinite(rm) ? rm : 0;
 }
 
+function getTradePerformanceValue(trade) {
+  const outcomeValue = getTradeOutcomeValue(trade);
+  return Number.isFinite(outcomeValue) ? outcomeValue : 0;
+}
+
 function buildCoachReport(trades) {
   if (!trades || trades.length === 0) return null;
+  // Broker trades have dollar pnl_value, not R multiples — exclude to avoid unit mixing in coaching stats
+  const rTrades = trades.filter(t => !t.isBrokerTrade);
+  if (!rTrades.length) return null;
 
-  const wins = trades.filter(t => getTradeRValue(t) > 0);
-  const losses = trades.filter(t => getTradeRValue(t) < 0);
-  const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
-  const avgR = trades.length ? trades.reduce((s, t) => s + getTradeRValue(t), 0) / trades.length : 0;
-  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeRValue(t), 0) / wins.length : 0;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeRValue(t), 0) / losses.length) : 0;
-  const totalR = trades.reduce((s, t) => s + getTradeRValue(t), 0);
+  const wins = rTrades.filter(t => getTradePerformanceValue(t) > 0);
+  const losses = rTrades.filter(t => getTradePerformanceValue(t) < 0);
+  const winRate = rTrades.length ? (wins.length / rTrades.length) * 100 : 0;
+  const avgR = rTrades.length ? rTrades.reduce((s, t) => s + getTradePerformanceValue(t), 0) / rTrades.length : 0;
+  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradePerformanceValue(t), 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradePerformanceValue(t), 0) / losses.length) : 0;
+  const totalR = rTrades.reduce((s, t) => s + getTradePerformanceValue(t), 0);
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
 
   const setupMap = {};
-  trades.forEach(t => {
+  rTrades.forEach(t => {
     const setup = normalizeSetupType(t.setupType) || String(t.setup || "").trim();
     if (!setup) return;
     if (!setupMap[setup]) setupMap[setup] = { trades: 0, wins: 0, totalR: 0 };
     setupMap[setup].trades++;
-    setupMap[setup].totalR += getTradeRValue(t);
-    if (getTradeRValue(t) > 0) setupMap[setup].wins++;
+    setupMap[setup].totalR += getTradePerformanceValue(t);
+    if (getTradePerformanceValue(t) > 0) setupMap[setup].wins++;
   });
   const setupStats = Object.entries(setupMap)
     .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
     .sort((a, b) => b.avgR - a.avgR);
 
   const assetMap = {};
-  trades.forEach(t => {
+  rTrades.forEach(t => {
     const asset = (t.asset || "Unknown").toUpperCase();
     if (!assetMap[asset]) assetMap[asset] = { trades: 0, wins: 0, totalR: 0 };
     assetMap[asset].trades++;
-    assetMap[asset].totalR += getTradeRValue(t);
-    if (getTradeRValue(t) > 0) assetMap[asset].wins++;
+    assetMap[asset].totalR += getTradePerformanceValue(t);
+    if (getTradePerformanceValue(t) > 0) assetMap[asset].wins++;
   });
   const assetStats = Object.entries(assetMap)
     .map(([asset, s]) => ({ asset, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -3077,14 +3186,14 @@ function buildCoachReport(trades) {
     && (topAssetAvg - remainingAssetAvg) >= 0.5;
 
   const comboMap = {};
-  trades.forEach(t => {
+  rTrades.forEach(t => {
     const setup = normalizeSetupType(t.setupType) || String(t.setup || "").trim();
     if (!setup) return;
     const key = `${(t.asset||"").toUpperCase()}_${setup}`;
     if (!comboMap[key]) comboMap[key] = { asset: (t.asset||"").toUpperCase(), setup, trades: 0, wins: 0, totalR: 0 };
     comboMap[key].trades++;
-    comboMap[key].totalR += getTradeRValue(t);
-    if (getTradeRValue(t) > 0) comboMap[key].wins++;
+    comboMap[key].totalR += getTradePerformanceValue(t);
+    if (getTradePerformanceValue(t) > 0) comboMap[key].wins++;
   });
   const comboStats = Object.values(comboMap)
     .map(c => ({ ...c, winRate: (c.wins / c.trades) * 100, avgR: c.totalR / c.trades }))
@@ -3092,12 +3201,12 @@ function buildCoachReport(trades) {
     .sort((a, b) => b.avgR - a.avgR);
 
   const warnings = [];
-  if (trades.length >= 3 && winRate < 40) warnings.push("Win rate is below 40% — entries need refinement.");
+  if (rTrades.length >= 3 && winRate < 40) warnings.push("Win rate is below 40% — entries need refinement.");
   if (avgLoss > avgWin && wins.length > 0 && losses.length > 0) warnings.push("Avg loss is larger than avg win — cutting winners too early or letting losers run.");
   if (profitFactor !== null && profitFactor < 1) warnings.push("Profit factor is below 1.0 — system is net negative. Review setups immediately.");
-  if (trades.length >= 5 && winRate < 50) warnings.push("Win rate under 50% with 5+ trades — possible overtrading or setup quality issues.");
+  if (rTrades.length >= 5 && winRate < 50) warnings.push("Win rate under 50% with 5+ trades — possible overtrading or setup quality issues.");
   if (broadAssetSpreadIsHurting) warnings.push(`Your weaker results are coming outside your top assets. Keep an eye on whether breadth is diluting edge quality.`);
-  const recentLosses = trades.slice(0, 4).filter(t => getTradeRValue(t) < 0).length;
+  const recentLosses = rTrades.slice(0, 4).filter(t => getTradePerformanceValue(t) < 0).length;
   if (recentLosses >= 3) warnings.push("3 or more losses in your last 4 trades — consider taking a break.");
 
   const actions = [];
@@ -3109,7 +3218,7 @@ function buildCoachReport(trades) {
   if (winRate < 50) actions.push("Be more selective — only take your clearest A+ setups.");
   if (actions.length === 0) actions.push("Keep executing consistently. Log every trade and review weekly.");
 
-  return { winRate, avgR, avgWin, avgLoss, totalR, profitFactor, trades: trades.length, wins: wins.length, losses: losses.length, setupStats, assetStats, comboStats, warnings, actions, bestCombo, worstCombo: comboStats[comboStats.length - 1] };
+  return { winRate, avgR, avgWin, avgLoss, totalR, profitFactor, trades: rTrades.length, wins: wins.length, losses: losses.length, setupStats, assetStats, comboStats, warnings, actions, bestCombo, worstCombo: comboStats[comboStats.length - 1] };
 }
 
 function CoachSection({ label, children, accent }) {
@@ -4254,8 +4363,8 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
             {[
               { label: "Trades", value: report.trades },
               { label: "Win Rate", value: `${report.winRate.toFixed(1)}%`, tone: report.winRate >= 50 ? "positive" : "negative" },
-              { label: "Avg R", value: `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}R`, tone: report.avgR >= 0 ? "positive" : "negative" },
-              { label: "Total R", value: `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}R`, tone: report.totalR >= 0 ? "positive" : "negative" },
+              { label: "Avg Result", value: `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, tone: report.avgR >= 0 ? "positive" : "negative" },
+              { label: "Total Result", value: `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, tone: report.totalR >= 0 ? "positive" : "negative" },
               { label: "Avg Win", value: `+${report.avgWin.toFixed(2)}R`, tone: "positive" },
               { label: "Avg Loss", value: `-${report.avgLoss.toFixed(2)}R`, tone: "negative" },
               ...(report.profitFactor !== null ? [{ label: "Profit Factor", value: report.profitFactor.toFixed(2), tone: report.profitFactor >= 1 ? "positive" : "negative" }] : []),
@@ -4279,13 +4388,13 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
             <>
               <CoachSection label="Strongest Edge" accent="#4ade80">
                 {report.comboStats.slice(0, 3).map((c, i) => (
-                  <CoachRow key={i} left={`${c.asset} · ${c.setup}`} sub={`${c.trades} trades · ${c.winRate.toFixed(0)}% win rate`} right={`${c.avgR >= 0 ? "+" : ""}${c.avgR.toFixed(2)}R avg`} tone="positive" />
+                  <CoachRow key={i} left={`${c.asset} · ${c.setup}`} sub={`${c.trades} trades · ${c.winRate.toFixed(0)}% win rate`} right={`${c.avgR >= 0 ? "+" : ""}${c.avgR.toFixed(2)} avg`} tone="positive" />
                 ))}
               </CoachSection>
               {report.comboStats.length > 1 && (
                 <CoachSection label="Weakest Edge" accent="#f87171">
                   {report.comboStats.slice(-Math.min(2, report.comboStats.length)).reverse().map((c, i) => (
-                    <CoachRow key={i} left={`${c.asset} · ${c.setup}`} sub={`${c.trades} trades · ${c.winRate.toFixed(0)}% win rate`} right={`${c.avgR >= 0 ? "+" : ""}${c.avgR.toFixed(2)}R avg`} tone={c.avgR < 0 ? "negative" : "neutral"} />
+                    <CoachRow key={i} left={`${c.asset} · ${c.setup}`} sub={`${c.trades} trades · ${c.winRate.toFixed(0)}% win rate`} right={`${c.avgR >= 0 ? "+" : ""}${c.avgR.toFixed(2)} avg`} tone={c.avgR < 0 ? "negative" : "neutral"} />
                   ))}
                 </CoachSection>
               )}
@@ -4299,7 +4408,7 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
           <div className="cardHeader"><h2>Setup Insights</h2></div>
           <div className="cardBody">
             {report.setupStats.map((s, i) => (
-              <CoachRow key={i} left={s.setup} sub={`${s.trades} trades · ${s.winRate.toFixed(0)}% win rate`} right={`${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R avg`} tone={s.avgR > 0 ? "positive" : s.avgR < 0 ? "negative" : "neutral"} />
+              <CoachRow key={i} left={s.setup} sub={`${s.trades} trades · ${s.winRate.toFixed(0)}% win rate`} right={`${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)} avg`} tone={s.avgR > 0 ? "positive" : s.avgR < 0 ? "negative" : "neutral"} />
             ))}
           </div>
         </div>
@@ -4310,7 +4419,7 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
           <div className="cardHeader"><h2>Asset Insights</h2></div>
           <div className="cardBody">
             {report.assetStats.map((a, i) => (
-              <CoachRow key={i} left={a.asset} sub={`${a.trades} trades · ${a.winRate.toFixed(0)}% win rate`} right={`${a.avgR >= 0 ? "+" : ""}${a.avgR.toFixed(2)}R avg`} tone={a.avgR > 0 ? "positive" : a.avgR < 0 ? "negative" : "neutral"} />
+              <CoachRow key={i} left={a.asset} sub={`${a.trades} trades · ${a.winRate.toFixed(0)}% win rate`} right={`${a.avgR >= 0 ? "+" : ""}${a.avgR.toFixed(2)} avg`} tone={a.avgR > 0 ? "positive" : a.avgR < 0 ? "negative" : "neutral"} />
             ))}
           </div>
         </div>
@@ -7804,7 +7913,10 @@ useEffect(() => {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
   const [isParsingScreenshot, setIsParsingScreenshot] = useState(false);
+  const [isSavingTrade, setIsSavingTrade] = useState(false);
   const [screenshotParseNotice, setScreenshotParseNotice] = useState(null);
+  const [screenshotFieldNotes, setScreenshotFieldNotes] = useState({});
+  const screenshotParseRunRef = useRef(0);
   const [tradeForm, setTradeForm] = useState({
     asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "",
   });
@@ -7922,8 +8034,9 @@ useEffect(() => {
       source_label: trade.source_label || "Manual Trade",
       isBrokerTrade: false,
     }));
+    const uniqueBrokerTrades = filterBrokerTradesAlreadyLoggedManually(normalizedManualTrades, normalizedBrokerTrades);
 
-    return [...normalizedManualTrades, ...normalizedBrokerTrades].sort((a, b) => {
+    return [...normalizedManualTrades, ...uniqueBrokerTrades].sort((a, b) => {
       const aTime = parseTradeTimeMs(a) || 0;
       const bTime = parseTradeTimeMs(b) || 0;
       return bTime - aTime;
@@ -8620,7 +8733,17 @@ useEffect(() => {
     const currentQty = Math.abs(Number(matchingPosition?.qty ?? 0));
     const hasShortPosition = matchingPosition?.side === "short" && currentQty > 0;
     const hasLongPosition = matchingPosition?.side === "long" && currentQty > 0;
-    const requiresBuyingPowerCheck = action !== "sell";
+    const isPreparedCloseOrder = Boolean(
+      preparedCloseOrder
+      && preparedCloseOrder.symbol === symbol
+      && preparedCloseOrder.side === action
+      && type === "market"
+      && Number.isFinite(qty)
+      && Math.abs(qty - preparedCloseOrder.qty) < 0.0001
+      && matchingPosition
+    );
+    const requiresFreshQuote = !isPreparedCloseOrder;
+    const requiresBuyingPowerCheck = action !== "sell" && !isPreparedCloseOrder;
     const orderValueExceedsBuyingPower = Number.isFinite(estimatedValue) && Number.isFinite(buyingPowerLimit) && buyingPowerLimit > 0
       ? estimatedValue > buyingPowerLimit + 0.0001
       : false;
@@ -8655,7 +8778,7 @@ useEffect(() => {
       error = `Buy to Cover cannot exceed your current short position of ${currentQty} share(s).`;
     } else if (action === "sell" && qty > currentQty) {
       error = `Sell cannot exceed your current long position of ${currentQty} share(s).`;
-    } else if (!quoteIsFresh) {
+    } else if (requiresFreshQuote && !quoteIsFresh) {
       error = "Waiting for fresh Alpaca market data before placing order.";
     } else if (requiresBuyingPowerCheck && Number.isFinite(buyingPowerLimit) && buyingPowerLimit > 0 && orderValueExceedsBuyingPower) {
       error = `This order is larger than your available buying power at ${effectiveLeverage}x.`;
@@ -8676,6 +8799,7 @@ useEffect(() => {
       selectedBrokerAsset,
       sourceQuote,
       quoteIsFresh,
+      isPreparedCloseOrder,
       estimatedPrice,
       estimatedValue,
       totalBuyingPower,
@@ -8721,6 +8845,7 @@ useEffect(() => {
       matchingPosition,
       estimatedPrice,
       estimatedValue,
+      isPreparedCloseOrder,
       totalBuyingPower,
       effectiveLeverage,
       error,
@@ -8760,8 +8885,9 @@ useEffect(() => {
       stopPrice: Number.isFinite(stopPrice) ? stopPrice : null,
       timeInForce,
       leverage: `${effectiveLeverage}x`,
-      estimatedPrice,
-      estimatedValue,
+      estimatedPrice: isPreparedCloseOrder && !Number.isFinite(estimatedPrice) ? null : estimatedPrice,
+      estimatedValue: isPreparedCloseOrder && !Number.isFinite(estimatedValue) ? null : estimatedValue,
+      isCloseOrder: isPreparedCloseOrder,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
@@ -8787,6 +8913,7 @@ useEffect(() => {
         qty: pendingAlpacaOrderConfirmation.qty,
         type: pendingAlpacaOrderConfirmation.type,
         time_in_force: pendingAlpacaOrderConfirmation.timeInForce,
+        ...(pendingAlpacaOrderConfirmation.isCloseOrder ? { close_position: true } : {}),
         ...(pendingAlpacaOrderConfirmation.type === "limit" || pendingAlpacaOrderConfirmation.type === "stop_limit"
           ? { limit_price: pendingAlpacaOrderConfirmation.limitPrice }
           : {}),
@@ -8887,7 +9014,17 @@ useEffect(() => {
           return;
         }
 
-        setAlpacaAssetSearchResults(Array.isArray(data.assets) ? data.assets : []);
+        const backendAssets = Array.isArray(data.assets) ? data.assets : [];
+        const normalizedAssets = mergeBrokerAssetSearchResults(query, backendAssets);
+        if (import.meta.env.DEV && ["BTC", "BTCUSD", "ETH", "ETHUSD"].includes(normalizeBrokerAssetSearchKey(query))) {
+          console.debug("alpaca-assets search trace", {
+            query,
+            rawBackendAssets: backendAssets,
+            normalizedFrontendAssets: normalizedAssets,
+            finalDropdownSymbols: normalizedAssets.map((asset) => asset.symbol),
+          });
+        }
+        setAlpacaAssetSearchResults(normalizedAssets);
         setAlpacaAssetSearchError("");
       } catch {
         if (isCancelled) return;
@@ -9829,21 +9966,92 @@ useEffect(() => {
     };
   }, [chartRange, equityBenchmarkSymbol, equityBenchmarkType, equityBenchmarkOptions, strictFilteredEquityPoints, alpacaPositions, brokerTradeLog, trades, equityBenchmarkVisibleStart, equityBenchmarkVisibleEnd]);
 
+  function isPlausibleTradeAssetSymbol(value) {
+    const normalized = String(value || "").trim().toUpperCase();
+    return /^[A-Z][A-Z0-9./-]{0,11}$/.test(normalized);
+  }
+
+  function normalizeManualTradeNumber(value, { allowNegative = false } = {}) {
+    const raw = String(value ?? "").trim().replace(/[$,]/g, "").replace(/[rR]/g, "");
+    if (!raw) return null;
+    if (!allowNegative && raw.startsWith("-")) return null;
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return null;
+    if (!allowNegative && parsed <= 0) return null;
+    return parsed;
+  }
+
+  function findDuplicateManualTradeCandidate(candidate) {
+    return trades.find((trade) => {
+      const sameAsset = String(trade?.asset || "").trim().toUpperCase() === candidate.asset;
+      const sameEntryTime = String(trade?.entry_time || "").slice(0, 16) === String(candidate.entry_time || "").slice(0, 16);
+      const sameEntryPrice = Math.abs(Number(trade?.entry_price) - candidate.entry_price) < 0.0001;
+      const sameEntrySize = Math.abs(Number(trade?.entry_size) - candidate.entry_size) < 0.01;
+      const sameResult = Math.abs(Number(trade?.result_r) - candidate.result_r) < 0.0001;
+      return sameAsset && sameEntryTime && sameEntryPrice && sameEntrySize && sameResult;
+    });
+  }
+
+  function clearScreenshotFieldNote(field) {
+    setScreenshotFieldNotes((prev) => {
+      if (!prev?.[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
   async function handleAddTrade(e) {
     e.preventDefault();
+    if (isSavingTrade) return;
     if (!user) { showToast("No user loaded.", "error"); return; }
-    if (!tradeForm.asset || !tradeForm.entryPrice || !tradeForm.size || !tradeForm.entryTime || !tradeForm.result) { showToast("Fill out required fields.", "warning"); return; }
+    const asset = resolveTickerAlias(tradeForm.asset.trim()).toUpperCase();
+    const entryPrice = normalizeManualTradeNumber(tradeForm.entryPrice);
+    const entrySize = normalizeManualTradeNumber(tradeForm.size);
+    const resultR = normalizeManualTradeNumber(tradeForm.result, { allowNegative: true });
+    const exitPrice = tradeForm.exitPrice ? normalizeManualTradeNumber(tradeForm.exitPrice) : null;
+    const exitTimeMs = tradeForm.exitTime ? Date.parse(tradeForm.exitTime) : null;
+    const entryTimeMs = Date.parse(tradeForm.entryTime);
+
+    if (!asset || !tradeForm.entryPrice || !tradeForm.size || !tradeForm.entryTime || !tradeForm.result) {
+      showToast("Fill out required fields.", "warning");
+      return;
+    }
+    if (!isPlausibleTradeAssetSymbol(asset)) {
+      showToast("Check the asset ticker before saving.", "warning");
+      return;
+    }
+    if (!Number.isFinite(entryPrice) || !Number.isFinite(entrySize) || !Number.isFinite(resultR) || !Number.isFinite(entryTimeMs)) {
+      showToast("Check price, size, date, and result before saving.", "warning");
+      return;
+    }
+    if ((tradeForm.exitPrice && !Number.isFinite(exitPrice)) || (tradeForm.exitTime && !Number.isFinite(exitTimeMs))) {
+      showToast("Check optional exit price/time before saving.", "warning");
+      return;
+    }
     const newTrade = {
-      user_id: user.id, asset: resolveTickerAlias(tradeForm.asset.trim()).toUpperCase(), entry_price: Number(tradeForm.entryPrice),
-      entry_size: Number(tradeForm.size), entry_time: tradeForm.entryTime, setup: tradeForm.setup || "",
-      session: tradeForm.session || "", direction: tradeForm.direction || "", result_r: Number(tradeForm.result),
-      exit_price: tradeForm.exitPrice ? Number(tradeForm.exitPrice) : null, exit_time: tradeForm.exitTime || null,
+      user_id: user.id, asset, entry_price: entryPrice,
+      entry_size: entrySize, entry_time: tradeForm.entryTime, setup: tradeForm.setup || "",
+      session: tradeForm.session || "", direction: tradeForm.direction || "", result_r: resultR,
+      exit_price: tradeForm.exitPrice ? exitPrice : null, exit_time: tradeForm.exitTime || null,
     };
-    const { data, error } = await supabase.from("trades").insert([newTrade]).select().single();
-    if (error) { console.error("SAVE ERROR FULL:", error); showToast(error.message, "error"); return; }
-    setTrades((prev) => [data, ...prev]);
-    setTradeForm({ asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "" });
-    showToast("Trade logged.", "success");
+    if (findDuplicateManualTradeCandidate(newTrade)) {
+      showToast("This looks like a duplicate trade. Review before saving again.", "warning");
+      return;
+    }
+
+    setIsSavingTrade(true);
+    try {
+      const { data, error } = await supabase.from("trades").insert([newTrade]).select().single();
+      if (error) { console.error("SAVE ERROR FULL:", error); showToast(error.message, "error"); return; }
+      setTrades((prev) => [data, ...prev]);
+      setTradeForm({ asset: "", entryPrice: "", size: "", entryTime: "", setup: "", session: "", marketCondition: "", direction: "", result: "", exitPrice: "", exitTime: "" });
+      setScreenshotParseNotice(null);
+      setScreenshotFieldNotes({});
+      showToast("Trade logged.", "success");
+    } finally {
+      setIsSavingTrade(false);
+    }
   }
 
   async function handleUserLevelChange(level) {
@@ -11107,11 +11315,33 @@ useEffect(() => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+    if (!String(file.type || "").startsWith("image/")) {
+      setScreenshotParseNotice({
+        tone: "error",
+        message: "Rayla can only read image files here. Upload a screenshot image or fill the trade manually.",
+      });
+      setScreenshotFieldNotes({});
+      showToast("Upload an image screenshot.", "error");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setScreenshotParseNotice({
+        tone: "error",
+        message: "That screenshot is too large to parse reliably. Try a smaller image or fill the trade manually.",
+      });
+      setScreenshotFieldNotes({});
+      showToast("Screenshot is too large.", "error");
+      return;
+    }
+    const parseRunId = screenshotParseRunRef.current + 1;
+    screenshotParseRunRef.current = parseRunId;
     setScreenshotParseNotice(null);
+    setScreenshotFieldNotes({});
     setIsParsingScreenshot(true);
     const reader = new FileReader();
     reader.onload = async () => {
       try {
+        if (screenshotParseRunRef.current !== parseRunId) return;
         const base64 = reader.result.split(",")[1];
         const mimeType = file.type || "image/jpeg";
         const res = await fetch("https://uoxzzhtnzmsolvcykynu.functions.supabase.co/parse-screenshot", {
@@ -11119,9 +11349,48 @@ useEffect(() => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageBase64: base64, mimeType }),
         });
-        const data = await res.json();
-        if (!data.ok) { showToast("Parse failed — fill in manually.", "error"); return; }
-        const f = data.fields || {};
+        const responseText = await res.text();
+        let data = null;
+        try {
+          data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          data = {
+            ok: false,
+            error: `parse-screenshot returned HTTP ${res.status}`,
+            httpStatus: res.status,
+            httpError: responseText.slice(0, 1000),
+            collapsePoint: "function_http_error",
+            failedFields: ["parse-screenshot function"],
+            failureReasons: [responseText.slice(0, 1000) || `HTTP ${res.status}`],
+          };
+        }
+        if (!res.ok && !data?.httpStatus) data.httpStatus = res.status;
+        if (screenshotParseRunRef.current !== parseRunId) return;
+        const replayDebug = {
+          ok: data?.ok,
+          httpStatus: data?.httpStatus || res.status,
+          error: data?.error || "",
+          providerStatus: data?.providerStatus || null,
+          providerError: data?.providerError || "",
+          rawText: data?.rawText || "",
+          extractedCandidates: data?.extractedCandidates || null,
+          normalizedFields: data?.normalizedFields || data?.fields || null,
+          partialPrefill: data?.partialPrefill || null,
+          confidence: data?.confidence || null,
+          failedFields: data?.failedFields || [],
+          failureReasons: data?.failureReasons || [],
+          collapsePoint: data?.collapsePoint || "",
+        };
+        console.info("rayla screenshot parse replay", replayDebug);
+        try {
+          localStorage.setItem("rayla_last_screenshot_parse_debug", JSON.stringify(replayDebug));
+        } catch {
+          // Debug-only persistence; ignore storage failures.
+        }
+        const partialPrefill = data?.partialPrefill?.fields || {};
+        const partialNotes = data?.partialPrefill?.notes || {};
+        const f = data.ok || data.partial ? data.fields || data.normalizedFields || {} : data.normalizedFields || data.fields || {};
+        const rawCandidates = data.extractedCandidates || {};
         const firstParsedValue = (...values) =>
           values.find((value) => String(value ?? "").trim() !== "") ?? "";
         const normalizeParsedText = (value) => String(value || "").trim();
@@ -11133,10 +11402,56 @@ useEffect(() => {
           const parsed = Number.parseFloat(String(value ?? "").replace(/[rR]/g, ""));
           return Number.isFinite(parsed) ? String(parsed) : "";
         };
+        const normalizeParsedDateTime = (value) => {
+          const parsed = Date.parse(String(value || ""));
+          return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 16) : "";
+        };
         const normalizeParsedOption = (value, options) => {
           const normalized = normalizeParsedText(value).toLowerCase();
           return options.find((option) => option.toLowerCase() === normalized) || "";
         };
+        const normalizeParsedAsset = (value) => {
+          const raw = normalizeParsedText(value);
+          if (!raw) return "";
+          const resolved = normalizeAssetId(resolveTickerAlias(raw).toUpperCase());
+          return isPlausibleTradeAssetSymbol(resolved) ? resolved : "";
+        };
+        const assetWasCompanyMapped = f?.diagnostics?.assetSource === "company-name-map";
+        const rawCompanyAsset = normalizeParsedText(
+          f?.diagnostics?.companySource
+          || rawCandidates.companyName
+          || rawCandidates.company
+          || rawCandidates.securityName
+          || rawCandidates.assetName
+          || rawCandidates.name
+          || (!normalizeParsedAsset(firstParsedValue(rawCandidates.asset, rawCandidates.ticker, rawCandidates.symbol))
+            ? firstParsedValue(rawCandidates.asset, rawCandidates.ticker, rawCandidates.symbol)
+            : "")
+        );
+        const buildScreenshotNotes = ({ missing = [], failedFields = [], assetApplied = "", partial = false }) => {
+          const joined = [...missing, ...failedFields].map((field) => String(field || "").toLowerCase());
+          const has = (patterns) => joined.some((field) => patterns.some((pattern) => field.includes(pattern)));
+          const notes = {};
+          if (!assetApplied || assetWasCompanyMapped || has(["asset", "ticker", "symbol"])) notes.asset = "Confirm ticker.";
+          if (has(["price", "fill price"])) notes.entryPrice = "Price unclear.";
+          if (has(["amount", "notional", "size"])) notes.size = "Size unclear.";
+          if (has(["date", "time", "timestamp", "filled"]) && !partialPrefill.entryTime) notes.entryTime = "Date unclear.";
+          if (has(["quantity", "qty", "shares"])) notes.quantity = "Quantity unclear.";
+          if (partial && !f.result) notes.result = "Result required.";
+          return notes;
+        };
+        if (!data.ok && !data.partial) {
+          console.warn("parse-screenshot failed", {
+            error: data?.error,
+            failedFields: data?.failedFields,
+            failureReasons: data?.failureReasons,
+            missing: data?.missing,
+            confidence: data?.confidence,
+            rawText: data?.rawText,
+            extractedCandidates: data?.extractedCandidates,
+            normalizedFields: data?.normalizedFields,
+          });
+        }
         const normalizedDirection = normalizeParsedText(firstParsedValue(f.direction, f.side, f.orderSide, f.action)).toLowerCase();
         const parsedShareQuantity = normalizeParsedPositiveNumber(firstParsedValue(
           f.fillQuantity,
@@ -11155,26 +11470,34 @@ useEffect(() => {
           f.size
         ));
         const parsedFields = {
-          asset: normalizeParsedText(firstParsedValue(f.asset, f.ticker, f.symbol)).toUpperCase(),
-          entryPrice: normalizeParsedPositiveNumber(firstParsedValue(f.entryPrice, f.fillPrice, f.filledPrice, f.averagePrice, f.avgPrice, f.price)),
-          size: parsedNotional,
+          asset: firstParsedValue(partialPrefill.asset, assetWasCompanyMapped ? rawCompanyAsset : "", normalizeParsedAsset(firstParsedValue(f.asset, f.ticker, f.symbol))),
+          entryPrice: normalizeParsedPositiveNumber(firstParsedValue(partialPrefill.entryPrice, f.entryPrice, f.fillPrice, f.filledPrice, f.averagePrice, f.avgPrice, f.price)),
+          size: normalizeParsedPositiveNumber(firstParsedValue(partialPrefill.size, parsedNotional)),
+          entryTime: normalizeParsedDateTime(firstParsedValue(partialPrefill.entryTime, f.entryTime, f.filledAt, f.executedAt, f.executionTime, f.fillTime, f.tradeDate, f.date, f.submittedAt)),
           setup: normalizeParsedOption(f.setup, SETUP_OPTIONS),
           session: normalizeParsedOption(f.session, SESSION_OPTIONS),
-          direction: normalizedDirection.includes("buy") || normalizedDirection === "long"
+          direction: partialPrefill.direction || (normalizedDirection.includes("buy") || normalizedDirection === "long"
             ? "long"
             : normalizedDirection.includes("sell short") || normalizedDirection === "short"
               ? "short"
-              : "",
-          result: normalizeParsedResult(f.result),
+              : ""),
+          result: normalizeParsedResult(firstParsedValue(partialPrefill.result, f.result)),
         };
         const appliedFields = Object.fromEntries(
           Object.entries(parsedFields).filter(([, value]) => value !== "")
         );
 
         if (!Object.keys(appliedFields).length) {
+          console.warn("parse-screenshot returned no applicable frontend fields", {
+            rawFields: f,
+            missing: data?.missing,
+            confidence: data?.confidence,
+            rawText: data?.rawText,
+          });
+          setScreenshotFieldNotes({});
           setScreenshotParseNotice({
             tone: "error",
-            message: "Rayla could not read reliable trade fields from that screenshot. Fill the trade manually.",
+            message: "Couldn’t read this screenshot. Fill in below.",
           });
           showToast("Could not read reliable fields — fill in manually.", "error");
           return;
@@ -11183,9 +11506,9 @@ useEffect(() => {
         const nextTradeForm = { ...tradeForm, ...appliedFields };
         setTradeForm((prev) => ({ ...prev, ...appliedFields }));
         const parserMissing = Array.isArray(data.missing) ? data.missing.filter(Boolean) : [];
-        const detectedDetails = [];
-        if (parsedShareQuantity) detectedDetails.push(`${parsedShareQuantity} share${Number(parsedShareQuantity) === 1 ? "" : "s"}`);
-        if (parsedNotional) detectedDetails.push(`$${parsedNotional} amount`);
+        if (assetWasCompanyMapped || (firstParsedValue(f.asset, f.ticker, f.symbol) && !normalizeParsedAsset(firstParsedValue(f.asset, f.ticker, f.symbol)))) {
+          parserMissing.push("asset ticker");
+        }
         const requiredMissing = [
           ["asset", "asset"],
           ["entryPrice", "entry price"],
@@ -11196,27 +11519,41 @@ useEffect(() => {
           .filter(([key]) => !String(nextTradeForm[key] || "").trim())
           .map(([, label]) => label);
         const reviewFields = [...new Set([...parserMissing, ...requiredMissing])];
-        setScreenshotParseNotice({
-          tone: reviewFields.length ? "warning" : "success",
-          message: reviewFields.length
-            ? `Screenshot filled ${Object.keys(appliedFields).length} field${Object.keys(appliedFields).length === 1 ? "" : "s"}${detectedDetails.length ? ` and detected ${detectedDetails.join(", ")}` : ""}. Review before saving; still needs ${reviewFields.join(", ")}.`
-            : `Screenshot filled ${Object.keys(appliedFields).length} field${Object.keys(appliedFields).length === 1 ? "" : "s"}${detectedDetails.length ? ` and detected ${detectedDetails.join(", ")}` : ""}. Review every field before saving.`,
+        const fieldNotes = buildScreenshotNotes({
+          missing: reviewFields,
+          failedFields: data?.failedFields || [],
+          assetApplied: appliedFields.asset,
+          partial: reviewFields.length > 0 || !data.ok || Boolean(data.partial),
         });
-        showToast("Screenshot parsed — review fields before saving.", reviewFields.length ? "warning" : "success");
+        setScreenshotFieldNotes({ ...fieldNotes, ...partialNotes });
+        const isPartial = reviewFields.length > 0 || !data.ok || Boolean(data.partial) || Object.keys(fieldNotes).length > 0;
+        setScreenshotParseNotice({
+          tone: isPartial ? "warning" : "success",
+          message: isPartial
+            ? "Partially read. Check highlighted fields."
+            : "Screenshot read. Review before saving.",
+        });
+        showToast(isPartial ? "Partially read — check fields." : "Screenshot read — review fields.", isPartial ? "warning" : "success");
       } catch {
+        if (screenshotParseRunRef.current !== parseRunId) return;
+        setScreenshotFieldNotes({});
         setScreenshotParseNotice({
           tone: "error",
-          message: "Rayla could not parse that screenshot. Fill the trade manually or upload a clearer screenshot.",
+          message: "Couldn’t read this screenshot. Fill in below.",
         });
         showToast("Could not parse screenshot — fill in manually.", "error");
       }
-      finally { setIsParsingScreenshot(false); }
+      finally {
+        if (screenshotParseRunRef.current === parseRunId) setIsParsingScreenshot(false);
+      }
     };
     reader.onerror = () => {
+      if (screenshotParseRunRef.current !== parseRunId) return;
       setScreenshotParseNotice({
         tone: "error",
         message: "Rayla could not read that image file. Try another screenshot or fill the trade manually.",
       });
+      setScreenshotFieldNotes({});
       setIsParsingScreenshot(false);
       showToast("Could not read image file.", "error");
     };
@@ -14294,7 +14631,7 @@ return (
         )}
 
         {activeTab === "trades" && (
-          <div className="mainGrid" style={{ overflow: "visible" }}>
+          <div className="mainGrid tradeMobileScope" style={{ overflow: "visible" }}>
             <div className="span12">
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
                 <RaylaLaunchButton
@@ -14317,13 +14654,13 @@ return (
                   onClick={() => !alpacaOrderSubmitting && setPendingAlpacaOrderConfirmation(null)}
                 >
                   <div
-                    className="card"
+                    className="card tradeConfirmModal"
                     style={{ maxWidth: 420, width: "100%" }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="cardHeader"><h2>Confirm Paper Order</h2></div>
                     <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                      <div className="tradeConfirmGrid" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Symbol</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{pendingAlpacaOrderConfirmation.symbol}</div>
@@ -14371,7 +14708,7 @@ return (
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                             {pendingAlpacaOrderConfirmation.estimatedPrice != null
                               ? formatCurrency(pendingAlpacaOrderConfirmation.estimatedPrice)
-                              : "--"}
+                              : pendingAlpacaOrderConfirmation.isCloseOrder ? "Market close" : "--"}
                           </div>
                         </div>
                         <div>
@@ -14379,7 +14716,7 @@ return (
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                             {pendingAlpacaOrderConfirmation.estimatedValue != null
                               ? formatCurrency(pendingAlpacaOrderConfirmation.estimatedValue)
-                              : "--"}
+                              : pendingAlpacaOrderConfirmation.isCloseOrder ? "Unavailable until fill" : "--"}
                           </div>
                         </div>
                         <div>
@@ -14414,7 +14751,7 @@ return (
                         </div>
                       ) : null}
 
-                      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                      <div className="tradeConfirmActions" style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                         <button
                           type="button"
                           className="ghostButton"
@@ -14444,8 +14781,8 @@ return (
                   <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
                     Rayla keeps your connected broker account, live market context, and paper execution flow in one focused trading workspace.
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
-                    <div style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div className="tradeWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
+                    <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Broker Connection
                       </div>
@@ -14471,7 +14808,7 @@ return (
                       )}
                     </div>
 
-                    <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Account Snapshot
                       </div>
@@ -14528,8 +14865,8 @@ return (
                   )}
 
                   {alpacaAccount && (
-                    <div style={{ display: "grid", gridTemplateColumns: "minmax(560px, 1.75fr) minmax(305px, 0.95fr) minmax(245px, 0.85fr)", gap: 14, alignItems: "stretch" }}>
-                      <div style={{ order: 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+                    <div className="tradeExecutionGrid" style={{ display: "grid", gridTemplateColumns: "minmax(560px, 1.75fr) minmax(305px, 0.95fr) minmax(245px, 0.85fr)", gap: 14, alignItems: "stretch" }}>
+                      <div className="tradePositionsPanel" style={{ order: 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Positions & Holdings
                         </div>
@@ -14539,7 +14876,7 @@ return (
                           </div>
                         )}
                         {alpacaPositions.length ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", minHeight: 0 }}>
+                          <div className="tradePositionsList" style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", minHeight: 0 }}>
                             {(() => {
                               const isPortfolioPending = tradeAppliedSelection.mode === "portfolio";
                               const portfolioMarketValue = alpacaPositions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
@@ -14548,6 +14885,7 @@ return (
                                 <button
                                   type="button"
                                   onClick={() => applyTradeSelection({ mode: "portfolio", symbols: tradePortfolioAllSymbols })}
+                                  className="tradePortfolioButton"
                                   style={{
                                     padding: 12,
                                     borderRadius: 12,
@@ -14583,6 +14921,7 @@ return (
                                   e.preventDefault();
                                   applyTradeSelection({ mode: "asset", symbols: [position.symbol] });
                                 }}
+                                className="tradePositionRow"
                                 style={{
                                   padding: 12,
                                   borderRadius: 12,
@@ -14614,6 +14953,7 @@ return (
                                       {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
                                     </div>
                                     <button
+                                      className="tradeCloseButton"
                                       type="button"
                                       onClick={(e) => {
                                         e.preventDefault();
@@ -14651,7 +14991,7 @@ return (
 
                       {(() => {
                         return (
-                          <div style={{ order: 1, padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div className="tradeLiveMarketPanel" style={{ order: 1, padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
                             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                               Live Market
                             </div>
@@ -14889,7 +15229,7 @@ return (
                                 const allVals = displayedLines.flatMap((l) => l.series).filter(Number.isFinite);
                                 if (allVals.length < 2) {
                                   return (
-                                    <div style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                                    <div className="tradeLiveChartBox" style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
                                       {tradePortfolioChartsLoading ? "Loading portfolio chart..." : "No portfolio comparison data available"}
                                     </div>
                                   );
@@ -14906,7 +15246,7 @@ return (
                                 const tickEndMs = tradePortfolioNowMs;
                                 const xTicks = buildTradePortfolioTicks(tickStartMs, tickEndMs, tradeChartRange);
                                 return (
-                                  <div style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "10px 6px 6px 6px" }}>
+                                  <div className="tradeLiveChartBox" style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "10px 6px 6px 6px" }}>
                                     <svg viewBox="0 0 210 120" style={{ width: "100%", height: "100%" }}>
                                       {ySteps.map(({ y, val }, i) => (
                                         <g key={i}>
@@ -14953,7 +15293,7 @@ return (
                               })() : (
                                 <div>
                                   <MarketClosedBanner assetType={tradePanelAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  <div style={{ height: 560, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                  <div className="tradeLiveChartBox" style={{ height: 560, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
@@ -15025,7 +15365,7 @@ return (
                         );
                       })()}
 
-                      <div ref={orderTicketRef} style={{ order: 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
+                      <div ref={orderTicketRef} className="tradeOrderTicket" style={{ order: 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
@@ -15060,6 +15400,7 @@ return (
                           const unrealizedPlpc = matchingPosition?.unrealizedPlpc ?? null;
                           const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === selectedSymbol)
                             || (tradeSelectedBrokerAsset?.symbol === selectedSymbol ? tradeSelectedBrokerAsset : null);
+                          const selectedBrokerAssetLabel = selectedBrokerAsset?.assetClass === "crypto" ? "Crypto" : selectedBrokerAsset?.exchange || "";
                           const accountMultiplier = Math.max(1, Number(alpacaAccount?.raw?.multiplier ?? 1) || 1);
                           const leverageAvailable = accountMultiplier > 1 && selectedBrokerAsset?.marginable;
                           const capabilityBadges = getBrokerCapabilityBadges({
@@ -15071,7 +15412,7 @@ return (
                           });
 
                           return (
-                            <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div className="tradeSelectedAssetCard" style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
                               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                                 <div>
                                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 6 }}>
@@ -15080,6 +15421,7 @@ return (
                                   <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{selectedSymbol}</div>
                                   <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
                                     {selectedBrokerAsset?.name || tradePanelAsset?.description || (matchingPosition ? "Connected broker position" : "Searching broker asset details")}
+                                    {selectedBrokerAssetLabel ? ` · ${selectedBrokerAssetLabel}` : ""}
                                   </div>
                                 </div>
                                 {Number.isFinite(currentPositionPrice) ? (
@@ -15177,7 +15519,9 @@ return (
                                   </div>
                                 </div>
                                 <div style={{ fontSize: 11, color: orderQuoteIsFresh ? "#7f8ea3" : "#fca5a5", lineHeight: 1.5 }}>
-                                  {orderQuoteIsFresh
+                                  {preparedCloseOrder
+                                    ? "Market close orders use your broker position quantity and do not require a fresh Rayla quote."
+                                    : orderQuoteIsFresh
                                     ? `Last Alpaca update ${formatQuoteUpdatedAt(selectedOrderQuote?.updatedAt)}`
                                     : "Waiting for fresh Alpaca market data before placing order."}
                                 </div>
@@ -15185,7 +15529,7 @@ return (
                             </div>
                           );
                         })()}
-                        <form onSubmit={handleSubmitAlpacaOrder} style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                        <form className="tradeOrderForm" onSubmit={handleSubmitAlpacaOrder} style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                           <div style={{ position: "relative" }}>
                             {(() => {
                               const selectedOrderQuote = getKnownStockQuoteData(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
@@ -15228,7 +15572,7 @@ return (
                                     </div>
                                   ) : null}
                             {alpacaAssetSearchOpen && (
-                              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, maxHeight: 220, overflowY: "auto" }}>
+                              <div className="brokerAssetDropdown" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, maxHeight: 220, overflowY: "auto" }}>
                                 {alpacaAssetSearchLoading ? (
                                   <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
                                     Searching tradable broker assets...
@@ -15250,6 +15594,7 @@ return (
                                         setAlpacaAssetSearchOpen(false);
                                         setTradeLogChartSymbol(asset.symbol);
                                       }}
+                                      className="brokerAssetOption"
                                       style={{ width: "100%", textAlign: "left", padding: "10px 14px", cursor: "pointer", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
                                     >
                                       <div>
@@ -15274,11 +15619,11 @@ return (
                                         </div>
                                         {Number.isFinite(getKnownStockQuotePrice(asset.symbol, simulationQuotes, marketItems, alpacaAssetQuotes)) ? (
                                           <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
-                                            {`${asset.exchange || "--"} · ${formatCurrency(getKnownStockQuotePrice(asset.symbol, simulationQuotes, marketItems, alpacaAssetQuotes))}`}
+                                            {`${asset.assetClass === "crypto" ? "Crypto" : asset.exchange || "--"} · ${formatCurrency(getKnownStockQuotePrice(asset.symbol, simulationQuotes, marketItems, alpacaAssetQuotes))}`}
                                           </div>
                                         ) : (
                                           <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
-                                            {asset.exchange || "--"}
+                                            {asset.assetClass === "crypto" ? "Crypto" : asset.exchange || "--"}
                                           </div>
                                         )}
                                       </div>
@@ -15295,7 +15640,7 @@ return (
                               );
                             })()}
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
                               <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Action</div>
                               <select
@@ -15326,7 +15671,7 @@ return (
                               {tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
                             </div>
                           </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {[
                               { label: "Buy", value: "buy" },
                               { label: "Sell", value: "sell" },
@@ -15352,7 +15697,7 @@ return (
                               </button>
                             ))}
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Type</div>
@@ -15383,7 +15728,7 @@ return (
                               </select>
                             </div>
                           </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {[
                               { label: "GTC", value: "gtc", field: "timeInForce" },
                               { label: "IOC", value: "ioc", field: "timeInForce" },
@@ -15478,6 +15823,10 @@ return (
                             <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                               Estimated order value: <span style={{ color: "#e2e8f0" }}>{formatCurrency(alpacaOrderValidation.estimatedValue)}</span>
                             </div>
+                          ) : preparedCloseOrder ? (
+                            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                              Market close order. Estimated value unavailable until fill.
+                            </div>
                           ) : null}
                           <button
                             type="submit"
@@ -15513,7 +15862,7 @@ return (
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1.15fr) minmax(360px, 1fr)", gap: 16, alignItems: "start", marginBottom: 16 }}>
+              <div className="tradeHistoryGrid" style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1.15fr) minmax(360px, 1fr)", gap: 16, alignItems: "start", marginBottom: 16 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                     <div>
@@ -15549,7 +15898,7 @@ return (
                       <h3>Log Trade</h3>
                       <div style={{ marginBottom: 12 }}>
                         <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", background: "rgba(124,196,255,0.08)", border: "1px dashed rgba(124,196,255,0.3)", borderRadius: 10, cursor: isParsingScreenshot ? "default" : "pointer", fontSize: 13, color: isParsingScreenshot ? "#4a5568" : "#7CC4FF", fontWeight: 600, opacity: isParsingScreenshot ? 0.6 : 1, pointerEvents: isParsingScreenshot ? "none" : "auto" }}>
-                          {isParsingScreenshot ? "Parsing…" : "📸 Upload Trade Screenshot"}
+                          {isParsingScreenshot ? "Reading screenshot..." : "📸 Upload Trade Screenshot"}
                           <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} disabled={isParsingScreenshot} />
                         </label>
                         {screenshotParseNotice && (
@@ -15582,10 +15931,15 @@ return (
                         )}
                       </div>
                       <form onSubmit={handleAddTrade} className="tradeEntryRow">
-                        <input className="authInput" placeholder="Asset (BTC, AAPL)" value={tradeForm.asset} onChange={(e) => setTradeForm({ ...tradeForm, asset: e.target.value })} onBlur={(e) => { const sym = resolveTickerAlias(e.target.value.trim()).toUpperCase(); if (sym) setTradeLogChartSymbol(sym); }} />
-                        <input className="authInput" placeholder="Entry Price" value={tradeForm.entryPrice} onChange={(e) => setTradeForm({ ...tradeForm, entryPrice: e.target.value })} />
-                        <input className="authInput" placeholder="Size ($)" value={tradeForm.size} onChange={(e) => setTradeForm({ ...tradeForm, size: e.target.value })} />
-                        <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => setTradeForm({ ...tradeForm, entryTime: e.target.value })} />
+                        <input className="authInput" placeholder="Asset (BTC, AAPL)" value={tradeForm.asset} onChange={(e) => { clearScreenshotFieldNote("asset"); setTradeForm({ ...tradeForm, asset: e.target.value }); }} onBlur={(e) => { const sym = resolveTickerAlias(e.target.value.trim()).toUpperCase(); if (sym) setTradeLogChartSymbol(sym); }} />
+                        {screenshotFieldNotes.asset ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.asset}</div> : null}
+                        <input className="authInput" placeholder="Entry Price" value={tradeForm.entryPrice} onChange={(e) => { clearScreenshotFieldNote("entryPrice"); setTradeForm({ ...tradeForm, entryPrice: e.target.value }); }} />
+                        {screenshotFieldNotes.entryPrice ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.entryPrice}</div> : null}
+                        <input className="authInput" placeholder="Size ($)" value={tradeForm.size} onChange={(e) => { clearScreenshotFieldNote("size"); setTradeForm({ ...tradeForm, size: e.target.value }); }} />
+                        {screenshotFieldNotes.size ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.size}</div> : null}
+                        {screenshotFieldNotes.quantity ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.quantity}</div> : null}
+                        <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => { clearScreenshotFieldNote("entryTime"); setTradeForm({ ...tradeForm, entryTime: e.target.value }); }} />
+                        {screenshotFieldNotes.entryTime ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.entryTime}</div> : null}
                         <select className="authInput" value={tradeForm.setup} onChange={(e) => setTradeForm({ ...tradeForm, setup: e.target.value })}>
                           <option value="">Select Setup (optional)</option>
                           {SETUP_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -15606,8 +15960,11 @@ return (
                           <option value="volatile">Volatile</option>
                           <option value="weak_trend">Weak Trend</option>
                         </select>
-                        <input className="authInput" placeholder="Result (R)" value={tradeForm.result} onChange={(e) => setTradeForm({ ...tradeForm, result: e.target.value })} />
-                        <button type="submit" className="ghostButton">Save Trade</button>
+                        <input className="authInput" placeholder="Result (R)" value={tradeForm.result} onChange={(e) => { clearScreenshotFieldNote("result"); setTradeForm({ ...tradeForm, result: e.target.value }); }} />
+                        {screenshotFieldNotes.result ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.result}</div> : null}
+                        <button type="submit" className="ghostButton" disabled={isSavingTrade || isParsingScreenshot}>
+                          {isSavingTrade ? "Saving..." : "Save Trade"}
+                        </button>
                       </form>
                     </div>
                   )}
