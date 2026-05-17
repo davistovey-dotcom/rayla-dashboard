@@ -7,13 +7,19 @@
 :root {
   --bg: #0b1017;
   --card: rgba(18, 26, 38, 0.86);
+  --surface: rgba(18, 26, 38, 0.82);
+  --surface-soft: rgba(255,255,255,0.035);
   --border: rgba(255,255,255,0.08);
+  --border-subtle: rgba(255,255,255,0.06);
   --text: #f3f7fc;
   --muted: #94a6bb;
   --accent: #7cc4ff;
   --accent-soft: rgba(124,196,255,0.12);
   --green: #4ade80;
   --red: #fb7185;
+  --radius-card: 18px;
+  --radius-panel: 14px;
+  --shadow-card: 0 18px 54px rgba(0,0,0,0.22);
 }
 
 html, body, #root {
@@ -26,13 +32,21 @@ html, body, #root {
 body {
   margin: 0;
   font-family: Inter, system-ui, sans-serif;
-  background: linear-gradient(180deg, #0b1017, #0f1722);
+  background: linear-gradient(180deg, #0b1017 0%, #0d141e 52%, #0b1017 100%);
   color: var(--text);
   padding-bottom: 0;
   -webkit-fill-available: #0b1017;
 }
 
 button, input, select, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(124,196,255,0.42);
+  outline-offset: 2px;
+}
 
 img, svg, canvas, iframe, video {
   max-width: 100%;
@@ -44,7 +58,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .appShell {
   width: 100%;
   max-width: 100%;
-  padding: 28px;
+  padding: 32px;
   overflow-x: hidden;
   box-sizing: border-box;
 }
@@ -69,11 +83,22 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 .ghostButton {
   border: 1px solid rgba(124,196,255,0.25);
-  background: transparent;
-  color: white;
+  background: rgba(255,255,255,0.025);
+  color: #f8fbff;
   padding: 10px 14px;
   border-radius: 10px;
   cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
+}
+
+.ghostButton:hover:not(:disabled) {
+  background: rgba(124,196,255,0.075);
+  border-color: rgba(124,196,255,0.38);
+}
+
+.ghostButton:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
 }
 
 .ghostButton.loading {
@@ -112,14 +137,14 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 18px;
+  gap: 18px;
+  margin-bottom: 20px;
 }
 
 .mainGrid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
-  gap: 16px;
+  gap: 18px;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -151,20 +176,27 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .card {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 18px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
-.cardHeader h2 { margin: 0 0 12px 0; font-size: 14px; color: #c5d3e1; }
+.cardHeader h2 {
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #cbd8e6;
+}
 
 .cardBody {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -188,9 +220,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .equityMeta div {
-  background: rgba(255,255,255,0.03);
-  border-radius: 12px;
-  padding: 10px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 11px 12px;
   min-width: 0;
 }
 
@@ -202,8 +235,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   min-width: 0;
   height: 432px;
   overflow: hidden;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(124,196,255,0.14) 0%, rgba(124,196,255,0.03) 100%);
+  border-radius: var(--radius-panel);
+  background: linear-gradient(180deg, rgba(124,196,255,0.10) 0%, rgba(255,255,255,0.025) 100%);
+  border: 1px solid rgba(255,255,255,0.055);
   padding: 10px 0 8px 0;
 }
 
@@ -261,7 +295,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   width: 100%;
   min-width: 0;
   height: 432px;
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   overflow: hidden;
   background: #0b1017;
   border: 1px solid rgba(255,255,255,0.06);
@@ -277,7 +311,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .tradingviewFrameWrapFull {
   width: 100%;
   height: 480px;
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   overflow: hidden;
   background: #0b1017;
   border: 1px solid rgba(255,255,255,0.06);
@@ -288,6 +322,224 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   height: 100%;
   border: 0;
   display: block;
+}
+
+.simulationChartFrame {
+  height: auto !important;
+  min-height: 0;
+  overflow: visible !important;
+}
+
+.performanceHistoryGrid {
+  min-height: 456px;
+  gap: 18px !important;
+}
+
+.performanceHistorySidebar {
+  height: 100%;
+  max-height: 100%;
+  padding: 2px 0;
+}
+
+.performanceHistoryAssetList {
+  scrollbar-gutter: stable;
+  padding-bottom: 4px;
+}
+
+.performanceHistoryChartPanel {
+  min-height: 0;
+  gap: 14px !important;
+}
+
+.performanceHistoryChartBox {
+  min-height: 386px;
+  padding: 18px 20px 22px;
+  box-sizing: border-box;
+  overflow: hidden;
+  contain: paint;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(124,196,255,0.08), transparent 34%),
+    #0d1117 !important;
+  border-color: rgba(255,255,255,0.075) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+}
+
+.tradeLiveChartBox {
+  box-sizing: border-box;
+}
+
+.tradePortfolioMiniChart {
+  padding: 56px 18px 24px !important;
+  overflow: hidden;
+  contain: paint;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(124,196,255,0.08), transparent 35%),
+    rgba(13,17,23,0.82) !important;
+  border-color: rgba(255,255,255,0.075) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+}
+
+.tradePortfolioMiniChart svg {
+  display: block;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tradeLiveChartViewport {
+  padding-bottom: 10px;
+}
+
+.customChartViewportControls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(6,10,16,0.48);
+  border: 1px solid rgba(255,255,255,0.055);
+  backdrop-filter: blur(10px);
+}
+
+.customChartViewportControls .ghostButton {
+  padding: 5px 8px;
+  min-height: 26px;
+  border-radius: 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #cbd5e1;
+  border-color: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.035);
+  line-height: 1;
+}
+
+.customChartViewportControls .ghostButton.active {
+  color: #d7efff;
+  border-color: rgba(124,196,255,0.36);
+  background: rgba(124,196,255,0.12);
+}
+
+.customChartInteractionHint {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(6,10,16,0.42);
+  border: 1px solid rgba(255,255,255,0.055);
+  color: #7f8ea3;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.interactiveLineChart {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.interactiveLineChartCanvas {
+  position: absolute;
+  inset: 42px 8px 8px 8px;
+  min-width: 0;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.interactiveLineChartLegend {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  right: 72px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  flex-wrap: wrap;
+  pointer-events: none;
+}
+
+.interactiveLineChartLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.interactiveLineChartLegendItem span {
+  width: 14px;
+  height: 2px;
+  border-radius: 99px;
+  flex: 0 0 auto;
+}
+
+.interactiveLineChartLegendItem strong {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.interactiveLineChartLegendItem em {
+  color: #94a3b8;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.interactiveLineChartFit {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 3;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(124,196,255,0.24);
+  background: rgba(6,10,16,0.62);
+  color: #d7efff;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.interactiveLineChartFit:hover {
+  background: rgba(124,196,255,0.12);
+  border-color: rgba(124,196,255,0.38);
+}
+
+.interactiveLineChartEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.performanceHistoryEngineChart .interactiveLineChartCanvas {
+  inset: 46px 6px 6px 4px;
+}
+
+.tradePortfolioEngineChart .interactiveLineChartCanvas {
+  inset: 44px 4px 4px 2px;
+}
+
+.tradePortfolioMiniChart .customChartViewportControls {
+  top: 12px !important;
+  right: 12px !important;
+  max-width: calc(100% - 24px);
+  justify-content: flex-end;
+}
+
+.performanceHistoryChartBox svg,
+.tradePortfolioMiniChart svg {
+  overflow: visible;
 }
 
 /* Dashboard — desktop: watchlist left column, chart right */
@@ -474,18 +726,18 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   line-height: 1.4;
 }
 
-.list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.list { display: flex; flex-direction: column; gap: 11px; min-width: 0; }
 
 .listRow {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  padding: 8px 0;
+  padding: 10px 0;
   min-width: 0;
 }
 
-.listTitle { font-size: 14px; font-weight: 600; }
+.listTitle { font-size: 14px; font-weight: 650; color: #edf4fb; }
 .listSubtext { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
 .pill {
@@ -514,62 +766,149 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
-  background:
-    radial-gradient(circle at top left, rgba(90,140,255,0.18), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(0,200,255,0.14), transparent 30%),
-    linear-gradient(180deg, #0b1020 0%, #11182b 100%);
+  padding: 40px;
+  background: #0b1017;
+}
+
+.authSplash {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 34px;
+  padding: 40px;
+  text-align: center;
+  background: #0b1017;
+}
+
+.authSplashIdentity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.authSplashBadge {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  opacity: 0.94;
+}
+
+.authSplashLogo {
+  width: min(220px, 58vw);
+  height: auto;
+  object-fit: contain;
+}
+
+.authSplashButton {
+  min-width: 148px;
+  border: 1px solid rgba(226,232,240,0.16);
+  background: rgba(248,250,252,0.92);
+  color: #0b1017;
+  border-radius: 999px;
+  padding: 13px 28px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.7s ease 0.22s, background 0.18s ease, border-color 0.18s ease;
+}
+
+.authSplashButton:hover {
+  background: #ffffff;
+  border-color: rgba(248,250,252,0.35);
 }
 
 .authCard {
   width: 100%;
-  max-width: 440px;
-  background: rgba(17,24,43,0.92);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 24px;
-  padding: 32px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
-  backdrop-filter: blur(12px);
+  max-width: 390px;
+  background: rgba(11,16,23,0.76);
+  border: 1px solid rgba(226,232,240,0.08);
+  border-radius: 22px;
+  padding: 38px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.28);
+}
+
+.authIdentity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 34px;
+}
+
+.authBadge {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  opacity: 0.92;
+}
+
+.authLogo {
+  height: 22px;
+  width: auto;
+  object-fit: contain;
 }
 
 .authBrand { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: #7dd3fc; margin-bottom: 10px; }
-.authTitle { margin: 0; font-size: 34px; line-height: 1.05; color: #f8fafc; }
+.authTitle { margin: 0 0 26px; font-size: 27px; line-height: 1.08; color: #f8fafc; text-align: center; font-weight: 650; }
 .authSubtitle { margin: 10px 0 24px; color: #94a3b8; font-size: 15px; line-height: 1.5; }
-.authForm { display: flex; flex-direction: column; gap: 12px; }
-.authLabel { font-size: 13px; font-weight: 600; color: #cbd5e1; margin-top: 4px; }
+.authForm { display: flex; flex-direction: column; gap: 10px; }
+.authLabel { font-size: 12px; font-weight: 600; color: #9aa7b8; margin-top: 6px; }
 
 .authInput {
   width: 100%;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(15,23,42,0.85);
+  border: 1px solid rgba(226,232,240,0.1);
+  background: rgba(15,23,42,0.58);
   color: #f8fafc;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 13px 14px;
   font-size: 15px;
   outline: none;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.18s ease, background 0.18s ease;
 }
 
-.authInput:focus { border-color: #60a5fa; transform: translateY(-1px); }
+.authInput:focus { border-color: rgba(124,196,255,0.46); background: rgba(15,23,42,0.78); }
 .authInput::placeholder { color: #64748b; }
 
 .authPrimaryButton,
 .authSecondaryButton {
   width: 100%;
   border: none;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 999px;
+  padding: 13px 16px;
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-  margin-top: 6px;
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
+  margin-top: 10px;
 }
 
-.authPrimaryButton { background: linear-gradient(135deg, #60a5fa 0%, #22d3ee 100%); color: #08111f; }
-.authSecondaryButton { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.08); }
-.authPrimaryButton:hover, .authSecondaryButton:hover { transform: translateY(-1px); }
-.authPrimaryButton:disabled, .authSecondaryButton:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+.authPrimaryButton { background: rgba(248,250,252,0.94); color: #0b1017; border: 1px solid rgba(248,250,252,0.18); }
+.authSecondaryButton { background: transparent; color: #8fb7d2; border: 1px solid transparent; margin-top: 2px; font-weight: 650; }
+.authPrimaryButton:hover { background: #ffffff; border-color: rgba(248,250,252,0.34); }
+.authSecondaryButton:hover { color: #cfeeff; background: rgba(124,196,255,0.045); }
+.authPrimaryButton:disabled, .authSecondaryButton:disabled { opacity: 0.65; cursor: not-allowed; }
+.authStatusCard { max-width: 380px; }
+.authMessage {
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.authMessage.error {
+  color: #fecaca;
+  background: rgba(248,113,113,0.08);
+  border-color: rgba(248,113,113,0.16);
+}
+.authMessage.success {
+  color: #bbf7d0;
+  background: rgba(74,222,128,0.08);
+  border-color: rgba(74,222,128,0.16);
+}
 
 .modalOverlay {
   position: fixed;
@@ -648,28 +987,91 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .profileCard {
-  border: 2px solid #7CC4FF;
-  background: rgba(124,196,255,0.05);
-  border-radius: 20px;
-  padding: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  padding: 20px;
 }
 
-.profileCard h3 { margin: 0 0 14px 0; font-size: 1.1rem; }
+.profileCard h3 { margin: 4px 0 6px 0; font-size: 1.25rem; }
+.sectionEyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: #7f8ea3;
+}
 .profileCard .list { gap: 0; }
 .profileCard .listRow { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .profileCard .listRow:last-of-type { border-bottom: none; }
-.profileCard .ghostButton { width: 100%; margin-top: 14px; }
+.profileHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.profilePanel {
+  border: 1px solid var(--border-subtle);
+  background: rgba(10,15,24,0.36);
+  border-radius: var(--radius-panel);
+  padding: 14px;
+}
+.profileStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.profileStats div {
+  border-radius: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+  padding: 10px;
+}
+.profileStats span {
+  display: block;
+  font-size: 11px;
+  color: #7f8ea3;
+  margin-bottom: 5px;
+}
+.profileStats strong {
+  font-size: 15px;
+  color: #e2e8f0;
+}
+.profileActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.profileActions .ghostButton,
+.profileHeader .ghostButton,
+.profilePanel .ghostButton {
+  width: auto;
+  margin-top: 0;
+}
+.dangerButton {
+  color: #fecaca;
+  border-color: rgba(248,113,113,0.24);
+  background: rgba(248,113,113,0.06);
+}
 
 .portfolioValue { font-size: 42px; font-weight: 700; letter-spacing: -1px; margin-top: 4px; }
 .portfolioValue.positive { color: #4ade80; }
 .portfolioValue.negative { color: #fb7185; }
 
-.chartTabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; }
+.chartTabs { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; scrollbar-width: none; }
 .chartTabs::-webkit-scrollbar { display: none; }
 
 .chartTab {
-  border: none;
-  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.035);
   color: #9fb0cc;
   padding: 8px 12px;
   border-radius: 999px;
@@ -679,7 +1081,8 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   flex: 0 0 auto;
 }
 
-.chartTab.active { background: #7CC4FF; color: #0b1017; font-weight: 700; }
+.chartTab:hover { background: rgba(124,196,255,0.07); border-color: rgba(124,196,255,0.18); }
+.chartTab.active { background: #7CC4FF; color: #0b1017; font-weight: 700; border-color: rgba(124,196,255,0.7); }
 
 .deleteTradeButton {
   background: transparent;
@@ -746,13 +1149,13 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     left: 0;
     height: 100vh;
     width: 200px;
-    background: rgba(11,16,23,0.96);
-    border-right: 1px solid rgba(255,255,255,0.08);
+    background: rgba(9,14,21,0.965);
+    border-right: 1px solid rgba(255,255,255,0.065);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     z-index: 100;
-    padding: 24px 12px;
-    gap: 4px;
+    padding: 26px 12px;
+    gap: 5px;
   }
 
   .desktopSidebarBrand {
@@ -762,7 +1165,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     text-transform: uppercase;
     color: #7CC4FF;
     padding: 0 12px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
   .desktopSidebarTotalR {
@@ -778,7 +1181,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 11px;
     background: none;
     border: none;
     color: #7f8ea3;
@@ -796,9 +1199,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   }
 
   .desktopSidebarBtn.active {
-    background: rgba(124,196,255,0.1);
-    color: #7CC4FF;
+    background: rgba(124,196,255,0.11);
+    color: #d7efff;
     font-weight: 600;
+    box-shadow: inset 0 0 0 1px rgba(124,196,255,0.14);
   }
 
   .desktopSidebarBtn.active svg {
@@ -833,6 +1237,20 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 /* ── Mobile ── */
 @media (max-width: 700px) {
   .statsGrid { grid-template-columns: 1fr; }
+  .authPage { padding: 18px; align-items: stretch; }
+  .authCard { margin: auto 0; padding: 28px 22px; border-radius: 18px; }
+  .authTitle { font-size: 25px; margin-bottom: 22px; }
+  .authSplash { padding: 28px; gap: 30px; }
+  .authSplashBadge { width: 48px; height: 48px; }
+  .profileHeader { flex-direction: column; }
+  .profileGrid { grid-template-columns: 1fr; }
+  .profileStats { grid-template-columns: 1fr; }
+  .profileActions { flex-direction: column; }
+  .profileActions .ghostButton,
+  .profileHeader .ghostButton,
+  .profilePanel .ghostButton {
+    width: 100%;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1020,7 +1438,245 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   box-shadow: 0 10px 24px rgba(2,6,23,0.28);
 }
 
+.tradeMobileScope,
+.tradeWorkspaceGrid,
+.tradeExecutionGrid,
+.tradeWorkspaceCard,
+.tradePositionsPanel,
+.tradeLiveMarketPanel,
+.tradeOrderTicket,
+.tradeHistoryGrid,
+.tradeSelectedAssetCard,
+.tradeOrderForm {
+  min-width: 0;
+}
+
+.brokerAssetDropdown {
+  background: rgba(9,14,26,0.97);
+  border: 1px solid rgba(124,196,255,0.1);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.56), 0 4px 12px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.brokerAssetOption {
+  min-height: 52px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  background: transparent;
+  color: inherit;
+  transition: background 0.11s ease;
+}
+.brokerAssetOption:hover {
+  background: rgba(124,196,255,0.07);
+}
+.brokerAssetOption:active {
+  background: rgba(124,196,255,0.13);
+}
+.brokerAssetOption:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 600px) {
+  .tradeMobileScope {
+    gap: 14px;
+    overflow-x: hidden !important;
+  }
+
+  .tradeMobileScope .cardBody {
+    gap: 14px;
+  }
+
+  .tradeConfirmModal {
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    padding: 14px;
+    overscroll-behavior: contain;
+  }
+
+  .tradeConfirmGrid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .tradeConfirmActions {
+    position: sticky;
+    bottom: 0;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    padding-top: 10px;
+    background: linear-gradient(180deg, rgba(17,24,39,0), rgba(17,24,39,0.98) 28%);
+  }
+
+  .tradeConfirmActions button,
+  .tradeOrderForm button,
+  .tradeCloseButton,
+  .brokerAssetOption {
+    min-height: 44px;
+  }
+
+  .tradeWorkspaceGrid,
+  .tradeExecutionGrid,
+  .tradeHistoryGrid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .tradeWorkspaceCard,
+  .tradePositionsPanel,
+  .tradeLiveMarketPanel,
+  .tradeOrderTicket {
+    padding: 12px !important;
+    width: 100%;
+    max-width: 100%;
+    height: auto !important;
+  }
+
+  .tradeLiveMarketPanel {
+    order: 1 !important;
+  }
+
+  .tradeOrderTicket {
+    order: 2 !important;
+  }
+
+  .tradePositionsPanel {
+    order: 3 !important;
+  }
+
+  .tradePositionsList {
+    max-height: 430px;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+  }
+
+  .tradePortfolioButton,
+  .tradePositionRow {
+    min-height: 74px;
+  }
+
+  .tradePositionRow > div:first-child {
+    align-items: flex-start !important;
+    flex-direction: column;
+  }
+
+  .tradeCloseButton {
+    width: 100%;
+    padding: 10px 12px !important;
+    font-size: 12px !important;
+  }
+
+  .tradeLiveChartBox {
+    height: min(62dvh, 360px) !important;
+    min-height: 300px;
+  }
+
+  .tradeSelectedAssetCard {
+    padding: 10px !important;
+  }
+
+  .tradeOrderTwoColumn {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .tradeOrderChipRow {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px !important;
+  }
+
+  .tradeOrderChipRow button {
+    width: 100%;
+    padding: 10px 8px !important;
+    white-space: normal;
+  }
+
+  .brokerAssetDropdown {
+    left: 0 !important;
+    right: 0 !important;
+    max-height: min(42dvh, 280px) !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .brokerAssetOption {
+    align-items: flex-start !important;
+    padding: 12px !important;
+  }
+
+  .brokerAssetOption > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
 :root {
   --rayla-blue: #6FA0D8;
   --rayla-dark: #020A1A;
+}
+
+/* ── Premium dropdown polish ── */
+
+/* Remove native arrow from all authInput selects and add custom chevron */
+select.authInput {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7' fill='none'%3E%3Cpath d='M1 1L5.5 6L10 1' stroke='%23627283' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 38px;
+  cursor: pointer;
+}
+select.authInput:hover:not(:disabled):not(:focus) {
+  border-color: rgba(124,196,255,0.22);
+}
+select.authInput:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7' fill='none'%3E%3Cpath d='M1 1L5.5 6L10 1' stroke='%237CC4FF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+select.authInput option {
+  background: #0d1628;
+  color: #e2e8f0;
+}
+
+/* Compact filter selects used in performance and trade-history filter bars */
+.filterSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(12,19,33,0.88);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23627283' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 8px;
+  padding: 7px 28px 7px 11px;
+  color: #c4d0de;
+  font-size: 13px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.13s ease, background-color 0.13s ease;
+}
+.filterSelect:hover {
+  border-color: rgba(124,196,255,0.22);
+  background-color: rgba(14,22,40,0.93);
+}
+.filterSelect:focus {
+  border-color: rgba(124,196,255,0.42);
+  background-color: rgba(14,22,40,0.97);
+}
+.filterSelect option {
+  background: #0d1628;
+  color: #e2e8f0;
 }
