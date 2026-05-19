@@ -1,22 +1,8 @@
 {
   "permissions": {
+    "defaultMode": "acceptEdits",
     "allow": [
-      "Bash(npm run *)",
-      "Bash(npx cap *)",
-      "Bash(supabase *)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git push*)",
-      "Bash(git stash*)",
-      "Bash(node *)",
-      "Bash(lsof *)",
-      "Bash(curl *)",
-      "Bash(cp *)",
-      "Bash(mv *)",
-      "Bash(mkdir *)",
-      "Bash(pkill *)",
-      "Bash(kill *)",
-      "Bash(wc *)"
+      "Bash(*)"
     ]
   }
 }
