@@ -7089,6 +7089,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
   const [filterResult, setFilterResult] = useState("all");
   const [sortNewest, setSortNewest] = useState(true);
   const [viewMode, setViewMode] = useState("cards");
+  const [viewingAllTrades, setViewingAllTrades] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
   const [reflections, setReflections] = useState({});
   const selectedJournalTrades = journalSource === "live_simulation" ? liveSimulationTrades : trades;
@@ -7121,6 +7122,17 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
       const tb = b.entry_time ? new Date(b.entry_time).getTime() : 0;
       return sortNewest ? tb - ta : ta - tb;
     }), [selectedJournalTrades, search, filterDir, filterSetup, filterResult, sortNewest]);
+
+  const recentFive = useMemo(() =>
+    [...selectedJournalTrades]
+      .sort((a, b) => {
+        const ta = a.entry_time ? new Date(a.entry_time).getTime() : 0;
+        const tb = b.entry_time ? new Date(b.entry_time).getTime() : 0;
+        return tb - ta;
+      })
+      .slice(0, 5),
+    [selectedJournalTrades]
+  );
 
   const totalRVal = useMemo(() => selectedJournalTrades.reduce((s, t) => s + getTradeOutcomeValue(t), 0), [selectedJournalTrades]);
   const wins = useMemo(() => selectedJournalTrades.filter(t => getTradeOutcomeValue(t) > 0), [selectedJournalTrades]);
@@ -7357,7 +7369,20 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
         </div>
       )}
 
-      {/* Filter bar */}
+      {/* Back header + filter bar — only in full list view */}
+      {viewingAllTrades && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => setViewingAllTrades(false)}
+            style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "6px 12px", color: "#94a3b8", fontSize: 12, cursor: "pointer" }}
+          >
+            ← Back
+          </button>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>All {selectedJournalTrades.length} Trades</span>
+        </div>
+      )}
+      {viewingAllTrades && (
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           type="text"
@@ -7405,9 +7430,10 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
           {filtered.length} of {selectedJournalTrades.length} trades
         </div>
       </div>
+      )}
 
       {/* Trade list */}
-      {filtered.length === 0 ? (
+      {viewingAllTrades && filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px", background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 }}>
           <div style={{ fontSize: 14, color: "#64748b", marginBottom: 10 }}>No trades match your current filters.</div>
           <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); }}
@@ -7415,11 +7441,11 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
             Clear filters
           </button>
         </div>
-      ) : viewMode === "table" ? (
+      ) : viewingAllTrades && viewMode === "table" ? (
         <JournalTradeTable trades={filtered} rCol={rCol} tradeDuration={tradeDuration} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map((trade, idx) => {
+          {(viewingAllTrades ? filtered : recentFive).map((trade, idx) => {
             const tradeId = trade.id || idx;
             const r = getTradeOutcomeValue(trade);
             const isWin = r > 0;
@@ -7553,6 +7579,30 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
           })}
         </div>
       )}
+
+      {/* View All button — summary view only */}
+      {!viewingAllTrades && selectedJournalTrades.length > 5 && (
+        <button
+          type="button"
+          onClick={() => setViewingAllTrades(true)}
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            borderRadius: 10,
+            padding: "12px 20px",
+            color: "#7f8ea3",
+            fontSize: 13,
+            cursor: "pointer",
+            width: "100%",
+            textAlign: "center",
+            transition: "background 0.13s, border-color 0.13s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = "rgba(124,196,255,0.06)"; e.currentTarget.style.borderColor = "rgba(124,196,255,0.2)"; e.currentTarget.style.color = "#7CC4FF"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)"; e.currentTarget.style.color = "#7f8ea3"; }}
+        >
+          View All {selectedJournalTrades.length} Trades →
+        </button>
+      )}
     </div>
   );
 }
@@ -7609,6 +7659,7 @@ useEffect(() => {
   const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
   const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
+  const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
   const [homeMobileTab, setHomeMobileTab] = useState(0);
   const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
@@ -14970,11 +15021,12 @@ return (
       </nav>
 
       <div className="appShellInner">
-        {activeTab !== "home" && (
+        {activeTab !== "home" && activeTab !== "trades" && (
           <div className="topbar">
             <div>
-              <p className="eyebrow">Rayla</p>
-              <p className="subheading">Trading clarity, practice, and performance in one place.</p>
+              <p style={{ margin: 0, color: "#f8fbff", fontSize: 20, fontWeight: 850, lineHeight: 1.1, letterSpacing: 0 }}>
+                {activeTab === "profile" ? "Profile" : NAV_TABS.find((tab) => tab.id === activeTab)?.label || "Rayla"}
+              </p>
             </div>
           </div>
         )}
@@ -15004,25 +15056,252 @@ return (
                 overflow: hidden;
               }
               .homeRight {
-                flex: 1.2;
+                flex: 1;
                 min-width: 0;
-                background: #0a1628;
-                border-left: 1px solid rgba(122,168,216,0.12);
-                display: flex;
-                flex-direction: column;
+                background:
+                  radial-gradient(circle at 42% 0%, rgba(124,196,255,0.11), transparent 34%),
+                  linear-gradient(180deg, #071321 0%, #050b14 100%);
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) minmax(300px, 326px);
+                grid-template-rows: 38px 20px 92px 40px 34px minmax(0, 1fr);
+                grid-template-areas:
+                  "title actions"
+                  "status actions"
+                  "carousel carousel"
+                  "search search"
+                  "controls controls"
+                  "chart rail";
+                gap: 10px 14px;
+                padding: 20px;
                 height: 100%;
-                overflow-y: auto;
-                overflow-x: hidden;
+                overflow: hidden;
               }
               .homeRightFullscreen {
-                flex: 1 1 100%;
-                width: 100%;
-                border-left: none;
+                grid-template-columns: minmax(0, 1fr) minmax(300px, 650px);
+                grid-template-areas:
+                  "title actions"
+                  "status actions"
+                  "carousel carousel"
+                  "search search"
+                  "controls controls"
+                  "chart chart";
+              }
+              .homePageTitle {
+                grid-area: title;
+                align-self: center;
+                color: #f8fbff;
+                font-size: 20px;
+                font-weight: 850;
+                line-height: 1.1;
+                letter-spacing: 0;
+              }
+              .homeMarketStatusBar {
+                grid-area: status;
+                align-self: center;
+                padding: 0 0 0 2px !important;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              }
+              .homeMarketStatusBar::before {
+                content: "";
+                width: 7px;
+                height: 7px;
+                border-radius: 999px;
+                background: #22c55e;
+                box-shadow: 0 0 14px rgba(34,197,94,0.6);
+              }
+              .homeTopActions {
+                grid-area: actions;
+                align-self: center;
+                justify-self: end;
+                display: flex;
+                align-items: center;
+              }
+              .homeMarketSearchBar {
+                grid-area: search;
+                align-self: center;
+                justify-self: stretch;
+                padding: 0 !important;
+                z-index: 5;
+              }
+              .homeMarketSearchBar > div:first-child {
+                justify-content: flex-start;
+                max-width: 720px;
+              }
+              .homeMarketSearchBar .authInput {
+                min-height: 38px;
+                background: rgba(4,10,18,0.72);
+                border-color: rgba(255,255,255,0.09);
+                border-radius: 10px;
+              }
+              .homeMarketSearchBar .ghostButton {
+                min-height: 38px;
+                padding: 8px 13px !important;
+              }
+              .homeMarketSearchBar .raylaLaunchButton,
+              .homeMarketSearchBar button[aria-label="Ask Rayla"] {
+                min-height: 38px;
+              }
+              .homeMarketCarouselSection {
+                grid-area: carousel;
+                padding: 0 !important;
+                overflow: hidden;
+                border-bottom: 1px solid rgba(255,255,255,0.045);
+              }
+              .homeMarketCarouselSection .asset-carousel {
+                gap: 8px !important;
+                padding: 0 0 2px !important;
+              }
+              .homeMarketCarouselSection .asset-carousel > div {
+                min-width: 176px !important;
+                padding: 10px 14px !important;
+                border-radius: 8px !important;
+              }
+              .homeMarketControls {
+                grid-area: controls;
+                align-self: end;
+                padding: 0 !important;
+              }
+              .homeChartStage {
+                grid-area: chart;
+                min-height: 0 !important;
+                height: 100%;
+                padding: 0 !important;
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 12px;
+                overflow: hidden;
+                background: rgba(5,11,19,0.72);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+              }
+              .homeUtilityRail {
+                grid-area: rail;
+                min-height: 0;
+                height: 100%;
+                overflow: hidden;
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 12px;
+                background: linear-gradient(180deg, rgba(7,14,24,0.76), rgba(4,9,16,0.86));
+                display: flex;
+                flex-direction: column;
+              }
+              .homeUtilityTabs {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 0;
+                padding: 18px 24px 0;
+                border-bottom: 1px solid rgba(255,255,255,0.075);
+              }
+              .homeUtilityTab {
+                padding: 0 0 12px;
+                border: 0;
+                background: transparent;
+                color: #6f7f92;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                text-align: left;
+                cursor: pointer;
+              }
+              .homeUtilityTab.active {
+                color: #d7efff;
+                box-shadow: inset 0 -2px 0 rgba(124,196,255,0.95);
+              }
+              .homeUtilityBody {
+                padding: 22px 24px 24px;
+                overflow-y: auto;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 24px;
+              }
+              .homeUtilitySection {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                padding-bottom: 18px;
+                border-bottom: 1px solid rgba(255,255,255,0.07);
+              }
+              .homeUtilitySection:last-child {
+                border-bottom: 0;
+                padding-bottom: 0;
+              }
+              .homeUtilityKicker {
+                color: #e6eef8;
+                font-size: 13px;
+                font-weight: 800;
+              }
+              .homeUtilityMuted {
+                color: #7f8ea3;
+                font-size: 12px;
+                line-height: 1.5;
+              }
+              .homeUtilityBig {
+                color: #4ade80;
+                font-size: 28px;
+                font-weight: 850;
+                letter-spacing: 0;
+              }
+              .homeUtilityMetrics {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 12px;
+              }
+              .homeUtilityMetric span {
+                display: block;
+                color: #7f8ea3;
+                font-size: 11px;
+                margin-bottom: 7px;
+              }
+              .homeUtilityMetric strong {
+                display: block;
+                color: #f1f5f9;
+                font-size: 13px;
+                font-weight: 800;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+              .homeUtilityRows {
+                display: flex;
+                flex-direction: column;
+                gap: 0;
+              }
+              .homeUtilityRow {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 14px;
+                padding: 11px 0;
+                border-top: 1px solid rgba(255,255,255,0.055);
+                color: #dbe7f5;
+                font-size: 13px;
+              }
+              .homeUtilityRow:first-child {
+                border-top: 0;
+              }
+              .homeUtilityRow small {
+                color: #7f8ea3;
+                font-size: 11px;
+                font-weight: 600;
+              }
+              .homeChartExplainRow {
+                display: none !important;
               }
               @media (max-width: 767px) {
                 .homeLayout { flex-direction: column; height: auto; overflow: visible; }
                 .homeLeft { min-height: 420px; overflow: visible; }
-                .homeRight { height: auto; }
+                .homeRight { height: auto; display: flex; flex-direction: column; padding: 0; overflow-y: auto; background: #0a1628; }
+                .homeMarketStatusBar,
+                .homePageTitle,
+                .homeTopActions,
+                .homeMarketSearchBar,
+                .homeMarketCarouselSection,
+                .homeMarketControls,
+                .homeChartStage { grid-area: auto; }
+                .homeUtilityRail { display: none; }
+                .homeChartExplainRow { display: block !important; }
                 .homeRightFullscreen { height: 100vh; }
               }
             `}</style>
@@ -15036,7 +15315,7 @@ return (
                 </div>
               )}
               {/* LEFT: Ask Rayla */}
-              {!isHomeLiveChartFullscreen && (!isMobileView || homeMobileTab === 0) && (
+              {!isHomeLiveChartFullscreen && isMobileView && homeMobileTab === 0 && (
               <div className="homeLeft">
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -15156,12 +15435,19 @@ return (
               {/* RIGHT: Live Market */}
               {(!isMobileView || homeMobileTab === 1) && (
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
+                <div className="homePageTitle">Home</div>
                 {/* Label */}
-                <div style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
+                <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   Live Market
                 </div>
+                <div className="homeTopActions">
+                  <RaylaLaunchButton
+                    label="Ask Rayla"
+                    onClick={() => openGlobalRaylaPopup("Ask Rayla")}
+                  />
+                </div>
                 {/* Search bar */}
-                <div style={{ position: "relative", padding: "0 20px 12px", flexShrink: 0 }}>
+                <div className="homeMarketSearchBar" style={{ position: "relative", padding: "0 20px 12px", flexShrink: 0 }}>
                   <div style={{ display: "flex", gap: 10 }}>
                     <input
                       type="text"
@@ -15216,7 +15502,7 @@ return (
                   )}
                 </div>
                 {/* Asset carousel */}
-                <div style={{ padding: "0 20px 12px", flexShrink: 0 }}>
+                <div className="homeMarketCarouselSection" style={{ padding: "0 20px 12px", flexShrink: 0 }}>
                   <AssetCarousel
                     assets={[...marketItems].sort((a, b) => a.id.localeCompare(b.id)).map((item) => ({
                       id: item.id,
@@ -15231,7 +15517,7 @@ return (
                   />
                 </div>
                 {/* Range + Mode toggles */}
-                <div style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div className="homeMarketControls" style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                   <ChartTimeframeDropdown
                     value={homeMarketChartRange}
                     onChange={setHomeMarketChartRange}
@@ -15252,7 +15538,7 @@ return (
                     </div>
                   )}
                 </div>
-                <div style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
+                <div className="homeChartStage" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
                   {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
                   {homeMarketSelectedItem && homeMarketAssetExplicitlyUnsupported ? (
                     <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
@@ -15268,9 +15554,149 @@ return (
                     />
                   ) : null}
                 </div>
+                {!isHomeLiveChartFullscreen && (
+                  <aside className="homeUtilityRail">
+                    <div className="homeUtilityTabs" aria-label="Home market overview">
+                      {[
+                        ["overview", "Overview"],
+                        ["positions", "Positions"],
+                        ["orders", "Orders"],
+                      ].map(([tabId, label]) => (
+                        <button
+                          key={tabId}
+                          type="button"
+                          className={`homeUtilityTab ${homeUtilityTab === tabId ? "active" : ""}`}
+                          onClick={() => setHomeUtilityTab(tabId)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="homeUtilityBody">
+                      {homeUtilityTab === "overview" && (
+                        <>
+                          <section className="homeUtilitySection">
+                            <div>
+                              <div className="homeUtilityKicker">Performance <span className="homeUtilityMuted">(Journal)</span></div>
+                              <div className="homeUtilityBig">{winRate}</div>
+                            </div>
+                            <div className="homeUtilityMetrics">
+                              <div className="homeUtilityMetric">
+                                <span>Total R</span>
+                                <strong>{totalR}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Avg R</span>
+                                <strong>{avgR}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Trades</span>
+                                <strong>{combinedHomeStats.combinedResolvedTradeCount}</strong>
+                              </div>
+                            </div>
+                          </section>
+
+                          <section className="homeUtilitySection">
+                            <div className="homeUtilityKicker">Account Balance</div>
+                            <div className="homeUtilityMetrics" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                              <div className="homeUtilityMetric">
+                                <span>Portfolio</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.portfolioValue ?? alpacaAccount.equity) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Buying Power</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.buyingPower) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Cash</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.cash) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Day P/L</span>
+                                {(() => {
+                                  const dayPnL = calculateBrokerDayPnL(alpacaPositions);
+                                  return (
+                                    <strong style={{ color: Number.isFinite(dayPnL) && dayPnL < 0 ? "#f87171" : "#4ade80" }}>
+                                      {Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--"}
+                                    </strong>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          </section>
+
+                          <section className="homeUtilitySection">
+                            <div className="homeUtilityKicker">Recent Trades</div>
+                            <div className="homeUtilityRows">
+                              {recentTrades.length ? recentTrades.slice(0, 4).map((trade, index) => {
+                                const resultValue = Number(trade.result_r ?? trade.resultR);
+                                const hasResult = Number.isFinite(resultValue);
+                                return (
+                                  <div className="homeUtilityRow" key={`home-recent-${trade.id || index}`}>
+                                    <div>
+                                      <div>{trade.asset || trade.symbol || "Trade"}</div>
+                                      <small>{trade.direction || trade.side || trade.setup || "Logged"}</small>
+                                    </div>
+                                    <div style={{ textAlign: "right", color: hasResult ? (resultValue < 0 ? "#f87171" : "#4ade80") : "#94a3b8", fontWeight: 800 }}>
+                                      {hasResult ? `${resultValue >= 0 ? "+" : ""}${resultValue.toFixed(2)}R` : "Logged"}
+                                    </div>
+                                  </div>
+                                );
+                              }) : (
+                                <div className="homeUtilityMuted">Logged trades will appear here.</div>
+                              )}
+                            </div>
+                          </section>
+                        </>
+                      )}
+
+                      {homeUtilityTab === "positions" && (
+                        <section className="homeUtilitySection">
+                          <div className="homeUtilityKicker">Positions</div>
+                          <div className="homeUtilityRows">
+                            {alpacaPositions.length ? alpacaPositions.map((position) => (
+                              <div className="homeUtilityRow" key={`home-position-${position.symbol}`}>
+                                <div>
+                                  <div>{position.symbol}</div>
+                                  <small>Qty {position.qty || "--"}</small>
+                                </div>
+                                <div style={{ textAlign: "right", color: Number(position.unrealizedPl) < 0 ? "#f87171" : "#4ade80", fontWeight: 800 }}>
+                                  {Number.isFinite(Number(position.unrealizedPl)) ? `${Number(position.unrealizedPl) >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}` : "--"}
+                                </div>
+                              </div>
+                            )) : (
+                              <div className="homeUtilityMuted">No open broker positions synced yet.</div>
+                            )}
+                          </div>
+                        </section>
+                      )}
+
+                      {homeUtilityTab === "orders" && (
+                        <section className="homeUtilitySection">
+                          <div className="homeUtilityKicker">Orders</div>
+                          <div className="homeUtilityRows">
+                            {brokerTradeLog.length ? brokerTradeLog.map((order, index) => (
+                              <div className="homeUtilityRow" key={`home-order-${order.broker_order_id || order.id || index}`}>
+                                <div>
+                                  <div>{order.symbol || order.asset || "Order"}</div>
+                                  <small>{order.side || order.action || "Broker"}</small>
+                                </div>
+                                <div style={{ textAlign: "right", color: "#94a3b8", fontWeight: 800 }}>
+                                  {order.status || "--"}
+                                </div>
+                              </div>
+                            )) : (
+                              <div className="homeUtilityMuted">No broker orders synced yet.</div>
+                            )}
+                          </div>
+                        </section>
+                      )}
+                    </div>
+                  </aside>
+                )}
                 {/* Ask Rayla → Explain chart */}
                 {homeMarketSelectedItem && (
-                  <div style={{ padding: "0 20px 16px", flexShrink: 0 }}>
+                  <div className="homeChartExplainRow" style={{ padding: "0 20px 16px", flexShrink: 0 }}>
                     <button type="button"
                       onClick={() => {
                         const context = buildChartExplainContext({
@@ -15295,8 +15721,198 @@ return (
 
         {activeTab === "trades" && (
           <div className="mainGrid tradeMobileScope" style={{ overflow: "visible" }}>
+            <style>{`
+              @media (min-width: 900px) {
+                .appShellInner:has(.tradeMobileScope) .topbar {
+                  display: none !important;
+                }
+                .tradeMobileScope {
+                  display: block !important;
+                  max-width: none !important;
+                  overflow: hidden !important;
+                }
+                .tradeMobileScope .span12 {
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                }
+                .tradePageHeader {
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 18px;
+                  margin-bottom: 18px;
+                }
+                .tradePageTitle {
+                  color: #f8fbff;
+                  font-size: 20px;
+                  font-weight: 850;
+                  line-height: 1.1;
+                  letter-spacing: 0;
+                }
+                .tradePageSubtitle {
+                  color: #8ea0b6;
+                  font-size: 12px;
+                  margin-top: 3px;
+                  line-height: 1.35;
+                }
+                .tradeWorkspaceShell {
+                  background: transparent !important;
+                  border: 0 !important;
+                  box-shadow: none !important;
+                  padding: 0 !important;
+                  margin: 0 !important;
+                  overflow: visible !important;
+                }
+                .tradeWorkspaceShell > .cardBody {
+                  padding: 0 !important;
+                  gap: 8px !important;
+                }
+                .tradeWorkspaceGrid {
+                  grid-template-columns: minmax(320px, 0.54fr) minmax(560px, 1fr) !important;
+                  gap: 0 !important;
+                  border: 1px solid rgba(255,255,255,0.08);
+                  border-radius: 10px;
+                  background:
+                    radial-gradient(circle at 22% 0%, rgba(124,196,255,0.08), transparent 38%),
+                    rgba(12,22,34,0.78);
+                  overflow: hidden;
+                }
+                .tradeWorkspaceCard {
+                  background: transparent !important;
+                  border: 0 !important;
+                  border-radius: 0 !important;
+                  padding: 10px 18px !important;
+                  min-height: 78px;
+                  gap: 5px !important;
+                }
+                .tradeWorkspaceCard + .tradeWorkspaceCard {
+                  border-left: 1px solid rgba(255,255,255,0.07) !important;
+                }
+                .tradeWorkspaceCard h2 {
+                  font-size: 17px !important;
+                  line-height: 1.15 !important;
+                }
+                .tradeWorkspaceCard p,
+                .tradeWorkspaceCard div {
+                  line-height: 1.35;
+                }
+                .tradeWorkspaceCard .ghostButton {
+                  align-self: flex-start;
+                  min-height: 30px;
+                  padding: 5px 11px !important;
+                }
+                .tradeExecutionGrid {
+                  grid-template-columns: minmax(430px, 1.5fr) minmax(300px, 1fr) minmax(280px, 0.9fr) !important;
+                  gap: 10px !important;
+                  align-items: stretch !important;
+                }
+                .tradeExecutionGrid > * {
+                  align-self: stretch !important;
+                }
+                .tradeLiveMarketPanel,
+                .tradeOrderTicket,
+                .tradePositionsPanel {
+                  border-radius: 10px !important;
+                  background:
+                    radial-gradient(circle at 24% 0%, rgba(124,196,255,0.06), transparent 34%),
+                    rgba(14,24,37,0.78) !important;
+                  border-color: rgba(255,255,255,0.08) !important;
+                }
+                .tradeLiveMarketPanel {
+                  height: 455px !important;
+                  max-height: 455px;
+                  overflow-y: auto;
+                  padding: 10px !important;
+                  gap: 7px !important;
+                }
+                .tradeOrderTicket,
+                .tradePositionsPanel {
+                  height: 455px !important;
+                  max-height: 455px;
+                  overflow-y: auto;
+                }
+                .tradeOrderTicket {
+                  gap: 7px !important;
+                }
+                .tradeOrderForm {
+                  gap: 7px !important;
+                }
+                .tradeOrderTwoColumn {
+                  gap: 7px !important;
+                }
+                .tradeOrderTicket .authInput {
+                  min-height: 34px;
+                  padding-top: 7px;
+                  padding-bottom: 7px;
+                }
+                .tradeOrderChipRow button {
+                  padding: 6px 8px !important;
+                }
+                .tradePortfolioMiniChart {
+                  height: 300px !important;
+                  padding: 34px 14px 16px !important;
+                }
+                .tradeLiveChartViewport {
+                  height: 395px !important;
+                }
+                .tradeSelectedAssetCard {
+                  display: none !important;
+                }
+                .tradeHistoryGrid {
+                  grid-template-columns: minmax(420px, 0.95fr) minmax(520px, 1.15fr) !important;
+                  gap: 10px !important;
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                }
+                .tradeHistoryGrid > div {
+                  min-width: 0;
+                  display: flex;
+                  flex-direction: column;
+                }
+                .tradeHistoryGrid .card,
+                .tradeHistoryGrid [class*="Card"] {
+                  border-radius: 10px !important;
+                }
+                .tradeHistoryGrid > div > div:first-child {
+                  margin-bottom: 4px !important;
+                  min-height: 44px;
+                }
+                .tradeJournalTabs {
+                  min-height: 38px;
+                  margin-bottom: 8px !important;
+                  align-items: flex-start !important;
+                }
+                .tradeJournalTabs .ghostButton {
+                  min-height: 34px;
+                  padding: 7px 12px !important;
+                }
+                .tradeHistoryGrid h2,
+                .tradeHistoryGrid h3 {
+                  font-size: 18px !important;
+                  line-height: 1.15 !important;
+                  margin-bottom: 2px !important;
+                }
+                .tradeHistoryGrid p {
+                  font-size: 12px !important;
+                  line-height: 1.35 !important;
+                }
+                .tradeHistoryGrid .card {
+                  height: 230px;
+                  max-height: 230px;
+                  overflow-y: auto;
+                }
+                .tradeHistoryGrid .cardBody {
+                  padding-top: 12px !important;
+                  padding-bottom: 12px !important;
+                }
+              }
+            `}</style>
             <div className="span12">
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+              <div className="tradePageHeader">
+                <div>
+                  <div className="tradePageTitle">Live Trades</div>
+                </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
                   onClick={() => openGlobalRaylaPopup("Ask Rayla")}
@@ -15442,12 +16058,8 @@ return (
                 </div>
               )}
 
-              <div className="card" style={{ marginBottom: 16, overflow: "visible" }}>
-                <div className="cardHeader"><h2>Rayla Trading Workspace</h2></div>
+              <div className="tradeWorkspaceShell" style={{ marginBottom: 16, overflow: "visible" }}>
                 <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                    Trade from live context, review before submit, and keep broker history separate from your journal.
-                  </div>
                   <div className="tradeWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
                     <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
@@ -15916,7 +16528,7 @@ return (
                                 const allVals = displayedViewportLines.flatMap((l) => l.series).filter(Number.isFinite);
                                 if (allVals.length < 2) {
                                   return (
-                                    <div className="tradeLiveChartBox" style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
+                                    <div className="tradeLiveChartBox" style={{ height: 300, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
                                       {tradePortfolioChartsLoading ? "Loading portfolio chart..." : "Open positions with enough price history will appear here."}
                                     </div>
                                   );
@@ -15939,11 +16551,11 @@ return (
                                 return (
                                   <div
                                     className="tradeLiveChartBox tradePortfolioMiniChart"
-                                    style={{ height: 560, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "56px 18px 24px", position: "relative" }}
+                                    style={{ height: 300, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "34px 14px 16px", position: "relative" }}
                                   >
                                     <InteractiveLineChart
                                       className="tradePortfolioEngineChart"
-                                      height={480}
+                                      height={250}
                                       lines={displayedLines.map((line) => ({
                                         symbol: line.symbol,
                                         color: line.color,
@@ -15957,7 +16569,7 @@ return (
                               })() : (
                                 <div>
                                   <MarketClosedBanner assetType={tradePanelAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 560, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 395, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
@@ -16515,7 +17127,7 @@ return (
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <div className="tradeJournalTabs" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("log")} style={{ opacity: tradeView === "log" ? 1 : 0.5 }}>Log Trade</button>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("recent")} style={{ opacity: tradeView === "recent" ? 1 : 0.5 }}>Recent Trades</button>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("all")} style={{ opacity: tradeView === "all" ? 1 : 0.5 }}>All Trades</button>
@@ -16662,9 +17274,6 @@ return (
           <div className="mainGrid">
             <div className="span12">
               <div className="card">
-                <div className="cardHeader">
-                  <h2>Simulation</h2>
-                </div>
                 <div ref={simulationTutorialContainerRef} className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 18, position: "relative" }}>
                   {isSimulationTutorialOpen && (
                     <div
@@ -18258,11 +18867,7 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: "#f3f7fc", letterSpacing: "-0.01em" }}>Performance Analysis</div>
-                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Review your edge, discipline, and progress in one place.</div>
-                </div>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 16, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
                     Source
@@ -18881,7 +19486,6 @@ return (
       <div className="card profileCard">
         <div className="profileHeader">
           <div>
-            <div className="sectionEyebrow">Profile</div>
             <h3>Account Settings</h3>
             <div className="listSubtext">{user?.email || "No email found"}</div>
           </div>
