@@ -12,7 +12,7 @@ import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import { Tutorial } from "./Login";
 
-const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
+const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
 const TICKER_ALIASES = {
@@ -97,32 +97,23 @@ const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
   { symbol: "VET", description: "VeChain", exchange: "CRYPTO", type: "crypto" },
 ];
 
-const CANONICAL_BROKER_CRYPTO_ASSETS = [
-  {
-    symbol: "BTC/USD",
-    name: "Bitcoin / US Dollar",
+const BROKER_ORDER_SUPPORTED_CRYPTO_SYMBOLS = new Set(["BTC", "ETH"]);
+
+const CANONICAL_BROKER_CRYPTO_ASSETS = SUPPORTED_CRYPTO_SEARCH_ASSETS.map((asset) => {
+  const tradable = BROKER_ORDER_SUPPORTED_CRYPTO_SYMBOLS.has(asset.symbol);
+  return {
+    symbol: asset.symbol,
+    name: asset.description,
     exchange: "Crypto",
     assetClass: "crypto",
-    tradable: true,
+    tradable,
     marginable: false,
     shortable: false,
     easyToBorrow: false,
-    fractionable: true,
-    status: "active",
-  },
-  {
-    symbol: "ETH/USD",
-    name: "Ethereum / US Dollar",
-    exchange: "Crypto",
-    assetClass: "crypto",
-    tradable: true,
-    marginable: false,
-    shortable: false,
-    easyToBorrow: false,
-    fractionable: true,
-    status: "active",
-  },
-];
+    fractionable: tradable,
+    status: tradable ? "active" : "watch_only",
+  };
+});
 
 function normalizeBrokerAssetSearchKey(symbol) {
   return String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -147,7 +138,16 @@ function mergeBrokerAssetSearchResults(query, backendAssets) {
   const seen = new Set();
 
   return merged.filter((asset) => {
-    const key = normalizeBrokerAssetSearchKey(asset?.symbol);
+    const rawKey = normalizeBrokerAssetSearchKey(asset?.symbol);
+    const assetClass = String(asset?.assetClass || asset?.asset_class || "").toLowerCase();
+    const cryptoKey = assetClass === "crypto"
+      ? rawKey.endsWith("USDT")
+        ? rawKey.slice(0, -4)
+        : rawKey.endsWith("USD")
+          ? rawKey.slice(0, -3)
+          : rawKey
+      : rawKey;
+    const key = assetClass === "crypto" ? `crypto:${cryptoKey}` : rawKey;
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -385,6 +385,7 @@ function rankSupportedSearchResult(result, query) {
   const isCanonicalCryptoQuery = SUPPORTED_CRYPTO_SEARCH_ASSETS.some((asset) => asset.symbol === normalizedQuery);
   const isCanonicalCryptoMatch = isCanonicalCryptoQuery && result?.type === "crypto" && symbol === normalizedQuery;
   if (isCanonicalCryptoMatch) return -1;
+  if (isCanonicalCryptoQuery && result?.type === "crypto") return -0.5;
   if (symbol === normalizedQuery) return 0;
   if (description === normalizedQuery) return 1;
   if (symbol.startsWith(normalizedQuery)) return 2;
@@ -439,7 +440,7 @@ async function searchRaylaSupportedAssets(query, alpacaConnected) {
       .map(normalizeSearchResult);
   }
 
-  const merged = [...stockResults, ...cryptoResults];
+  const merged = [...cryptoResults, ...stockResults];
   const seen = new Set();
   const results = merged
     .filter((result) => {
@@ -496,6 +497,7 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
+const DEFAULT_LIVE_TRADE_SYMBOL = "BTC";
 
 function isPopulatedIntelReport(report) {
   if (!report || typeof report !== "object") return false;
@@ -8490,7 +8492,10 @@ useEffect(() => {
     maxLoss: "",
     buyingPowerPercent: "",
     leverage: "1x",
+    planStop: "",
+    planTarget: "",
   });
+  const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(false);
   const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -8662,10 +8667,15 @@ useEffect(() => {
     };
   }, [performanceLiveAppliedSelection, tradePortfolioAllSymbols]);
   const activeTradeChartSelection = activeTab === "ai" ? performanceLiveLegacySelection : tradeAppliedSelection;
+  const shouldUseDefaultLiveTradeSymbol = alpacaPositions.length === 0
+    && !String(alpacaOrderForm.symbol || "").trim()
+    && !tradeLogChartSymbol
+    && activeTradeChartSelection.mode === "asset"
+    && !(activeTradeChartSelection.symbols || []).filter(Boolean).length;
   const tradeChartSymbol = tradeLogChartSymbol
     ? tradeLogChartSymbol
     : activeTradeChartSelection.mode === "asset"
-      ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
+      ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || (shouldUseDefaultLiveTradeSymbol ? DEFAULT_LIVE_TRADE_SYMBOL : ""))
       : "";
   const tradeChartMatchingPosition = tradeChartSymbol
     ? alpacaPositions.find((position) => position.symbol === tradeChartSymbol) || null
@@ -10288,6 +10298,8 @@ useEffect(() => {
       estimatedPrice: isPreparedCloseOrder && !Number.isFinite(estimatedPrice) ? null : estimatedPrice,
       estimatedValue: isPreparedCloseOrder && !Number.isFinite(estimatedValue) ? null : estimatedValue,
       isCloseOrder: isPreparedCloseOrder,
+      planStop: alpacaOrderForm.planStop || null,
+      planTarget: alpacaOrderForm.planTarget || null,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
@@ -10471,7 +10483,7 @@ useEffect(() => {
       try {
         const { data, error } = await supabase.functions.invoke("market-data", {
           body: {
-            symbols: missingSymbols.map((symbol) => ({ symbol, type: "stock" })),
+            symbols: missingSymbols.map((symbol) => ({ symbol, type: CRYPTO_SYMBOL_SET.has(normalizeCryptoAssetId(symbol)) ? "crypto" : "stock" })),
           },
         });
 
@@ -17056,6 +17068,30 @@ return (
                           </div>
                         </div>
                       </div>
+                      {(pendingAlpacaOrderConfirmation.planStop || pendingAlpacaOrderConfirmation.planTarget) && (
+                        <div style={{ padding: 12, borderRadius: 12, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80", marginBottom: 2 }}>
+                            Exit Plan · Plan Only
+                          </div>
+                          <div style={{ fontSize: 11, color: "#86efac", lineHeight: 1.5, marginBottom: 4 }}>
+                            These levels are for reference only and are NOT submitted to the broker.
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+                            {pendingAlpacaOrderConfirmation.planStop && (
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Stop / Max Loss</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#f87171" }}>{formatCurrency(Number(pendingAlpacaOrderConfirmation.planStop))}</div>
+                              </div>
+                            )}
+                            {pendingAlpacaOrderConfirmation.planTarget && (
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Take Profit / Target</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#4ade80" }}>{formatCurrency(Number(pendingAlpacaOrderConfirmation.planTarget))}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
@@ -17685,7 +17721,7 @@ return (
                                 );
                               })() : (
                                 <div>
-                                  <MarketClosedBanner assetType={tradePanelAssetType} updatedLabel={tradeChartUpdatedLabel} />
+                                  <MarketClosedBanner assetType={tradeChartAssetType} updatedLabel={tradeChartUpdatedLabel} />
                                   <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 310, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
@@ -18058,32 +18094,69 @@ return (
                           </div>
                           <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
-                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Action</div>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
                               <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {[
-                                  { label: "Buy", value: "buy" },
-                                  { label: "Sell", value: "sell" },
-                                  { label: "Short Sell", value: "short_sell" },
-                                  { label: "Buy to Cover", value: "buy_to_cover" },
-                                ].map((item) => (
+                                  { label: "Long", value: "buy", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
+                                  { label: "Short", value: "short_sell", activeColor: "#f87171", activeBg: "rgba(248,113,113,0.15)", activeBorder: "rgba(248,113,113,0.35)" },
+                                ].map((item) => {
+                                  const active = alpacaOrderForm.side === item.value;
+                                  return (
+                                    <button
+                                      key={item.label}
+                                      type="button"
+                                      onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
+                                      style={{
+                                        padding: "8px 14px",
+                                        borderRadius: 8,
+                                        border: `1px solid ${active ? item.activeBorder : "rgba(255,255,255,0.08)"}`,
+                                        background: active ? item.activeBg : "rgba(255,255,255,0.03)",
+                                        color: active ? item.activeColor : "#94a3b8",
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {item.label}
+                                    </button>
+                                  );
+                                })}
+                                {alpacaOrderValidation.hasLongPosition && (
                                   <button
-                                    key={item.label}
                                     type="button"
-                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
+                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "sell" }))}
                                     style={{
-                                      padding: "8px 10px",
+                                      padding: "8px 14px",
                                       borderRadius: 8,
-                                      border: "1px solid rgba(255,255,255,0.08)",
-                                      background: alpacaOrderForm.side === item.value ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.03)",
-                                      color: alpacaOrderForm.side === item.value ? "#f8fbff" : "#cbd5e1",
+                                      border: `1px solid ${alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
+                                      background: alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
+                                      color: alpacaOrderForm.side === "sell" ? "#fbbf24" : "#64748b",
                                       fontSize: 11,
                                       fontWeight: 700,
                                       cursor: "pointer",
                                     }}
                                   >
-                                    {item.label}
+                                    Sell to Close
                                   </button>
-                                ))}
+                                )}
+                                {alpacaOrderValidation.hasShortPosition && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "buy_to_cover" }))}
+                                    style={{
+                                      padding: "8px 14px",
+                                      borderRadius: 8,
+                                      border: `1px solid ${alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
+                                      background: alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
+                                      color: alpacaOrderForm.side === "buy_to_cover" ? "#fbbf24" : "#64748b",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Cover Short
+                                  </button>
+                                )}
                               </div>
                             </div>
                             <div>
@@ -18191,6 +18264,85 @@ return (
                               Market close order. Estimated value unavailable until fill.
                             </div>
                           ) : null}
+                          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
+                            <button
+                              type="button"
+                              onClick={() => setAlpacaOrderPlanOpen((prev) => !prev)}
+                              style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
+                            >
+                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Exit Plan</div>
+                              <div style={{ fontSize: 10, color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.18)", borderRadius: 6, padding: "2px 7px" }}>PLAN ONLY</div>
+                              <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{alpacaOrderPlanOpen ? "▲" : "▼"}</div>
+                            </button>
+                            {alpacaOrderPlanOpen && (
+                              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                                <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
+                                  These levels are for planning only — they are NOT submitted to the broker.
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                  <div>
+                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>Stop / Max Loss</div>
+                                    <input
+                                      className="authInput"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder="Stop price"
+                                      value={alpacaOrderForm.planStop}
+                                      onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, planStop: e.target.value }))}
+                                    />
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>Take Profit / Target</div>
+                                    <input
+                                      className="authInput"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder="Target price"
+                                      value={alpacaOrderForm.planTarget}
+                                      onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, planTarget: e.target.value }))}
+                                    />
+                                  </div>
+                                </div>
+                                {(() => {
+                                  const entryPrice = alpacaOrderValidation.estimatedPrice;
+                                  const planQty = alpacaOrderValidation.qty;
+                                  const planStop = Number(alpacaOrderForm.planStop);
+                                  const planTarget = Number(alpacaOrderForm.planTarget);
+                                  if (!Number.isFinite(entryPrice) || !Number.isFinite(planQty) || planQty <= 0) return null;
+                                  const hasStop = Number.isFinite(planStop) && planStop > 0;
+                                  const hasTarget = Number.isFinite(planTarget) && planTarget > 0;
+                                  if (!hasStop && !hasTarget) return null;
+                                  const estimatedRisk = hasStop ? Math.abs(entryPrice - planStop) * planQty : null;
+                                  const estimatedReward = hasTarget ? Math.abs(planTarget - entryPrice) * planQty : null;
+                                  const rr = estimatedRisk && estimatedReward && estimatedRisk > 0 ? estimatedReward / estimatedRisk : null;
+                                  return (
+                                    <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 8 }}>
+                                      {estimatedRisk != null && (
+                                        <div>
+                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>Planned Risk</div>
+                                          <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>{formatCurrency(estimatedRisk)}</div>
+                                        </div>
+                                      )}
+                                      {estimatedReward != null && (
+                                        <div>
+                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>Planned Reward</div>
+                                          <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>{formatCurrency(estimatedReward)}</div>
+                                        </div>
+                                      )}
+                                      {rr != null && (
+                                        <div>
+                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>R/R Ratio</div>
+                                          <div style={{ fontSize: 14, fontWeight: 700, color: rr >= 2 ? "#4ade80" : rr >= 1 ? "#fbbf24" : "#f87171" }}>1 : {rr.toFixed(1)}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
                           <button
                             type="submit"
                             className="ghostButton"
