@@ -8495,7 +8495,8 @@ useEffect(() => {
     planStop: "",
     planTarget: "",
   });
-  const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(false);
+  const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(true);
+  const [alpacaOrderPlanMode, setAlpacaOrderPlanMode] = useState("price");
   const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -10300,6 +10301,7 @@ useEffect(() => {
       isCloseOrder: isPreparedCloseOrder,
       planStop: alpacaOrderForm.planStop || null,
       planTarget: alpacaOrderForm.planTarget || null,
+      planMode: alpacaOrderPlanMode,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
@@ -17070,22 +17072,31 @@ return (
                       </div>
                       {(pendingAlpacaOrderConfirmation.planStop || pendingAlpacaOrderConfirmation.planTarget) && (
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "flex", flexDirection: "column", gap: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80", marginBottom: 2 }}>
-                            Exit Plan · Plan Only
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80" }}>
+                              Exit Plan · Plan Only
+                            </div>
+                            <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>
+                              {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "P&L mode" : "Price mode"}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11, color: "#86efac", lineHeight: 1.5, marginBottom: 4 }}>
+                          <div style={{ fontSize: 11, color: "#86efac", lineHeight: 1.5 }}>
                             These levels are for reference only and are NOT submitted to the broker.
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                             {pendingAlpacaOrderConfirmation.planStop && (
                               <div>
-                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Stop / Max Loss</div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>
+                                  {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "Max Loss ($)" : "Stop Price"}
+                                </div>
                                 <div style={{ fontSize: 15, fontWeight: 700, color: "#f87171" }}>{formatCurrency(Number(pendingAlpacaOrderConfirmation.planStop))}</div>
                               </div>
                             )}
                             {pendingAlpacaOrderConfirmation.planTarget && (
                               <div>
-                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Take Profit / Target</div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>
+                                  {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "Profit Target ($)" : "Target Price"}
+                                </div>
                                 <div style={{ fontSize: 15, fontWeight: 700, color: "#4ade80" }}>{formatCurrency(Number(pendingAlpacaOrderConfirmation.planTarget))}</div>
                               </div>
                             )}
@@ -18279,43 +18290,79 @@ return (
                                 <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
                                   These levels are for planning only — they are NOT submitted to the broker.
                                 </div>
+                                {/* Mode toggle */}
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  {[{ label: "Price", value: "price" }, { label: "P&L ($)", value: "pnl" }].map((m) => {
+                                    const active = alpacaOrderPlanMode === m.value;
+                                    return (
+                                      <button
+                                        key={m.value}
+                                        type="button"
+                                        onClick={() => { setAlpacaOrderPlanMode(m.value); setAlpacaOrderForm((prev) => ({ ...prev, planStop: "", planTarget: "" })); }}
+                                        style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: active ? "rgba(124,196,255,0.13)" : "transparent", color: active ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                                      >
+                                        {m.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                                   <div>
-                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>Stop / Max Loss</div>
+                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>
+                                      {alpacaOrderPlanMode === "pnl" ? "Max Loss ($)" : "Stop Price"}
+                                    </div>
                                     <input
                                       className="authInput"
                                       type="number"
                                       min="0"
                                       step="0.01"
-                                      placeholder="Stop price"
+                                      placeholder={alpacaOrderPlanMode === "pnl" ? "e.g. 50" : "Stop price"}
                                       value={alpacaOrderForm.planStop}
                                       onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, planStop: e.target.value }))}
                                     />
+                                    {alpacaOrderPlanMode === "pnl" && alpacaOrderForm.planStop && (
+                                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Lose up to {formatCurrency(Number(alpacaOrderForm.planStop))}</div>
+                                    )}
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>Take Profit / Target</div>
+                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>
+                                      {alpacaOrderPlanMode === "pnl" ? "Profit Target ($)" : "Target Price"}
+                                    </div>
                                     <input
                                       className="authInput"
                                       type="number"
                                       min="0"
                                       step="0.01"
-                                      placeholder="Target price"
+                                      placeholder={alpacaOrderPlanMode === "pnl" ? "e.g. 150" : "Target price"}
                                       value={alpacaOrderForm.planTarget}
                                       onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, planTarget: e.target.value }))}
                                     />
+                                    {alpacaOrderPlanMode === "pnl" && alpacaOrderForm.planTarget && (
+                                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Gain up to {formatCurrency(Number(alpacaOrderForm.planTarget))}</div>
+                                    )}
                                   </div>
                                 </div>
                                 {(() => {
-                                  const entryPrice = alpacaOrderValidation.estimatedPrice;
-                                  const planQty = alpacaOrderValidation.qty;
                                   const planStop = Number(alpacaOrderForm.planStop);
                                   const planTarget = Number(alpacaOrderForm.planTarget);
-                                  if (!Number.isFinite(entryPrice) || !Number.isFinite(planQty) || planQty <= 0) return null;
                                   const hasStop = Number.isFinite(planStop) && planStop > 0;
                                   const hasTarget = Number.isFinite(planTarget) && planTarget > 0;
                                   if (!hasStop && !hasTarget) return null;
-                                  const estimatedRisk = hasStop ? Math.abs(entryPrice - planStop) * planQty : null;
-                                  const estimatedReward = hasTarget ? Math.abs(planTarget - entryPrice) * planQty : null;
+
+                                  let estimatedRisk = null;
+                                  let estimatedReward = null;
+
+                                  if (alpacaOrderPlanMode === "pnl") {
+                                    estimatedRisk = hasStop ? planStop : null;
+                                    estimatedReward = hasTarget ? planTarget : null;
+                                  } else {
+                                    const entryPrice = alpacaOrderValidation.estimatedPrice;
+                                    const planQty = alpacaOrderValidation.qty;
+                                    if (!Number.isFinite(entryPrice) || !Number.isFinite(planQty) || planQty <= 0) return null;
+                                    estimatedRisk = hasStop ? Math.abs(entryPrice - planStop) * planQty : null;
+                                    estimatedReward = hasTarget ? Math.abs(planTarget - entryPrice) * planQty : null;
+                                  }
+
                                   const rr = estimatedRisk && estimatedReward && estimatedRisk > 0 ? estimatedReward / estimatedRisk : null;
                                   return (
                                     <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 8 }}>
