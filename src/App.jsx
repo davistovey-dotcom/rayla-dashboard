@@ -12,7 +12,7 @@ import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import { Tutorial } from "./Login";
 
-const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON"]);
+const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
 const TICKER_ALIASES = {
@@ -97,32 +97,23 @@ const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
   { symbol: "VET", description: "VeChain", exchange: "CRYPTO", type: "crypto" },
 ];
 
-const CANONICAL_BROKER_CRYPTO_ASSETS = [
-  {
-    symbol: "BTC/USD",
-    name: "Bitcoin / US Dollar",
+const BROKER_ORDER_SUPPORTED_CRYPTO_SYMBOLS = new Set(["BTC", "ETH"]);
+
+const CANONICAL_BROKER_CRYPTO_ASSETS = SUPPORTED_CRYPTO_SEARCH_ASSETS.map((asset) => {
+  const tradable = BROKER_ORDER_SUPPORTED_CRYPTO_SYMBOLS.has(asset.symbol);
+  return {
+    symbol: asset.symbol,
+    name: asset.description,
     exchange: "Crypto",
     assetClass: "crypto",
-    tradable: true,
+    tradable,
     marginable: false,
     shortable: false,
     easyToBorrow: false,
-    fractionable: true,
-    status: "active",
-  },
-  {
-    symbol: "ETH/USD",
-    name: "Ethereum / US Dollar",
-    exchange: "Crypto",
-    assetClass: "crypto",
-    tradable: true,
-    marginable: false,
-    shortable: false,
-    easyToBorrow: false,
-    fractionable: true,
-    status: "active",
-  },
-];
+    fractionable: tradable,
+    status: tradable ? "active" : "watch_only",
+  };
+});
 
 function normalizeBrokerAssetSearchKey(symbol) {
   return String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -147,7 +138,16 @@ function mergeBrokerAssetSearchResults(query, backendAssets) {
   const seen = new Set();
 
   return merged.filter((asset) => {
-    const key = normalizeBrokerAssetSearchKey(asset?.symbol);
+    const rawKey = normalizeBrokerAssetSearchKey(asset?.symbol);
+    const assetClass = String(asset?.assetClass || asset?.asset_class || "").toLowerCase();
+    const cryptoKey = assetClass === "crypto"
+      ? rawKey.endsWith("USDT")
+        ? rawKey.slice(0, -4)
+        : rawKey.endsWith("USD")
+          ? rawKey.slice(0, -3)
+          : rawKey
+      : rawKey;
+    const key = assetClass === "crypto" ? `crypto:${cryptoKey}` : rawKey;
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -385,6 +385,7 @@ function rankSupportedSearchResult(result, query) {
   const isCanonicalCryptoQuery = SUPPORTED_CRYPTO_SEARCH_ASSETS.some((asset) => asset.symbol === normalizedQuery);
   const isCanonicalCryptoMatch = isCanonicalCryptoQuery && result?.type === "crypto" && symbol === normalizedQuery;
   if (isCanonicalCryptoMatch) return -1;
+  if (isCanonicalCryptoQuery && result?.type === "crypto") return -0.5;
   if (symbol === normalizedQuery) return 0;
   if (description === normalizedQuery) return 1;
   if (symbol.startsWith(normalizedQuery)) return 2;
@@ -439,7 +440,7 @@ async function searchRaylaSupportedAssets(query, alpacaConnected) {
       .map(normalizeSearchResult);
   }
 
-  const merged = [...stockResults, ...cryptoResults];
+  const merged = [...cryptoResults, ...stockResults];
   const seen = new Set();
   const results = merged
     .filter((result) => {
@@ -475,6 +476,8 @@ const SIMULATION_STORAGE_KEYS = {
   guidedDraft: "rayla_sim_guided_draft",
   quietUntil: "rayla_sim_post_loss_quiet_until",
 };
+const SIMULATION_DELETED_TRADE_IDS_STORAGE_KEY = "rayla_sim_deleted_trade_ids";
+const SIMULATION_TOMBSTONE_STORAGE_PREFIX = `${SIMULATION_DELETED_TRADE_IDS_STORAGE_KEY}:`;
 const MANUAL_TRADE_FORM_DEFAULT = {
   asset: "",
   entryPrice: "",
@@ -494,14 +497,15 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
+const DEFAULT_LIVE_TRADE_SYMBOL = "BTC";
 
 function isPopulatedIntelReport(report) {
   if (!report || typeof report !== "object") return false;
-  const hasStockHot = Array.isArray(report.stockHot) && report.stockHot.length > 0;
-  const hasStockCold = Array.isArray(report.stockCold) && report.stockCold.length > 0;
+  const hasStockHot = Array.isArray(report.stockHot) && report.stockHot.length >= 3;
+  const hasStockCold = Array.isArray(report.stockCold) && report.stockCold.length >= 3;
   const hasCryptoHot = Boolean(report.cryptoHot?.symbol);
   const hasCryptoCold = Boolean(report.cryptoCold?.symbol);
-  return hasStockHot || hasStockCold || hasCryptoHot || hasCryptoCold;
+  return hasStockHot && hasStockCold && hasCryptoHot && hasCryptoCold;
 }
 
 const marketSeeds = [
@@ -799,6 +803,34 @@ function parseOptionalTradeResult(value) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePickResultR(trade) {
+  const resultR = parseOptionalTradeResult(trade?.result_r);
+  if (resultR != null) return resultR;
+  const resultRAlt = parseOptionalTradeResult(trade?.resultR);
+  if (resultRAlt != null) return resultRAlt;
+  const rMultiple = parseOptionalTradeResult(trade?.rMultiple);
+  return rMultiple != null ? rMultiple : null;
+}
+
+function normalizePickDirection(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!normalized) return "";
+  if (normalized === "long" || normalized === "buy" || normalized.includes("buy / long")) return "long";
+  if (normalized === "short" || normalized === "sell short" || normalized === "short sell" || normalized.includes("sell / short")) return "short";
+  return normalized;
+}
+
+function normalizePickAssetSymbol(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  if (!raw) return "";
+  const compact = normalizePerformanceAssetKey(raw);
+  const cryptoUsdPair = compact.match(/^([A-Z0-9]{2,8})USD$/);
+  if (cryptoUsdPair && CRYPTO_SYMBOL_SET.has(cryptoUsdPair[1])) return cryptoUsdPair[1];
+  const cryptoUsdtPair = compact.match(/^([A-Z0-9]{2,8})USDT$/);
+  if (cryptoUsdtPair && CRYPTO_SYMBOL_SET.has(cryptoUsdtPair[1])) return cryptoUsdtPair[1];
+  return compact || raw;
 }
 
 function getTradeOutcomeValue(trade) {
@@ -1214,6 +1246,55 @@ function getBrokerOrderStatusPresentation(rawStatus, submittedAt = null) {
   }
 
   return { label: rawStatus || "Status unavailable", color: "#cbd5e1", background: "rgba(203,213,225,0.08)", border: "rgba(203,213,225,0.16)" };
+}
+
+function getBrokerOrderStatusKind(rawStatus) {
+  const status = String(rawStatus || "").trim().toLowerCase();
+  if (status === "filled") return "filled";
+  if (status === "canceled" || status === "rejected" || status === "expired") return "failed";
+  if (status === "partially_filled") return "partial";
+  if (status === "accepted" || status === "new" || status === "pending_new" || status === "done_for_day") return "pending";
+  return status ? "unknown" : "none";
+}
+
+function findMatchingBrokerOrder(orders, submittedOrder) {
+  if (!submittedOrder) return null;
+  const submittedId = submittedOrder.id || submittedOrder.broker_order_id;
+  const submittedSymbol = String(submittedOrder.symbol || "").trim().toUpperCase();
+  const submittedSide = String(submittedOrder.side || "").trim().toLowerCase();
+  return (orders || []).find((order) => {
+    if (submittedId && (order.broker_order_id === submittedId || order.id === submittedId)) return true;
+    return (
+      submittedSymbol
+      && submittedSymbol === String(order.symbol || "").trim().toUpperCase()
+      && (!submittedSide || submittedSide === String(order.side || "").trim().toLowerCase())
+    );
+  }) || null;
+}
+
+function getPendingCloseOrderForPosition(orders, position) {
+  if (!position?.symbol) return null;
+  const symbol = String(position.symbol || "").trim().toUpperCase();
+  const closeSide = position?.side === "short" ? "buy" : "sell";
+  return (orders || []).find((order) => {
+    const statusKind = getBrokerOrderStatusKind(order?.status);
+    if (statusKind !== "pending" && statusKind !== "partial") return false;
+    return (
+      String(order?.symbol || "").trim().toUpperCase() === symbol
+      && String(order?.side || "").trim().toLowerCase() === closeSide
+    );
+  }) || null;
+}
+
+function getLastFailedCloseOrderForPosition(orders, position) {
+  if (!position?.symbol) return null;
+  const symbol = String(position.symbol || "").trim().toUpperCase();
+  const closeSide = position?.side === "short" ? "buy" : "sell";
+  return (orders || []).find((order) => (
+    getBrokerOrderStatusKind(order?.status) === "failed"
+    && String(order?.symbol || "").trim().toUpperCase() === symbol
+    && String(order?.side || "").trim().toLowerCase() === closeSide
+  )) || null;
 }
 
 function buildOrderRealityCheck({ symbol, side, qty, estimatedValue, buyingPower, position }) {
@@ -2218,6 +2299,33 @@ function readSimulationStorage(key, fallback, validate) {
   }
 }
 
+function getSimulationTombstoneStorageKey(historyStorageKey) {
+  const key = String(historyStorageKey || "").trim();
+  return `${SIMULATION_TOMBSTONE_STORAGE_PREFIX}${key || SIMULATION_STORAGE_KEYS.tradeHistory}`;
+}
+
+function readDeletedSimulationTradeIds(historyStorageKey) {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(getSimulationTombstoneStorageKey(historyStorageKey)) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberDeletedSimulationTradeId(tradeId, historyStorageKey) {
+  if (typeof window === "undefined" || !tradeId) return;
+  try {
+    const storageKey = getSimulationTombstoneStorageKey(historyStorageKey);
+    const deletedIds = readDeletedSimulationTradeIds(historyStorageKey);
+    deletedIds.add(String(tradeId));
+    window.localStorage.setItem(storageKey, JSON.stringify([...deletedIds]));
+  } catch {
+    // Ignore tombstone persistence failures; in-memory deletion still applies.
+  }
+}
+
 function writeSimulationStorage(key, value) {
   if (typeof window === "undefined") return;
   try {
@@ -2227,9 +2335,145 @@ function writeSimulationStorage(key, value) {
   }
 }
 
+function filterSimulationHistoryByTombstones(history, historyStorageKey) {
+  if (!Array.isArray(history)) return [];
+  const deletedIds = readDeletedSimulationTradeIds(historyStorageKey);
+  return deletedIds.size
+    ? history.filter((row) => !deletedIds.has(String(row?.id || "")))
+    : history;
+}
+
+function removeSimulationTradeFromStoredHistory(tradeId, userId = "") {
+  if (typeof window === "undefined" || !tradeId) return;
+  const scopedHistoryKey = getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.tradeHistory, userId);
+  const activeHistoryKey = scopedHistoryKey || SIMULATION_STORAGE_KEYS.tradeHistory;
+  rememberDeletedSimulationTradeId(tradeId, activeHistoryKey);
+  const keys = new Set([
+    SIMULATION_STORAGE_KEYS.tradeHistory,
+    scopedHistoryKey,
+  ].filter(Boolean));
+
+  keys.forEach((key) => {
+    try {
+      const rows = JSON.parse(window.localStorage.getItem(key) || "[]");
+      if (!Array.isArray(rows)) return;
+      window.localStorage.setItem(key, JSON.stringify(rows.filter((row) => row?.id !== tradeId)));
+    } catch {
+      // Ignore malformed old storage; state deletion still owns the in-memory source.
+    }
+  });
+}
+
 function getUserScopedStorageKey(baseKey, userId) {
   const id = String(userId || "").trim();
   return id ? `${baseKey}:${id}` : "";
+}
+
+function readSimulationStorageDebugSnapshot({ userId = "", hydratedUserId = "", memoryHistoryCount = 0, visibleHistoryCount = 0 } = {}) {
+  if (typeof window === "undefined") return null;
+  const simulationHistoryKey = getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.tradeHistory, userId);
+  const effectiveHistoryKey = simulationHistoryKey || SIMULATION_STORAGE_KEYS.tradeHistory;
+  const tombstoneKey = getSimulationTombstoneStorageKey(effectiveHistoryKey);
+  const legacyTombstoneKey = SIMULATION_DELETED_TRADE_IDS_STORAGE_KEY;
+  const simulationKeyPatterns = [
+    /^rayla_sim_/,
+    /^simulationTradeHistory$/,
+    /^simulation_trade_history$/,
+    /^simulation.*history/i,
+    /^rayla.*simulation/i,
+  ];
+  const matchesSimulationStorageKey = (key) => simulationKeyPatterns.some((pattern) => pattern.test(key));
+  const parseStorageValue = (key) => {
+    const raw = window.localStorage.getItem(key);
+    const info = {
+      key,
+      rawExists: raw != null,
+      rawLength: raw == null ? 0 : raw.length,
+      parsedType: raw == null ? "missing" : "unknown",
+      parsedCount: null,
+      firstTradeIds: [],
+      firstTombstoneIds: [],
+      parseError: null,
+    };
+    if (raw == null) return info;
+    try {
+      const parsed = JSON.parse(raw);
+      info.parsedType = Array.isArray(parsed) ? "array" : parsed === null ? "null" : typeof parsed;
+      if (Array.isArray(parsed)) {
+        info.parsedCount = parsed.length;
+        info.firstTradeIds = parsed
+          .map((item) => String(item?.id || ""))
+          .filter(Boolean)
+          .slice(0, 8);
+        if (key === tombstoneKey || key === legacyTombstoneKey || key.toLowerCase().includes("deleted")) {
+          info.firstTombstoneIds = parsed.map(String).filter(Boolean).slice(0, 8);
+        }
+      }
+    } catch (error) {
+      info.parsedType = "parse-error";
+      info.parseError = error instanceof Error ? error.message : "JSON parse failed";
+    }
+    return info;
+  };
+  const readArray = (key) => {
+    const raw = key ? window.localStorage.getItem(key) : null;
+    if (raw == null) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  const historyRows = readArray(effectiveHistoryKey);
+  const tombstoneIds = readArray(tombstoneKey).map(String).filter(Boolean);
+  const legacyTombstoneIds = readArray(legacyTombstoneKey).map(String).filter(Boolean);
+  const historyIds = historyRows.map((trade) => String(trade?.id || "")).filter(Boolean);
+  const tombstoneSet = new Set(tombstoneIds);
+  const hiddenByTombstoneIds = historyIds.filter((id) => tombstoneSet.has(id));
+  const allSimulationStorageKeys = Object.keys(window.localStorage)
+    .filter(matchesSimulationStorageKey)
+    .sort();
+  const storageKeys = Object.fromEntries(allSimulationStorageKeys.map((key) => [key, parseStorageValue(key)]));
+  const simulationHistoryInfo = effectiveHistoryKey ? parseStorageValue(effectiveHistoryKey) : null;
+  const unscopedHistoryInfo = parseStorageValue(SIMULATION_STORAGE_KEYS.tradeHistory);
+  const tombstoneInfo = parseStorageValue(tombstoneKey);
+  const legacyTombstoneInfo = parseStorageValue(legacyTombstoneKey);
+  return {
+    origin: window.location.origin,
+    allSimulationStorageKeys,
+    storageKeys,
+    simulationHistoryKey,
+    simulationHistoryCount: Math.max(0, historyRows.length - hiddenByTombstoneIds.length),
+    simulationHistoryCountRaw: historyRows.length,
+    memoryHistoryCount,
+    visibleHistoryCount,
+    tombstoneKey,
+    tombstoneCount: tombstoneIds.length,
+    legacyTombstoneKey,
+    legacyTombstoneCount: legacyTombstoneIds.length,
+    hiddenByTombstoneCount: hiddenByTombstoneIds.length,
+    hiddenByTombstoneIds: hiddenByTombstoneIds.slice(0, 10),
+    firstTradeIdsBeforeFiltering: historyIds.slice(0, 10),
+    firstTombstoneIds: tombstoneIds.slice(0, 10),
+    parseStatus: {
+      simulationHistory: simulationHistoryInfo?.parseError || simulationHistoryInfo?.parsedType || "missing",
+      unscopedHistory: unscopedHistoryInfo?.parseError || unscopedHistoryInfo?.parsedType || "missing",
+      tombstones: tombstoneInfo?.parseError || tombstoneInfo?.parsedType || "missing",
+      legacyTombstones: legacyTombstoneInfo?.parseError || legacyTombstoneInfo?.parsedType || "missing",
+    },
+    userScopedKeyInfo: {
+      userId: userId || null,
+      hydratedUserId: hydratedUserId || null,
+      baseHistoryKey: SIMULATION_STORAGE_KEYS.tradeHistory,
+      userScopedHistoryKey: simulationHistoryKey || null,
+      hasUserScopedHistory: simulationHistoryKey ? window.localStorage.getItem(simulationHistoryKey) != null : false,
+      unscopedHistoryCountRaw: unscopedHistoryInfo?.parsedCount,
+      allSimulationHistoryKeys: allSimulationStorageKeys
+        .filter((key) => key === SIMULATION_STORAGE_KEYS.tradeHistory || key.startsWith(`${SIMULATION_STORAGE_KEYS.tradeHistory}:`))
+        .sort(),
+    },
+  };
 }
 
 function averageNumber(values) {
@@ -3105,6 +3349,8 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
     strategyRTrades: 0,
     missingDirectionTrades: 0,
     eligibleDirectionalTrades: 0,
+    validDirectionTrades: 0,
+    validResultTrades: 0,
   };
 
   const ensureBucket = (asset, assetType, direction) => {
@@ -3125,15 +3371,18 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
   };
 
   realTrades.forEach((trade) => {
-    const asset = String(trade?.asset || "").trim().toUpperCase();
-    const direction = String(trade?.direction || "").trim().toLowerCase();
-    const resultR = parseOptionalTradeResult(trade?.result_r);
-    if (!asset || !Number.isFinite(resultR)) return;
+    const asset = normalizePickAssetSymbol(trade?.asset || trade?.symbol || trade?.ticker);
+    const direction = normalizePickDirection(trade?.direction);
+    const resultR = parsePickResultR(trade);
+    if (!asset) return;
+    if (!Number.isFinite(resultR)) return;
+    meta.validResultTrades += 1;
     meta.strategyRTrades += 1;
     if (!["long", "short"].includes(direction)) {
       meta.missingDirectionTrades += 1;
       return;
     }
+    meta.validDirectionTrades += 1;
     meta.eligibleDirectionalTrades += 1;
     const assetType = CRYPTO_SYMBOL_SET.has(asset) ? "crypto" : "stock";
     const bucket = ensureBucket(asset, assetType, direction);
@@ -3144,15 +3393,18 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
   });
 
   simTrades.forEach((trade) => {
-    const asset = String(trade?.asset || "").trim().toUpperCase();
-    const direction = String(trade?.direction || "").trim().toLowerCase();
-    const resultR = Number(trade?.rMultiple);
-    if (!asset || !Number.isFinite(resultR)) return;
+    const asset = normalizePickAssetSymbol(trade?.asset || trade?.symbol || trade?.ticker);
+    const direction = normalizePickDirection(trade?.direction);
+    const resultR = parsePickResultR(trade);
+    if (!asset) return;
+    if (!Number.isFinite(resultR)) return;
+    meta.validResultTrades += 1;
     meta.strategyRTrades += 1;
     if (!["long", "short"].includes(direction)) {
       meta.missingDirectionTrades += 1;
       return;
     }
+    meta.validDirectionTrades += 1;
     meta.eligibleDirectionalTrades += 1;
     const assetType = CRYPTO_SYMBOL_SET.has(asset) ? "crypto" : "stock";
     const bucket = ensureBucket(asset, assetType, direction);
@@ -3173,6 +3425,21 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
       if (b.winRate !== a.winRate) return b.winRate - a.winRate;
       return b.totalTrades - a.totalTrades;
     });
+  const bucketCounts = ranked.map((entry) => ({
+    asset: entry.asset,
+    assetType: entry.assetType,
+    direction: entry.direction,
+    totalTrades: entry.totalTrades,
+    realTrades: entry.realTrades,
+    simTrades: entry.simTrades,
+    avgR: entry.avgR,
+    winRate: entry.winRate,
+    eligible: entry.totalTrades >= minimumPickSample,
+  }));
+  const watchedBucketCounts = ["ETH", "BTC", "AAPL", "NVDA", "NRG"].reduce((acc, symbol) => {
+    acc[symbol] = bucketCounts.filter((entry) => entry.asset === symbol);
+    return acc;
+  }, {});
 
   const findBest = (assetType, direction) =>
     ranked.find((entry) =>
@@ -3216,11 +3483,97 @@ function buildRaylaPicksContext({ trades, simulationTradeHistory }) {
 
   return {
     meta,
+    debug: {
+      meta,
+      minimumPickSample,
+      bucketCounts,
+      watchedBucketCounts,
+      eligibleBuckets: bucketCounts.filter((entry) => entry.eligible),
+    },
     stockLong: toPick(findBest("stock", "long"), "Best Stock to Buy"),
     stockShort: toPick(findBest("stock", "short"), "Best Stock to Short"),
     cryptoLong: toPick(findBest("crypto", "long"), "Best Crypto to Buy"),
     cryptoShort: toPick(findBest("crypto", "short"), "Best Crypto to Short"),
   };
+}
+
+function calculateSimulationPositionPnL(position, currentPrice) {
+  if (!position || !Number.isFinite(currentPrice)) return { profitLoss: 0, rMultiple: null };
+  const quantity = getSimulationPositionQuantity(position);
+  if (!Number.isFinite(quantity) || quantity <= 0) return { profitLoss: 0, rMultiple: null };
+  const priceMove = position.direction === "long"
+    ? currentPrice - position.entryPrice
+    : position.entryPrice - currentPrice;
+  const profitLoss = quantity * priceMove;
+  const plannedRisk = Math.abs(Number(position.plannedRisk));
+  const rMultiple = plannedRisk > 0 ? profitLoss / plannedRisk : null;
+  return { profitLoss, rMultiple };
+}
+
+function getSimulationRiskDebug(position) {
+  if (!position) {
+    return {
+      plannedRiskRaw: null,
+      plannedRiskAbs: null,
+      riskPerUnit: null,
+      stopLoss: null,
+      originalStopLoss: null,
+      initialRisk: null,
+      source: "missing-position",
+    };
+  }
+
+  const plannedRiskRaw = Number(position.plannedRisk);
+  const plannedRiskAbs = Math.abs(plannedRiskRaw);
+  if (Number.isFinite(plannedRiskRaw) && plannedRiskAbs > 0) {
+    return {
+      plannedRiskRaw: position.plannedRisk,
+      plannedRiskAbs,
+      riskPerUnit: position.riskPerUnit ?? null,
+      stopLoss: position.stopLoss ?? null,
+      originalStopLoss: position.originalStopLoss ?? null,
+      initialRisk: plannedRiskAbs,
+      source: "plannedRisk",
+    };
+  }
+
+  const initialRiskRaw = Number(position.initialRisk);
+  const initialRiskAbs = Math.abs(initialRiskRaw);
+  if (Number.isFinite(initialRiskRaw) && initialRiskAbs > 0) {
+    return {
+      plannedRiskRaw: position.plannedRisk ?? null,
+      plannedRiskAbs: Number.isFinite(plannedRiskRaw) ? plannedRiskAbs : null,
+      riskPerUnit: position.riskPerUnit ?? null,
+      stopLoss: position.stopLoss ?? null,
+      originalStopLoss: position.originalStopLoss ?? null,
+      initialRisk: initialRiskAbs,
+      source: "initialRisk",
+    };
+  }
+
+  return {
+    plannedRiskRaw: position.plannedRisk ?? null,
+    plannedRiskAbs: Number.isFinite(plannedRiskRaw) ? plannedRiskAbs : null,
+    riskPerUnit: position.riskPerUnit ?? null,
+    stopLoss: position.stopLoss ?? null,
+    originalStopLoss: position.originalStopLoss ?? null,
+    initialRisk: null,
+    source: "none",
+  };
+}
+
+function logRaylaSimulationDebug(label, payload) {
+  if (
+    typeof window === "undefined"
+    || window.localStorage.getItem("rayla_debug_logs") !== "true"
+  ) {
+    return;
+  }
+  try {
+    console.info(label, JSON.stringify(payload));
+  } catch {
+    console.info(label, payload);
+  }
 }
 
 function getTradeRValue(trade) {
@@ -3241,6 +3594,58 @@ function isBrokerImportSetup(value) {
 
 function isStrategyInsightTrade(trade) {
   return !trade?.isBrokerTrade && !isBrokerImportSetup(trade?.setup);
+}
+
+function isAppSimulationTrade(trade) {
+  if (!trade?.id) return false;
+  if (trade?.isBrokerTrade) return false;
+  if (isBrokerImportSetup(trade?.setup)) return false;
+  const source = String(trade?.source || "").trim().toLowerCase();
+  const sourceLabel = String(trade?.source_label || "").trim().toLowerCase();
+  const marketMode = String(trade?.marketMode || "").trim().toLowerCase();
+  const sourceType = String(trade?.sourceType || "").trim().toLowerCase();
+  return (
+    source === "live_simulation"
+    || sourceLabel === "live simulation"
+    || sourceType === "live_sim_trade"
+    || sourceType === "scenario_sim_trade"
+    || marketMode === "live"
+    || marketMode === "scenario"
+  );
+}
+
+function isEditableManualTrade(trade) {
+  if (!trade?.id) return false;
+  if (trade?.isBrokerTrade) return false;
+  if (isBrokerImportSetup(trade?.setup)) return false;
+  if (isAppSimulationTrade(trade)) return false;
+  const sourceText = [
+    trade?.source,
+    trade?.source_label,
+    trade?.origin,
+    trade?.provider,
+  ].map((value) => String(value || "").trim().toLowerCase()).join(" ");
+  if (sourceText.includes("broker") || sourceText.includes("alpaca") || sourceText.includes("sync") || sourceText.includes("import")) {
+    return false;
+  }
+  return true;
+}
+
+function isDeletableAppTrade(trade) {
+  return isEditableManualTrade(trade) || isAppSimulationTrade(trade);
+}
+
+function getPicksEligibilityIssue(trade) {
+  if (!trade) return null;
+  if (!isStrategyInsightTrade(trade)) return null;
+  const missing = [];
+  const asset = normalizePickAssetSymbol(trade?.asset || trade?.symbol || trade?.ticker);
+  const direction = normalizePickDirection(trade?.direction);
+  const resultR = parsePickResultR(trade);
+  if (!asset) missing.push("Missing Asset");
+  if (!["long", "short"].includes(direction)) missing.push("Missing Direction");
+  if (!Number.isFinite(resultR)) missing.push("Missing R");
+  return missing.length ? missing : null;
 }
 
 function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false } = {}) {
@@ -3425,7 +3830,7 @@ const MY_TRADES_HELP = {
   },
   leverage: {
     title: "Leverage / Margin",
-    body: "Depends on your Alpaca account. Rayla submits standard paper orders only.",
+    body: "Depends on your Alpaca account. Rayla submits broker orders through your connected Alpaca account.",
   },
   unrealizedPnL: {
     title: "Unrealized P/L",
@@ -3500,6 +3905,7 @@ function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = nu
       </div>
       <div
         data-perf-breakdown-rows={title}
+        className={hasInternalScroll ? "perfBreakdownScrollArea" : undefined}
         style={{
           display: "block",
           padding: "4px 0",
@@ -3507,7 +3913,6 @@ function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = nu
           maxHeight: rowAreaHeight || undefined,
           overflowY: hasInternalScroll ? "auto" : "visible",
           overscrollBehavior: hasInternalScroll ? "contain" : undefined,
-          scrollbarGutter: hasInternalScroll ? "stable both-edges" : undefined,
           WebkitOverflowScrolling: hasInternalScroll ? "touch" : undefined,
           flex: hasInternalScroll ? "0 0 auto" : undefined,
           minHeight: 0,
@@ -3567,6 +3972,14 @@ function PerformanceLiveChartCard({
 }) {
   const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
   const [historyRange, setHistoryRange] = useState("MAX");
+  const [assetListScrolling, setAssetListScrolling] = useState(false);
+  const assetScrollTimerRef = useRef(null);
+  const handleAssetListScroll = () => {
+    setAssetListScrolling(true);
+    clearTimeout(assetScrollTimerRef.current);
+    assetScrollTimerRef.current = setTimeout(() => setAssetListScrolling(false), 1200);
+  };
+  useEffect(() => () => clearTimeout(assetScrollTimerRef.current), []);
   const closedTrades = useMemo(
     () => trades
       .map((trade) => ({
@@ -3756,7 +4169,11 @@ function PerformanceLiveChartCard({
               outline: "none",
             }}
           />
-          <div className="performanceHistoryAssetList" style={{ display: "flex", flexDirection: "column", gap: 8, flex: "1 1 0", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", paddingRight: 2 }}>
+          <div
+            className={`performanceHistoryAssetList${assetListScrolling ? " is-scrolling" : ""}`}
+            onScroll={handleAssetListScroll}
+            style={{ display: "flex", flexDirection: "column", gap: 8, flex: "1 1 0", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}
+          >
             <button
               type="button"
               onClick={togglePendingPortfolio}
@@ -4138,34 +4555,56 @@ function PerformanceDashboard({
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {allAssets.length > 1 && (
-          <select value={fAsset} onChange={e => setFAsset(e.target.value)} className="filterSelect">
-            <option value="all">All Assets</option>
-            {allAssets.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
+          <RaylaDropdown
+            value={fAsset}
+            onChange={setFAsset}
+            options={[{ value: "all", label: "All Assets" }, ...allAssets.map((asset) => ({ value: asset, label: asset }))]}
+            width={150}
+            minWidth={150}
+            size="compact"
+            ariaLabel="Performance asset filter"
+          />
         )}
         {allSetups.length > 0 && (
-          <select value={fSetup} onChange={e => setFSetup(e.target.value)} className="filterSelect">
-            <option value="all">All Setups</option>
-            {allSetups.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <RaylaDropdown
+            value={fSetup}
+            onChange={setFSetup}
+            options={[{ value: "all", label: "All Setups" }, ...allSetups.map((setup) => ({ value: setup, label: setup }))]}
+            width={150}
+            minWidth={150}
+            size="compact"
+            ariaLabel="Performance setup filter"
+          />
         )}
         {allSessions.length > 0 && (
-          <select value={fSession} onChange={e => setFSession(e.target.value)} className="filterSelect">
-            <option value="all">All Sessions</option>
-            {allSessions.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <RaylaDropdown
+            value={fSession}
+            onChange={setFSession}
+            options={[{ value: "all", label: "All Sessions" }, ...allSessions.map((session) => ({ value: session, label: session }))]}
+            width={150}
+            minWidth={150}
+            size="compact"
+            ariaLabel="Performance session filter"
+          />
         )}
-        <select value={fDir} onChange={e => setFDir(e.target.value)} className="filterSelect">
-          <option value="all">All Directions</option>
-          <option value="long">Long</option>
-          <option value="short">Short</option>
-        </select>
-        <select value={fResult} onChange={e => setFResult(e.target.value)} className="filterSelect">
-          <option value="all">All Results</option>
-          <option value="win">Winners</option>
-          <option value="loss">Losers</option>
-          <option value="be">Breakeven</option>
-        </select>
+        <RaylaDropdown
+          value={fDir}
+          onChange={setFDir}
+          options={PERFORMANCE_DIRECTION_FILTER_OPTIONS}
+          width={150}
+          minWidth={150}
+          size="compact"
+          ariaLabel="Performance direction filter"
+        />
+        <RaylaDropdown
+          value={fResult}
+          onChange={setFResult}
+          options={PERFORMANCE_RESULT_FILTER_OPTIONS}
+          width={140}
+          minWidth={140}
+          size="compact"
+          ariaLabel="Performance result filter"
+        />
         {hasFilters && (
           <button type="button" onClick={clearFilters}
             style={{ background: "transparent", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", fontSize: 12, cursor: "pointer" }}>
@@ -5334,6 +5773,7 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     buildLoggedEquityCurvePoints,
     normalizeChartSeriesToStrictAscending,
     filterEquityCurvePointsByRange,
+    calculateSimulationPositionPnL,
   };
 }
 
@@ -5725,7 +6165,6 @@ function EquityCurveCard({
   benchmarkLoading,
   alpacaConnected,
 }) {
-  const [benchmarkSelectorOpen, setBenchmarkSelectorOpen] = useState(false);
   const [benchmarkQuery, setBenchmarkQuery] = useState("");
   const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
   const values = equityPoints.map((point) => point.equity);
@@ -5761,11 +6200,6 @@ function EquityCurveCard({
   }, [benchmarkOptions, benchmarkQuery, benchmarkSearchResults]);
 
   useEffect(() => {
-    if (!benchmarkSelectorOpen) {
-      setBenchmarkSearchResults([]);
-      return;
-    }
-
     const query = benchmarkQuery.trim();
     if (!query) {
       setBenchmarkSearchResults([]);
@@ -5794,20 +6228,8 @@ function EquityCurveCard({
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [benchmarkSelectorOpen, benchmarkQuery, alpacaConnected]);
+  }, [benchmarkQuery, alpacaConnected]);
 
-  useEffect(() => {
-    if (!benchmarkSelectorOpen) return;
-    function handleClickOutside(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target.closest("[data-benchmark-selector='true']")) return;
-      setBenchmarkSelectorOpen(false);
-    }
-
-    window.addEventListener("pointerdown", handleClickOutside);
-    return () => window.removeEventListener("pointerdown", handleClickOutside);
-  }, [benchmarkSelectorOpen]);
   const statCardStyle = {
     background: "rgba(18,26,38,0.86)",
     border: "1px solid rgba(255,255,255,0.07)",
@@ -5825,99 +6247,55 @@ function EquityCurveCard({
           <button key={range} className={`chartTab ${chartRange === range ? "active" : ""}`} onClick={() => setChartRange(range)} type="button">{range}</button>
         ))}
       </div>
-      <div style={{ position: "relative", minWidth: 220 }} data-benchmark-selector="true">
-        <button
-          type="button"
-          onClick={() => setBenchmarkSelectorOpen((value) => !value)}
-          style={{
-            width: "100%",
-            background: "rgba(18,26,38,0.9)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 10,
-            padding: "8px 12px",
-            color: "#e2e8f0",
-            fontSize: 13,
-            cursor: "pointer",
-            textAlign: "left",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
+      <div style={{ minWidth: 220 }} data-benchmark-selector="true">
+        <RaylaDropdown
+          value={benchmarkSymbol}
+          onChange={(symbol) => {
+            const option = filteredBenchmarkOptions.find((item) => item.symbol === symbol)
+              || benchmarkOptions.find((item) => item.symbol === symbol);
+            if (!option) return;
+            onSelectBenchmark(option);
+            setBenchmarkQuery("");
           }}
-        >
-          <span>{`Benchmark: ${resolvedBenchmarkLabel}`}</span>
-          <span style={{ color: "#7f8ea3", fontSize: 11 }}>{benchmarkSelectorOpen ? "▲" : "▼"}</span>
-        </button>
-        {benchmarkSelectorOpen ? (
-          <div
-            style={{
-              position: "absolute",
-              top: "calc(100% + 8px)",
-              right: 0,
-              width: "min(320px, 86vw)",
-              background: "rgba(12,18,28,0.98)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 14,
-              padding: 12,
-              boxShadow: "0 18px 36px rgba(2,6,23,0.36)",
-              zIndex: 6,
-            }}
-          >
+          options={filteredBenchmarkOptions.map((option) => ({
+            value: option.symbol,
+            label: option.symbol,
+            group: option.group,
+            description: option.label,
+          }))}
+          buttonLabel={`Benchmark: ${resolvedBenchmarkLabel}`}
+          width={220}
+          minWidth={220}
+          menuWidth="min(320px, 86vw)"
+          menuAlign="right"
+          size="compact"
+          ariaLabel="Benchmark"
+          menuHeader={(
             <input
               type="text"
+              className="raylaDropdownSearch"
               value={benchmarkQuery}
               onChange={(event) => setBenchmarkQuery(event.target.value)}
               placeholder="Search benchmark symbol"
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 10,
-                padding: "9px 11px",
-                color: "#e2e8f0",
-                fontSize: 13,
-                outline: "none",
-                marginBottom: 10,
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") event.stopPropagation();
               }}
             />
-            <div style={{ maxHeight: 240, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-              {filteredBenchmarkOptions.map((option) => (
-                <button
-                  key={`${option.symbol}-${option.group}`}
-                  type="button"
-                  onClick={() => {
-                    onSelectBenchmark(option);
-                    setBenchmarkSelectorOpen(false);
-                    setBenchmarkQuery("");
-                  }}
-                  style={{
-                    background: option.symbol === benchmarkSymbol ? "rgba(124,196,255,0.12)" : "transparent",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    borderRadius: 10,
-                    padding: "9px 10px",
-                    color: "#e2e8f0",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700 }}>{option.symbol}</span>
-                    <span style={{ fontSize: 11, color: "#7f8ea3" }}>{option.group}</span>
-                  </div>
-                  <span style={{ fontSize: 11, color: "#94a3b8" }}>{option.label}</span>
-                </button>
-              ))}
-              {!filteredBenchmarkOptions.length ? (
-                <div style={{ padding: "10px 4px", fontSize: 12, color: "#7f8ea3" }}>
-                  No benchmark matches your search yet.
-                </div>
-              ) : null}
-            </div>
+          )}
+          renderOption={(option) => (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>{option.value}</span>
+                <span style={{ fontSize: 11, color: "#7f8ea3" }}>{option.group}</span>
+              </div>
+              <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "auto", textAlign: "right" }}>{option.description}</span>
+            </>
+          )}
+        />
+        {!filteredBenchmarkOptions.length && benchmarkQuery.trim() ? (
+          <div style={{ marginTop: 6, fontSize: 12, color: "#7f8ea3" }}>
+            No benchmark matches your search yet.
           </div>
         ) : null}
       </div>
@@ -5989,9 +6367,9 @@ function EquityCurveCard({
 
 function RecentTradesCard({ recentTrades, onDeleteTrade }) {
   return (
-    <Card title="Recent Trades">
+    <Card title="Recent Trades" className="tradeHistoryCard">
       <div className="listSubtext" style={{ marginBottom: "8px" }}>{recentTrades.length} trades logged</div>
-      <div className="list">
+      <div className="list tradeHistoryList">
         {recentTrades.length === 0 ? (
           <div className="listSubtext">No trades yet — log your first trade to start tracking.</div>
         ) : (
@@ -6018,7 +6396,9 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
                 {Number.isFinite(getTradeOutcomeValue(trade)) ? `${getTradeOutcomeValue(trade) > 0 ? "+" : ""}${Number(getTradeOutcomeValue(trade)).toFixed(1)}${trade.isBrokerTrade ? "$" : "R"}` : "-"}
               </div>
               <div className="listSubtext">{trade.coachTag || "Disciplined"}</div>
-              <button type="button" className="deleteTradeButton" onClick={() => onDeleteTrade(trade.id)}>Delete</button>
+              {isEditableManualTrade(trade) ? (
+                <button type="button" className="deleteTradeButton" onClick={() => onDeleteTrade(trade)}>Delete</button>
+              ) : null}
             </div>
           ))
         )}
@@ -6079,18 +6459,13 @@ function calculateBrokerDayPnL(positions) {
   }, 0);
 }
 
-function BrokerTradeLogCard({ trades, isLoading, onRefresh }) {
+function BrokerTradeLogCard({ trades }) {
   return (
-    <Card title="Synced Orders">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-        <div className="listSubtext">{trades.length} broker trade{trades.length === 1 ? "" : "s"} synced</div>
-        <button type="button" className="ghostButton" onClick={onRefresh} disabled={isLoading}>
-          {isLoading ? "Refreshing..." : "Refresh Broker Trades"}
-        </button>
-      </div>
-      <div className="list">
+    <Card title="Synced Orders" className="tradeHistoryCard">
+      <div className="listSubtext" style={{ marginBottom: "8px" }}>{trades.length} synced orders</div>
+      <div className="list tradeHistoryList">
         {!trades.length ? (
-          <div className="listSubtext">No synced broker orders yet. Refresh after placing a paper order, or use the journal for manual trades.</div>
+          <div className="listSubtext">No synced broker orders yet. Refresh after placing a broker order, or use the journal for manual trades.</div>
         ) : (
           trades.map((trade) => {
             const statusPresentation = getBrokerOrderStatusPresentation(trade.status, trade.submitted_at);
@@ -6841,7 +7216,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
           </div>
         </div>
       )}
-      {article && (
+      {article ? (
         <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 10, textDecoration: "none", marginTop: 6, padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
           {article.image ? (
             <img src={article.image} alt="" onError={e => e.target.style.display = "none"} style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8, flexShrink: 0 }} />
@@ -6854,6 +7229,10 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
             {articleSnippet && <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.45, marginTop: 4 }}>{articleSnippet.slice(0, 160)}{articleSnippet.length > 160 ? "..." : ""}</div>}
           </div>
         </a>
+      ) : (
+        <div style={{ marginTop: 6, padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.05)", fontSize: 11, color: "#7f8ea3", lineHeight: 1.45 }}>
+          No article available yet.
+        </div>
       )}
       {(onTrySimulation || onAskRayla) && (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -6898,6 +7277,14 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   );
 }
 
+function getRenderableIntelAssets(items) {
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    // Pass any scored asset — article/summary absence must never hide the card
+    return Boolean(item.symbol) || Boolean(item.name) || typeof item.score === "number";
+  });
+}
+
 function RaylaPickCard({ pick }) {
   if (!pick) return null;
   return (
@@ -6934,35 +7321,258 @@ function RaylaLaunchButton({ label, onClick }) {
       type="button"
       onClick={onClick}
       style={{
-        background: "#7CC4FF",
-        color: "#0b1017",
-        border: "none",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        background: "rgba(5, 13, 31, 0.86)",
+        color: "#d7efff",
+        border: "1px solid rgba(124,196,255,0.72)",
         borderRadius: 12,
-        padding: "11px 16px",
+        padding: "9px 13px",
         fontSize: 13,
         fontWeight: 700,
         cursor: "pointer",
-        boxShadow: "0 10px 24px rgba(124,196,255,0.22)",
+        boxShadow: "0 10px 24px rgba(124,196,255,0.14), inset 0 1px 0 rgba(255,255,255,0.05)",
         whiteSpace: "nowrap",
       }}
     >
-      {label}
+      <span>{label}</span>
+      <img
+        src="/badger.png"
+        alt=""
+        aria-hidden="true"
+        style={{ width: 20, height: 20, objectFit: "contain", display: "block" }}
+      />
     </button>
+  );
+}
+
+const ALPACA_ORDER_TYPE_OPTIONS = [
+  { value: "market", label: "Market" },
+  { value: "limit", label: "Limit" },
+  { value: "stop", label: "Stop" },
+  { value: "stop_limit", label: "Stop Limit" },
+];
+
+const ALPACA_TIME_IN_FORCE_OPTIONS = [
+  { value: "gtc", label: "GTC" },
+  { value: "ioc", label: "IOC" },
+  { value: "fok", label: "FOK" },
+];
+
+const PERFORMANCE_DIRECTION_FILTER_OPTIONS = [
+  { value: "all", label: "All Directions" },
+  { value: "long", label: "Long" },
+  { value: "short", label: "Short" },
+];
+
+const PERFORMANCE_RESULT_FILTER_OPTIONS = [
+  { value: "all", label: "All Results" },
+  { value: "win", label: "Winners" },
+  { value: "loss", label: "Losers" },
+  { value: "be", label: "Breakeven" },
+];
+
+const SIMULATION_DIRECTION_OPTIONS = [
+  { value: "long", label: "Buy / Long" },
+  { value: "short", label: "Sell / Short" },
+];
+
+const SIMULATION_AMOUNT_MODE_OPTIONS = [
+  { value: "dollars", label: "Amount in Dollars" },
+  { value: "shares", label: "Amount in Shares" },
+];
+
+const SIMULATION_LEVERAGE_OPTIONS = [
+  { value: "1x", label: "Leverage: 1x" },
+  { value: "2x", label: "Leverage: 2x" },
+  { value: "5x", label: "Leverage: 5x" },
+  { value: "10x", label: "Leverage: 10x" },
+];
+
+const SIMULATION_SCENARIO_TYPE_OPTIONS = [
+  { value: "uptrend", label: "Uptrend" },
+  { value: "downtrend", label: "Downtrend" },
+  { value: "range", label: "Range" },
+  { value: "realistic", label: "Realistic" },
+];
+
+const SIMULATION_SCENARIO_SPEED_OPTIONS = [
+  { value: "1x", label: "1x" },
+  { value: "10x", label: "10x" },
+  { value: "50x", label: "50x" },
+  { value: "100x", label: "100x" },
+  { value: "500x", label: "500x" },
+  { value: "1000x", label: "1000x" },
+  { value: "10000x", label: "10000x" },
+];
+
+const SIMULATION_SCENARIO_DURATION_OPTIONS = [
+  { value: "5s", label: "5s" },
+  { value: "10s", label: "10s" },
+  { value: "30s", label: "30s" },
+  { value: "1m", label: "1m" },
+];
+
+const SIMULATION_EXIT_MODE_OPTIONS = [
+  { value: "price", label: "Exit by Price" },
+  { value: "pnl", label: "Exit by P/L" },
+];
+
+function RaylaDropdown({
+  value,
+  onChange,
+  options,
+  width = "100%",
+  minWidth,
+  disabled = false,
+  ariaLabel,
+  size = "default",
+  buttonLabel,
+  renderOption,
+  menuHeader = null,
+  menuWidth,
+  menuAlign = "left",
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const optionRefs = useRef([]);
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedOption = options[selectedIndex] || options[0] || { value, label: value };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handlePointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen]);
+
+  const openMenu = (index = selectedIndex) => {
+    if (disabled) return;
+    setIsOpen(true);
+    window.requestAnimationFrame(() => {
+      optionRefs.current[index]?.focus();
+    });
+  };
+
+  const selectOption = (option) => {
+    if (!option || disabled) return;
+    onChange(option.value);
+    setIsOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  const handleButtonKeyDown = (event) => {
+    if (["ArrowDown", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      openMenu(selectedIndex);
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      openMenu(Math.max(0, selectedIndex - 1));
+    }
+  };
+
+  const handleOptionKeyDown = (event, index) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      optionRefs.current[Math.min(options.length - 1, index + 1)]?.focus();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      optionRefs.current[Math.max(0, index - 1)]?.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      optionRefs.current[0]?.focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      optionRefs.current[options.length - 1]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setIsOpen(false);
+      buttonRef.current?.focus();
+    }
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className={`raylaDropdown${isOpen ? " open" : ""}${disabled ? " disabled" : ""}${size === "compact" ? " compact" : ""}`}
+      style={{ width, minWidth: minWidth ?? width }}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        className="raylaDropdownButton"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={() => setIsOpen((prev) => !prev)}
+        onKeyDown={handleButtonKeyDown}
+      >
+        <span>{buttonLabel || selectedOption.label}</span>
+        <span className="raylaDropdownChevron" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div
+          className="raylaDropdownMenu"
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{
+            width: menuWidth,
+            left: menuWidth && menuAlign === "right" ? "auto" : undefined,
+            right: menuWidth && menuAlign === "right" ? 0 : undefined,
+          }}
+        >
+          {menuHeader}
+          {options.map((option, index) => {
+            const active = option.value === value;
+            return (
+              <button
+                key={option.value}
+                ref={(node) => { optionRefs.current[index] = node; }}
+                type="button"
+                className={`raylaDropdownOption${active ? " active" : ""}`}
+                role="option"
+                aria-selected={active}
+                onClick={() => selectOption(option)}
+                onKeyDown={(event) => handleOptionKeyDown(event, index)}
+              >
+                {renderOption ? renderOption(option, active) : option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
 function ChartTimeframeDropdown({ value, onChange, width = 110, options = CHART_RANGE_OPTIONS }) {
   return (
-    <select
-      className="authInput"
+    <RaylaDropdown
       value={value}
-      onChange={(event) => onChange(event.target.value)}
-      style={{ width, minWidth: width, paddingTop: 6, paddingBottom: 6 }}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>{option.label}</option>
-      ))}
-    </select>
+      onChange={onChange}
+      options={options}
+      width={width}
+      minWidth={width}
+      ariaLabel="Chart timeframe"
+      size="compact"
+    />
   );
 }
 
@@ -7042,13 +7652,13 @@ function SubscriptionCard({ subscription, isLoading, action, error, onStartCheck
   );
 }
 
-function JournalTradeTable({ trades, rCol, tradeDuration }) {
+function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade }) {
   return (
     <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
         <thead>
           <tr style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.02)" }}>
-            {["Asset", "Dir", "Setup", "Session", "Source", "Entry", "Exit", "Size", "Held", "Result", "Date"].map(h => (
+            {["Asset", "Dir", "Setup", "Session", "Source", "Entry", "Exit", "Size", "Held", "Result", "Date", "Action"].map(h => (
               <th key={h} style={{ padding: "10px 14px", textAlign: h === "Result" ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>
             ))}
           </tr>
@@ -7057,9 +7667,36 @@ function JournalTradeTable({ trades, rCol, tradeDuration }) {
           {trades.map((trade, idx) => {
             const r = getTradeOutcomeValue(trade);
             const duration = tradeDuration(trade.entry_time, trade.exit_time);
+            const picksIssue = getPicksEligibilityIssue(trade);
+            if (trade?.source === "live_simulation" || trade?.source_label === "Live Simulation") {
+              logRaylaSimulationDebug("[Rayla journal render] simulation trade", {
+                id: trade.id,
+                asset: trade.asset,
+                direction: trade.direction,
+                pnl: trade.pnl ?? trade.profitLoss ?? trade.profitLossUsd ?? trade.profit_loss ?? trade.pnl_value ?? null,
+                rMultiple: trade.rMultiple,
+                resultR: trade.resultR,
+                result_r: trade.result_r,
+                renderedResultValue: r,
+              });
+            }
             return (
-              <tr key={trade.id || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 12 }}>
-                <td style={{ padding: "9px 14px", color: "#f3f7fc", fontWeight: 700 }}>{(trade.asset || "—").toUpperCase()}</td>
+              <tr key={trade.id || idx} data-trade-id={trade.id || ""} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 12 }}>
+                <td style={{ padding: "9px 14px", color: "#f3f7fc", fontWeight: 700 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span>{(trade.asset || "—").toUpperCase()}</span>
+                    {picksIssue && (
+                      <span title={picksIssue.join(", ")} style={{ fontSize: 10, fontWeight: 700, color: "#fde68a", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.22)", borderRadius: 999, padding: "2px 7px", whiteSpace: "nowrap" }}>
+                        Needs Picks Data
+                      </span>
+                    )}
+                  </div>
+                  {picksIssue && (
+                    <div style={{ marginTop: 3, fontSize: 10, color: "#fbbf24", fontWeight: 600 }}>
+                      {picksIssue.join(" · ")}
+                    </div>
+                  )}
+                </td>
                 <td style={{ padding: "9px 14px", color: trade.direction?.toLowerCase() === "long" ? "#4ade80" : trade.direction ? "#f87171" : "#64748b", textTransform: "capitalize" }}>{trade.direction || "—"}</td>
                 <td style={{ padding: "9px 14px", color: "#7CC4FF" }}>{trade.setup || "—"}</td>
                 <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.session || "—"}</td>
@@ -7070,6 +7707,13 @@ function JournalTradeTable({ trades, rCol, tradeDuration }) {
                 <td style={{ padding: "9px 14px", color: "#64748b" }}>{duration || "—"}</td>
                 <td style={{ padding: "9px 14px", textAlign: "right", color: rCol(r), fontWeight: 700 }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}{trade.isBrokerTrade ? "$" : "R"}</td>
                 <td style={{ padding: "9px 14px", color: "#475569", whiteSpace: "nowrap" }}>{trade.entry_time ? new Date(trade.entry_time).toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                <td style={{ padding: "9px 14px", color: "#64748b", whiteSpace: "nowrap" }}>
+                  {isDeletableAppTrade(trade) ? (
+                    <button type="button" className="ghostButton" onClick={() => onDeleteManualTrade?.(trade)} style={{ padding: "5px 10px", fontSize: 11 }}>
+                      Delete
+                    </button>
+                  ) : "—"}
+                </td>
               </tr>
             );
           })}
@@ -7081,7 +7725,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration }) {
 
 const JOURNAL_MISTAKE_TAGS = ["FOMO", "Oversized", "Rule break", "Chased entry", "Early exit", "Missed target", "Emotional"];
 
-function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
+function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade }) {
   const [journalSource, setJournalSource] = useState("live_trades");
   const [search, setSearch] = useState("");
   const [filterDir, setFilterDir] = useState("all");
@@ -7228,8 +7872,8 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
 
   function renderJournalHeader() {
     return (
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 16, flexWrap: "wrap", position: "relative", minHeight: 46 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
           <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
             Source
           </div>
@@ -7261,10 +7905,12 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
             })}
           </div>
         </div>
-        <RaylaLaunchButton
-          label="Ask Rayla"
-          onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
-        />
+        <div style={{ position: "absolute", right: 0, top: 0 }}>
+          <RaylaLaunchButton
+            label="Ask Rayla"
+            onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
+          />
+        </div>
       </div>
     );
   }
@@ -7295,7 +7941,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
       {/* Summary stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
         {[
-          { label: "Total Trades", value: trades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
+          { label: "Total Trades", value: selectedJournalTrades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
           { label: "Win Rate", value: `${wr.toFixed(1)}%`, sub: `${wins.length} winners`, color: wr >= 50 ? "#4ade80" : "#f87171" },
           { label: "Total Result", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}`, sub: "net result", color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
           { label: "Avg Result / Trade", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}`, sub: "per trade", color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
@@ -7442,9 +8088,32 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
           </button>
         </div>
       ) : viewingAllTrades && viewMode === "table" ? (
-        <JournalTradeTable trades={filtered} rCol={rCol} tradeDuration={tradeDuration} />
+        <JournalTradeTable trades={filtered} rCol={rCol} tradeDuration={tradeDuration} onDeleteManualTrade={onDeleteManualTrade} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* Collapse button — top of expanded list */}
+          {viewingAllTrades && selectedJournalTrades.length > 5 && (
+            <button
+              type="button"
+              onClick={() => setViewingAllTrades(false)}
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.09)",
+                borderRadius: 10,
+                padding: "12px 20px",
+                color: "#7f8ea3",
+                fontSize: 13,
+                cursor: "pointer",
+                width: "100%",
+                textAlign: "center",
+                transition: "background 0.13s, border-color 0.13s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(124,196,255,0.06)"; e.currentTarget.style.borderColor = "rgba(124,196,255,0.2)"; e.currentTarget.style.color = "#7CC4FF"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)"; e.currentTarget.style.color = "#7f8ea3"; }}
+            >
+              ↑ Collapse
+            </button>
+          )}
           {(viewingAllTrades ? filtered : recentFive).map((trade, idx) => {
             const tradeId = trade.id || idx;
             const r = getTradeOutcomeValue(trade);
@@ -7460,9 +8129,22 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
               ? new Date(trade.entry_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
               : "";
             const rBarPct = Math.min(Math.abs(r) / 5 * 100, 100);
+            const picksIssue = getPicksEligibilityIssue(trade);
+            if (trade?.source === "live_simulation" || trade?.source_label === "Live Simulation") {
+              logRaylaSimulationDebug("[Rayla journal render] simulation trade", {
+                id: trade.id,
+                asset: trade.asset,
+                direction: trade.direction,
+                pnl: trade.pnl ?? trade.profitLoss ?? trade.profitLossUsd ?? trade.profit_loss ?? trade.pnl_value ?? null,
+                rMultiple: trade.rMultiple,
+                resultR: trade.resultR,
+                result_r: trade.result_r,
+                renderedResultValue: r,
+              });
+            }
 
             return (
-              <div key={tradeId} style={{
+              <div key={tradeId} data-trade-id={trade.id || ""} style={{
                 background: "rgba(18,26,38,0.86)",
                 border: `1px solid ${isWin ? "rgba(74,222,128,0.12)" : isLoss ? "rgba(248,113,113,0.1)" : "rgba(255,255,255,0.07)"}`,
                 borderLeft: `3px solid ${isWin ? "#4ade80" : isLoss ? "#f87171" : "rgba(255,255,255,0.12)"}`,
@@ -7476,6 +8158,16 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 15, fontWeight: 700, color: "#f3f7fc" }}>{(trade.asset || "—").toUpperCase()}</span>
+                      {picksIssue && (
+                        <span title={picksIssue.join(", ")} style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", color: "#fde68a", background: "rgba(251,191,36,0.1)", borderRadius: 999, padding: "2px 8px", border: "1px solid rgba(251,191,36,0.22)" }}>
+                          Needs Picks Data
+                        </span>
+                      )}
+                      {picksIssue?.map((reason) => (
+                        <span key={reason} style={{ fontSize: 10, color: "#fbbf24", background: "rgba(251,191,36,0.06)", borderRadius: 6, padding: "2px 6px", border: "1px solid rgba(251,191,36,0.12)" }}>
+                          {reason}
+                        </span>
+                      ))}
                       {trade.direction && (
                         <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", color: trade.direction.toLowerCase() === "long" ? "#4ade80" : "#f87171", background: trade.direction.toLowerCase() === "long" ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>
                           {trade.direction}
@@ -7497,6 +8189,19 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
                     <span style={{ fontSize: 11, color: "#94a3b8", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "2px 8px", border: "1px solid rgba(255,255,255,0.08)" }}>
                       {trade.source_label || (trade.isBrokerTrade ? "Broker" : "Manual")}
                     </span>
+                    {isDeletableAppTrade(trade) && (
+                      <button
+                        type="button"
+                        className="ghostButton"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDeleteManualTrade?.(trade);
+                        }}
+                        style={{ padding: "5px 10px", fontSize: 11 }}
+                      >
+                        Delete
+                      </button>
+                    )}
                     <span style={{ fontSize: 20, fontWeight: 700, color: rCol(r), minWidth: 56, textAlign: "right" }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}{trade.isBrokerTrade ? "$" : "R"}</span>
                       <span style={{ fontSize: 12, color: "#334155" }}>{isExpanded ? "▲" : "▼"}</span>
                     </div>
@@ -7603,6 +8308,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup }) {
           View All {selectedJournalTrades.length} Trades →
         </button>
       )}
+
     </div>
   );
 }
@@ -7664,6 +8370,7 @@ useEffect(() => {
   const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
   const homeMarketSearchTimeoutRef = useRef(null);
+  const intelFetchDebugRef = useRef(null);
 
   const [intelLoading, setIntelLoading] = useState(false);
   const [hotColdReport, setHotColdReport] = useState(() => {
@@ -7716,6 +8423,7 @@ useEffect(() => {
   const [alpacaOrderResult, setAlpacaOrderResult] = useState(null);
   const [pendingAlpacaOrderConfirmation, setPendingAlpacaOrderConfirmation] = useState(null);
   const [preparedCloseOrder, setPreparedCloseOrder] = useState(null);
+  const [submittedCloseOrder, setSubmittedCloseOrder] = useState(null);
   const orderTicketRef = useRef(null);
   const [alpacaAssetSearchResults, setAlpacaAssetSearchResults] = useState([]);
   const [alpacaAssetSearchLoading, setAlpacaAssetSearchLoading] = useState(false);
@@ -7784,7 +8492,11 @@ useEffect(() => {
     maxLoss: "",
     buyingPowerPercent: "",
     leverage: "1x",
+    planStop: "",
+    planTarget: "",
   });
+  const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(true);
+  const [alpacaOrderPlanMode, setAlpacaOrderPlanMode] = useState("price");
   const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -7846,6 +8558,8 @@ useEffect(() => {
       // ignore localStorage write errors for mode preference
     }
   }, [raylaMode]);
+  const isBeginnerMode = raylaMode === "beginner";
+  const showBeginnerGuidance = isBeginnerMode;
     const [showBeginnerTutorial, setShowBeginnerTutorial] = useState(false);
   const [beginnerTutorialView, setBeginnerTutorialView] = useState("menu");
     const [beginnerTutorialStep, setBeginnerTutorialStep] = useState(0);
@@ -7954,10 +8668,15 @@ useEffect(() => {
     };
   }, [performanceLiveAppliedSelection, tradePortfolioAllSymbols]);
   const activeTradeChartSelection = activeTab === "ai" ? performanceLiveLegacySelection : tradeAppliedSelection;
+  const shouldUseDefaultLiveTradeSymbol = alpacaPositions.length === 0
+    && !String(alpacaOrderForm.symbol || "").trim()
+    && !tradeLogChartSymbol
+    && activeTradeChartSelection.mode === "asset"
+    && !(activeTradeChartSelection.symbols || []).filter(Boolean).length;
   const tradeChartSymbol = tradeLogChartSymbol
     ? tradeLogChartSymbol
     : activeTradeChartSelection.mode === "asset"
-      ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || "")
+      ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || (shouldUseDefaultLiveTradeSymbol ? DEFAULT_LIVE_TRADE_SYMBOL : ""))
       : "";
   const tradeChartMatchingPosition = tradeChartSymbol
     ? alpacaPositions.find((position) => position.symbol === tradeChartSymbol) || null
@@ -7970,6 +8689,14 @@ useEffect(() => {
     : Number.isFinite(tradeChartMatchingPosition?.currentPrice)
       ? Number(tradeChartMatchingPosition.currentPrice)
       : null;
+  const latestSubmittedCloseBrokerOrder = useMemo(
+    () => findMatchingBrokerOrder(brokerTradeLog, submittedCloseOrder) || submittedCloseOrder,
+    [brokerTradeLog, submittedCloseOrder]
+  );
+  const submittedCloseStatusKind = getBrokerOrderStatusKind(latestSubmittedCloseBrokerOrder?.status);
+  const submittedCloseStatusPresentation = latestSubmittedCloseBrokerOrder
+    ? getBrokerOrderStatusPresentation(latestSubmittedCloseBrokerOrder.status, latestSubmittedCloseBrokerOrder.submitted_at || latestSubmittedCloseBrokerOrder.submittedAt)
+    : null;
   const tradeChartAsset = useMemo(() => {
     if (!tradeChartSymbol) return null;
     return watchlist.find((item) => item.id === tradeChartSymbol)
@@ -8105,6 +8832,8 @@ useEffect(() => {
   const [simulationScenarioAnchors, setSimulationScenarioAnchors] = useState({});
   const [simulationScenarioTick, setSimulationScenarioTick] = useState(0);
   const simulationScenarioBarTimeAnchorRef = useRef({});
+  const [simHistoryExpanded, setSimHistoryExpanded] = useState(false);
+  const [simHistorySearch, setSimHistorySearch] = useState("");
   const [simulationPositions, setSimulationPositions] = useState(() => {
     const stored = readSimulationStorage(
       SIMULATION_STORAGE_KEYS.openPosition,
@@ -8149,12 +8878,28 @@ useEffect(() => {
   });
   const postLossQuietTimerRef = useRef(null);
   const simulationStorageHydratedUserRef = useRef("");
+  const deletedSimulationTradeIdsRef = useRef(new Set());
   const [simulatedBalance, setSimulatedBalance] = useState(SIMULATION_STARTING_BALANCE);
   const [simulationTradeHistory, setSimulationTradeHistory] = useState([]);
-  const raylaPicksContext = useMemo(
-    () => buildRaylaPicksContext({ trades, simulationTradeHistory }),
-    [trades, simulationTradeHistory]
+  const [simulationTombstoneVersion, setSimulationTombstoneVersion] = useState(0);
+  const simulationHistoryStorageKey = getUserScopedStorageKey(
+    SIMULATION_STORAGE_KEYS.tradeHistory,
+    session?.user?.id || simulationStorageHydratedUserRef.current
   );
+  const visibleSimulationTradeHistoryAll = useMemo(
+    () => filterSimulationHistoryByTombstones(
+      simulationTradeHistory,
+      simulationHistoryStorageKey || SIMULATION_STORAGE_KEYS.tradeHistory
+    ),
+    [simulationTradeHistory, simulationHistoryStorageKey, simulationTombstoneVersion]
+  );
+  const raylaPicksContext = useMemo(() => {
+    const context = buildRaylaPicksContext({ trades, simulationTradeHistory: visibleSimulationTradeHistoryAll });
+    if (import.meta.env.DEV && typeof window !== "undefined") {
+      window.__raylaPicksDebug = context.debug;
+    }
+    return context;
+  }, [trades, visibleSimulationTradeHistoryAll]);
   const [guidedSimulationDraft, setGuidedSimulationDraft] = useState(() =>
     readSimulationStorage(
       SIMULATION_STORAGE_KEYS.guidedDraft,
@@ -8217,9 +8962,9 @@ useEffect(() => {
     adaptiveState: raylaAdaptiveState,
     currentQuestion: aiInput,
     trades,
-    simulationTradeHistory,
+    simulationTradeHistory: visibleSimulationTradeHistoryAll,
     selectedMarketId,
-  }), [raylaAdaptiveState, aiInput, trades, simulationTradeHistory, selectedMarketId]);
+  }), [raylaAdaptiveState, aiInput, trades, visibleSimulationTradeHistoryAll, selectedMarketId]);
   const simulationSymbolsKey = [...new Set(simulationTrackedAssets.map((item) => item.id))].sort().join("|");
   const hasActiveLiveSimulationTrade = simulationPositions.some((position) => (position.marketMode || "live") === "live");
   const [raylaUserCount, setRaylaUserCount] = useState(0);
@@ -8468,19 +9213,42 @@ useEffect(() => {
   }, [trades, normalizedBrokerTrades]);
 
   const liveSimulationPerformanceTrades = useMemo(
-    () => simulationTradeHistory
+    () => visibleSimulationTradeHistoryAll
       .filter(isClosedLiveSimulationTradeForPerformance)
       .map((trade) => normalizeSimulationTradeForPerformance(trade))
       .filter((trade) => trade.asset),
-    [simulationTradeHistory]
+    [visibleSimulationTradeHistoryAll]
   );
 
   const liveSimulationJournalTrades = useMemo(
-    () => simulationTradeHistory
+    () => visibleSimulationTradeHistoryAll
       .filter(isClosedLiveSimulationTradeForPerformance)
-      .map((trade) => normalizeSimulationTradeForJournal(trade))
+      .map((trade) => {
+        const normalized = normalizeSimulationTradeForJournal(trade);
+        logRaylaSimulationDebug("[Rayla journal normalize] simulation trade", {
+          raw: {
+            id: trade?.id,
+            asset: trade?.asset,
+            direction: trade?.direction,
+            pnl: trade?.pnl ?? trade?.profitLoss ?? trade?.profitLossUsd ?? trade?.profit_loss ?? trade?.pnl_value ?? null,
+            rMultiple: trade?.rMultiple,
+            resultR: trade?.resultR,
+            result_r: trade?.result_r,
+          },
+          normalized: {
+            id: normalized?.id,
+            asset: normalized?.asset,
+            direction: normalized?.direction,
+            pnl: normalized?.pnl ?? normalized?.profitLoss ?? normalized?.profitLossUsd ?? normalized?.profit_loss ?? normalized?.pnl_value ?? null,
+            rMultiple: normalized?.rMultiple,
+            resultR: normalized?.resultR,
+            result_r: normalized?.result_r,
+          },
+        });
+        return normalized;
+      })
       .filter((trade) => trade.asset),
-    [simulationTradeHistory]
+    [visibleSimulationTradeHistoryAll]
   );
 
   const usableClosedTradesForEquity = useMemo(() => {
@@ -8515,10 +9283,28 @@ useEffect(() => {
   }, [simulationPositions]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__raylaStorageDebug = readSimulationStorageDebugSnapshot({
+      userId: session?.user?.id || "",
+      hydratedUserId: simulationStorageHydratedUserRef.current,
+      memoryHistoryCount: simulationTradeHistory.length,
+      visibleHistoryCount: visibleSimulationTradeHistoryAll.length,
+    });
+  }, [session?.user?.id, simulationTradeHistory.length, visibleSimulationTradeHistoryAll.length, simulationTombstoneVersion]);
+
+  useEffect(() => {
     const userId = session?.user?.id;
     if (!userId || simulationStorageHydratedUserRef.current !== userId) return;
     const storageKey = getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.tradeHistory, userId);
     if (storageKey) writeSimulationStorage(storageKey, simulationTradeHistory);
+  }, [simulationTradeHistory, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || simulationStorageHydratedUserRef.current !== userId) return;
+    deletedSimulationTradeIdsRef.current.forEach((tradeId) => {
+      removeSimulationTradeFromStoredHistory(tradeId, userId);
+    });
   }, [simulationTradeHistory, session?.user?.id]);
 
   useEffect(() => {
@@ -9109,6 +9895,25 @@ useEffect(() => {
 
       setAlpacaAccount(accountData.account || null);
 
+      // Diagnostic: expose broker state for inspection without changing any logic
+      const _acc = accountData.account;
+      const isPaperAccount = accountData.isPaper === true;
+      window.__raylaBrokerDebug = {
+        alpacaBaseUrl: isPaperAccount ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets",
+        endpointMode: isPaperAccount ? "paper" : "live",
+        oauthEnvParam: isPaperAccount ? "paper" : null,
+        accountId: _acc?.id ?? null,
+        accountNumber: _acc?.accountNumber ?? null,
+        accountStatus: _acc?.status ?? null,
+        buyingPower: _acc?.buyingPower ?? null,
+        cash: _acc?.cash ?? null,
+        equity: _acc?.equity ?? null,
+        portfolioValue: _acc?.portfolioValue ?? null,
+        isPaper: isPaperAccount,
+        connectedAt: new Date().toISOString(),
+        raw: _acc?.raw ?? null,
+      };
+
       const { data: positionsData, error: positionsError } = await supabase.functions.invoke("alpaca-positions", {
         body: {},
       });
@@ -9120,7 +9925,7 @@ useEffect(() => {
       setAlpacaAccount(null);
       setAlpacaPositions([]);
       if (!silent) {
-        showToast(error?.message || "Could not load Alpaca Paper connection.", "error");
+        showToast(error?.message || "Could not load Alpaca connection.", "error");
       }
     } finally {
       setAlpacaConnectionLoading(false);
@@ -9219,10 +10024,10 @@ useEffect(() => {
     }
   }
 
-  async function handleConnectAlpaca() {
+  async function handleConnectAlpaca(isPaper = false) {
     try {
       const { data, error } = await supabase.functions.invoke("alpaca-connect-start", {
-        body: {},
+        body: { isPaper },
       });
 
       if (error) throw error;
@@ -9298,7 +10103,7 @@ useEffect(() => {
     let error = "";
 
     if (!alpacaAccount) {
-      error = "Connect your Alpaca Paper account before placing an order.";
+      error = "Connect your Alpaca account before placing an order.";
     } else if (!symbol) {
       error = "Symbol is required.";
     } else if (!Number.isFinite(qty) || qty <= 0) {
@@ -9378,6 +10183,63 @@ useEffect(() => {
     if (!orderStillMatchesCloseIntent) setPreparedCloseOrder(null);
   }, [alpacaOrderForm.symbol, alpacaOrderForm.side, alpacaOrderForm.qty, alpacaOrderForm.type, preparedCloseOrder]);
 
+  async function refreshBrokerStateAfterOrder({ delayed = true } = {}) {
+    await Promise.all([
+      fetchAlpacaBrokerData({ silent: true }),
+      fetchBrokerTradeLog({ sync: true, silent: true }),
+    ]);
+    if (delayed && typeof window !== "undefined") {
+      window.setTimeout(() => {
+        fetchAlpacaBrokerData({ silent: true });
+        fetchBrokerTradeLog({ sync: true, silent: true });
+      }, 3500);
+    }
+  }
+
+  useEffect(() => {
+    if (!latestSubmittedCloseBrokerOrder) return;
+    const statusKind = getBrokerOrderStatusKind(latestSubmittedCloseBrokerOrder.status);
+    if (statusKind === "filled" || statusKind === "failed") {
+      setPreparedCloseOrder(null);
+    }
+  }, [latestSubmittedCloseBrokerOrder]);
+
+  useEffect(() => {
+    if (!submittedCloseOrder) return;
+    if (submittedCloseStatusKind !== "filled") return;
+    const symbol = String(submittedCloseOrder.symbol || "").trim().toUpperCase();
+    const stillOpen = alpacaPositions.some((position) => String(position.symbol || "").trim().toUpperCase() === symbol);
+    if (stillOpen) return;
+    setPreparedCloseOrder(null);
+    setAlpacaOrderForm((prev) => {
+      if (String(prev.symbol || "").trim().toUpperCase() !== symbol) return prev;
+      return {
+        ...prev,
+        side: "buy",
+        qty: "",
+        type: "market",
+        limitPrice: "",
+        stopPrice: "",
+      };
+    });
+    if (tradeAppliedSelection.mode === "asset" && tradeAppliedSelection.symbols.includes(symbol)) {
+      const nextSymbols = alpacaPositions.map((position) => position.symbol).filter((item) => item && item !== symbol);
+      applyTradeSelection(nextSymbols.length ? { mode: "portfolio", symbols: nextSymbols } : { mode: "portfolio", symbols: [] });
+    }
+  }, [alpacaPositions, submittedCloseOrder, submittedCloseStatusKind, tradeAppliedSelection]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const selectedBrokerPosition = tradeChartMatchingPosition || tradePanelMatchingPosition || null;
+    window.__raylaBrokerDebug = {
+      lastSubmittedOrder: alpacaOrderResult,
+      lastBrokerOrders: brokerTradeLog.slice(0, 10),
+      lastPositions: alpacaPositions,
+      preparedCloseOrder,
+      selectedBrokerPosition,
+    };
+  }, [alpacaOrderResult, alpacaPositions, brokerTradeLog, preparedCloseOrder, tradeChartMatchingPosition, tradePanelMatchingPosition]);
+
   async function handleSubmitAlpacaOrder(e) {
     e.preventDefault();
 
@@ -9437,6 +10299,9 @@ useEffect(() => {
       estimatedPrice: isPreparedCloseOrder && !Number.isFinite(estimatedPrice) ? null : estimatedPrice,
       estimatedValue: isPreparedCloseOrder && !Number.isFinite(estimatedValue) ? null : estimatedValue,
       isCloseOrder: isPreparedCloseOrder,
+      planStop: alpacaOrderForm.planStop || null,
+      planTarget: alpacaOrderForm.planTarget || null,
+      planMode: alpacaOrderPlanMode,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
@@ -9477,22 +10342,27 @@ useEffect(() => {
       });
 
       if (error) {
-        const message = await getSupabaseFunctionErrorMessage(error, "Could not place Alpaca paper order.");
+        const message = await getSupabaseFunctionErrorMessage(error, "Could not place Alpaca order.");
         console.error("alpaca-place-order failed", { payload, message, error });
         throw new Error(message);
       }
       if (data?.ok === false) {
-        throw new Error(data?.error || "Could not place Alpaca paper order.");
+        throw new Error(data?.error || "Could not place Alpaca order.");
       }
       if (!data?.order) throw new Error("Order was not accepted.");
 
       setAlpacaOrderResult(data.order);
-      showToast(`Paper order submitted for ${data.order.symbol}.`, "success");
+      if (pendingAlpacaOrderConfirmation.isCloseOrder) {
+        setSubmittedCloseOrder(data.order);
+        setPreparedCloseOrder(null);
+      } else {
+        setSubmittedCloseOrder(null);
+      }
+      showToast(`Order submitted for ${data.order.symbol}.`, "success");
       setPendingAlpacaOrderConfirmation(null);
-      await fetchAlpacaBrokerData({ silent: true });
-      await fetchBrokerTradeLog({ sync: true, silent: true });
+      await refreshBrokerStateAfterOrder();
     } catch (error) {
-      showToast(error?.message || "Could not place Alpaca paper order.", "error");
+      showToast(error?.message || "Could not place Alpaca order.", "error");
     } finally {
       setAlpacaOrderSubmitting(false);
     }
@@ -9521,6 +10391,7 @@ useEffect(() => {
       qty,
       positionSide: position?.side || "long",
     });
+    setSubmittedCloseOrder(null);
     setAlpacaSelectedAssetMeta(null);
     setAlpacaAssetSearchOpen(false);
     applyTradeSelection({ mode: "asset", symbols: [symbol] });
@@ -9614,7 +10485,7 @@ useEffect(() => {
       try {
         const { data, error } = await supabase.functions.invoke("market-data", {
           body: {
-            symbols: missingSymbols.map((symbol) => ({ symbol, type: "stock" })),
+            symbols: missingSymbols.map((symbol) => ({ symbol, type: CRYPTO_SYMBOL_SET.has(normalizeCryptoAssetId(symbol)) ? "crypto" : "stock" })),
           },
         });
 
@@ -9979,7 +10850,7 @@ useEffect(() => {
     if (broker === "alpaca") {
       setActiveTab("home");
       if (brokerStatus === "connected") {
-        showToast(brokerMessage || "Connected to Alpaca Paper.", "success");
+        showToast(brokerMessage || "Alpaca broker connected.", "success");
       } else if (brokerStatus === "error") {
         showToast(brokerMessage || "Alpaca connection failed.", "error");
       }
@@ -10021,6 +10892,14 @@ useEffect(() => {
         return data;
       })
       .then(data => {
+        intelFetchDebugRef.current = {
+          fetchedAt: new Date().toISOString(),
+          source: data.source || "fresh",
+          rawStockColdLength: (data.stockCold || []).length,
+          rawStockColdSymbols: (data.stockCold || []).map(s => s?.symbol),
+          rawStockHotLength: (data.stockHot || []).length,
+          rawStockHotSymbols: (data.stockHot || []).map(s => s?.symbol),
+        };
         const report = { stockHot: data.stockHot || [], stockCold: data.stockCold || [], cryptoHot: data.cryptoHot || null, cryptoCold: data.cryptoCold || null };
         if (!isPopulatedIntelReport(report)) {
           throw new Error("daily-intel returned an empty report");
@@ -10039,6 +10918,32 @@ useEffect(() => {
         setIntelLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    const sessionRaw = (() => { try { return JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null"); } catch { return null; } })();
+    const raw = hotColdReport?.stockCold || [];
+    const renderable = getRenderableIntelAssets(raw);
+    const displayed = renderable.slice(0, 3);
+    window.__raylaIntelDebug = {
+      endpointUsed: DAILY_INTEL_URL,
+      fetchedAt: intelFetchDebugRef.current?.fetchedAt || null,
+      source: intelFetchDebugRef.current
+        ? (intelFetchDebugRef.current.source || "fresh_fetch")
+        : (sessionRaw ? "sessionStorage_init" : "no_data"),
+      rawStockColdLength: raw.length,
+      rawStockColdSymbols: raw.map(s => s?.symbol),
+      renderableStockColdLength: renderable.length,
+      renderableStockColdSymbols: renderable.map(s => s?.symbol),
+      displayedStockColdLength: displayed.length,
+      displayedStockColdSymbols: displayed.map(s => s?.symbol),
+      cacheInfo: {
+        sessionStoragePresentNow: Boolean(sessionRaw),
+        sessionStorageColdLength: (sessionRaw?.stockCold || []).length,
+        sessionStorageColdSymbols: (sessionRaw?.stockCold || []).map(s => s?.symbol),
+      },
+      rawFetchResponse: intelFetchDebugRef.current || null,
+    };
+  }, [hotColdReport]);
 
   useEffect(() => {
     const intelItems = [
@@ -10287,7 +11192,7 @@ useEffect(() => {
 
   const winRate = `${combinedHomeStats.winRate.toFixed(1)}%`;
   const avgR = `${combinedHomeStats.journalAverageResult >= 0 ? "+" : ""}${combinedHomeStats.journalAverageResult.toFixed(2)}R`;
-  const totalR = combinedHomeStats.journalTotalR.toFixed(2);
+  const totalR = `${combinedHomeStats.journalTotalR >= 0 ? "+" : ""}${combinedHomeStats.journalTotalR.toFixed(2)}R`;
   const avgWin = combinedHomeStats.journalWins.length
     ? `+${(combinedHomeStats.journalWins.reduce((sum, value) => sum + value, 0) / combinedHomeStats.journalWins.length).toFixed(2)}R`
     : "--";
@@ -10301,6 +11206,16 @@ useEffect(() => {
     () => buildLoggedEquityCurvePoints(combinedTrades),
     [combinedTrades]
   );
+  const portfolioMovementPercent = useMemo(() => {
+    if (equityPoints.length < 2) return null;
+    const firstEquity = Number(equityPoints[0]?.equity);
+    const lastEquity = Number(equityPoints[equityPoints.length - 1]?.equity);
+    if (!Number.isFinite(firstEquity) || firstEquity <= 0 || !Number.isFinite(lastEquity)) return null;
+    return ((lastEquity - firstEquity) / firstEquity) * 100;
+  }, [equityPoints]);
+  const portfolioMovement = portfolioMovementPercent == null
+    ? "--"
+    : `${portfolioMovementPercent >= 0 ? "+" : ""}${portfolioMovementPercent.toFixed(2)}%`;
   const liveSimulationEquityPoints = useMemo(
     () => buildLoggedEquityCurvePoints(liveSimulationPerformanceTrades),
     [liveSimulationPerformanceTrades]
@@ -10718,7 +11633,7 @@ useEffect(() => {
       adaptiveState: nextAdaptiveState,
       currentQuestion: trimmedQuestion,
       trades,
-      simulationTradeHistory,
+      simulationTradeHistory: visibleSimulationTradeHistoryAll,
       selectedMarketId,
     });
 
@@ -10865,9 +11780,9 @@ useEffect(() => {
     }
 
     function buildCapitalGuideUserContext() {
-      const simulationProfile = buildSimulationTraderProfile(simulationTradeHistory);
+      const simulationProfile = buildSimulationTraderProfile(visibleSimulationTradeHistoryAll);
       const loggedCoachReport = buildCoachReport(trades);
-      const totalObservedTrades = trades.length + simulationTradeHistory.length;
+      const totalObservedTrades = trades.length + visibleSimulationTradeHistoryAll.length;
       const notes = [];
 
       if (totalObservedTrades < 5) {
@@ -10875,7 +11790,7 @@ useEffect(() => {
       } else {
         notes.push("This is partly based on how you have used Rayla so far.");
 
-        if (simulationTradeHistory.length >= 5) {
+        if (visibleSimulationTradeHistoryAll.length >= 5) {
           notes.push("You have been using simulation consistently, which gives me more behavior data to work with.");
         }
 
@@ -11069,7 +11984,7 @@ useEffect(() => {
       question: trimmedQuestion,
       context: buildAskRaylaContext({
         trades,
-        simulationTradeHistory,
+        simulationTradeHistory: visibleSimulationTradeHistoryAll,
         selectedMarketId,
         adaptiveProfile,
         chartContext: extraContext?.chartContext || null,
@@ -11083,7 +11998,7 @@ useEffect(() => {
         raylaMode,
         marketIntelContext: hotColdReport || null,
         raylaPicksContext: raylaPicksContext || null,
-        behavioralPatternContext: buildBehavioralPatternSummary(simulationTradeHistory),
+        behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
       }),
     };
 
@@ -11115,7 +12030,7 @@ useEffect(() => {
 
     const trimmedQuestion = question.trim();
     const pendingMessageId = useChat ? crypto.randomUUID() : null;
-    const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory });
+    const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory: visibleSimulationTradeHistoryAll });
     const nextActiveReviewedTrade = resolveActiveReviewedTradeForQuestion({
       question: trimmedQuestion,
       tradeSourceSummary,
@@ -11362,7 +12277,7 @@ useEffect(() => {
         id: crypto.randomUUID(),
         role: "assistant",
         content: buildSimulationOpeningMessage(helperContext, {
-          beginnerMode: raylaAdaptiveProfile?.explanationDepth === "simple" || simulationTradeHistory.length < 3,
+          beginnerMode: raylaAdaptiveProfile?.explanationDepth === "simple" || visibleSimulationTradeHistoryAll.length < 3,
         }),
       },
     ]);
@@ -11398,7 +12313,7 @@ useEffect(() => {
       stopLoss: closedTrade.stopLoss != null ? String(closedTrade.stopLoss) : "",
       takeProfit: closedTrade.takeProfit != null ? String(closedTrade.takeProfit) : "",
       closedTrade,
-      isFirstSimTrade: simulationTradeHistory.length === 0,
+      isFirstSimTrade: visibleSimulationTradeHistoryAll.length === 0,
       sessionStats: {
         totalPnL: simulationStatsTotalPnL,
         closedTrades: simulationStatsTradeHistory.length,
@@ -12237,13 +13152,57 @@ useEffect(() => {
     reader.readAsDataURL(file);
   }
 
-  async function handleDeleteTrade(tradeId) {
+  async function handleDeleteTrade(trade) {
+    const tradeId = typeof trade === "object" ? trade?.id : trade;
     if (!tradeId) return;
+    if (!isDeletableAppTrade(trade)) {
+      showToast("Only app-created manual and simulation trades can be deleted.", "warning");
+      return;
+    }
     const confirmed = window.confirm("Delete this trade?");
     if (!confirmed) return;
+    if (isAppSimulationTrade(trade)) {
+      const userId = session?.user?.id || simulationStorageHydratedUserRef.current;
+      deletedSimulationTradeIdsRef.current.add(tradeId);
+      removeSimulationTradeFromStoredHistory(tradeId, userId);
+      setSimulationTombstoneVersion((value) => value + 1);
+      window.setTimeout(() => removeSimulationTradeFromStoredHistory(tradeId, userId), 0);
+      window.setTimeout(() => removeSimulationTradeFromStoredHistory(tradeId, userId), 250);
+      setSimulationTradeHistory((prev) => {
+        const next = prev.filter((item) => item?.id !== tradeId);
+        const storageKey = getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.tradeHistory, userId);
+        if (storageKey) writeSimulationStorage(storageKey, next);
+        return next;
+      });
+      setSimulationClosedTrade((prev) => {
+        const next = prev?.id === tradeId ? null : prev;
+        const storageKey = getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.closedTrade, userId);
+        if (storageKey && next !== prev) writeSimulationStorage(storageKey, next);
+        return next;
+      });
+      setSimulationPositions((prev) => {
+        const next = prev.filter((item) => item?.id !== tradeId);
+        writeSimulationStorage(SIMULATION_STORAGE_KEYS.openPosition, next);
+        return next;
+      });
+      setSelectedSimulationPositionId((prev) => (prev === tradeId ? null : prev));
+      setSimulationPendingScenarioDecision((prev) => prev?.positionId === tradeId ? null : prev);
+      setSimulationPendingLiveDecision((prev) => prev?.positionId === tradeId ? null : prev);
+      logRaylaSimulationDebug("[Rayla sim delete] removed simulation trade", {
+        id: tradeId,
+        asset: trade?.asset,
+        direction: trade?.direction,
+        rMultiple: trade?.rMultiple,
+        resultR: trade?.resultR,
+        result_r: trade?.result_r,
+      });
+      showToast("Simulation trade deleted.", "success");
+      return;
+    }
     const { error } = await supabase.from("trades").delete().eq("id", tradeId);
     if (error) { console.error("DELETE ERROR:", error); showToast("Could not delete trade: " + error.message, "error"); return; }
     setTrades((prev) => prev.filter((trade) => trade.id !== tradeId));
+    showToast("Trade deleted.", "success");
   }
 
   function getSimulationPrice(assetId, preferredMode = simulationMode) {
@@ -12263,15 +13222,7 @@ useEffect(() => {
   }
 
   function calculateSimulationPnL(position, currentPrice) {
-    if (!position || !Number.isFinite(currentPrice)) return { profitLoss: 0, rMultiple: null };
-    const quantity = getSimulationPositionQuantity(position);
-    if (!Number.isFinite(quantity) || quantity <= 0) return { profitLoss: 0, rMultiple: null };
-    const priceMove = position.direction === "long"
-      ? currentPrice - position.entryPrice
-      : position.entryPrice - currentPrice;
-    const profitLoss = quantity * priceMove;
-    const rMultiple = position.plannedRisk > 0 ? profitLoss / position.plannedRisk : null;
-    return { profitLoss, rMultiple };
+    return calculateSimulationPositionPnL(position, currentPrice);
   }
 
   function getSimulationPriceLevels(position) {
@@ -12695,7 +13646,26 @@ useEffect(() => {
       pauseScenarioPlayback();
     }
 
+    logRaylaSimulationDebug("[Rayla sim close] open trade before close", {
+      positionId,
+      exitPrice,
+      exitReason,
+      position,
+      risk: getSimulationRiskDebug(position),
+    });
+
     const { profitLoss, rMultiple } = calculateSimulationPnL(position, exitPrice);
+    logRaylaSimulationDebug("[Rayla sim close] computed pnl/risk", {
+      positionId,
+      asset: position.asset,
+      direction: position.direction,
+      entryPrice: position.entryPrice,
+      exitPrice,
+      profitLoss,
+      rMultiple,
+      risk: getSimulationRiskDebug(position),
+    });
+
     const closedAt = Date.now();
     const durationMs = getSimulationElapsedDuration(position);
     const summary = buildSimulationTradeSummary(
@@ -12756,6 +13726,23 @@ useEffect(() => {
       nextStep,
       feedback,
     };
+
+    logRaylaSimulationDebug("[Rayla sim close] final closed trade before save", {
+      positionId,
+      closedTrade,
+      persistedFields: {
+        id: closedTrade.id,
+        asset: closedTrade.asset,
+        direction: closedTrade.direction,
+        profitLoss: closedTrade.profitLoss,
+        pnl: closedTrade.pnl,
+        rMultiple: closedTrade.rMultiple,
+        resultR: closedTrade.resultR,
+        result_r: closedTrade.result_r,
+        plannedRisk: closedTrade.plannedRisk,
+        risk: getSimulationRiskDebug(closedTrade),
+      },
+    });
 
     setSimulationClosedTrade(closedTrade);
     setSimulatedBalance((prev) => prev + profitLoss);
@@ -12867,7 +13854,7 @@ useEffect(() => {
       ? amount * leverageMultiplier
       : (amount * leverageMultiplier) / entryPrice;
     const plannedRisk = effectiveExitMode === "pnl"
-      ? stopLoss
+      ? (stopLoss == null ? null : Math.abs(stopLoss))
       : riskPerUnit == null
         ? null
         : leveragedQuantity * riskPerUnit;
@@ -12962,11 +13949,17 @@ useEffect(() => {
     const position = simulationPositions.find((item) => item.id === positionId);
     if (!position) return;
 
-                          const currentPrice = getSimulationPrice(position.asset, position.marketMode || simulationMode);
+    const currentPrice = getSimulationPrice(position.asset, position.marketMode || simulationMode);
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
       showToast("Current price is not available yet.", "warning");
       return;
     }
+    logRaylaSimulationDebug("[Rayla sim close handler] manual close request", {
+      positionId,
+      currentPrice,
+      position,
+      risk: getSimulationRiskDebug(position),
+    });
     finalizeSimulationTrade(positionId, currentPrice, "Manual Close");
     if (
       position.marketMode === "scenario"
@@ -13009,7 +14002,7 @@ useEffect(() => {
         ? position.amount * leverageMultiplier
         : (position.amount * leverageMultiplier) / position.entryPrice;
       const plannedRisk = simulationExitMode === "pnl"
-        ? nextStopLoss
+        ? (nextStopLoss == null ? null : Math.abs(nextStopLoss))
         : riskPerUnit == null
           ? null
           : leveragedQuantity * riskPerUnit;
@@ -13045,7 +14038,7 @@ useEffect(() => {
         ? position.amount * leverageMultiplier
         : (position.amount * leverageMultiplier) / position.entryPrice;
       const plannedRisk = simulationExitMode === "pnl"
-        ? nextStopLoss
+        ? (nextStopLoss == null ? null : Math.abs(nextStopLoss))
         : riskPerUnit == null
           ? null
           : leveragedQuantity * riskPerUnit;
@@ -13604,9 +14597,22 @@ function buildSimulationAssetFromPosition(position) {
     return null;
   }, [visibleSimulationPositions, selectedSimulationPositionId, selectedSimulationItem]);
   const visibleSimulationTradeHistory = useMemo(
-    () => simulationTradeHistory.filter((trade) => (trade.marketMode || "live") === simulationMode),
-    [simulationTradeHistory, simulationMode]
+    () => visibleSimulationTradeHistoryAll.filter((trade) => (trade.marketMode || "live") === simulationMode),
+    [visibleSimulationTradeHistoryAll, simulationMode]
   );
+  const simHistoryFiltered = useMemo(() => {
+    const q = simHistorySearch.trim().toLowerCase();
+    if (!q) return visibleSimulationTradeHistory;
+    return visibleSimulationTradeHistory.filter((trade) =>
+      String(trade.asset || "").toLowerCase().includes(q) ||
+      String(trade.direction || "").toLowerCase().includes(q) ||
+      String(trade.exitReason || "").toLowerCase().includes(q)
+    );
+  }, [visibleSimulationTradeHistory, simHistorySearch]);
+  useEffect(() => {
+    setSimHistoryExpanded(false);
+    setSimHistorySearch("");
+  }, [simulationMode]);
   const simulationCoachPosition = selectedSimulationOpenPosition || visibleSimulationPositions[0] || null;
   const simulationCoachPrice = simulationCoachPosition
     ? getSimulationPrice(simulationCoachPosition.asset, simulationCoachPosition.marketMode || simulationMode)
@@ -13635,7 +14641,12 @@ function buildSimulationAssetFromPosition(position) {
     return `Back in ${label} after a loss.`;
   })();
   const simulationAmbientObservation = simulationStopWidenObservation || simulationRapidReentryObservation || null;
-  const simulationChartViewportHeight = isMobileView ? "min(420px, 52vh)" : 560;
+  const simulationChartViewportHeight = isMobileView
+    ? "min(420px, 52vh)"
+    : simulationMode === "scenario"
+      ? "clamp(500px, 54vh, 620px)"
+      : 560;
+  const useScenarioDesktopLayout = !isMobileView && simulationMode === "scenario";
   const simulationActiveTradeContext = simulationCoachPosition
     ? buildSimulationActiveTradeContext({
         position: simulationCoachPosition,
@@ -13646,12 +14657,12 @@ function buildSimulationAssetFromPosition(position) {
       })
     : null;
   const simulationStatsTradeHistory = useMemo(
-    () => simulationTradeHistory.filter((trade) => {
+    () => visibleSimulationTradeHistoryAll.filter((trade) => {
       const marketMode = trade.marketMode || "live";
       if (simulationMode === "live") return marketMode === "live";
       return marketMode === "scenario" && trade.scenarioType === "realistic";
     }),
-    [simulationTradeHistory, simulationMode]
+    [visibleSimulationTradeHistoryAll, simulationMode]
   );
   const visibleSimulationClosedTrade = simulationClosedTrade && (simulationClosedTrade.marketMode || "live") === simulationMode
     ? simulationClosedTrade
@@ -13890,14 +14901,14 @@ function buildSimulationAssetFromPosition(position) {
   );
   const simulationLivePerformanceMetrics = useMemo(
     () => buildPerformanceSegmentMetrics(
-      simulationTradeHistory.filter((trade) => (trade.marketMode || "live") === "live"),
+      visibleSimulationTradeHistoryAll.filter((trade) => (trade.marketMode || "live") === "live"),
       {
         profitAccessor: (trade) => Number.isFinite(Number(trade?.profitLoss)) ? Number(trade.profitLoss) : null,
         rAccessor: (trade) => Number.isFinite(Number(trade?.rMultiple)) ? Number(trade.rMultiple) : null,
         timeAccessor: (trade) => Date.parse(String(trade?.closedAt || trade?.openedAt || "")),
       }
     ),
-    [simulationTradeHistory]
+    [visibleSimulationTradeHistoryAll]
   );
   const realPerformanceMetrics = useMemo(
     () => buildPerformanceSegmentMetrics(
@@ -14294,15 +15305,32 @@ function buildSimulationAssetFromPosition(position) {
   }
 
   function renderSimulationInfoButton(key, label = "What is this?") {
+    if (!showBeginnerGuidance) return null;
+    const compact = label === "?";
     return (
       <button
         type="button"
         className="ghostButton"
+        aria-label={compact ? "What is this?" : undefined}
+        title={compact ? "What is this?" : undefined}
         onClick={(e) => {
           e.stopPropagation();
           handleSimulationInfoToggle(key);
         }}
-        style={{ padding: "6px 10px", fontSize: 12, opacity: activeSimulationInfoKey === key ? 1 : 0.8 }}
+        style={compact
+          ? {
+              width: 26,
+              height: 26,
+              padding: 0,
+              borderRadius: 999,
+              borderColor: activeSimulationInfoKey === key ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.08)",
+              background: activeSimulationInfoKey === key ? "rgba(124,196,255,0.09)" : "transparent",
+              color: activeSimulationInfoKey === key ? "#bfe7ff" : "#64748b",
+              fontSize: 12,
+              fontWeight: 700,
+              opacity: 1,
+            }
+          : { padding: "6px 10px", fontSize: 12, opacity: activeSimulationInfoKey === key ? 1 : 0.8 }}
       >
         {label}
       </button>
@@ -14310,6 +15338,7 @@ function buildSimulationAssetFromPosition(position) {
   }
 
   function renderSimulationInfoCard(key) {
+    if (!showBeginnerGuidance) return null;
     const meta = getSimulationSectionMeta(key);
     if (!meta || activeSimulationInfoKey !== key || isSimulationTutorialOpen) return null;
 
@@ -14581,7 +15610,7 @@ return (
         </div>
       )}
 
-              {showBeginnerTutorial && (
+                  {showBeginnerGuidance && showBeginnerTutorial && (
                 <div
                   style={{
                     position: "fixed",
@@ -15016,7 +16045,7 @@ return (
         <div className="desktopSidebarSpacer" />
         <div className="desktopSidebarDivider" />
         <button className={`desktopSidebarBtn ${activeTab === "profile" ? "active" : ""}`} onClick={() => { setActiveTab("profile"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-          <User size={18} />Profile
+          <User size={18} />Profile & Settings
         </button>
       </nav>
 
@@ -15025,7 +16054,7 @@ return (
           <div className="topbar">
             <div>
               <p style={{ margin: 0, color: "#f8fbff", fontSize: 20, fontWeight: 850, lineHeight: 1.1, letterSpacing: 0 }}>
-                {activeTab === "profile" ? "Profile" : NAV_TABS.find((tab) => tab.id === activeTab)?.label || "Rayla"}
+                {activeTab === "profile" ? "Profile & Settings" : NAV_TABS.find((tab) => tab.id === activeTab)?.label || "Rayla"}
               </p>
             </div>
           </div>
@@ -15063,7 +16092,7 @@ return (
                   linear-gradient(180deg, #071321 0%, #050b14 100%);
                 display: grid;
                 grid-template-columns: minmax(0, 1fr) minmax(300px, 326px);
-                grid-template-rows: 38px 20px 92px 40px 34px minmax(0, 1fr);
+                grid-template-rows: 38px 20px 104px 40px 34px minmax(0, 1fr);
                 grid-template-areas:
                   "title actions"
                   "status actions"
@@ -15151,7 +16180,7 @@ return (
               }
               .homeMarketCarouselSection .asset-carousel {
                 gap: 8px !important;
-                padding: 0 0 2px !important;
+                padding: 0 0 10px !important;
               }
               .homeMarketCarouselSection .asset-carousel > div {
                 min-width: 176px !important;
@@ -15179,9 +16208,14 @@ return (
                 min-height: 0;
                 height: 100%;
                 overflow: hidden;
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 12px;
-                background: linear-gradient(180deg, rgba(7,14,24,0.76), rgba(4,9,16,0.86));
+                border: 1px solid rgba(255,255,255,0.07);
+                border-top: 1px solid rgba(124,196,255,0.18);
+                border-radius: 14px;
+                background: linear-gradient(180deg, rgba(10,18,30,0.96) 0%, rgba(5,10,19,0.98) 100%);
+                box-shadow:
+                  0 0 0 1px rgba(0,0,0,0.28) inset,
+                  0 1px 0 rgba(124,196,255,0.06) inset,
+                  0 20px 48px rgba(0,0,0,0.22);
                 display: flex;
                 flex-direction: column;
               }
@@ -15189,79 +16223,98 @@ return (
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 0;
-                padding: 18px 24px 0;
-                border-bottom: 1px solid rgba(255,255,255,0.075);
+                padding: 14px 20px 0;
+                border-bottom: 1px solid rgba(255,255,255,0.065);
+                flex-shrink: 0;
               }
               .homeUtilityTab {
-                padding: 0 0 12px;
+                padding: 0 0 11px;
                 border: 0;
                 background: transparent;
-                color: #6f7f92;
-                font-size: 11px;
-                font-weight: 800;
-                letter-spacing: 0.08em;
+                color: #4e6073;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.1em;
                 text-transform: uppercase;
                 text-align: left;
                 cursor: pointer;
+                transition: color 0.14s ease;
+              }
+              .homeUtilityTab:hover {
+                color: #7a94aa;
               }
               .homeUtilityTab.active {
-                color: #d7efff;
-                box-shadow: inset 0 -2px 0 rgba(124,196,255,0.95);
+                color: #e2f0ff;
+                box-shadow: inset 0 -2px 0 #7cc4ff;
               }
               .homeUtilityBody {
-                padding: 22px 24px 24px;
+                padding: 16px 18px 18px;
                 overflow-y: auto;
                 min-height: 0;
                 display: flex;
                 flex-direction: column;
-                gap: 24px;
+                gap: 18px;
               }
               .homeUtilitySection {
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
-                padding-bottom: 18px;
-                border-bottom: 1px solid rgba(255,255,255,0.07);
+                gap: 10px;
+                padding-bottom: 16px;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
               }
               .homeUtilitySection:last-child {
                 border-bottom: 0;
                 padding-bottom: 0;
               }
               .homeUtilityKicker {
-                color: #e6eef8;
-                font-size: 13px;
-                font-weight: 800;
+                color: #5c7387;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
               }
               .homeUtilityMuted {
-                color: #7f8ea3;
-                font-size: 12px;
+                color: #4e6073;
+                font-size: 10px;
                 line-height: 1.5;
+                letter-spacing: 0.06em;
               }
               .homeUtilityBig {
                 color: #4ade80;
-                font-size: 28px;
-                font-weight: 850;
-                letter-spacing: 0;
+                font-size: 36px;
+                font-weight: 300;
+                letter-spacing: -0.015em;
+                line-height: 1;
               }
               .homeUtilityMetrics {
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
-                gap: 12px;
+                gap: 7px;
+              }
+              .homeUtilityMetric {
+                background: rgba(255,255,255,0.022);
+                border: 1px solid rgba(255,255,255,0.055);
+                border-radius: 8px;
+                padding: 8px 9px;
               }
               .homeUtilityMetric span {
                 display: block;
-                color: #7f8ea3;
-                font-size: 11px;
-                margin-bottom: 7px;
+                color: #4e6073;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                margin-bottom: 5px;
               }
               .homeUtilityMetric strong {
                 display: block;
-                color: #f1f5f9;
-                font-size: 13px;
-                font-weight: 800;
+                color: #eaf2fb;
+                font-size: 14px;
+                font-weight: 700;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                letter-spacing: -0.01em;
               }
               .homeUtilityRows {
                 display: flex;
@@ -15272,19 +16325,25 @@ return (
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                gap: 14px;
-                padding: 11px 0;
-                border-top: 1px solid rgba(255,255,255,0.055);
-                color: #dbe7f5;
-                font-size: 13px;
+                gap: 10px;
+                padding: 9px 0;
+                border-top: 1px solid rgba(255,255,255,0.042);
+                color: #c8daea;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 0.01em;
               }
               .homeUtilityRow:first-child {
                 border-top: 0;
               }
               .homeUtilityRow small {
-                color: #7f8ea3;
-                font-size: 11px;
-                font-weight: 600;
+                color: #4a6070;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                display: block;
+                margin-top: 2px;
               }
               .homeChartExplainRow {
                 display: none !important;
@@ -15576,9 +16635,15 @@ return (
                       {homeUtilityTab === "overview" && (
                         <>
                           <section className="homeUtilitySection">
-                            <div>
-                              <div className="homeUtilityKicker">Performance <span className="homeUtilityMuted">(Journal)</span></div>
-                              <div className="homeUtilityBig">{winRate}</div>
+                            <div style={{ display: "flex", gap: 24, alignItems: "flex-end" }}>
+                              <div>
+                                <div className="homeUtilityBig">{winRate}</div>
+                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Win Rate</div>
+                              </div>
+                              <div>
+                                <div className="homeUtilityBig" style={{ color: portfolioMovementPercent == null ? "#4ade80" : portfolioMovementPercent < 0 ? "#f87171" : "#4ade80" }}>{portfolioMovement}</div>
+                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Portfolio</div>
+                              </div>
                             </div>
                             <div className="homeUtilityMetrics">
                               <div className="homeUtilityMetric">
@@ -15820,16 +16885,16 @@ return (
                   border-color: rgba(255,255,255,0.08) !important;
                 }
                 .tradeLiveMarketPanel {
-                  height: 455px !important;
-                  max-height: 455px;
+                  height: 540px !important;
+                  max-height: 540px;
                   overflow-y: auto;
                   padding: 10px !important;
                   gap: 7px !important;
                 }
                 .tradeOrderTicket,
                 .tradePositionsPanel {
-                  height: 455px !important;
-                  max-height: 455px;
+                  height: 540px !important;
+                  max-height: 540px;
                   overflow-y: auto;
                 }
                 .tradeOrderTicket {
@@ -15854,7 +16919,7 @@ return (
                   padding: 34px 14px 16px !important;
                 }
                 .tradeLiveChartViewport {
-                  height: 395px !important;
+                  height: 310px !important;
                 }
                 .tradeSelectedAssetCard {
                   display: none !important;
@@ -15937,7 +17002,7 @@ return (
                     style={{ maxWidth: 420, width: "100%" }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="cardHeader"><h2>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Confirm Close Order" : "Confirm Paper Order"}</h2></div>
+                    <div className="cardHeader"><h2>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Confirm Close Order" : "Confirm Broker Order"}</h2></div>
                     <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                         <div>
@@ -16005,6 +17070,39 @@ return (
                           </div>
                         </div>
                       </div>
+                      {(pendingAlpacaOrderConfirmation.planStop || pendingAlpacaOrderConfirmation.planTarget) && (
+                        <div style={{ padding: 12, borderRadius: 12, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80" }}>
+                              Exit Plan · Plan Only
+                            </div>
+                            <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>
+                              {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "P&L mode" : "Price mode"}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 11, color: "#86efac", lineHeight: 1.5 }}>
+                            These levels are for reference only and are NOT submitted to the broker.
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+                            {pendingAlpacaOrderConfirmation.planStop && (
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>
+                                  {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "Max Loss ($)" : "Stop Price"}
+                                </div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#f87171" }}>{formatCurrency(Number(pendingAlpacaOrderConfirmation.planStop))}</div>
+                              </div>
+                            )}
+                            {pendingAlpacaOrderConfirmation.planTarget && (
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>
+                                  {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "Profit Target ($)" : "Target Price"}
+                                </div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#4ade80" }}>{formatCurrency(Number(pendingAlpacaOrderConfirmation.planTarget))}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
@@ -16050,7 +17148,7 @@ return (
                             ? "Submitting..."
                             : pendingAlpacaOrderConfirmation.isCloseOrder
                               ? "Submit close order"
-                              : "Submit paper order"}
+                              : "Submit order"}
                         </button>
                       </div>
                     </div>
@@ -16062,29 +17160,61 @@ return (
                 <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div className="tradeWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
                     <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                        Broker Connection
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                          Broker Connection
+                        </div>
+                        {alpacaAccount && (
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 6, background: alpacaAccount.isPaper ? "rgba(167,139,250,0.12)" : "rgba(74,222,128,0.12)", border: `1px solid ${alpacaAccount.isPaper ? "rgba(167,139,250,0.28)" : "rgba(74,222,128,0.28)"}`, color: alpacaAccount.isPaper ? "#a78bfa" : "#4ade80" }}>
+                            {alpacaAccount.isPaper ? "Paper" : "Live"}
+                          </div>
+                        )}
                       </div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: alpacaAccount ? "#4ade80" : "#e2e8f0" }}>
-                        {alpacaAccount ? "Connected Broker · Paper Trading" : "Broker not connected"}
+                        {alpacaAccount
+                          ? alpacaAccount.isPaper ? "Connected · Paper Account" : "Connected · Live Account"
+                          : "Broker not connected"}
                       </div>
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        Rayla submits paper orders only after your confirmation. Live broker data stays synced to your workspace.
+                        Rayla submits broker orders only after your confirmation. Broker data stays synced to your workspace.
                       </div>
                       {alpacaAccount?.accountNumber ? (
                         <div style={{ fontSize: 11, color: "#7f8ea3" }}>
-                          Broker detail: Alpaca Paper · Account {alpacaAccount.accountNumber}
+                          Alpaca · Account {alpacaAccount.accountNumber}
                         </div>
                       ) : null}
-                      {!alpacaAccount ? (
-                        <button type="button" className="ghostButton" onClick={handleConnectAlpaca}>
-                          Connect Broker
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="ghostButton"
+                          onClick={() => handleConnectAlpaca(false)}
+                          style={{
+                            background: alpacaAccount?.isPaper === false ? "rgba(74,222,128,0.12)" : "rgba(124,196,255,0.12)",
+                            borderColor: alpacaAccount?.isPaper === false ? "rgba(74,222,128,0.28)" : "rgba(124,196,255,0.28)",
+                          }}
+                        >
+                          {alpacaAccount?.isPaper === false ? "Reconnect Live Alpaca" : "Connect Live Alpaca"}
                         </button>
-                      ) : (
-                        <button type="button" className="ghostButton" onClick={() => fetchAlpacaBrokerData()}>
-                          Refresh Broker Data
-                        </button>
-                      )}
+                        {alpacaAccount?.isPaper !== false ? (
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            onClick={() => handleConnectAlpaca(true)}
+                            style={{
+                              background: alpacaAccount?.isPaper === true ? "rgba(167,139,250,0.12)" : "rgba(255,255,255,0.025)",
+                              borderColor: alpacaAccount?.isPaper === true ? "rgba(167,139,250,0.28)" : "rgba(255,255,255,0.1)",
+                              color: alpacaAccount?.isPaper === true ? "#c4b5fd" : "#cbd5e1",
+                            }}
+                          >
+                            {alpacaAccount?.isPaper === true ? "Reconnect Paper" : "Connect Paper Alpaca"}
+                          </button>
+                        ) : null}
+                        {alpacaAccount ? (
+                          <button type="button" className="ghostButton" onClick={() => fetchAlpacaBrokerData()}>
+                            Refresh Broker Data
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -16118,12 +17248,12 @@ return (
                             <div key={item.label}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 12, color: "#7f8ea3" }}>{item.label}</div>
-                                {item.helpTopic ? (
+                                {item.helpTopic && showBeginnerGuidance ? (
                                   <InlineHelpButton topic={item.helpTopic} activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
                                 ) : null}
                               </div>
                               <div style={{ fontSize: 15, fontWeight: 700, color: item.color || "#e2e8f0" }}>{item.value}</div>
-                              {item.helpTopic && tradeHelpTopic === item.helpTopic ? (
+                              {showBeginnerGuidance && item.helpTopic && tradeHelpTopic === item.helpTopic ? (
                                 <InlineHelpCard topic={item.helpTopic} />
                               ) : null}
                             </div>
@@ -16131,7 +17261,7 @@ return (
                         </div>
                       ) : (
                         <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                          Connect your paper broker to load status, buying power, cash, portfolio value, equity, and live trading context.
+                          Connect your Alpaca account to load status, buying power, cash, portfolio value, and equity.
                         </div>
                       )}
                     </div>
@@ -16196,77 +17326,111 @@ return (
                                 </button>
                               );
                             })()}
-                            {alpacaPositions.map((position) => (
-                              <div
-                                key={position.symbol}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => applyTradeSelection({ mode: "asset", symbols: [position.symbol] })}
-                                onKeyDown={(e) => {
-                                  if (e.key !== "Enter" && e.key !== " ") return;
-                                  e.preventDefault();
-                                  applyTradeSelection({ mode: "asset", symbols: [position.symbol] });
-                                }}
-                                className="tradePositionRow"
-                                style={{
-                                  padding: 12,
-                                  borderRadius: 12,
-                                  background: tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset" ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
-                                  border: `1px solid ${tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset" ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
-                                  boxShadow: tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset" ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
-                                  cursor: "pointer",
-                                  textAlign: "left",
-                                  width: "100%",
-                                  transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!tradeAppliedSelection.symbols.includes(position.symbol) || tradeAppliedSelection.mode !== "asset") {
-                                    e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
-                                    e.currentTarget.style.background = "rgba(124,196,255,0.05)";
-                                  }
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!tradeAppliedSelection.symbols.includes(position.symbol) || tradeAppliedSelection.mode !== "asset") {
-                                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                                    e.currentTarget.style.background = "rgba(255,255,255,0.03)";
-                                  }
-                                }}
-                              >
-                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                    <div style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
-                                      {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
+                            {alpacaPositions.map((position) => {
+                              const pendingCloseOrder = getPendingCloseOrderForPosition(brokerTradeLog, position);
+                              const failedCloseOrder = pendingCloseOrder ? null : getLastFailedCloseOrderForPosition(brokerTradeLog, position);
+                              const pendingCloseStatus = pendingCloseOrder
+                                ? getBrokerOrderStatusPresentation(pendingCloseOrder.status, pendingCloseOrder.submitted_at)
+                                : null;
+                              const failedCloseStatus = failedCloseOrder
+                                ? getBrokerOrderStatusPresentation(failedCloseOrder.status, failedCloseOrder.submitted_at)
+                                : null;
+                              const isPositionSelected = tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset";
+                              return (
+                                <div
+                                  key={position.symbol}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => applyTradeSelection({ mode: "asset", symbols: [position.symbol] })}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter" && e.key !== " ") return;
+                                    e.preventDefault();
+                                    applyTradeSelection({ mode: "asset", symbols: [position.symbol] });
+                                  }}
+                                  className="tradePositionRow"
+                                  style={{
+                                    padding: 12,
+                                    borderRadius: 12,
+                                    background: pendingCloseOrder
+                                      ? "rgba(251,146,60,0.055)"
+                                      : isPositionSelected
+                                        ? "rgba(124,196,255,0.08)"
+                                        : "rgba(255,255,255,0.03)",
+                                    border: `1px solid ${pendingCloseOrder ? "rgba(251,146,60,0.24)" : isPositionSelected ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
+                                    boxShadow: isPositionSelected ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                    width: "100%",
+                                    transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isPositionSelected && !pendingCloseOrder) {
+                                      e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
+                                      e.currentTarget.style.background = "rgba(124,196,255,0.05)";
+                                    }
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!isPositionSelected && !pendingCloseOrder) {
+                                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                                      e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                                    }
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                      <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
+                                      {pendingCloseOrder ? (
+                                        <div style={{ padding: "3px 8px", borderRadius: 999, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, color: pendingCloseStatus.color, fontSize: 10, fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                                          Close pending
+                                        </div>
+                                      ) : null}
                                     </div>
-                                    <button
-                                      className="tradeCloseButton"
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        prepareCloseAlpacaPosition(position);
-                                      }}
-                                      style={{
-                                        padding: "7px 10px",
-                                        borderRadius: 8,
-                                        border: "1px solid rgba(248,113,113,0.2)",
-                                        background: "rgba(248,113,113,0.045)",
-                                        color: "#fecaca",
-                                        fontSize: 11,
-                                        fontWeight: 800,
-                                        cursor: "pointer",
-                                        whiteSpace: "nowrap",
-                                      }}
-                                    >
-                                      Close
-                                    </button>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                      <div style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                                        {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
+                                      </div>
+                                      <button
+                                        className="tradeCloseButton"
+                                        type="button"
+                                        disabled={Boolean(pendingCloseOrder)}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          if (pendingCloseOrder) return;
+                                          prepareCloseAlpacaPosition(position);
+                                        }}
+                                        style={{
+                                          padding: "7px 10px",
+                                          borderRadius: 8,
+                                          border: pendingCloseOrder ? "1px solid rgba(251,146,60,0.18)" : "1px solid rgba(248,113,113,0.2)",
+                                          background: pendingCloseOrder ? "rgba(251,146,60,0.055)" : "rgba(248,113,113,0.045)",
+                                          color: pendingCloseOrder ? "#fbbf24" : "#fecaca",
+                                          fontSize: 11,
+                                          fontWeight: 800,
+                                          cursor: pendingCloseOrder ? "not-allowed" : "pointer",
+                                          whiteSpace: "nowrap",
+                                          opacity: pendingCloseOrder ? 0.78 : 1,
+                                        }}
+                                      >
+                                        {pendingCloseOrder ? "Awaiting fill" : "Close"}
+                                      </button>
+                                    </div>
                                   </div>
+                                  <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                                    Qty {position.qty} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(tradePanelSymbol === position.symbol && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
+                                  </div>
+                                  {pendingCloseOrder ? (
+                                    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(251,146,60,0.07)", border: "1px solid rgba(251,146,60,0.16)", color: "#fed7aa", fontSize: 11, lineHeight: 1.45 }}>
+                                      {pendingCloseStatus.label}
+                                    </div>
+                                  ) : failedCloseOrder ? (
+                                    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.14)", color: "#fecaca", fontSize: 11, lineHeight: 1.45 }}>
+                                      Last close attempt: {failedCloseStatus.label}
+                                    </div>
+                                  ) : null}
                                 </div>
-                                <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                                  Qty {position.qty} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(tradePanelSymbol === position.symbol && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
@@ -16568,8 +17732,8 @@ return (
                                 );
                               })() : (
                                 <div>
-                                  <MarketClosedBanner assetType={tradePanelAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 395, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                  <MarketClosedBanner assetType={tradeChartAssetType} updatedLabel={tradeChartUpdatedLabel} />
+                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 310, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
@@ -16653,6 +17817,29 @@ return (
                             <div style={{ fontSize: 12, color: "#f8fafc", lineHeight: 1.55 }}>
                               Market close prepared for {preparedCloseOrder.qty} share(s). Submit opens the final confirmation.
                             </div>
+                          </div>
+                        ) : null}
+                        {latestSubmittedCloseBrokerOrder && submittedCloseStatusPresentation ? (
+                          <div style={{ padding: 12, borderRadius: 12, background: submittedCloseStatusPresentation.background, border: `1px solid ${submittedCloseStatusPresentation.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.9px", textTransform: "uppercase", color: submittedCloseStatusPresentation.color }}>
+                              Close order {submittedCloseStatusKind === "filled" ? "filled" : submittedCloseStatusKind === "failed" ? "needs review" : "pending"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#f8fafc", lineHeight: 1.55 }}>
+                              {latestSubmittedCloseBrokerOrder.symbol} {latestSubmittedCloseBrokerOrder.side} {Number(latestSubmittedCloseBrokerOrder.qty || 0)} share(s) • {submittedCloseStatusPresentation.label}
+                            </div>
+                            {submittedCloseStatusKind === "pending" || submittedCloseStatusKind === "partial" ? (
+                              <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.5 }}>
+                                Position data will refresh as Alpaca updates the order.
+                              </div>
+                            ) : submittedCloseStatusKind === "failed" ? (
+                              <div style={{ fontSize: 11, color: "#fecaca", lineHeight: 1.5 }}>
+                                The prepared close was cleared. Use Close on the position again when you want to retry.
+                              </div>
+                            ) : submittedCloseStatusKind === "filled" ? (
+                              <div style={{ fontSize: 11, color: "#d1fae5", lineHeight: 1.5 }}>
+                                Positions are refreshing from Alpaca; the closed holding will disappear once the broker position is gone.
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                         {(() => {
@@ -16744,14 +17931,14 @@ return (
                                   <div>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                                       <div style={{ fontSize: 12, color: "#7f8ea3" }}>Unrealized P/L</div>
-                                      <InlineHelpButton topic="unrealizedPnL" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                      {showBeginnerGuidance && <InlineHelpButton topic="unrealizedPnL" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                                     </div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: unrealizedPl >= 0 ? "#4ade80" : "#f87171" }}>
                                       {Number.isFinite(unrealizedPl)
                                         ? `${unrealizedPl >= 0 ? "+" : ""}${formatCurrency(unrealizedPl)}${Number.isFinite(unrealizedPlpc) ? ` (${unrealizedPlpc >= 0 ? "+" : ""}${(unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
                                         : "--"}
                                     </div>
-                                    {tradeHelpTopic === "unrealizedPnL" ? <InlineHelpCard topic="unrealizedPnL" /> : null}
+                                    {showBeginnerGuidance && tradeHelpTopic === "unrealizedPnL" ? <InlineHelpCard topic="unrealizedPnL" /> : null}
                                   </div>
                                 </div>
                               ) : (
@@ -16764,14 +17951,14 @@ return (
                                   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", color: "#7f8ea3" }}>
                                     Margin / Leverage
                                   </div>
-                                  <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                  {showBeginnerGuidance && <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                                 </div>
                                 <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                                   {leverageAvailable
                                     ? `${selectedSymbol} is marginable on this account. Max buying power: ${accountMultiplier}x.`
                                     : "Leverage is not available for this Alpaca account."}
                                 </div>
-                                {tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
+                                {showBeginnerGuidance && tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
                               </div>
                               <div style={{ paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 8 }}>
                                 <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.5 }}>
@@ -16918,38 +18105,75 @@ return (
                           </div>
                           <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
-                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Action</div>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
                               <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {[
-                                  { label: "Buy", value: "buy" },
-                                  { label: "Sell", value: "sell" },
-                                  { label: "Short Sell", value: "short_sell" },
-                                  { label: "Buy to Cover", value: "buy_to_cover" },
-                                ].map((item) => (
+                                  { label: "Long", value: "buy", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
+                                  { label: "Short", value: "short_sell", activeColor: "#f87171", activeBg: "rgba(248,113,113,0.15)", activeBorder: "rgba(248,113,113,0.35)" },
+                                ].map((item) => {
+                                  const active = alpacaOrderForm.side === item.value;
+                                  return (
+                                    <button
+                                      key={item.label}
+                                      type="button"
+                                      onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
+                                      style={{
+                                        padding: "8px 14px",
+                                        borderRadius: 8,
+                                        border: `1px solid ${active ? item.activeBorder : "rgba(255,255,255,0.08)"}`,
+                                        background: active ? item.activeBg : "rgba(255,255,255,0.03)",
+                                        color: active ? item.activeColor : "#94a3b8",
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {item.label}
+                                    </button>
+                                  );
+                                })}
+                                {alpacaOrderValidation.hasLongPosition && (
                                   <button
-                                    key={item.label}
                                     type="button"
-                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
+                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "sell" }))}
                                     style={{
-                                      padding: "8px 10px",
+                                      padding: "8px 14px",
                                       borderRadius: 8,
-                                      border: "1px solid rgba(255,255,255,0.08)",
-                                      background: alpacaOrderForm.side === item.value ? "rgba(124,196,255,0.18)" : "rgba(255,255,255,0.03)",
-                                      color: alpacaOrderForm.side === item.value ? "#f8fbff" : "#cbd5e1",
+                                      border: `1px solid ${alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
+                                      background: alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
+                                      color: alpacaOrderForm.side === "sell" ? "#fbbf24" : "#64748b",
                                       fontSize: 11,
                                       fontWeight: 700,
                                       cursor: "pointer",
                                     }}
                                   >
-                                    {item.label}
+                                    Sell to Close
                                   </button>
-                                ))}
+                                )}
+                                {alpacaOrderValidation.hasShortPosition && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "buy_to_cover" }))}
+                                    style={{
+                                      padding: "8px 14px",
+                                      borderRadius: 8,
+                                      border: `1px solid ${alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
+                                      background: alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
+                                      color: alpacaOrderForm.side === "buy_to_cover" ? "#fbbf24" : "#64748b",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Cover Short
+                                  </button>
+                                )}
                               </div>
                             </div>
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Quantity</div>
-                                <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                {showBeginnerGuidance && <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                               </div>
                               <input
                                 className="authInput"
@@ -16960,38 +18184,31 @@ return (
                                 value={alpacaOrderForm.qty}
                                 onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
                               />
-                              {tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
+                              {showBeginnerGuidance && tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
                             </div>
                           </div>
                           <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Type</div>
-                                <InlineHelpButton topic="orderType" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                                {showBeginnerGuidance && <InlineHelpButton topic="orderType" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                               </div>
-                              <select
-                                className="authInput"
+                              <RaylaDropdown
                                 value={alpacaOrderForm.type}
-                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, type: e.target.value }))}
-                              >
-                                <option value="market">Market</option>
-                                <option value="limit">Limit</option>
-                                <option value="stop">Stop</option>
-                                <option value="stop_limit">Stop Limit</option>
-                              </select>
-                              {tradeHelpTopic === "orderType" ? <InlineHelpCard topic="orderType" /> : null}
+                                onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, type: value }))}
+                                options={ALPACA_ORDER_TYPE_OPTIONS}
+                                ariaLabel="Order type"
+                              />
+                              {showBeginnerGuidance && tradeHelpTopic === "orderType" ? <InlineHelpCard topic="orderType" /> : null}
                             </div>
                             <div>
                               <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
-                              <select
-                                className="authInput"
+                              <RaylaDropdown
                                 value={alpacaOrderForm.timeInForce}
-                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
-                              >
-                                <option value="gtc">GTC</option>
-                                <option value="ioc">IOC</option>
-                                <option value="fok">FOK</option>
-                              </select>
+                                onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: value }))}
+                                options={ALPACA_TIME_IN_FORCE_OPTIONS}
+                                ariaLabel="Time in force"
+                              />
                             </div>
                           </div>
                           {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit" || alpacaOrderForm.type === "stop") && (
@@ -17022,21 +18239,18 @@ return (
                           )}
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                             <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Leverage / Margin</div>
-                            <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                            {showBeginnerGuidance && <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                           </div>
-                          {tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
+                          {showBeginnerGuidance && tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
                           <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 8 }}>
                             {alpacaOrderValidation.leverageAvailable ? (
                               <>
-                                <select
-                                  className="authInput"
+                                <RaylaDropdown
                                   value={alpacaOrderForm.leverage}
-                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, leverage: e.target.value }))}
-                                >
-                                  {tradeSelectedLeverageOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                  ))}
-                                </select>
+                                  onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, leverage: value }))}
+                                  options={tradeSelectedLeverageOptions}
+                                  ariaLabel="Leverage or margin"
+                                />
                                 <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.55 }}>
                                   Buying power available at {alpacaOrderValidation.effectiveLeverage}x: {formatCurrency(alpacaOrderValidation.buyingPowerLimit)}
                                 </div>
@@ -17061,6 +18275,121 @@ return (
                               Market close order. Estimated value unavailable until fill.
                             </div>
                           ) : null}
+                          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
+                            <button
+                              type="button"
+                              onClick={() => setAlpacaOrderPlanOpen((prev) => !prev)}
+                              style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
+                            >
+                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Exit Plan</div>
+                              <div style={{ fontSize: 10, color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.18)", borderRadius: 6, padding: "2px 7px" }}>PLAN ONLY</div>
+                              <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{alpacaOrderPlanOpen ? "▲" : "▼"}</div>
+                            </button>
+                            {alpacaOrderPlanOpen && (
+                              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                                <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
+                                  These levels are for planning only — they are NOT submitted to the broker.
+                                </div>
+                                {/* Mode toggle */}
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  {[{ label: "Price", value: "price" }, { label: "P&L ($)", value: "pnl" }].map((m) => {
+                                    const active = alpacaOrderPlanMode === m.value;
+                                    return (
+                                      <button
+                                        key={m.value}
+                                        type="button"
+                                        onClick={() => { setAlpacaOrderPlanMode(m.value); setAlpacaOrderForm((prev) => ({ ...prev, planStop: "", planTarget: "" })); }}
+                                        style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: active ? "rgba(124,196,255,0.13)" : "transparent", color: active ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                                      >
+                                        {m.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                  <div>
+                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>
+                                      {alpacaOrderPlanMode === "pnl" ? "Max Loss ($)" : "Stop Price"}
+                                    </div>
+                                    <input
+                                      className="authInput"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder={alpacaOrderPlanMode === "pnl" ? "e.g. 50" : "Stop price"}
+                                      value={alpacaOrderForm.planStop}
+                                      onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, planStop: e.target.value }))}
+                                    />
+                                    {alpacaOrderPlanMode === "pnl" && alpacaOrderForm.planStop && (
+                                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Lose up to {formatCurrency(Number(alpacaOrderForm.planStop))}</div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>
+                                      {alpacaOrderPlanMode === "pnl" ? "Profit Target ($)" : "Target Price"}
+                                    </div>
+                                    <input
+                                      className="authInput"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder={alpacaOrderPlanMode === "pnl" ? "e.g. 150" : "Target price"}
+                                      value={alpacaOrderForm.planTarget}
+                                      onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, planTarget: e.target.value }))}
+                                    />
+                                    {alpacaOrderPlanMode === "pnl" && alpacaOrderForm.planTarget && (
+                                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Gain up to {formatCurrency(Number(alpacaOrderForm.planTarget))}</div>
+                                    )}
+                                  </div>
+                                </div>
+                                {(() => {
+                                  const planStop = Number(alpacaOrderForm.planStop);
+                                  const planTarget = Number(alpacaOrderForm.planTarget);
+                                  const hasStop = Number.isFinite(planStop) && planStop > 0;
+                                  const hasTarget = Number.isFinite(planTarget) && planTarget > 0;
+                                  if (!hasStop && !hasTarget) return null;
+
+                                  let estimatedRisk = null;
+                                  let estimatedReward = null;
+
+                                  if (alpacaOrderPlanMode === "pnl") {
+                                    estimatedRisk = hasStop ? planStop : null;
+                                    estimatedReward = hasTarget ? planTarget : null;
+                                  } else {
+                                    const entryPrice = alpacaOrderValidation.estimatedPrice;
+                                    const planQty = alpacaOrderValidation.qty;
+                                    if (!Number.isFinite(entryPrice) || !Number.isFinite(planQty) || planQty <= 0) return null;
+                                    estimatedRisk = hasStop ? Math.abs(entryPrice - planStop) * planQty : null;
+                                    estimatedReward = hasTarget ? Math.abs(planTarget - entryPrice) * planQty : null;
+                                  }
+
+                                  const rr = estimatedRisk && estimatedReward && estimatedRisk > 0 ? estimatedReward / estimatedRisk : null;
+                                  return (
+                                    <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 8 }}>
+                                      {estimatedRisk != null && (
+                                        <div>
+                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>Planned Risk</div>
+                                          <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>{formatCurrency(estimatedRisk)}</div>
+                                        </div>
+                                      )}
+                                      {estimatedReward != null && (
+                                        <div>
+                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>Planned Reward</div>
+                                          <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>{formatCurrency(estimatedReward)}</div>
+                                        </div>
+                                      )}
+                                      {rr != null && (
+                                        <div>
+                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>R/R Ratio</div>
+                                          <div style={{ fontSize: 14, fontWeight: 700, color: rr >= 2 ? "#4ade80" : rr >= 1 ? "#fbbf24" : "#f87171" }}>1 : {rr.toFixed(1)}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
                           <button
                             type="submit"
                             className="ghostButton"
@@ -17074,7 +18403,7 @@ return (
                               color: preparedCloseOrder ? "#fecaca" : "#f8fbff",
                             }}
                           >
-                            {alpacaOrderSubmitting ? "Submitting..." : preparedCloseOrder ? `Review close ${preparedCloseOrder.symbol}` : "Review paper order"}
+                            {alpacaOrderSubmitting ? "Submitting..." : preparedCloseOrder ? `Review close ${preparedCloseOrder.symbol}` : "Review order"}
                           </button>
                           {alpacaOrderValidation.error ? (
                             <div style={{ fontSize: 12, color: "#fca5a5", lineHeight: 1.5, padding: "9px 10px", borderRadius: 10, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.16)" }}>
@@ -17101,25 +18430,28 @@ return (
                 </div>
               </div>
 
-              <div className="tradeHistoryGrid" style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1.15fr) minmax(360px, 1fr)", gap: 16, alignItems: "start", marginBottom: 16 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+              <div className="tradeHistoryGrid liveTradesHistoryGrid" style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1.15fr) minmax(360px, 1fr)", gap: 16, alignItems: "stretch", marginBottom: 16 }}>
+                <div className="liveTradesHistoryColumn">
+                  <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Broker Trade History</div>
                       <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
-                        Recent broker-synced orders and fills from your connected Rayla paper trading workspace.
+                        Recent broker-synced orders and fills from your connected Alpaca broker workspace.
                       </div>
                     </div>
                   </div>
+                  <div className="liveTradesHistoryActions" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                    <button type="button" className="ghostButton" onClick={() => refreshBrokerStateAfterOrder({ delayed: false })} disabled={brokerTradeLogLoading || alpacaConnectionLoading}>
+                      {brokerTradeLogLoading ? "Refreshing..." : "Refresh"}
+                    </button>
+                  </div>
                   <BrokerTradeLogCard
                     trades={brokerTradeLog}
-                    isLoading={brokerTradeLogLoading}
-                    onRefresh={() => fetchBrokerTradeLog({ sync: true })}
                   />
                 </div>
 
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                <div className="liveTradesHistoryColumn">
+                  <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Manual Trade Journal</div>
                       <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
@@ -17127,7 +18459,7 @@ return (
                       </div>
                     </div>
                   </div>
-                  <div className="tradeJournalTabs" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <div className="tradeJournalTabs liveTradesHistoryActions" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("log")} style={{ opacity: tradeView === "log" ? 1 : 0.5 }}>Log Trade</button>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("recent")} style={{ opacity: tradeView === "recent" ? 1 : 0.5 }}>Recent Trades</button>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("all")} style={{ opacity: tradeView === "all" ? 1 : 0.5 }}>All Trades</button>
@@ -17273,9 +18605,43 @@ return (
         {activeTab === "simulation" && (
           <div className="mainGrid">
             <div className="span12">
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
+                    Mode
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+                    {[
+                      { value: "live", label: "Live Simulation" },
+                      { value: "scenario", label: "Scenario" },
+                    ].map((option) => {
+                      const active = simulationMode === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setSimulationMode(option.value)}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: active ? "2px solid rgba(124,196,255,0.9)" : "2px solid transparent",
+                            padding: "4px 0 6px",
+                            color: active ? "#e2f0ff" : "rgba(226,232,240,0.64)",
+                            fontSize: 13,
+                            fontWeight: active ? 700 : 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
               <div className="card">
                 <div ref={simulationTutorialContainerRef} className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 18, position: "relative" }}>
-                  {isSimulationTutorialOpen && (
+                  {showBeginnerGuidance && isSimulationTutorialOpen && (
                     <div
                       style={{
                         position: "absolute",
@@ -17286,7 +18652,7 @@ return (
                       }}
                     />
                   )}
-                  {renderSimulationWalkthroughCard()}
+                  {showBeginnerGuidance && renderSimulationWalkthroughCard()}
 
                   <div style={{ padding: 16, borderRadius: 14, background: simulationMode === "scenario" ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.04)", border: simulationMode === "scenario" ? "1px solid rgba(124,196,255,0.18)" : "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -17303,29 +18669,14 @@ return (
                           label="Ask Rayla"
                           onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
                         />
-                        <button
-                          type="button"
-                          className="ghostButton"
-                          onClick={() => setSimulationMode("live")}
-                          style={simulationMode === "live" ? { background: "rgba(124,196,255,0.18)", borderColor: "rgba(124,196,255,0.34)", color: "#f8fafc" } : undefined}
-                        >
-                          Live
-                        </button>
-                        <button
-                          type="button"
-                          className="ghostButton"
-                          onClick={() => setSimulationMode("scenario")}
-                          style={simulationMode === "scenario" ? { background: "rgba(124,196,255,0.18)", borderColor: "rgba(124,196,255,0.34)", color: "#f8fafc" } : undefined}
-                        >
-                          Scenario
-                        </button>
                       </div>
                   </div>
-                    {simulationMode === "scenario" && capitalGuideScenarioIntro && (
+                    {showBeginnerGuidance && simulationMode === "scenario" && capitalGuideScenarioIntro && (
                       <div style={{ ...simulationBriefingPanelStyle, fontSize: 12, color: "#dbeafe", lineHeight: 1.6, padding: 12, borderRadius: 12 }}>
                         {capitalGuideScenarioIntro}
                       </div>
                     )}
+                    {showBeginnerGuidance && (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button
                         type="button"
@@ -17342,6 +18693,7 @@ return (
                         {showSimulationHelp ? "Hide Beginner Help" : "Show Beginner Help"}
                       </button>
                     </div>
+                    )}
                   </div>
 
                   {simulationPositions.length > 0 && (
@@ -17413,7 +18765,7 @@ return (
                     </div>
                   )}
 
-                  {guidedSimulationDraft && (
+                  {showBeginnerGuidance && guidedSimulationDraft && (
                     <div style={{ ...simulationBriefingPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ ...simulationQuietLabelStyle, color: "#7CC4FF" }}>
                         Intel briefing
@@ -17474,7 +18826,7 @@ return (
                     </div>
                   )}
 
-                  {activeGuidedSimulation && (
+                  {showBeginnerGuidance && activeGuidedSimulation && (
                     <div style={{ ...simulationBriefingPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                         <div style={{ ...simulationQuietLabelStyle, color: "#7CC4FF" }}>
@@ -17530,7 +18882,7 @@ return (
                     </div>
                   )}
 
-                  {!activeGuidedSimulation && simulationPositions.length === 0 && visibleSimulationTradeHistory.length === 0 && (
+                  {showBeginnerGuidance && !activeGuidedSimulation && simulationPositions.length === 0 && visibleSimulationTradeHistory.length === 0 && (
                     <div style={{ ...simulationBriefingPanelStyle, padding: 14, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
                       <div style={{ minWidth: 220 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
@@ -17553,7 +18905,7 @@ return (
                     </div>
                   )}
 
-                  {showSimulationHelp && (
+                  {showBeginnerGuidance && showSimulationHelp && (
                     <div style={{ ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
                         {simulationHowToTitle}
@@ -17584,9 +18936,9 @@ return (
                       ))}
                     </div>
                   )}
-                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : 18, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(300px, 340px) minmax(0, 1fr)" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "start" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 })}>
+                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: useScenarioDesktopLayout ? "1" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         Trade Controls
@@ -17745,29 +19097,26 @@ return (
                           <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                             Choose the market condition and pace.
                           </div>
-                          <select className="authInput" value={simulationScenarioType} onChange={(e) => setSimulationScenarioType(e.target.value)}>
-                            <option value="uptrend">Uptrend</option>
-                            <option value="downtrend">Downtrend</option>
-                            <option value="range">Range</option>
-                            <option value="realistic">Realistic</option>
-                          </select>
+                          <RaylaDropdown
+                            value={simulationScenarioType}
+                            onChange={setSimulationScenarioType}
+                            options={SIMULATION_SCENARIO_TYPE_OPTIONS}
+                            ariaLabel="Scenario type"
+                          />
                           {simulationScenarioNoLimit ? (
-                            <select className="authInput" value={simulationScenarioSpeed} onChange={(e) => setSimulationScenarioSpeed(e.target.value)}>
-                              <option value="1x">1x</option>
-                              <option value="10x">10x</option>
-                              <option value="50x">50x</option>
-                              <option value="100x">100x</option>
-                              <option value="500x">500x</option>
-                              <option value="1000x">1000x</option>
-                              <option value="10000x">10000x</option>
-                            </select>
+                            <RaylaDropdown
+                              value={simulationScenarioSpeed}
+                              onChange={setSimulationScenarioSpeed}
+                              options={SIMULATION_SCENARIO_SPEED_OPTIONS}
+                              ariaLabel="Scenario speed"
+                            />
                           ) : (
-                            <select className="authInput" value={simulationScenarioPlaybackDuration} onChange={(e) => setSimulationScenarioPlaybackDuration(e.target.value)}>
-                              <option value="5s">5s</option>
-                              <option value="10s">10s</option>
-                              <option value="30s">30s</option>
-                              <option value="1m">1m</option>
-                            </select>
+                            <RaylaDropdown
+                              value={simulationScenarioPlaybackDuration}
+                              onChange={setSimulationScenarioPlaybackDuration}
+                              options={SIMULATION_SCENARIO_DURATION_OPTIONS}
+                              ariaLabel="Scenario playback duration"
+                            />
                           )}
                           <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.5 }}>
                             Realistic unlocks AI review after close.
@@ -17780,14 +19129,12 @@ return (
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                           Direction for this rep.
                         </div>
-                        <select
-                          className="authInput"
+                        <RaylaDropdown
                           value={simulationDirection}
-                          onChange={(e) => setSimulationDirection(e.target.value)}
-                        >
-                          <option value="long">Buy / Long</option>
-                          <option value="short">Sell / Short</option>
-                        </select>
+                          onChange={setSimulationDirection}
+                          options={SIMULATION_DIRECTION_OPTIONS}
+                          ariaLabel="Simulation trade direction"
+                        />
                       </div>
 
                       <div style={{ ...simulationSecondaryPanelStyle, padding: "10px 12px", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -17829,14 +19176,12 @@ return (
                             ? "Set the size for this rep."
                             : "Set the size for this rep."}
                         </div>
-                        <select
-                          className="authInput"
+                        <RaylaDropdown
                           value={simulationAmountMode}
-                          onChange={(e) => setSimulationAmountMode(e.target.value)}
-                        >
-                          <option value="dollars">Amount in Dollars</option>
-                          <option value="shares">Amount in Shares</option>
-                        </select>
+                          onChange={setSimulationAmountMode}
+                          options={SIMULATION_AMOUNT_MODE_OPTIONS}
+                          ariaLabel="Simulation amount mode"
+                        />
                         <input
                           className="authInput"
                           placeholder={simulationAmountPlaceholder}
@@ -17845,21 +19190,18 @@ return (
                           value={simulationAmount}
                           onChange={(e) => setSimulationAmount(e.target.value)}
                         />
-                        <select
-                          className="authInput"
+                        <RaylaDropdown
                           value={simulationLeverage}
-                          onChange={(e) => setSimulationLeverage(e.target.value)}
-                        >
-                          <option value="1x">Leverage: 1x</option>
-                          <option value="2x">Leverage: 2x</option>
-                          <option value="5x">Leverage: 5x</option>
-                          <option value="10x">Leverage: 10x</option>
-                        </select>
+                          onChange={setSimulationLeverage}
+                          options={SIMULATION_LEVERAGE_OPTIONS}
+                          ariaLabel="Simulation leverage"
+                        />
                         <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
                           Leverage increases simulated exposure and P/L only inside Simulation. Default is 1x.
                         </div>
                       </div>
 
+{!useScenarioDesktopLayout || simulationMode === "scenario" ? (
                       <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Exit plan</div>
                         <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
@@ -17885,14 +19227,12 @@ return (
                         </div>
                         {simulationUseStopTarget && (
                           <>
-                            <select
-                              className="authInput"
+                            <RaylaDropdown
                               value={simulationExitMode}
-                              onChange={(e) => setSimulationExitMode(e.target.value)}
-                            >
-                              <option value="price">Exit by Price</option>
-                              <option value="pnl">Exit by P/L</option>
-                            </select>
+                              onChange={setSimulationExitMode}
+                              options={SIMULATION_EXIT_MODE_OPTIONS}
+                              ariaLabel="Simulation exit mode"
+                            />
                             <input
                               key={`stop-${simulationAsset?.id || "none"}`}
                               name={`simulation-stop-loss-${simulationAsset?.id || "none"}`}
@@ -17947,8 +19287,9 @@ return (
                           </>
                         )}
                       </div>
+                      ) : null}
 
-                      {simulationMode === "scenario" && (
+{simulationMode === "scenario" && (
                         <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Scenario duration</div>
                           <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
@@ -17993,6 +19334,7 @@ return (
                         </div>
                       )}
 
+{!useScenarioDesktopLayout && (
                       <div style={{ ...simulationBriefingPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 10, justifyContent: "space-between" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Ready to open</div>
@@ -18028,6 +19370,7 @@ return (
                           </button>
                         )}
                       </div>
+                      )}
                     </div>
                     
                     {showSimulationHelp && (
@@ -18045,17 +19388,23 @@ return (
                     {renderSimulationInfoCard("risk")}
                   </div>
                   )}
-
                   {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
-                  <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
+                  <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: useScenarioDesktopLayout ? "2" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
                     </div>
-                    <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                      {simulationMode === "scenario" ? "Scenario price" : "Current price"}: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>
-                        {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
-                      </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      {useScenarioDesktopLayout && (
+                        <div style={{ fontSize: 12, color: "#9fb2c7", padding: "6px 10px", borderRadius: 10, background: "rgba(124,196,255,0.07)", border: "1px solid rgba(124,196,255,0.14)" }}>
+                          Press Play when the plan is set.
+                        </div>
+                      )}
+                      <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                        {simulationMode === "scenario" ? "Scenario price" : "Current price"}: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>
+                          {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -18070,7 +19419,7 @@ return (
                         display: "flex",
                         flexDirection: "column",
                         gap: 10,
-                        order: isMobileView ? 2 : 0,
+                        order: useScenarioDesktopLayout ? 2 : isMobileView ? 2 : 0,
                         opacity: 1,
                       })}
                     >
@@ -18164,33 +19513,33 @@ return (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         {simulationMode === "scenario" && (
                           <>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "flex-end", flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.018)", border: "1px solid rgba(255,255,255,0.045)" }}>
                                 <ChartTimeframeDropdown value={simulationChartTimeframe} onChange={setSimulationChartTimeframe} />
+                                <div style={{ display: "flex", gap: 3, padding: 2, borderRadius: 8, background: "rgba(9,14,22,0.72)", border: "1px solid rgba(255,255,255,0.045)" }}>
+                                  {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                                    <button
+                                      key={mode}
+                                      type="button"
+                                      className="ghostButton"
+                                      onClick={() => setSimulationScenarioChartMode(mode)}
+                                      style={{
+                                        padding: "5px 10px",
+                                        fontSize: 10,
+                                        borderRadius: 6,
+                                        borderColor: "transparent",
+                                        background: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.15)" : "transparent",
+                                        color: simulationScenarioChartMode === mode ? "#d7efff" : "#7f8ea3",
+                                        fontWeight: 700,
+                                        letterSpacing: "0.4px",
+                                      }}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
-                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                                  <button
-                                    key={mode}
-                                    type="button"
-                                    className="ghostButton"
-                                    onClick={() => setSimulationScenarioChartMode(mode)}
-                                    style={{
-                                      padding: "3px 9px",
-                                      fontSize: 10,
-                                      borderRadius: 6,
-                                      borderColor: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                      background: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.13)" : "transparent",
-                                      color: simulationScenarioChartMode === mode ? "#d7efff" : "#7f8ea3",
-                                      fontWeight: 700,
-                                      letterSpacing: "0.5px",
-                                    }}
-                                  >
-                                    {label}
-                                  </button>
-                                ))}
-                              </div>
-                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)" }}>
                                 {[
                                   ["horizontal", "Line"],
                                   ["profit", "Profit Line"],
@@ -18202,14 +19551,14 @@ return (
                                     className="ghostButton"
                                     onClick={() => setSimulationScenarioDrawingMode((prev) => (prev === tool ? "none" : tool))}
                                     style={{
-                                      padding: "3px 9px",
+                                      padding: "4px 8px",
                                       fontSize: 10,
                                       borderRadius: 6,
-                                      borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.5)" : "rgba(255,255,255,0.1)",
-                                      background: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.13)" : "transparent",
-                                      color: simulationScenarioDrawingMode === tool ? "#d7efff" : "#7f8ea3",
+                                      borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.06)",
+                                      background: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.11)" : "transparent",
+                                      color: simulationScenarioDrawingMode === tool ? "#d7efff" : "#6f839a",
                                       fontWeight: 700,
-                                      letterSpacing: "0.5px",
+                                      letterSpacing: "0.35px",
                                     }}
                                   >
                                     {label}
@@ -18220,13 +19569,14 @@ return (
                                   className="ghostButton"
                                   onClick={() => undoStoredChartDrawing(scenarioDrawingStorageKey)}
                                   style={{
-                                    padding: "3px 9px",
+                                    padding: "4px 8px",
                                     fontSize: 10,
                                     borderRadius: 6,
-                                    borderColor: "rgba(255,255,255,0.1)",
-                                    color: "#cbd5e1",
+                                    borderColor: "rgba(255,255,255,0.06)",
+                                    color: "#7f8ea3",
+                                    background: "transparent",
                                     fontWeight: 700,
-                                    letterSpacing: "0.5px",
+                                    letterSpacing: "0.35px",
                                   }}
                                 >
                                   Undo
@@ -18236,26 +19586,29 @@ return (
                                   className="ghostButton"
                                   onClick={clearScenarioDrawings}
                                   style={{
-                                    padding: "3px 9px",
+                                    padding: "4px 8px",
                                     fontSize: 10,
                                     borderRadius: 6,
-                                    borderColor: "rgba(248,113,113,0.24)",
-                                    color: "#fca5a5",
+                                    borderColor: "rgba(248,113,113,0.16)",
+                                    color: "#d88b8b",
+                                    background: "rgba(248,113,113,0.025)",
                                     fontWeight: 700,
-                                    letterSpacing: "0.5px",
+                                    letterSpacing: "0.35px",
                                   }}
                                 >
                                   Clear Chart
                                 </button>
                               </div>
-                              <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "right" }}>
-                                {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"} · {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
-                              </div>
-                              {scenarioDrawingStatus ? (
-                                <div style={{ fontSize: 11, color: "#cbd5e1", textAlign: "right", lineHeight: 1.4 }}>
-                                  {scenarioDrawingStatus}
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 112 }}>
+                                <div style={{ fontSize: 11, color: "#7f8ea3", textAlign: "right", whiteSpace: "nowrap" }}>
+                                  {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"} · {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
                                 </div>
-                              ) : null}
+                                {scenarioDrawingStatus ? (
+                                  <div style={{ fontSize: 11, color: "#aab7c7", textAlign: "right", lineHeight: 1.35 }}>
+                                    {scenarioDrawingStatus}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -18281,6 +19634,14 @@ return (
                               type="button"
                               className="ghostButton"
                               onClick={resetScenarioPlayback}
+                              style={{
+                                padding: "9px 14px",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: "#aab7c7",
+                                background: "rgba(255,255,255,0.035)",
+                                borderColor: "rgba(255,255,255,0.08)",
+                              }}
                             >
                               Reset
                             </button>
@@ -18333,7 +19694,7 @@ return (
                             )}
                           </>
                         )}
-                        {renderSimulationInfoButton("chart")}
+                        {renderSimulationInfoButton("chart", "?")}
                       </div>
                     </div>
                     {simulationMode === "scenario" && (
@@ -18352,7 +19713,7 @@ return (
                   <div className="tradingviewFrameWrapFull simulationChartFrame" style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "visible" }}>
                     {simulationMode === "scenario" ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
-                        {guidedScenarioActive && guidedScenarioMessage && (
+                        {showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage && (
                           <div style={{ margin: "14px 16px 0", maxWidth: 420, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", boxShadow: "0 12px 24px rgba(8,12,18,0.18)" }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.3px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
                               Rayla Guidance
@@ -18362,7 +19723,7 @@ return (
                             </div>
                           </div>
                         )}
-                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, padding: guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
+                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, padding: showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
                           {scenarioChartBars.length < 2 ? (
                             <div style={{ minHeight: simulationChartViewportHeight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                               Scenario chart will appear once the generated move has enough data points.
@@ -18630,7 +19991,7 @@ return (
                           );
                         })}
                       </div>
-                      {activeGuidedSimulation && (
+                      {showBeginnerGuidance && activeGuidedSimulation && (
                         <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
                           Guided trade is live — manage it according to your plan.
                         </div>
@@ -18641,7 +20002,7 @@ return (
 
                   {visibleSimulationClosedTrade && (
                     <div ref={setSimulationSectionRef("summary")} style={getSimulationSectionStyle("summary", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14 })}>
-                      {isActiveGuidedTradeClosed && (
+                      {showBeginnerGuidance && isActiveGuidedTradeClosed && (
                         <div style={{ ...simulationBriefingPanelStyle, marginBottom: 14, padding: 14, borderRadius: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase", color: "#7CC4FF" }}>
@@ -18789,67 +20150,96 @@ return (
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade History
                       </div>
-                      {renderSimulationInfoButton("history")}
-                    </div>
-                    {visibleSimulationTradeHistory.length ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        {visibleSimulationTradeHistory.slice(0, 8).map((trade, index) => (
-                          <div
-                            key={`${trade.asset}-${trade.closedAt || index}`}
-                            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)" }}
-                          >
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.asset}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Direction</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0", textTransform: "capitalize" }}>{trade.direction}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Entry Price</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(trade.entryPrice)}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Price</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(trade.exitPrice)}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Profit/Loss</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: trade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
-                                {`${trade.profitLoss >= 0 ? "+" : ""}$${trade.profitLoss.toFixed(2)}`}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Result</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: trade.profitLoss > 0 ? "#4ade80" : trade.profitLoss < 0 ? "#f87171" : "#e2e8f0" }}>
-                                {trade.profitLoss > 0 ? "Win" : trade.profitLoss < 0 ? "Loss" : "Flat"}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>R Multiple</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: trade.rMultiple == null ? "#e2e8f0" : trade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
-                                {trade.rMultiple == null ? "--" : `${trade.rMultiple >= 0 ? "+" : ""}${trade.rMultiple.toFixed(2)}R`}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Duration</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                                {formatSimulationDuration(trade.durationMs)}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Close Reason</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.exitReason}</div>
-                            </div>
-                          </div>
-                        ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {renderSimulationInfoButton("history")}
                       </div>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search by asset, direction, or close reason..."
+                      value={simHistorySearch}
+                      onChange={(e) => setSimHistorySearch(e.target.value)}
+                      style={{ width: "100%", padding: "8px 12px", borderRadius: 9, border: "1px solid rgba(124,196,255,0.18)", background: "rgba(255,255,255,0.035)", color: "#e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                    />
+                    {simHistoryFiltered.length ? (
+                      <>
+                        {simHistoryFiltered.length > 5 && (
+                          <button
+                            type="button"
+                            onClick={() => setSimHistoryExpanded((v) => !v)}
+                            style={{ alignSelf: "flex-start", padding: "7px 14px", borderRadius: 9, border: "1px solid rgba(124,196,255,0.25)", background: "rgba(124,196,255,0.08)", color: "#7cc4ff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            {simHistoryExpanded ? "Collapse" : `View All (${simHistoryFiltered.length})`}
+                          </button>
+                        )}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {simHistoryFiltered.slice(0, simHistoryExpanded ? simHistoryFiltered.length : 5).map((trade, index) => (
+                            <div
+                              key={trade.id || `${trade.asset}-${trade.closedAt || index}`}
+                              data-trade-id={trade.id || ""}
+                              style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)" }}
+                            >
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Asset</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.asset}</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Direction</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0", textTransform: "capitalize" }}>{trade.direction}</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Entry Price</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(trade.entryPrice)}</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Exit Price</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>${formatCompactPrice(trade.exitPrice)}</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Profit/Loss</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: trade.profitLoss >= 0 ? "#4ade80" : "#f87171" }}>
+                                  {`${trade.profitLoss >= 0 ? "+" : ""}$${trade.profitLoss.toFixed(2)}`}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Result</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: trade.profitLoss > 0 ? "#4ade80" : trade.profitLoss < 0 ? "#f87171" : "#e2e8f0" }}>
+                                  {trade.profitLoss > 0 ? "Win" : trade.profitLoss < 0 ? "Loss" : "Flat"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>R Multiple</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: trade.rMultiple == null ? "#e2e8f0" : trade.rMultiple >= 0 ? "#4ade80" : "#f87171" }}>
+                                  {trade.rMultiple == null ? "--" : `${trade.rMultiple >= 0 ? "+" : ""}${trade.rMultiple.toFixed(2)}R`}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Duration</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                                  {formatSimulationDuration(trade.durationMs)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Close Reason</div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{trade.exitReason}</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Action</div>
+                                <button type="button" className="ghostButton" onClick={() => handleDeleteTrade(trade)} style={{ padding: "5px 10px", fontSize: 11 }}>
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     ) : (
                       <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                        {simulationMode === "scenario"
-                          ? "Run a scenario rep, then close the trade to review it."
-                          : "Try an Intel asset in Simulation, then close the trade to review it."}
+                        {simHistorySearch.trim()
+                          ? `No trades match "${simHistorySearch.trim()}".`
+                          : simulationMode === "scenario"
+                            ? "Run a scenario rep, then close the trade to review it."
+                            : "Try an Intel asset in Simulation, then close the trade to review it."}
                       </div>
                     )}
 	                    {renderSimulationInfoCard("history")}
@@ -18867,8 +20257,8 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 16, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
                     Source
                   </div>
@@ -18973,6 +20363,7 @@ return (
                 trades={combinedTrades}
                 liveSimulationTrades={liveSimulationJournalTrades}
                 onOpenRaylaPopup={openGlobalRaylaPopup}
+                onDeleteManualTrade={handleDeleteTrade}
               />
             </div>
           </div>
@@ -19446,29 +20837,59 @@ return (
                     {
                       label: "Market",
                       content: (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-                            {[["Hottest Stocks / ETFs", "#ef4444", hotColdReport.stockHot], ["Coldest Stocks / ETFs", "#7CC4FF", hotColdReport.stockCold]].map(([label, color, items]) => (
-                              <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-                                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, alignItems: "start" }}>
+                          {[
+                            {
+                              stockLabel: "Hottest Stocks / ETFs",
+                              stockColor: "#ef4444",
+                              stockItems: hotColdReport.stockHot,
+                              cryptoLabel: "Hottest Crypto",
+                              cryptoColor: "#ef4444",
+                              cryptoItem: hotColdReport.cryptoHot,
+                            },
+                            {
+                              stockLabel: "Coldest Stocks / ETFs",
+                              stockColor: "#7CC4FF",
+                              stockItems: hotColdReport.stockCold,
+                              cryptoLabel: "Coldest Crypto",
+                              cryptoColor: "#7CC4FF",
+                              cryptoItem: hotColdReport.cryptoCold,
+                            },
+                          ].map(({ stockLabel, stockColor, stockItems, cryptoLabel, cryptoColor, cryptoItem }) => {
+                            const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
+                            return (
+                              <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                                <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
+                                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
+                                  </div>
+                                  {visibleStockItems.length ? (
+                                    visibleStockItems.map((item) => (
+                                      <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                    ))
+                                  ) : (
+                                    <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>
+                                      No visible assets in this bucket yet.
+                                    </div>
+                                  )}
                                 </div>
-                                {items?.slice(0, 3).map((item) => <IntelAssetCard key={`${label}-${item.symbol}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />)}
-                              </div>
-                            ))}
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-                            {[["Hottest Crypto", "#ef4444", hotColdReport.cryptoHot], ["Coldest Crypto", "#7CC4FF", hotColdReport.cryptoCold]].map(([label, color, item]) => (
-                              <div key={label} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-                                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{label}</div>
+                                <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
+                                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
+                                  </div>
+                                  {cryptoItem ? (
+                                    <IntelAssetCard item={cryptoItem} quoteOverride={intelLiveQuotes[cryptoItem.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                  ) : (
+                                    <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>
+                                      No visible crypto asset yet.
+                                    </div>
+                                  )}
                                 </div>
-                                {item && <IntelAssetCard item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />}
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })}
                         </div>
                       ),
                     },
@@ -19778,7 +21199,7 @@ return (
                 </div>
               )}
 
-              {intelSimulationSetupChecklist && (
+              {showBeginnerGuidance && intelSimulationSetupChecklist && (
                 <div
                   style={{
                     borderTop: "1px solid rgba(255,255,255,0.08)",
@@ -20284,7 +21705,7 @@ return (
             </button>
           ))}
           <button className={activeTab === "profile" ? "active" : ""} onClick={() => { setActiveTab("profile"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-            <User size={18} /><span>Profile</span>
+            <User size={18} /><span>Profile & Settings</span>
           </button>
         </div>
         {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}

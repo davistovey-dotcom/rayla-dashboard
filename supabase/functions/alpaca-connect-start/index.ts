@@ -14,6 +14,15 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
+
+    let isPaper = false;
+    try {
+      const body = await req.json();
+      isPaper = body?.isPaper === true;
+    } catch {
+      // no body or invalid JSON — default to live
+    }
+
     const state = createSecureStateToken();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -22,13 +31,13 @@ Deno.serve(async (req) => {
       .delete()
       .eq("user_id", user.id)
       .eq("provider", "alpaca")
-      .eq("is_paper", true);
+      .eq("is_paper", isPaper);
 
     const { error } = await supabase.from("broker_oauth_states").insert({
       user_id: user.id,
       provider: "alpaca",
       state_token: state,
-      is_paper: true,
+      is_paper: isPaper,
       expires_at: expiresAt,
       metadata: {
         scope: "trading",
@@ -42,8 +51,8 @@ Deno.serve(async (req) => {
     return jsonResponse({
       ok: true,
       provider: "alpaca",
-      isPaper: true,
-      url: buildAlpacaAuthorizeUrl(state),
+      isPaper,
+      url: buildAlpacaAuthorizeUrl(state, isPaper),
     });
   } catch (error) {
     return jsonResponse(

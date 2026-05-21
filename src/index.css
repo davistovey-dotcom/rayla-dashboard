@@ -1,4 +1,4 @@
-* {
+*, *::before, *::after {
   box-sizing: border-box;
 }
 
@@ -12,13 +12,22 @@
   --accent-soft: rgba(124,196,255,0.12);
   --green: #4ade80;
   --red: #fb7185;
+  --font-sans: "Satoshi", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html, body, #root {
+  font-family: var(--font-sans);
 }
 
 body {
   margin: 0;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: linear-gradient(180deg, #0b1017, #0f1722);
   color: var(--text);
+}
+
+button, input, select, textarea, label, table, th, td, nav, a {
+  font-family: inherit;
 }
 
 button {
@@ -293,6 +302,7 @@ h1 {
   font-weight: 800;
   color: #7cc4ff;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 .equityChartTooltipRow {

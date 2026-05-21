@@ -1,4 +1,4 @@
-import { alpacaPaperRequest, normalizeAlpacaOrder, upsertBrokerTradeLogs } from "../_shared/alpaca.ts";
+import { alpacaBrokerRequest, normalizeAlpacaOrder, resolveBrokerConnection, upsertBrokerTradeLogs } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
@@ -8,35 +8,27 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
-    const { data: connection, error } = await supabase
-      .from("user_broker_connections")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("provider", "alpaca")
-      .eq("is_paper", true)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(error.message);
-    }
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id);
 
     if (!connection) {
       return jsonResponse({
         ok: true,
         connected: false,
         provider: "alpaca",
-        isPaper: true,
+        isPaper: false,
         orders: [],
       });
     }
 
-    const recentOrders = await alpacaPaperRequest(
+    const recentOrders = await alpacaBrokerRequest(
       connection.access_token,
-      "/v2/orders?status=all&direction=desc&limit=50&nested=false"
+      "/v2/orders?status=all&direction=desc&limit=50&nested=false",
+      isPaper
     );
-    const openOrders = await alpacaPaperRequest(
+    const openOrders = await alpacaBrokerRequest(
       connection.access_token,
-      "/v2/orders?status=open&direction=desc&limit=500&nested=false"
+      "/v2/orders?status=open&direction=desc&limit=500&nested=false",
+      isPaper
     );
     const ordersById = new Map();
     [...(Array.isArray(openOrders) ? openOrders : []), ...(Array.isArray(recentOrders) ? recentOrders : [])]
@@ -51,7 +43,7 @@ Deno.serve(async (req) => {
       ok: true,
       connected: true,
       provider: "alpaca",
-      isPaper: true,
+      isPaper,
       orders: orders.map(normalizeAlpacaOrder),
     });
   } catch (error) {

@@ -2,6 +2,7 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  font-family: "Satoshi", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 :root {
@@ -20,6 +21,7 @@
   --radius-card: 18px;
   --radius-panel: 14px;
   --shadow-card: 0 18px 54px rgba(0,0,0,0.22);
+  --font-sans: "Satoshi", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 html, body, #root {
@@ -27,19 +29,23 @@ html, body, #root {
   max-width: 100%;
   overflow-x: hidden;
   background: #0b1017;
+  font-family: var(--font-sans);
 }
 
 body {
   margin: 0;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: linear-gradient(180deg, #0b1017 0%, #0d141e 52%, #0b1017 100%);
   color: var(--text);
   padding-bottom: 0;
   -webkit-fill-available: #0b1017;
 }
 
-button, input, select, textarea { font: inherit; }
+button, input, select, textarea, label, table, th, td, nav, a { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
+select {
+  color-scheme: dark;
+}
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -207,7 +213,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   box-shadow: 0 0 0 1px rgba(124,196,255,0.06) inset;
 }
 
-.statValue { font-size: 24px; font-weight: 700; }
+.statValue { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .statSubtext { font-size: 13px; color: var(--muted); }
 
 .equityCard { min-height: 640px; }
@@ -227,7 +233,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   min-width: 0;
 }
 
-.equityMeta span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.equityMeta span { display: block; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 .equityMeta strong { font-size: 18px; color: var(--text); }
 
 .equityChart {
@@ -288,7 +294,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 .marketWatchRight { text-align: right; }
 .marketWatchSymbol { font-size: 15px; font-weight: 700; color: var(--text); }
-.marketWatchLabel { font-size: 11px; color: var(--muted); }
+.marketWatchLabel { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .marketWatchChange { font-size: 13px; font-weight: 700; }
 
 .tradingviewFrameWrap {
@@ -342,8 +348,48 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .performanceHistoryAssetList {
-  scrollbar-gutter: stable;
   padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.performanceHistoryAssetList::-webkit-scrollbar {
+  width: 3px;
+  background: transparent;
+}
+.performanceHistoryAssetList::-webkit-scrollbar-track {
+  background: transparent;
+}
+.performanceHistoryAssetList::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.35s ease;
+}
+.performanceHistoryAssetList.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(124, 196, 255, 0.28);
+}
+
+/* PerfBreakdownTable scroll area — thin indicator on hover */
+.perfBreakdownScrollArea {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.25s ease;
+}
+.perfBreakdownScrollArea:hover {
+  scrollbar-color: rgba(124, 196, 255, 0.2) transparent;
+}
+.perfBreakdownScrollArea::-webkit-scrollbar {
+  width: 3px;
+  background: transparent;
+}
+.perfBreakdownScrollArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+.perfBreakdownScrollArea::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.25s ease;
+}
+.perfBreakdownScrollArea:hover::-webkit-scrollbar-thumb {
+  background: rgba(124, 196, 255, 0.2);
 }
 
 .performanceHistoryChartPanel {
@@ -715,7 +761,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .planGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
 .planItem { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; min-width: 0; }
-.planItem span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.planItem span { display: block; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 .planItem strong { font-size: 18px; color: var(--text); }
 
 .coachNote {
@@ -727,6 +773,44 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .list { display: flex; flex-direction: column; gap: 11px; min-width: 0; }
+
+.tradeHistoryList {
+  max-height: 408px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
+}
+
+.tradeHistoryCard {
+  min-height: 494px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tradeHistoryCard .cardBody {
+  flex: 1;
+  gap: 10px;
+}
+
+.liveTradesHistoryGrid {
+  align-items: stretch;
+}
+
+.liveTradesHistoryColumn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+
+.liveTradesHistoryIntro {
+  min-height: 56px;
+}
+
+.liveTradesHistoryActions {
+  min-height: 42px;
+  align-items: center;
+}
 
 .listRow {
   display: flex;
@@ -755,6 +839,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   text-align: right;
   padding: 4px 8px;
   border-radius: 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .positive { color: #22c55e; background: rgba(34,197,94,0.1); }
@@ -971,7 +1056,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   background: none;
   border: none;
   color: #7f8ea3;
-  font-size: 0.7rem;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .mobileNav button.active { color: #7CC4FF; }
@@ -1036,7 +1124,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 .profileStats span {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: #7f8ea3;
   margin-bottom: 5px;
 }
@@ -1062,7 +1153,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   background: rgba(248,113,113,0.06);
 }
 
-.portfolioValue { font-size: 42px; font-weight: 700; letter-spacing: -1px; margin-top: 4px; }
+.portfolioValue { font-size: 42px; font-weight: 700; letter-spacing: -1px; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .portfolioValue.positive { color: #4ade80; }
 .portfolioValue.negative { color: #fb7185; }
 
@@ -1185,8 +1276,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     background: none;
     border: none;
     color: #7f8ea3;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     cursor: pointer;
     text-align: left;
     transition: background 0.15s ease, color 0.15s ease;
@@ -1624,40 +1717,211 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   --rayla-dark: #020A1A;
 }
 
-/* ── Premium dropdown polish ── */
-
-/* Remove native arrow from all authInput selects and add custom chevron */
-select.authInput {
+/* Premium dropdown polish */
+select.authInput,
+.tradeForm select {
   appearance: none;
   -webkit-appearance: none;
+  background-color: rgba(10,16,28,0.88);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7' fill='none'%3E%3Cpath d='M1 1L5.5 6L10 1' stroke='%23627283' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 14px center;
+  border-color: rgba(226,232,240,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035), 0 10px 24px rgba(2,6,23,0.10);
   padding-right: 38px;
   cursor: pointer;
+  color: #e7eef7;
 }
-select.authInput:hover:not(:disabled):not(:focus) {
-  border-color: rgba(124,196,255,0.22);
+
+select.authInput:hover:not(:disabled):not(:focus),
+.tradeForm select:hover:not(:disabled):not(:focus) {
+  border-color: rgba(124,196,255,0.28);
+  background-color: rgba(13,21,36,0.94);
 }
-select.authInput:focus {
+
+select.authInput:focus,
+.tradeForm select:focus {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7' fill='none'%3E%3Cpath d='M1 1L5.5 6L10 1' stroke='%237CC4FF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 14px center;
+  border-color: rgba(124,196,255,0.48);
+  background-color: rgba(13,21,36,0.98);
+  box-shadow: 0 0 0 3px rgba(124,196,255,0.08), inset 0 1px 0 rgba(255,255,255,0.045);
 }
-select.authInput option {
-  background: #0d1628;
+
+select.authInput option,
+.tradeForm select option {
+  background: #0b1220;
   color: #e2e8f0;
+}
+
+.raylaDropdown {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  color: #e7eef7;
+  font: inherit;
+}
+
+.raylaDropdownButton {
+  width: 100%;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(226,232,240,0.12);
+  border-radius: 12px;
+  padding: 11px 13px 11px 14px;
+  background:
+    linear-gradient(180deg, rgba(18,27,44,0.96), rgba(10,16,28,0.96));
+  color: #e7eef7;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035), 0 10px 24px rgba(2,6,23,0.10);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease, color 0.14s ease;
+}
+
+.raylaDropdownButton > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.raylaDropdown.compact .raylaDropdownButton {
+  min-height: 32px;
+  border-radius: 9px;
+  padding: 6px 9px 6px 11px;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.raylaDropdownButton:hover,
+.raylaDropdown.open .raylaDropdownButton {
+  border-color: rgba(124,196,255,0.34);
+  background:
+    linear-gradient(180deg, rgba(21,33,54,0.98), rgba(12,19,33,0.98));
+  box-shadow: 0 0 0 3px rgba(124,196,255,0.07), inset 0 1px 0 rgba(255,255,255,0.045);
+}
+
+.raylaDropdownButton:focus-visible {
+  outline: none;
+  border-color: rgba(124,196,255,0.52);
+  box-shadow: 0 0 0 3px rgba(124,196,255,0.12), inset 0 1px 0 rgba(255,255,255,0.045);
+}
+
+.raylaDropdown.disabled .raylaDropdownButton,
+.raylaDropdownButton:disabled {
+  opacity: 0.54;
+  cursor: not-allowed;
+}
+
+.raylaDropdownChevron {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-right: 1.5px solid #7f8ea3;
+  border-bottom: 1.5px solid #7f8ea3;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+
+.raylaDropdown.open .raylaDropdownChevron {
+  border-color: #7CC4FF;
+  transform: translateY(2px) rotate(225deg);
+}
+
+.raylaDropdownMenu {
+  position: absolute;
+  z-index: 4000;
+  top: calc(100% + 7px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid rgba(124,196,255,0.2);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(11,18,31,0.99), rgba(6,11,20,0.99));
+  box-shadow: 0 22px 48px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.055);
+}
+
+.raylaDropdown.compact .raylaDropdownMenu {
+  border-radius: 10px;
+  padding: 5px;
+}
+
+.raylaDropdownOption {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: transparent;
+  color: #b9c6d6;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.raylaDropdown.compact .raylaDropdownOption {
+  border-radius: 7px;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.raylaDropdownOption:hover,
+.raylaDropdownOption:focus-visible {
+  outline: none;
+  border-color: rgba(124,196,255,0.16);
+  background: rgba(124,196,255,0.09);
+  color: #e7f5ff;
+}
+
+.raylaDropdownOption.active {
+  border-color: rgba(124,196,255,0.24);
+  background: rgba(124,196,255,0.13);
+  color: #d7efff;
+}
+
+.raylaDropdownOption + .raylaDropdownOption {
+  margin-top: 2px;
+}
+
+.raylaDropdownSearch {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  border: 1px solid rgba(226,232,240,0.1);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.035);
+  color: #e2e8f0;
+  font-size: 12px;
+  outline: none;
+}
+
+.raylaDropdownSearch:focus {
+  border-color: rgba(124,196,255,0.38);
+  box-shadow: 0 0 0 3px rgba(124,196,255,0.08);
 }
 
 /* Compact filter selects used in performance and trade-history filter bars */
 .filterSelect {
   appearance: none;
   -webkit-appearance: none;
-  background-color: rgba(12,19,33,0.88);
+  background-color: rgba(10,16,28,0.9);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23627283' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
-  border: 1px solid rgba(255,255,255,0.09);
+  border: 1px solid rgba(226,232,240,0.1);
   border-radius: 8px;
   padding: 7px 28px 7px 11px;
   color: #c4d0de;
@@ -1666,17 +1930,20 @@ select.authInput option {
   font-size: 13px;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.13s ease, background-color 0.13s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 18px rgba(2,6,23,0.08);
+  transition: border-color 0.13s ease, background-color 0.13s ease, color 0.13s ease, box-shadow 0.13s ease;
 }
 .filterSelect:hover {
-  border-color: rgba(124,196,255,0.22);
-  background-color: rgba(14,22,40,0.93);
+  border-color: rgba(124,196,255,0.28);
+  background-color: rgba(13,21,36,0.95);
+  color: #e2e8f0;
 }
 .filterSelect:focus {
   border-color: rgba(124,196,255,0.42);
-  background-color: rgba(14,22,40,0.97);
+  background-color: rgba(13,21,36,0.98);
+  box-shadow: 0 0 0 3px rgba(124,196,255,0.08), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .filterSelect option {
-  background: #0d1628;
+  background: #0b1220;
   color: #e2e8f0;
 }

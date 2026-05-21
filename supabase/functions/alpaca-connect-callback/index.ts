@@ -1,4 +1,4 @@
-import { alpacaPaperRequest, exchangeAlpacaCode, getAlpacaEnv } from "../_shared/alpaca.ts";
+import { alpacaBrokerRequest, exchangeAlpacaCode, getAlpacaEnv, normalizeAlpacaAccount } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, getSupabaseAdmin, redirectResponse } from "../_shared/auth.ts";
 
 function buildAppRedirect(status: "connected" | "error", message = "") {
@@ -32,7 +32,6 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("provider", "alpaca")
       .eq("state_token", state)
-      .eq("is_paper", true)
       .is("consumed_at", null)
       .maybeSingle();
 
@@ -44,8 +43,10 @@ Deno.serve(async (req) => {
       return redirectResponse(buildAppRedirect("error", "Alpaca connect session expired. Please try again."));
     }
 
+    const isPaper = stateRow.is_paper === true;
+
     const tokenData = await exchangeAlpacaCode(code);
-    const account = await alpacaPaperRequest(tokenData.access_token, "/v2/account");
+    const account = await alpacaBrokerRequest(tokenData.access_token, "/v2/account", isPaper);
 
     const payload = {
       user_id: stateRow.user_id,
@@ -54,14 +55,13 @@ Deno.serve(async (req) => {
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token || null,
       scope: tokenData.scope || "trading",
-      is_paper: true,
+      is_paper: isPaper,
       metadata: {
-        env: "paper",
+        env: isPaper ? "paper" : "live",
         token_type: tokenData.token_type || "bearer",
         expires_in: tokenData.expires_in || null,
         account_status: account?.status || null,
       },
-      // TODO: encrypt access_token and refresh_token at rest before enabling live trading.
     };
 
     const { error: upsertError } = await supabase
@@ -79,7 +79,8 @@ Deno.serve(async (req) => {
       .update({ consumed_at: new Date().toISOString() })
       .eq("id", stateRow.id);
 
-    return redirectResponse(buildAppRedirect("connected", "Alpaca Paper connected."));
+    const modeLabel = isPaper ? "Paper" : "Live";
+    return redirectResponse(buildAppRedirect("connected", `Alpaca ${modeLabel} account connected.`));
   } catch (error) {
     return redirectResponse(
       buildAppRedirect(

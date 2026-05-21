@@ -1,6 +1,33 @@
 import { alpacaPaperRequest } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
+const CANONICAL_ALPACA_CRYPTO_ASSETS = [
+  {
+    symbol: "BTC/USD",
+    name: "Bitcoin / US Dollar",
+    exchange: "Crypto",
+    asset_class: "crypto",
+    tradable: true,
+    marginable: false,
+    shortable: false,
+    easy_to_borrow: false,
+    fractionable: true,
+    status: "active",
+  },
+  {
+    symbol: "ETH/USD",
+    name: "Ethereum / US Dollar",
+    exchange: "Crypto",
+    asset_class: "crypto",
+    tradable: true,
+    marginable: false,
+    shortable: false,
+    easy_to_borrow: false,
+    fractionable: true,
+    status: "active",
+  },
+];
+
 function normalizeAssetResult(asset: any) {
   return {
     symbol: String(asset?.symbol || "").toUpperCase(),
@@ -16,9 +43,41 @@ function normalizeAssetResult(asset: any) {
   };
 }
 
+function normalizeAssetSymbolForSearch(symbol: string) {
+  const upper = String(symbol || "").trim().toUpperCase();
+  return upper.replace(/[^A-Z0-9]/g, "");
+}
+
+function getCryptoBaseSymbol(symbol: string) {
+  const compactSymbol = normalizeAssetSymbolForSearch(symbol);
+  return compactSymbol.endsWith("USD") ? compactSymbol.slice(0, -3) : compactSymbol;
+}
+
+function getCanonicalCryptoMatches(query: string) {
+  const compactQuery = normalizeAssetSymbolForSearch(query);
+  if (!compactQuery) return [];
+
+  return CANONICAL_ALPACA_CRYPTO_ASSETS.filter((asset) => {
+    const compactSymbol = normalizeAssetSymbolForSearch(asset.symbol);
+    const cryptoBase = getCryptoBaseSymbol(asset.symbol);
+    const name = String(asset.name || "").toUpperCase();
+    return (
+      compactSymbol.includes(compactQuery)
+      || cryptoBase === compactQuery
+      || name.includes(String(query || "").trim().toUpperCase())
+    );
+  });
+}
+
 function rankAssetMatch(asset: any, query: string) {
   const symbol = String(asset?.symbol || "").toUpperCase();
   const name = String(asset?.name || "").toUpperCase();
+  const assetClass = String(asset?.asset_class || "").toLowerCase();
+  const compactSymbol = normalizeAssetSymbolForSearch(symbol);
+  const compactQuery = normalizeAssetSymbolForSearch(query);
+  const cryptoBase = getCryptoBaseSymbol(symbol);
+
+  if (assetClass === "crypto" && (symbol === `${query}/USD` || compactSymbol === `${compactQuery}USD` || cryptoBase === compactQuery)) return -1;
 
   if (symbol === query) return 0;
   if (symbol.startsWith(query)) return 1;
@@ -63,13 +122,24 @@ Deno.serve(async (req) => {
       });
     }
 
-    const assets = await alpacaPaperRequest(connection.access_token, "/v2/assets?status=active&asset_class=us_equity");
-    const filteredAssets = (Array.isArray(assets) ? assets : [])
+    const [equityAssets, cryptoAssets] = await Promise.all([
+      alpacaPaperRequest(connection.access_token, "/v2/assets?status=active&asset_class=us_equity"),
+      alpacaPaperRequest(connection.access_token, "/v2/assets?status=active&asset_class=crypto"),
+    ]);
+    const assets = [
+      ...(Array.isArray(cryptoAssets) ? cryptoAssets : []),
+      ...(Array.isArray(equityAssets) ? equityAssets : []),
+    ];
+    const canonicalCryptoMatches = getCanonicalCryptoMatches(normalizedQuery);
+    const filteredAssets = [...canonicalCryptoMatches, ...(Array.isArray(assets) ? assets : [])]
       .filter((asset) => asset?.tradable === true)
       .filter((asset) => {
         const symbol = String(asset?.symbol || "").toUpperCase();
         const name = String(asset?.name || "").toUpperCase();
-        return symbol.includes(normalizedQuery) || name.includes(normalizedQuery);
+        const compactSymbol = normalizeAssetSymbolForSearch(symbol);
+        const compactQuery = normalizeAssetSymbolForSearch(normalizedQuery);
+        const cryptoBase = getCryptoBaseSymbol(symbol);
+        return symbol.includes(normalizedQuery) || compactSymbol.includes(compactQuery) || cryptoBase === compactQuery || name.includes(normalizedQuery);
       })
       .sort((a, b) => {
         const rankDelta = rankAssetMatch(a, normalizedQuery) - rankAssetMatch(b, normalizedQuery);
@@ -87,6 +157,10 @@ Deno.serve(async (req) => {
         if (nameLengthDelta !== 0) return nameLengthDelta;
 
         return symbolA.localeCompare(symbolB);
+      })
+      .filter((asset, index, list) => {
+        const symbol = normalizeAssetSymbolForSearch(asset?.symbol);
+        return symbol && list.findIndex((candidate) => normalizeAssetSymbolForSearch(candidate?.symbol) === symbol) === index;
       })
       .slice(0, 8)
       .map(normalizeAssetResult);

@@ -1,15 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-function countUp(el, from, to, duration, format) {
-  const start = performance.now();
-  function tick(now) {
-    const progress = Math.min((now - start) / duration, 1);
-    const ease = 1 - Math.pow(1 - progress, 3);
-    el.textContent = format(from + (to - from) * ease);
-    if (progress < 1) requestAnimationFrame(tick);
+function getCalmAuthErrorMessage(error, fallback) {
+  const message = String(error?.message || "").trim();
+  const normalized = message.toLowerCase();
+  if (!message) return fallback;
+  if (normalized.includes("invalid login credentials")) {
+    return "Email or password is incorrect.";
   }
-  requestAnimationFrame(tick);
+  if (normalized.includes("email not confirmed")) {
+    return "Confirm your email, then sign in again.";
+  }
+  if (normalized.includes("already registered") || normalized.includes("already been registered")) {
+    return "That email already has a Rayla account. Sign in instead.";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "Too many attempts. Wait a moment, then try again.";
+  }
+  return message;
 }
 
 const TUTORIAL_SLIDES = [
@@ -47,25 +55,20 @@ export function Tutorial({ onDone }) {
 }
 
 function SplashScreen({ onEnter }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0b1017", padding: "40px", textAlign: "center" }}>
-      <div id="splash-logo" style={{ fontSize: "64px", fontWeight: 700, color: "#7CC4FF", letterSpacing: "6px", textTransform: "uppercase", marginBottom: "10px", opacity: 0, transform: "translateY(20px)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>Rayla</div>
-      <div id="splash-tag" style={{ fontSize: "16px", color: "#94a3b8", marginBottom: "44px", opacity: 0, transition: "opacity 0.8s ease 0.5s" }}>Trading redefined with AI</div>
-      <button id="splash-btn" onClick={onEnter} style={{ background: "transparent", color: "#7CC4FF", border: "1px solid #7CC4FF", borderRadius: "10px", padding: "14px 48px", fontSize: "15px", fontWeight: 700, cursor: "pointer", opacity: 0, transition: "opacity 0.8s ease 0.9s" }}>Enter</button>
-      <div style={{ display: "flex", gap: "48px", marginTop: "44px" }}>
-        <div style={{ textAlign: "center", opacity: 0, transition: "opacity 0.8s ease 1.4s" }} id="splash-s1">
-          <div id="splash-v1" style={{ fontSize: "22px", fontWeight: 700, color: "#4ade80" }}>+0.0R</div>
-          <div style={{ fontSize: "11px", color: "#3a4a5a", textTransform: "uppercase", letterSpacing: "1px", marginTop: "4px" }}>Avg edge</div>
-        </div>
-        <div style={{ textAlign: "center", opacity: 0, transition: "opacity 0.8s ease 1.4s" }} id="splash-s2">
-          <div id="splash-v2" style={{ fontSize: "22px", fontWeight: 700, color: "#4ade80" }}>0%</div>
-          <div style={{ fontSize: "11px", color: "#3a4a5a", textTransform: "uppercase", letterSpacing: "1px", marginTop: "4px" }}>Win rate</div>
-        </div>
-        <div style={{ textAlign: "center", opacity: 0, transition: "opacity 0.8s ease 1.4s" }} id="splash-s3">
-          <div id="splash-v3" style={{ fontSize: "22px", fontWeight: 700, color: "#4ade80" }}>0</div>
-          <div style={{ fontSize: "11px", color: "#3a4a5a", textTransform: "uppercase", letterSpacing: "1px", marginTop: "4px" }}>S&P tracked</div>
-        </div>
+    <div className="authSplash">
+      <div className="authSplashIdentity" style={{ opacity: visible ? 1 : 0, transform: visible ? "translateY(0)" : "translateY(10px)" }}>
+        <img className="authSplashBadge" src="/badger.png" alt="" />
+        <img className="authSplashLogo" src="/rayla-logo.png" alt="Rayla" />
       </div>
+      <button className="authSplashButton" onClick={onEnter} style={{ opacity: visible ? 1 : 0 }}>Continue</button>
     </div>
   );
 }
@@ -77,82 +80,69 @@ export default function Login({ onLogin }) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [loading, setLoading] = useState(false);
   const [screen, setScreen] = useState("splash");
-  const [splashReady, setSplashReady] = useState(false);
-
-  function handleSplashMount(el) {
-    if (!el || splashReady) return;
-    setSplashReady(true);
-    setTimeout(() => {
-      const logo = document.getElementById("splash-logo");
-      const tag = document.getElementById("splash-tag");
-      const btn = document.getElementById("splash-btn");
-      const s1 = document.getElementById("splash-s1");
-      const s2 = document.getElementById("splash-s2");
-      const s3 = document.getElementById("splash-s3");
-      const v1 = document.getElementById("splash-v1");
-      const v2 = document.getElementById("splash-v2");
-      const v3 = document.getElementById("splash-v3");
-      if (logo) { logo.style.opacity = "1"; logo.style.transform = "translateY(0)"; }
-      if (tag) tag.style.opacity = "1";
-      if (btn) btn.style.opacity = "1";
-      if (s1) s1.style.opacity = "1";
-      if (s2) s2.style.opacity = "1";
-      if (s3) s3.style.opacity = "1";
-      if (v1) countUp(v1, 0, 2.4, 800, v => "+" + v.toFixed(1) + "R");
-      if (v2) countUp(v2, 0, 68, 800, v => Math.round(v) + "%");
-      if (v3) countUp(v3, 0, 500, 800, v => Math.round(v) + "+");
-    }, 100);
-  }
+  const [authMessage, setAuthMessage] = useState(null);
 
   async function handleSignUp() {
+  if (loading) return;
+  setAuthMessage(null);
   if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
-    alert("Enter your email, password, and confirm your password first.");
+    setAuthMessage({ type: "error", text: "Enter your email and password first." });
     return;
   }
 
   if (password.length < 6) {
-    alert("Password must be at least 6 characters.");
+    setAuthMessage({ type: "error", text: "Use at least 6 characters for your password." });
     return;
   }
 
   if (password !== confirmPassword) {
-    alert("Passwords do not match.");
+    setAuthMessage({ type: "error", text: "Passwords do not match." });
     return;
   }
 
   setLoading(true);
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { error } = await supabase.auth.signUp({ email, password });
   setLoading(false);
 
   if (error) {
-    alert(`${error.code || "no_code"}: ${error.message}`);
+    setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not create account.") });
     return;
   }
 
-  alert("Account created. Check your email to verify your account.");
+  setAuthMessage({ type: "success", text: "Account created. Check your email to verify your account." });
   setIsCreatingAccount(false);
   setPassword("");
   setConfirmPassword("");
 }
 
   async function handleSignIn() {
-    if (!email.trim() || !password.trim()) { alert("Enter your email and password first."); return; }
+    if (loading) return;
+    setAuthMessage(null);
+    if (!email.trim() || !password.trim()) {
+      setAuthMessage({ type: "error", text: "Enter your email and password first." });
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) { alert(`${error.code || "no_code"}: ${error.message}`); return; }
+    if (error) {
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not sign in.") });
+      return;
+    }
     onLogin?.(data);
   }
 
-  if (screen === "splash") return <div ref={handleSplashMount}><SplashScreen onEnter={() => setScreen("login")} /></div>;
+  if (screen === "splash") return <SplashScreen onEnter={() => setScreen("login")} />;
 
   
   return (
     <div className="authPage">
       <div className="authCard">
-        <div className="authBrand">Rayla</div>
-        <h1 className="authTitle">Welcome back</h1>
-        <p className="authSubtitle">AI trading analysis and coaching, all in one place.</p>
+        <div className="authIdentity">
+          <img className="authBadge" src="/badger.png" alt="" />
+          <img className="authLogo" src="/rayla-logo.png" alt="Rayla" />
+        </div>
+        <h1 className="authTitle">{isCreatingAccount ? "Create your workspace" : "Welcome back"}</h1>
         <div className="authForm">
           <label className="authLabel">Email</label>
           <input className="authInput" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -182,11 +172,12 @@ export default function Login({ onLogin }) {
   onClick={isCreatingAccount ? handleSignUp : handleSignIn}
   disabled={loading}
 >
-  {loading ? "Loading..." : isCreatingAccount ? "Create Account" : "Sign In"}
+  {loading ? (isCreatingAccount ? "Creating account..." : "Signing in...") : isCreatingAccount ? "Create account" : "Sign in"}
 </button>
           <button
   className="authSecondaryButton"
   onClick={() => {
+    setAuthMessage(null);
     if (isCreatingAccount) {
       setIsCreatingAccount(false);
       setPassword("");
@@ -200,8 +191,13 @@ export default function Login({ onLogin }) {
   }}
   disabled={loading}
 >
-  {isCreatingAccount ? "Back to Sign In" : "Create Account"}
+  {isCreatingAccount ? "Back to sign in" : "Create account"}
 </button>
+          {authMessage ? (
+            <div className={`authMessage ${authMessage.type === "success" ? "success" : "error"}`}>
+              {authMessage.text}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
