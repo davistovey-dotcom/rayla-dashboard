@@ -1,6 +1,7 @@
 const ALPACA_AUTHORIZE_URL = "https://app.alpaca.markets/oauth/authorize";
 const ALPACA_TOKEN_URL = "https://api.alpaca.markets/oauth/token";
 const ALPACA_PAPER_API_BASE = "https://paper-api.alpaca.markets";
+const ALPACA_LIVE_API_BASE = "https://api.alpaca.markets";
 const ALPACA_MARKET_DATA_BASE = "https://data.alpaca.markets";
 
 export function getAlpacaEnv() {
@@ -32,7 +33,7 @@ export function getAlpacaMarketDataEnv() {
   };
 }
 
-export function buildAlpacaAuthorizeUrl(state: string) {
+export function buildAlpacaAuthorizeUrl(state: string, isPaper = false) {
   const { clientId, redirectUri } = getAlpacaEnv();
   const url = new URL(ALPACA_AUTHORIZE_URL);
   url.searchParams.set("response_type", "code");
@@ -40,7 +41,7 @@ export function buildAlpacaAuthorizeUrl(state: string) {
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("scope", "trading");
-  url.searchParams.set("env", "paper");
+  if (isPaper) url.searchParams.set("env", "paper");
   return url.toString();
 }
 
@@ -70,8 +71,9 @@ export async function exchangeAlpacaCode(code: string) {
   return data;
 }
 
-export async function alpacaPaperRequest(accessToken: string, path: string, init: RequestInit = {}) {
-  const response = await fetch(`${ALPACA_PAPER_API_BASE}${path}`, {
+export async function alpacaBrokerRequest(accessToken: string, path: string, isPaper: boolean, init: RequestInit = {}) {
+  const base = isPaper ? ALPACA_PAPER_API_BASE : ALPACA_LIVE_API_BASE;
+  const response = await fetch(`${base}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -86,6 +88,11 @@ export async function alpacaPaperRequest(accessToken: string, path: string, init
   }
 
   return data;
+}
+
+// Kept for backwards compatibility in place-order (which has its own raw request)
+export async function alpacaPaperRequest(accessToken: string, path: string, init: RequestInit = {}) {
+  return alpacaBrokerRequest(accessToken, path, true, init);
 }
 
 export async function alpacaMarketDataRequest(path: string, init: RequestInit = {}) {
@@ -108,7 +115,7 @@ export async function alpacaMarketDataRequest(path: string, init: RequestInit = 
   return data;
 }
 
-export function normalizeAlpacaAccount(account: any) {
+export function normalizeAlpacaAccount(account: any, isPaper = false) {
   return {
     id: account?.id || null,
     accountNumber: account?.account_number || null,
@@ -117,7 +124,7 @@ export function normalizeAlpacaAccount(account: any) {
     cash: Number(account?.cash ?? 0),
     portfolioValue: Number(account?.portfolio_value ?? 0),
     equity: Number(account?.equity ?? 0),
-    isPaper: true,
+    isPaper,
     currency: account?.currency || "USD",
     raw: account,
   };
@@ -125,8 +132,10 @@ export function normalizeAlpacaAccount(account: any) {
 
 export function normalizeAlpacaPosition(position: any) {
   return {
+    assetId: position?.asset_id || null,
     symbol: position?.symbol || "",
     qty: Number(position?.qty ?? 0),
+    qtyAvailable: Number(position?.qty_available ?? position?.qty ?? 0),
     side: position?.side || "",
     marketValue: Number(position?.market_value ?? 0),
     avgEntryPrice: Number(position?.avg_entry_price ?? 0),
@@ -134,6 +143,7 @@ export function normalizeAlpacaPosition(position: any) {
     unrealizedPlpc: Number(position?.unrealized_plpc ?? 0),
     currentPrice: Number(position?.current_price ?? 0),
     changeToday: Number(position?.change_today ?? 0),
+    exchange: position?.exchange || null,
     assetClass: position?.asset_class || "us_equity",
     raw: position,
   };
@@ -293,4 +303,29 @@ export async function upsertBrokerTradeLogs(supabase: any, userId: string, provi
   }
 
   return data || [];
+}
+
+// Resolves the best available broker connection: live first, paper fallback.
+export async function resolveBrokerConnection(supabase: any, userId: string) {
+  const { data: liveConn } = await supabase
+    .from("user_broker_connections")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("provider", "alpaca")
+    .eq("is_paper", false)
+    .maybeSingle();
+
+  if (liveConn) return { connection: liveConn, isPaper: false };
+
+  const { data: paperConn } = await supabase
+    .from("user_broker_connections")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("provider", "alpaca")
+    .eq("is_paper", true)
+    .maybeSingle();
+
+  if (paperConn) return { connection: paperConn, isPaper: true };
+
+  return { connection: null, isPaper: false };
 }

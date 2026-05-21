@@ -2,6 +2,37 @@
 
 Rayla is a React + Vite trading journal, simulation, coaching, and market-intel app backed by Supabase.
 
+## Automated Regression QA
+
+Rayla has a lightweight Playwright regression suite for launch-critical client flows.
+
+Run it with:
+
+```bash
+npm run test:regression
+```
+
+The suite starts the Vite dev server, uses mocked Supabase auth/REST responses for fake QA users, and does not require real user credentials, broker credentials, or real broker orders.
+
+Current coverage:
+- auth shell boot and app-level error boundary fallback
+- scoped Live Simulation history rendering in Performance
+- same-user vs different-user simulation localStorage isolation
+- sign-out cleanup for transient simulation/debug state
+- Picks eligibility for directional finite-R manual and simulation history
+- broker/null-R exclusion from strategy-only analytics, coaching, and Home edge aggregation
+- same-timestamp equity chart normalization
+- manual trade validation for direction, numeric fields, `+1.5R`, `0R`, and duplicate blocking
+- screenshot partial-prefill state reset so stale manual fields do not carry over
+- `parse-screenshot` no-auth and invalid-token 401 security boundary
+
+Intentionally not covered yet:
+- real Supabase sign-up/sign-in email verification
+- real broker refresh/order submission
+- real screenshot OCR success with a brokerage image
+
+Those require external accounts, credentials, or image fixtures and should be handled in a separate controlled QA pass.
+
 ## Alpaca Paper Trading V1
 
 This project now includes a first-pass Alpaca Paper Trading integration for stocks only.

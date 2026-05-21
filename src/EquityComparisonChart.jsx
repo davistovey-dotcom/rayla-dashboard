@@ -111,6 +111,24 @@ function findNearestPoint(points, targetSeconds) {
   return nearest;
 }
 
+function normalizeLineSeriesData(points) {
+  let previousTime = null;
+  return (Array.isArray(points) ? points : [])
+    .filter((point) => Number.isFinite(Number(point?.time)) && Number.isFinite(Number(point?.value)))
+    .sort((a, b) => Number(a.time) - Number(b.time))
+    .map((point) => {
+      let nextTime = Number(point.time);
+      if (previousTime != null && nextTime <= previousTime) {
+        nextTime = previousTime + 1;
+      }
+      previousTime = nextTime;
+      return {
+        ...point,
+        time: nextTime,
+      };
+    });
+}
+
 function readBenchmarkPointValue(point) {
   const value = Number(point?.equity ?? point?.value);
   return Number.isFinite(value) ? value : null;
@@ -396,15 +414,15 @@ export default function EquityComparisonChart({
   useEffect(() => {
     if (!chartRef.current || !equitySeriesRef.current) return;
 
-    equitySeriesRef.current.setData(equityReturnData.map((point) => ({
+    equitySeriesRef.current.setData(normalizeLineSeriesData(equityReturnData.map((point) => ({
       time: point.time,
       value: point.value,
-    })));
-    benchmarkSeriesRef.current?.setData(benchmarkReturnData.map((point) => ({
+    }))));
+    benchmarkSeriesRef.current?.setData(normalizeLineSeriesData(benchmarkReturnData.map((point) => ({
       time: point.time,
       value: point.value,
-    })));
-    anchorSeriesRef.current?.setData(anchorData);
+    }))));
+    anchorSeriesRef.current?.setData(normalizeLineSeriesData(anchorData));
 
     chartRef.current.timeScale().fitContent();
     if (domainBounds) {

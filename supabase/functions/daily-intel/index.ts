@@ -66,7 +66,6 @@ type AssetResult = {
 };
 
 const WIKI_SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies";
-const CRYPTO_SYMBOL_SET = new Set(CRYPTO_UNIVERSE.map((item) => item.symbol));
 const MAX_RAYLA_SYMBOLS = 24;
 const MAX_EQUITY_SCAN_SYMBOLS = 72;
 const MAX_STOCK_NEWS_ENRICHMENT = 36;
@@ -135,6 +134,8 @@ const CRYPTO_UNIVERSE = [
   { symbol: "LINK", name: "Chainlink", yahoo: "LINK-USD", query: "Chainlink crypto" },
   { symbol: "DOT", name: "Polkadot", yahoo: "DOT-USD", query: "Polkadot crypto" },
 ];
+
+const CRYPTO_SYMBOL_SET = new Set(CRYPTO_UNIVERSE.map((item) => item.symbol));
 
 const NEWS_QUERY_MAP: Record<string, string[]> = {
   AMD: ['"Advanced Micro Devices" stock', "AMD stock", '"AMD earnings"'],
@@ -1274,8 +1275,8 @@ Context: ${signalContext}`;
     if (existing.length > 0) {
       const cached = existing[0];
       const isValid =
-  Array.isArray(cached.stock_hot) && cached.stock_hot.length > 0 &&
-  Array.isArray(cached.stock_cold) && cached.stock_cold.length > 0 &&
+  Array.isArray(cached.stock_hot) && cached.stock_hot.length >= 3 &&
+  Array.isArray(cached.stock_cold) && cached.stock_cold.length >= 3 &&
   cached.crypto_hot?.symbol &&
   cached.crypto_hot?.change !== "+0.00%" &&
   cached.stock_hot.some(s => s.change !== "+0.00%" && s.score !== 0);
@@ -1385,7 +1386,6 @@ const scoredStocksRaw = await mapWithConcurrency(topCandidates, 6, async (candid
           return Number(hasRealArticle(b)) - Number(hasRealArticle(a));
         })
       )
-        .filter((item) => item.score >= 0)
         .slice(0, 3);
 
       const stockCold = dedupeBySymbol(
@@ -1399,7 +1399,6 @@ const scoredStocksRaw = await mapWithConcurrency(topCandidates, 6, async (candid
           return Number(hasRealArticle(b)) - Number(hasRealArticle(a));
         })
       )
-        .filter((item) => item.score <= 0)
         .slice(0, 3);
 
       // 6) Crypto news + score (news BEFORE scoring)
@@ -1468,9 +1467,22 @@ const cryptoCold = [...scoredCrypto].sort((a, b) => a.score - b.score).find((ite
 
         
     
+// Ensure correct fields used throughout
+const CRYPTO_SYMBOLS = new Set(CRYPTO_UNIVERSE.map(c => c.symbol));
+const filteredStockHot = stockHot.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));
+const filteredStockCold = stockCold.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));
+// If the crypto-symbol filter dropped items below the target count, fall back to the full pre-filter slice
+const finalStockHot = filteredStockHot.length >= stockHot.length ? filteredStockHot : stockHot.slice(0, 3);
+const finalStockCold = filteredStockCold.length >= stockCold.length ? filteredStockCold : stockCold.slice(0, 3);
+
+// Pick just the top (first) and bottom (first) crypto
+const filteredCrypto = scoredCrypto.filter(asset => CRYPTO_SYMBOLS.has(asset.symbol));
+const cryptoHotFinal = filteredCrypto[0] || null;
+const cryptoColdFinal = filteredCrypto.find(asset => asset.symbol !== cryptoHotFinal?.symbol && asset.score < 0) || filteredCrypto.find(asset => asset.symbol !== cryptoHotFinal?.symbol) || null;
+
     const articleCount = [
-      ...filteredStockHot,
-      ...filteredStockCold,
+      ...finalStockHot,
+      ...finalStockCold,
       cryptoHotFinal,
       cryptoColdFinal,
     ].filter(Boolean).reduce((sum, asset) => sum + ((asset?.rawArticles?.length || 0) > 0 ? 1 : 0), 0);
@@ -1480,25 +1492,17 @@ const cryptoCold = [...scoredCrypto].sort((a, b) => a.score - b.score).find((ite
       scannedStockEtfCount: stockCandidates.length,
       scoredStockEtfCount: topCandidates.length,
       scoredCryptoCount: scoredCrypto.length,
+      stockHotCount: finalStockHot.length,
+      stockColdCount: finalStockCold.length,
       articleCount,
     });
-
-// Ensure correct fields used throughout
-const CRYPTO_SYMBOLS = new Set(CRYPTO_UNIVERSE.map(c => c.symbol));
-const filteredStockHot = stockHot.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));
-const filteredStockCold = stockCold.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));
-
-// Pick just the top (first) and bottom (first) crypto
-const filteredCrypto = scoredCrypto.filter(asset => CRYPTO_SYMBOLS.has(asset.symbol));
-const cryptoHotFinal = filteredCrypto[0] || null;
-const cryptoColdFinal = filteredCrypto.find(asset => asset.symbol !== cryptoHotFinal?.symbol && asset.score < 0) || filteredCrypto.find(asset => asset.symbol !== cryptoHotFinal?.symbol) || null;
 
         return new Response(
   JSON.stringify({
     ok: true,
     report_date: today,
-    stockHot: filteredStockHot,
-    stockCold: filteredStockCold,
+    stockHot: finalStockHot,
+    stockCold: finalStockCold,
     cryptoHot: cryptoHotFinal,
     cryptoCold: cryptoColdFinal,
     db: dbJson,

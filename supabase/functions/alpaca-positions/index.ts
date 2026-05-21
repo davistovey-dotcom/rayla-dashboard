@@ -1,4 +1,4 @@
-import { alpacaPaperRequest, normalizeAlpacaPosition } from "../_shared/alpaca.ts";
+import { alpacaBrokerRequest, normalizeAlpacaPosition, resolveBrokerConnection } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
@@ -8,35 +8,25 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
-    const { data: connection, error } = await supabase
-      .from("user_broker_connections")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("provider", "alpaca")
-      .eq("is_paper", true)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(error.message);
-    }
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id);
 
     if (!connection) {
       return jsonResponse({
         ok: true,
         connected: false,
         provider: "alpaca",
-        isPaper: true,
+        isPaper: false,
         positions: [],
       });
     }
 
-    const positions = await alpacaPaperRequest(connection.access_token, "/v2/positions");
+    const positions = await alpacaBrokerRequest(connection.access_token, "/v2/positions", isPaper);
 
     return jsonResponse({
       ok: true,
       connected: true,
       provider: "alpaca",
-      isPaper: true,
+      isPaper,
       positions: Array.isArray(positions) ? positions.map(normalizeAlpacaPosition) : [],
     });
   } catch (error) {

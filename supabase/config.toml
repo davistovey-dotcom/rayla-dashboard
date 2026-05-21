@@ -21,6 +21,11 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/market-data/index.ts"
 
+[functions.parse-screenshot]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/parse-screenshot/index.ts"
+
 
 [functions.delete-account]
 enabled = true
@@ -67,3 +72,18 @@ entrypoint = "./functions/alpaca-assets/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/alpaca-place-order/index.ts"
+
+[functions.stripe-create-checkout-session]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/stripe-create-checkout-session/index.ts"
+
+[functions.stripe-create-portal-session]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/stripe-create-portal-session/index.ts"
+
+[functions.stripe-webhook]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/stripe-webhook/index.ts"
