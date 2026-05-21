@@ -8497,6 +8497,8 @@ useEffect(() => {
   });
   const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(true);
   const [alpacaOrderPlanMode, setAlpacaOrderPlanMode] = useState("price");
+  const [alpacaOrderSizeMode, setAlpacaOrderSizeMode] = useState("qty");
+  const [alpacaOrderSizeInput, setAlpacaOrderSizeInput] = useState("");
   const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -10302,6 +10304,8 @@ useEffect(() => {
       planStop: alpacaOrderForm.planStop || null,
       planTarget: alpacaOrderForm.planTarget || null,
       planMode: alpacaOrderPlanMode,
+      sizeMode: alpacaOrderSizeMode,
+      sizeInput: alpacaOrderSizeInput || null,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
@@ -18103,89 +18107,188 @@ return (
                               );
                             })()}
                           </div>
-                          <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                            <div>
-                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
-                              <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                {[
-                                  { label: "Long", value: "buy", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
-                                  { label: "Short", value: "short_sell", activeColor: "#f87171", activeBg: "rgba(248,113,113,0.15)", activeBorder: "rgba(248,113,113,0.35)" },
-                                ].map((item) => {
-                                  const active = alpacaOrderForm.side === item.value;
-                                  return (
-                                    <button
-                                      key={item.label}
-                                      type="button"
-                                      onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
-                                      style={{
-                                        padding: "8px 14px",
-                                        borderRadius: 8,
-                                        border: `1px solid ${active ? item.activeBorder : "rgba(255,255,255,0.08)"}`,
-                                        background: active ? item.activeBg : "rgba(255,255,255,0.03)",
-                                        color: active ? item.activeColor : "#94a3b8",
-                                        fontSize: 12,
-                                        fontWeight: 700,
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      {item.label}
-                                    </button>
-                                  );
-                                })}
-                                {alpacaOrderValidation.hasLongPosition && (
+                          <div>
+                            <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
+                            <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {[
+                                { label: "Long", value: "buy", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
+                                { label: "Short", value: "short_sell", activeColor: "#f87171", activeBg: "rgba(248,113,113,0.15)", activeBorder: "rgba(248,113,113,0.35)" },
+                              ].map((item) => {
+                                const active = alpacaOrderForm.side === item.value;
+                                return (
                                   <button
+                                    key={item.label}
                                     type="button"
-                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "sell" }))}
+                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
                                     style={{
                                       padding: "8px 14px",
                                       borderRadius: 8,
-                                      border: `1px solid ${alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
-                                      background: alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
-                                      color: alpacaOrderForm.side === "sell" ? "#fbbf24" : "#64748b",
-                                      fontSize: 11,
+                                      border: `1px solid ${active ? item.activeBorder : "rgba(255,255,255,0.08)"}`,
+                                      background: active ? item.activeBg : "rgba(255,255,255,0.03)",
+                                      color: active ? item.activeColor : "#94a3b8",
+                                      fontSize: 12,
                                       fontWeight: 700,
                                       cursor: "pointer",
                                     }}
                                   >
-                                    Sell to Close
+                                    {item.label}
                                   </button>
-                                )}
-                                {alpacaOrderValidation.hasShortPosition && (
+                                );
+                              })}
+                              {alpacaOrderValidation.hasLongPosition && (
+                                <button
+                                  type="button"
+                                  onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "sell" }))}
+                                  style={{
+                                    padding: "8px 14px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
+                                    background: alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
+                                    color: alpacaOrderForm.side === "sell" ? "#fbbf24" : "#64748b",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Sell to Close
+                                </button>
+                              )}
+                              {alpacaOrderValidation.hasShortPosition && (
+                                <button
+                                  type="button"
+                                  onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "buy_to_cover" }))}
+                                  style={{
+                                    padding: "8px 14px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
+                                    background: alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
+                                    color: alpacaOrderForm.side === "buy_to_cover" ? "#fbbf24" : "#64748b",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Cover Short
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Position Size</div>
+                              {showBeginnerGuidance && <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                              {[
+                                { label: "Qty", value: "qty" },
+                                { label: "$ Amount", value: "dollars" },
+                                { label: "P&L / Risk", value: "risk" },
+                              ].map((m) => {
+                                const active = alpacaOrderSizeMode === m.value;
+                                return (
                                   <button
+                                    key={m.value}
                                     type="button"
-                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "buy_to_cover" }))}
-                                    style={{
-                                      padding: "8px 14px",
-                                      borderRadius: 8,
-                                      border: `1px solid ${alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
-                                      background: alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
-                                      color: alpacaOrderForm.side === "buy_to_cover" ? "#fbbf24" : "#64748b",
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: "pointer",
-                                    }}
+                                    onClick={() => { setAlpacaOrderSizeMode(m.value); setAlpacaOrderSizeInput(""); }}
+                                    style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: active ? "rgba(124,196,255,0.13)" : "transparent", color: active ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
                                   >
-                                    Cover Short
+                                    {m.label}
                                   </button>
-                                )}
-                              </div>
+                                );
+                              })}
                             </div>
-                            <div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                                <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Quantity</div>
-                                {showBeginnerGuidance && <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
-                              </div>
-                              <input
-                                className="authInput"
-                                type="number"
-                                min="0"
-                                step="0.0001"
-                                placeholder="Qty"
-                                value={alpacaOrderForm.qty}
-                                onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
-                              />
-                              {showBeginnerGuidance && tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
-                            </div>
+                            {alpacaOrderSizeMode === "qty" && (
+                              <>
+                                <input
+                                  className="authInput"
+                                  type="number"
+                                  min="0"
+                                  step="0.0001"
+                                  placeholder="Qty"
+                                  value={alpacaOrderForm.qty}
+                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
+                                />
+                                {showBeginnerGuidance && tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
+                              </>
+                            )}
+                            {alpacaOrderSizeMode === "dollars" && (() => {
+                              const price = alpacaOrderValidation.estimatedPrice;
+                              const hasPrice = Number.isFinite(price) && price > 0;
+                              const dollars = Number(alpacaOrderSizeInput);
+                              const estimatedQty = hasPrice && Number.isFinite(dollars) && dollars > 0
+                                ? parseFloat((dollars / price).toFixed(4)) : null;
+                              return (
+                                <>
+                                  <input
+                                    className="authInput"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="Dollar amount (e.g. 1000)"
+                                    value={alpacaOrderSizeInput}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setAlpacaOrderSizeInput(val);
+                                      const d = Number(val);
+                                      if (hasPrice && Number.isFinite(d) && d > 0) {
+                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: String(parseFloat((d / price).toFixed(4))) }));
+                                      }
+                                    }}
+                                  />
+                                  {estimatedQty != null ? (
+                                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{estimatedQty}</span> share(s) at {formatCurrency(price)}
+                                    </div>
+                                  ) : alpacaOrderSizeInput ? (
+                                    <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 6 }}>Waiting for price data to estimate quantity.</div>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
+                            {alpacaOrderSizeMode === "risk" && (() => {
+                              const price = alpacaOrderValidation.estimatedPrice;
+                              const planStopNum = Number(alpacaOrderForm.planStop);
+                              const hasPriceStop = alpacaOrderPlanMode === "price" && Number.isFinite(planStopNum) && planStopNum > 0 && Number.isFinite(price) && price > 0;
+                              const riskPerShare = hasPriceStop ? Math.abs(price - planStopNum) : null;
+                              const riskDollars = Number(alpacaOrderSizeInput);
+                              const estimatedQty = hasPriceStop && riskPerShare > 0 && Number.isFinite(riskDollars) && riskDollars > 0
+                                ? parseFloat((riskDollars / riskPerShare).toFixed(4)) : null;
+                              return (
+                                <>
+                                  <input
+                                    className="authInput"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="Planned risk ($, e.g. 100)"
+                                    value={alpacaOrderSizeInput}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setAlpacaOrderSizeInput(val);
+                                      const rd = Number(val);
+                                      const currentPrice = alpacaOrderValidation.estimatedPrice;
+                                      const currentPlanStop = Number(alpacaOrderForm.planStop);
+                                      const currentHasPriceStop = alpacaOrderPlanMode === "price" && Number.isFinite(currentPlanStop) && currentPlanStop > 0 && Number.isFinite(currentPrice) && currentPrice > 0;
+                                      const currentRiskPerShare = currentHasPriceStop ? Math.abs(currentPrice - currentPlanStop) : null;
+                                      if (currentRiskPerShare && currentRiskPerShare > 0 && Number.isFinite(rd) && rd > 0) {
+                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: String(parseFloat((rd / currentRiskPerShare).toFixed(4))) }));
+                                      }
+                                    }}
+                                  />
+                                  {estimatedQty != null && Number.isFinite(riskDollars) && riskDollars > 0 ? (
+                                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{estimatedQty}</span> share(s) · {formatCurrency(riskPerShare)}/share risk
+                                    </div>
+                                  ) : (
+                                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                                      {alpacaOrderPlanMode === "pnl"
+                                        ? "Switch Exit Plan to Price mode and set a stop price to size from risk."
+                                        : "Set a stop price in Exit Plan (Price mode) to size from planned risk."}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                           <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
