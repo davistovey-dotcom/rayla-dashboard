@@ -1839,7 +1839,7 @@ function buildQuoteSnapshotFromChart(chart) {
     change: Number.isFinite(baseline) && baseline > 0
       ? ((price - baseline) / baseline) * 100
       : null,
-    updatedAt: String(lastBar?.time || lastBar?.t || new Date().toISOString()),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -18189,7 +18189,7 @@ return (
                                   <button
                                     key={m.value}
                                     type="button"
-                                    onClick={() => { setAlpacaOrderSizeMode(m.value); setAlpacaOrderSizeInput(""); }}
+                                    onClick={() => { setAlpacaOrderSizeMode(m.value); setAlpacaOrderSizeInput(""); if (m.value !== "qty") setAlpacaOrderForm((prev) => ({ ...prev, qty: "" })); }}
                                     style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: active ? "rgba(124,196,255,0.13)" : "transparent", color: active ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
                                   >
                                     {m.label}
@@ -18215,8 +18215,8 @@ return (
                               const price = alpacaOrderValidation.estimatedPrice;
                               const hasPrice = Number.isFinite(price) && price > 0;
                               const dollars = Number(alpacaOrderSizeInput);
-                              const estimatedQty = hasPrice && Number.isFinite(dollars) && dollars > 0
-                                ? parseFloat((dollars / price).toFixed(4)) : null;
+                              const derivedQty = hasPrice && Number.isFinite(dollars) && dollars > 0
+                                ? parseFloat((dollars / price).toFixed(8)) : null;
                               return (
                                 <>
                                   <input
@@ -18231,13 +18231,15 @@ return (
                                       setAlpacaOrderSizeInput(val);
                                       const d = Number(val);
                                       if (hasPrice && Number.isFinite(d) && d > 0) {
-                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: String(parseFloat((d / price).toFixed(4))) }));
+                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: String(parseFloat((d / price).toFixed(8))) }));
+                                      } else {
+                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: "" }));
                                       }
                                     }}
                                   />
-                                  {estimatedQty != null ? (
+                                  {derivedQty != null ? (
                                     <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{estimatedQty}</span> share(s) at {formatCurrency(price)}
+                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{derivedQty}</span> at {formatCurrency(price)}
                                     </div>
                                   ) : alpacaOrderSizeInput ? (
                                     <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 6 }}>Waiting for price data to estimate quantity.</div>
@@ -18369,15 +18371,21 @@ return (
                               </div>
                             )}
                           </div>
-                          {alpacaOrderValidation.estimatedValue != null ? (
-                            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                              Estimated order value: <span style={{ color: "#e2e8f0" }}>{formatCurrency(alpacaOrderValidation.estimatedValue)}</span>
-                            </div>
-                          ) : preparedCloseOrder ? (
-                            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                              Market close order. Estimated value unavailable until fill.
-                            </div>
-                          ) : null}
+                          {(() => {
+                            const dollarInput = Number(alpacaOrderSizeInput);
+                            const displayValue = alpacaOrderSizeMode === "dollars" && Number.isFinite(dollarInput) && dollarInput > 0
+                              ? dollarInput
+                              : alpacaOrderValidation.estimatedValue;
+                            return displayValue != null ? (
+                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                                Estimated order value: <span style={{ color: "#e2e8f0" }}>{formatCurrency(displayValue)}</span>
+                              </div>
+                            ) : preparedCloseOrder ? (
+                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
+                                Market close order. Estimated value unavailable until fill.
+                              </div>
+                            ) : null;
+                          })()}
                           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
                             <button
                               type="button"
