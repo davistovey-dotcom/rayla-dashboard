@@ -528,10 +528,10 @@ export default function EquityComparisonChart({
   };
 
   return (
-    <div style={wrapStyle}>
-      <div ref={containerRef} style={canvasStyle} />
+    <div className="equityComparisonChart" style={wrapStyle}>
+      <div ref={containerRef} className="equityComparisonChartCanvas" style={canvasStyle} />
       {fallbackPoint ? (
-        <div style={tooltipStyle}>
+        <div className="equityComparisonChartTooltip" style={tooltipStyle}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#f8fbff" }}>{fallbackPoint.dateLabel}</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#7cc4ff", letterSpacing: "-0.02em" }}>
             {fallbackPoint.yourReturnPct == null ? "--" : formatPct(fallbackPoint.yourReturnPct)}
@@ -554,7 +554,7 @@ export default function EquityComparisonChart({
           </div>
         </div>
       ) : null}
-      <div style={legendStyle}>
+      <div className="equityComparisonChartLegend" style={legendStyle}>
         <span style={legendItemStyle}>
           <span style={{ ...legendLineBaseStyle, borderTopColor: "#7cc4ff" }} />
           Your Return %

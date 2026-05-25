@@ -30,6 +30,10 @@ html, body, #root {
   overflow-x: hidden;
   background: #0b1017;
   font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -41,7 +45,26 @@ body {
   -webkit-fill-available: #0b1017;
 }
 
-button, input, select, textarea, label, table, th, td, nav, a { font: inherit; }
+button,
+input,
+select,
+option,
+optgroup,
+textarea,
+label,
+table,
+th,
+td,
+nav,
+a {
+  font: inherit;
+  font-family: var(--font-sans);
+}
+
+::placeholder {
+  font-family: var(--font-sans);
+}
+
 button { -webkit-tap-highlight-color: transparent; }
 select {
   color-scheme: dark;
@@ -105,6 +128,22 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .ghostButton:disabled {
   opacity: 0.56;
   cursor: not-allowed;
+}
+
+.raylaAskTypography,
+.raylaAskTypography *,
+.raylaLaunchButton,
+.raylaLaunchButton span,
+.askRaylaHeadline {
+  font-family: var(--font-sans) !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.raylaAskTypography,
+.raylaLaunchButton,
+.raylaLaunchButton span {
+  font-weight: 700 !important;
 }
 
 .ghostButton.loading {
@@ -483,6 +522,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   min-width: 0;
   overflow: hidden;
   border-radius: 12px;
+  font-family: var(--font-sans);
 }
 
 .interactiveLineChartCanvas {
@@ -547,6 +587,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   color: #d7efff;
   font-size: 11px;
   font-weight: 800;
+  font-family: var(--font-sans);
   cursor: pointer;
   backdrop-filter: blur(10px);
 }
@@ -821,7 +862,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   min-width: 0;
 }
 
-.listTitle { font-size: 14px; font-weight: 650; color: #edf4fb; }
+.listTitle { font-size: 14px; font-weight: 700; color: #edf4fb; }
 .listSubtext { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
 .pill {
@@ -938,7 +979,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .authBrand { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: #7dd3fc; margin-bottom: 10px; }
-.authTitle { margin: 0 0 26px; font-size: 27px; line-height: 1.08; color: #f8fafc; text-align: center; font-weight: 650; }
+.authTitle { margin: 0 0 26px; font-size: 27px; line-height: 1.08; color: #f8fafc; text-align: center; font-weight: 700; }
 .authSubtitle { margin: 10px 0 24px; color: #94a3b8; font-size: 15px; line-height: 1.5; }
 .authForm { display: flex; flex-direction: column; gap: 10px; }
 .authLabel { font-size: 12px; font-weight: 600; color: #9aa7b8; margin-top: 6px; }
@@ -950,6 +991,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   color: #f8fafc;
   border-radius: 12px;
   padding: 13px 14px;
+  font-family: var(--font-sans);
   font-size: 15px;
   outline: none;
   transition: border-color 0.18s ease, background 0.18s ease;
@@ -972,7 +1014,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .authPrimaryButton { background: rgba(248,250,252,0.94); color: #0b1017; border: 1px solid rgba(248,250,252,0.18); }
-.authSecondaryButton { background: transparent; color: #8fb7d2; border: 1px solid transparent; margin-top: 2px; font-weight: 650; }
+.authSecondaryButton { background: transparent; color: #8fb7d2; border: 1px solid transparent; margin-top: 2px; font-weight: 700; }
 .authPrimaryButton:hover { background: #ffffff; border-color: rgba(248,250,252,0.34); }
 .authSecondaryButton:hover { color: #cfeeff; background: rgba(124,196,255,0.045); }
 .authPrimaryButton:disabled, .authSecondaryButton:disabled { opacity: 0.65; cursor: not-allowed; }
@@ -1029,10 +1071,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .tradeEntryRow button, .tradeEntryRow label { width: 100%; }
 
 .mobileNav {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
   display: none;
   justify-content: space-around;
   align-items: center;
@@ -1041,12 +1083,20 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid rgba(255,255,255,0.08);
-  z-index: 9999;
+  z-index: 2147483647 !important;
   min-height: 78px;
+  font-family: var(--font-sans);
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  transform: translateZ(0);
+  isolation: isolate;
+  will-change: transform;
+  contain: layout paint;
 }
 
 .mobileNav button {
   flex: 1;
+  min-height: 54px;
   padding: 6px 0;
   display: flex;
   flex-direction: column;
@@ -1056,10 +1106,16 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   background: none;
   border: none;
   color: #7f8ea3;
+  font-family: var(--font-sans);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 .mobileNav button.active { color: #7CC4FF; }
@@ -1166,6 +1222,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   color: #9fb0cc;
   padding: 8px 12px;
   border-radius: 999px;
+  font-family: var(--font-sans);
   font-size: 0.8rem;
   cursor: pointer;
   white-space: nowrap;
@@ -1182,6 +1239,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   border-radius: 10px;
   padding: 6px 10px;
   cursor: pointer;
+  font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1367,10 +1425,65 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   }
 
   .topbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
+    position: relative;
+    min-height: 38px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
     margin-bottom: 14px;
+  }
+
+  .topbar > div:first-child {
+    width: 100%;
+  }
+
+  .mobilePageHeader {
+    position: relative !important;
+    min-height: 38px;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-bottom: 14px !important;
+  }
+
+  .mobilePageTitle {
+    display: block;
+    width: 100%;
+    margin: 0 !important;
+    color: #cbd8e6 !important;
+    font-family: var(--font-sans) !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.06em !important;
+    line-height: 1.2 !important;
+    text-align: center !important;
+    text-transform: uppercase !important;
+  }
+
+  .mobilePageHeader .mobilePageTitle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: min(56vw, 220px);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .mobilePageHeader .raylaLaunchButton {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 1;
+  }
+
+  .topbar.mobilePageHeader {
+    padding: 0;
+  }
+
+  .topbar.mobilePageHeader > div:first-child {
+    width: 100%;
   }
 
   h1 { margin: 4px 0; font-size: 26px; }
@@ -1388,6 +1501,44 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .equityChart { height: 300px; }
   .equityCard { min-height: unset; height: auto; }
+  .equityChart:has(.equityComparisonChart) {
+    height: auto;
+    overflow: visible;
+    padding: 10px;
+  }
+  .equityComparisonChart {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+    background: linear-gradient(180deg, rgba(13,17,23,0.92), rgba(15,23,34,0.98)) !important;
+  }
+  .equityComparisonChartCanvas {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: 230px !important;
+    min-height: 230px;
+    order: 1;
+  }
+  .equityComparisonChartTooltip {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    max-width: none !important;
+    width: 100%;
+    order: 2;
+    pointer-events: none;
+  }
+  .equityComparisonChartLegend {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    order: 3;
+  }
   .mainGrid > .span6, .mainGrid > .span4, .mainGrid > .span12 { display: block; width: 100%; min-width: 0; overflow: hidden; }
   .mainGrid > .span6 > *, .mainGrid > .span4 > *, .mainGrid > .span12 > * { width: 100%; min-width: 0; }
 
@@ -1416,7 +1567,27 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .intelDriverTags { display: none; }
 
-  .mobileNav { display: flex; }
+  .mobileNav {
+    display: flex;
+    gap: 2px;
+    padding: 9px 6px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .mobileNav button {
+    min-width: 0;
+    min-height: 54px;
+    padding: 5px 1px;
+    gap: 3px;
+  }
+
+  .mobileNav button span {
+    max-width: 100%;
+    font-size: 8.5px;
+    line-height: 1.05;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-align: center;
+  }
 
   .marketLayout {
     grid-template-columns: 120px 1fr;
@@ -1461,6 +1632,103 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     min-width: 100px;
     flex-shrink: 0;
   }
+
+  .scenarioChartHeaderRow,
+  .scenarioChartControlArea,
+  .scenarioChartToolbarStack,
+  .scenarioChartActionToolbar,
+  .scenarioModeToolbar,
+  .scenarioDrawingToolbarWide,
+  .scenarioPlaybackButton {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .scenarioChartControlArea,
+  .scenarioChartToolbarStack {
+    flex: 1 1 100% !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+
+  .scenarioChartControlArea,
+  .scenarioDrawingToolbarWide {
+    flex-direction: column;
+  }
+
+  .scenarioChartToolbarStack {
+    flex-direction: column;
+  }
+
+  .scenarioChartActionToolbar {
+    display: flex !important;
+    flex-direction: column;
+    gap: 6px !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+
+  .scenarioChartActionToolbar button {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .scenarioModeToolbar,
+  .scenarioDrawingToolbarWide {
+    flex: 1 1 auto !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+
+  .scenarioModeToolbar {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px !important;
+    min-width: 0 !important;
+    padding: 4px !important;
+    overflow: hidden;
+  }
+
+  .scenarioModeToolbar .raylaDropdown,
+  .scenarioModeToolbar > div,
+  .scenarioModeToolbar .ghostButton {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .scenarioModeToolbar .raylaDropdownButton {
+    min-height: 32px !important;
+    padding: 5px 10px !important;
+    font-size: 10px !important;
+    border-radius: 6px !important;
+  }
+
+  .scenarioModeToolbar > div {
+    display: flex !important;
+  }
+
+  .scenarioModeToolbar > div .ghostButton {
+    flex: 1 1 0 !important;
+    min-height: 32px;
+    padding: 5px 6px !important;
+  }
+
+  .scenarioDrawingToolbarWide {
+    display: flex !important;
+    gap: 6px !important;
+  }
+
+  .scenarioDrawingToolbarWide .ghostButton,
+  .scenarioPlaybackButton {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
 }
 
 @keyframes fadeSlideIn {
@@ -1580,9 +1848,54 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 @media (max-width: 600px) {
+  /* Performance chart — stack sidebar above chart so chart gets full width */
+  .performanceHistoryGrid {
+    grid-template-columns: 1fr !important;
+    min-height: 0 !important;
+    gap: 12px !important;
+  }
+
+  /* Sidebar: auto height on mobile, capped asset list */
+  .performanceHistorySidebar {
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .performanceHistoryAssetList {
+    max-height: 150px !important;
+    overflow-y: auto !important;
+  }
+
+  /* Tighten chart box inner padding on mobile */
+  .performanceHistoryChartBox {
+    padding: 12px 10px 14px !important;
+  }
+
+  /* Give x-axis labels a few extra pixels of breathing room on mobile */
+  .performanceHistoryEngineChart .interactiveLineChartCanvas {
+    inset: 46px 10px 6px 8px !important;
+  }
+}
+
+@media (max-width: 600px) {
   .tradeMobileScope {
     gap: 14px;
     overflow-x: hidden !important;
+  }
+
+  .tradePageHeader {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 12px;
+    margin-bottom: 14px !important;
+  }
+
+  .tradePageHeader .raylaLaunchButton {
+    flex: 0 0 auto;
+    margin-left: 0;
+    padding: 7px 10px !important;
+    font-size: 11px !important;
   }
 
   .tradeMobileScope .cardBody {
@@ -1638,11 +1951,11 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     order: 1 !important;
   }
 
-  .tradeOrderTicket {
+  .tradePositionsPanel {
     order: 2 !important;
   }
 
-  .tradePositionsPanel {
+  .tradeOrderTicket {
     order: 3 !important;
   }
 
@@ -1654,18 +1967,20 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .tradePortfolioButton,
   .tradePositionRow {
-    min-height: 74px;
+    min-height: 0;
+    padding: 9px !important;
   }
 
   .tradePositionRow > div:first-child {
-    align-items: flex-start !important;
-    flex-direction: column;
+    align-items: center !important;
+    flex-direction: row !important;
   }
 
   .tradeCloseButton {
-    width: 100%;
-    padding: 10px 12px !important;
-    font-size: 12px !important;
+    width: auto;
+    min-height: 28px !important;
+    padding: 5px 8px !important;
+    font-size: 10px !important;
   }
 
   .tradeLiveChartBox {
@@ -1722,6 +2037,7 @@ select.authInput,
 .tradeForm select {
   appearance: none;
   -webkit-appearance: none;
+  font-family: var(--font-sans);
   background-color: rgba(10,16,28,0.88);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7' fill='none'%3E%3Cpath d='M1 1L5.5 6L10 1' stroke='%23627283' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -1753,6 +2069,7 @@ select.authInput option,
 .tradeForm select option {
   background: #0b1220;
   color: #e2e8f0;
+  font-family: var(--font-sans);
 }
 
 .raylaDropdown {
@@ -1761,6 +2078,7 @@ select.authInput option,
   min-width: 0;
   color: #e7eef7;
   font: inherit;
+  font-family: var(--font-sans);
 }
 
 .raylaDropdownButton {
@@ -1776,6 +2094,7 @@ select.authInput option,
   background:
     linear-gradient(180deg, rgba(18,27,44,0.96), rgba(10,16,28,0.96));
   color: #e7eef7;
+  font-family: var(--font-sans);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.035), 0 10px 24px rgba(2,6,23,0.10);
   cursor: pointer;
   text-align: left;
@@ -1847,6 +2166,7 @@ select.authInput option,
   background:
     linear-gradient(180deg, rgba(11,18,31,0.99), rgba(6,11,20,0.99));
   box-shadow: 0 22px 48px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.055);
+  font-family: var(--font-sans);
 }
 
 .raylaDropdown.compact .raylaDropdownMenu {
@@ -1864,6 +2184,7 @@ select.authInput option,
   padding: 9px 10px;
   background: transparent;
   color: #b9c6d6;
+  font-family: var(--font-sans);
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
@@ -1904,6 +2225,7 @@ select.authInput option,
   padding: 8px 10px;
   background: rgba(255,255,255,0.035);
   color: #e2e8f0;
+  font-family: var(--font-sans);
   font-size: 12px;
   outline: none;
 }
@@ -1925,8 +2247,7 @@ select.authInput option,
   border-radius: 8px;
   padding: 7px 28px 7px 11px;
   color: #c4d0de;
-  font-size: 13px;
-  font: inherit;
+  font-family: var(--font-sans);
   font-size: 13px;
   cursor: pointer;
   outline: none;

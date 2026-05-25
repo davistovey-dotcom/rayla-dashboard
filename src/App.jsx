@@ -508,6 +508,18 @@ function isPopulatedIntelReport(report) {
   return hasStockHot && hasStockCold && hasCryptoHot && hasCryptoCold;
 }
 
+function hasUsableIntelMoveData(report) {
+  if (!isPopulatedIntelReport(report)) return false;
+  const stockAssets = [
+    ...(report.stockHot || []),
+    ...(report.stockCold || []),
+  ].filter(Boolean);
+  return stockAssets.some((asset) => {
+    const change = Number(String(asset?.change || "").replace(/[%+,]/g, "").trim());
+    return Number.isFinite(change) && Math.abs(change) > 0.005;
+  });
+}
+
 const marketSeeds = [
   { id: "BTC", type: "crypto", label: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", fallbackPrice: "64,210", fallbackChange: "+1.2%", alpacaSupported: true, tradable: true },
   { id: "ETH", type: "crypto", label: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", fallbackPrice: "3,120", fallbackChange: "+0.9%", alpacaSupported: true, tradable: true },
@@ -833,10 +845,35 @@ function normalizePickAssetSymbol(value) {
   return compact || raw;
 }
 
+function brokerSymbolsMatch(a, b) {
+  const left = normalizePickAssetSymbol(a);
+  const right = normalizePickAssetSymbol(b);
+  return Boolean(left && right && left === right);
+}
+
+function findBrokerPositionBySymbol(positions, symbol) {
+  return (positions || []).find((position) => brokerSymbolsMatch(position?.symbol, symbol)) || null;
+}
+
+function brokerSelectionIncludesSymbol(symbols, symbol) {
+  return (symbols || []).some((item) => brokerSymbolsMatch(item, symbol));
+}
+
+function formatBrokerQuantity(value) {
+  const qty = Math.abs(Number(value));
+  if (!Number.isFinite(qty)) return "--";
+  if (qty === 0) return "0";
+  if (qty < 1) return Number.parseFloat(qty.toFixed(8)).toString();
+  if (!Number.isInteger(qty)) return Number.parseFloat(qty.toFixed(6)).toString();
+  return String(qty);
+}
+
 function getTradeOutcomeValue(trade) {
+  const resultR = parsePickResultR(trade);
+  if (!trade?.isBrokerTrade && !isBrokerImportSetup(trade?.setup) && resultR != null) return resultR;
   const pnlValue = Number(trade?.pnl_value);
   if (Number.isFinite(pnlValue)) return pnlValue;
-  return parseTradeResult(trade?.result_r);
+  return resultR != null ? resultR : 0;
 }
 
 function getTradeProfitValue(trade) {
@@ -1214,13 +1251,56 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
   });
 }
 
-function getBrokerOrderStatusPresentation(rawStatus, submittedAt = null) {
-  const status = String(rawStatus || "").trim().toLowerCase();
-  const submittedMs = submittedAt ? new Date(submittedAt).getTime() : null;
+function getBrokerOrderStatusValue(orderOrStatus) {
+  if (orderOrStatus && typeof orderOrStatus === "object") {
+    return String(orderOrStatus.status || orderOrStatus.raw_payload?.status || orderOrStatus.raw?.status || "").trim().toLowerCase();
+  }
+  return String(orderOrStatus || "").trim().toLowerCase();
+}
+
+function getBrokerOrderSubmittedAt(orderOrStatus, fallbackSubmittedAt = null) {
+  if (orderOrStatus && typeof orderOrStatus === "object") {
+    return orderOrStatus.submitted_at || orderOrStatus.submittedAt || orderOrStatus.raw_payload?.submitted_at || orderOrStatus.raw?.submitted_at || fallbackSubmittedAt;
+  }
+  return fallbackSubmittedAt;
+}
+
+function getBrokerOrderFilledAt(order) {
+  if (!order || typeof order !== "object") return null;
+  return order.filled_at || order.filledAt || order.raw_payload?.filled_at || order.raw?.filled_at || null;
+}
+
+function getBrokerOrderQty(order) {
+  if (!order || typeof order !== "object") return null;
+  const qty = Number(order.qty ?? order.quantity ?? order.raw_payload?.qty ?? order.raw?.qty);
+  return Number.isFinite(qty) ? Math.abs(qty) : null;
+}
+
+function getBrokerOrderFilledQty(order) {
+  if (!order || typeof order !== "object") return null;
+  const qty = Number(order.filled_qty ?? order.filledQty ?? order.raw_payload?.filled_qty ?? order.raw?.filled_qty);
+  return Number.isFinite(qty) ? Math.abs(qty) : null;
+}
+
+function isBrokerOrderFullyFilled(orderOrStatus) {
+  const status = getBrokerOrderStatusValue(orderOrStatus);
+  if (status === "filled") return true;
+  if (!orderOrStatus || typeof orderOrStatus !== "object") return false;
+  const filledAt = getBrokerOrderFilledAt(orderOrStatus);
+  const filledQty = getBrokerOrderFilledQty(orderOrStatus);
+  const qty = getBrokerOrderQty(orderOrStatus);
+  if (filledAt && (!Number.isFinite(qty) || !Number.isFinite(filledQty) || filledQty >= qty - 0.0001)) return true;
+  return Number.isFinite(qty) && qty > 0 && Number.isFinite(filledQty) && filledQty >= qty - 0.0001;
+}
+
+function getBrokerOrderStatusPresentation(orderOrStatus, submittedAt = null) {
+  const status = getBrokerOrderStatusValue(orderOrStatus);
+  const resolvedSubmittedAt = getBrokerOrderSubmittedAt(orderOrStatus, submittedAt);
+  const submittedMs = resolvedSubmittedAt ? new Date(resolvedSubmittedAt).getTime() : null;
   const ageMs = Number.isFinite(submittedMs) ? Date.now() - submittedMs : null;
   const isStaleOpenOrder = Number.isFinite(ageMs) && ageMs > 24 * 60 * 60 * 1000;
 
-  if (status === "filled") {
+  if (isBrokerOrderFullyFilled(orderOrStatus)) {
     return { label: "Order filled", color: "#4ade80", background: "rgba(74,222,128,0.12)", border: "rgba(74,222,128,0.24)" };
   }
   if (status === "partially_filled") {
@@ -1245,12 +1325,12 @@ function getBrokerOrderStatusPresentation(rawStatus, submittedAt = null) {
     return { label: "Order expired", color: "#94a3b8", background: "rgba(148,163,184,0.12)", border: "rgba(148,163,184,0.24)" };
   }
 
-  return { label: rawStatus || "Status unavailable", color: "#cbd5e1", background: "rgba(203,213,225,0.08)", border: "rgba(203,213,225,0.16)" };
+  return { label: status || "Status unavailable", color: "#cbd5e1", background: "rgba(203,213,225,0.08)", border: "rgba(203,213,225,0.16)" };
 }
 
-function getBrokerOrderStatusKind(rawStatus) {
-  const status = String(rawStatus || "").trim().toLowerCase();
-  if (status === "filled") return "filled";
+function getBrokerOrderStatusKind(orderOrStatus) {
+  const status = getBrokerOrderStatusValue(orderOrStatus);
+  if (isBrokerOrderFullyFilled(orderOrStatus)) return "filled";
   if (status === "canceled" || status === "rejected" || status === "expired") return "failed";
   if (status === "partially_filled") return "partial";
   if (status === "accepted" || status === "new" || status === "pending_new" || status === "done_for_day") return "pending";
@@ -1260,27 +1340,37 @@ function getBrokerOrderStatusKind(rawStatus) {
 function findMatchingBrokerOrder(orders, submittedOrder) {
   if (!submittedOrder) return null;
   const submittedId = submittedOrder.id || submittedOrder.broker_order_id;
-  const submittedSymbol = String(submittedOrder.symbol || "").trim().toUpperCase();
+  const submittedSymbol = submittedOrder.symbol;
   const submittedSide = String(submittedOrder.side || "").trim().toLowerCase();
-  return (orders || []).find((order) => {
-    if (submittedId && (order.broker_order_id === submittedId || order.id === submittedId)) return true;
+  const matches = (orders || []).filter((order) => {
+    if (submittedId && (order.broker_order_id === submittedId || order.id === submittedId || order.raw_payload?.id === submittedId)) return true;
     return (
-      submittedSymbol
-      && submittedSymbol === String(order.symbol || "").trim().toUpperCase()
+      brokerSymbolsMatch(submittedSymbol, order?.symbol)
       && (!submittedSide || submittedSide === String(order.side || "").trim().toLowerCase())
     );
-  }) || null;
+  });
+  if (!matches.length) return null;
+  const exactIdMatch = submittedId
+    ? matches.find((order) => order.broker_order_id === submittedId || order.id === submittedId || order.raw_payload?.id === submittedId)
+    : null;
+  if (exactIdMatch) return exactIdMatch;
+  return [...matches].sort((a, b) => {
+    const filledDelta = Number(isBrokerOrderFullyFilled(b)) - Number(isBrokerOrderFullyFilled(a));
+    if (filledDelta !== 0) return filledDelta;
+    const aTime = new Date(getBrokerOrderSubmittedAt(a) || getBrokerOrderFilledAt(a) || 0).getTime() || 0;
+    const bTime = new Date(getBrokerOrderSubmittedAt(b) || getBrokerOrderFilledAt(b) || 0).getTime() || 0;
+    return bTime - aTime;
+  })[0] || null;
 }
 
 function getPendingCloseOrderForPosition(orders, position) {
   if (!position?.symbol) return null;
-  const symbol = String(position.symbol || "").trim().toUpperCase();
   const closeSide = position?.side === "short" ? "buy" : "sell";
   return (orders || []).find((order) => {
-    const statusKind = getBrokerOrderStatusKind(order?.status);
+    const statusKind = getBrokerOrderStatusKind(order);
     if (statusKind !== "pending" && statusKind !== "partial") return false;
     return (
-      String(order?.symbol || "").trim().toUpperCase() === symbol
+      brokerSymbolsMatch(order?.symbol, position.symbol)
       && String(order?.side || "").trim().toLowerCase() === closeSide
     );
   }) || null;
@@ -1288,11 +1378,10 @@ function getPendingCloseOrderForPosition(orders, position) {
 
 function getLastFailedCloseOrderForPosition(orders, position) {
   if (!position?.symbol) return null;
-  const symbol = String(position.symbol || "").trim().toUpperCase();
   const closeSide = position?.side === "short" ? "buy" : "sell";
   return (orders || []).find((order) => (
-    getBrokerOrderStatusKind(order?.status) === "failed"
-    && String(order?.symbol || "").trim().toUpperCase() === symbol
+    getBrokerOrderStatusKind(order) === "failed"
+    && brokerSymbolsMatch(order?.symbol, position.symbol)
     && String(order?.side || "").trim().toLowerCase() === closeSide
   )) || null;
 }
@@ -1333,6 +1422,11 @@ function getAlpacaOrderActionLabel(action) {
   if (action === "buy_to_cover") return "Buy to Cover";
   if (action === "sell") return "Sell";
   return "Buy";
+}
+
+function getAlpacaCloseActionLabel(action) {
+  if (action === "buy_to_cover") return "Buy to Cover";
+  return "Sell to Close";
 }
 
 async function getSupabaseFunctionErrorMessage(error, fallback = "Request failed.") {
@@ -2193,8 +2287,9 @@ function buildTradePortfolioTicks(rangeStartMs, rangeEndMs, range) {
   return deduped;
 }
 
-function resolveTradePortfolioEntryTime(position, brokerTradeLog, manualTrades = []) {
+function resolveTradePortfolioEntryTime(position, brokerTradeLog) {
   const symbol = String(position?.symbol || "").trim().toUpperCase();
+  const normalizedSymbol = normalizePickAssetSymbol(symbol);
   if (!symbol) return { timeMs: null, source: null };
 
   const directCandidates = [
@@ -2214,7 +2309,7 @@ function resolveTradePortfolioEntryTime(position, brokerTradeLog, manualTrades =
   }
 
   const matchingBrokerFills = (brokerTradeLog || [])
-    .filter((trade) => String(trade?.symbol || "").trim().toUpperCase() === symbol)
+    .filter((trade) => normalizePickAssetSymbol(trade?.symbol) === normalizedSymbol)
     .filter((trade) => {
       const status = String(trade?.status || "").toLowerCase();
       return trade?.filled_at && (status === "filled" || status === "partially_filled");
@@ -2263,23 +2358,56 @@ function resolveTradePortfolioEntryTime(position, brokerTradeLog, manualTrades =
     }
   }
 
-  const matchingManualEntries = (manualTrades || [])
-    .filter((trade) => {
-      const tradeSymbol = String(trade?.symbol || trade?.asset || "").trim().toUpperCase();
-      return tradeSymbol === symbol;
-    })
-    .map((trade) => {
-      const entryTimeMs = new Date(trade?.entry_time || "").getTime();
-      return Number.isFinite(entryTimeMs) ? entryTimeMs : null;
-    })
-    .filter(Number.isFinite)
-    .sort((a, b) => b - a);
+  return { timeMs: null, source: null };
+}
 
-  if (matchingManualEntries.length) {
-    return { timeMs: matchingManualEntries[0], source: "manual_trade_entry_time" };
+function buildBrokerPositionCurveBars({ position, rawBars, entryTimeMs, requestedStartMs, nowMs }) {
+  const normalizedBars = (Array.isArray(rawBars) ? rawBars : [])
+    .map((bar) => {
+      const barTime = new Date(bar?.time || bar?.t || 0).getTime();
+      const close = Number(bar?.close);
+      return Number.isFinite(barTime) && Number.isFinite(close) && close > 0
+        ? { ...bar, barTime, close }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.barTime - b.barTime);
+  const clippedStartMs = Math.max(
+    Number.isFinite(requestedStartMs) ? requestedStartMs : normalizedBars[0]?.barTime ?? 0,
+    Number.isFinite(entryTimeMs) ? entryTimeMs : Number.isFinite(requestedStartMs) ? requestedStartMs : 0
+  );
+  const filteredBars = normalizedBars.filter((bar) => bar.barTime >= clippedStartMs);
+  const avgEntryPrice = Number(position?.avgEntryPrice);
+  const currentPrice = Number(position?.currentPrice);
+  const currentTimeMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const pointsByTime = new Map();
+
+  filteredBars.forEach((bar) => {
+    pointsByTime.set(bar.barTime, { ...bar, source: "market_bar" });
+  });
+
+  if (Number.isFinite(entryTimeMs) && Number.isFinite(avgEntryPrice) && avgEntryPrice > 0) {
+    const firstPointTime = Math.min(...[...pointsByTime.keys()].filter(Number.isFinite));
+    if (!Number.isFinite(firstPointTime) || firstPointTime >= entryTimeMs) {
+      pointsByTime.set(entryTimeMs, {
+        time: new Date(entryTimeMs).toISOString(),
+        barTime: entryTimeMs,
+        close: avgEntryPrice,
+        source: "broker_avg_entry",
+      });
+    }
   }
 
-  return { timeMs: null, source: null };
+  if (Number.isFinite(currentPrice) && currentPrice > 0) {
+    pointsByTime.set(currentTimeMs, {
+      time: new Date(currentTimeMs).toISOString(),
+      barTime: currentTimeMs,
+      close: currentPrice,
+      source: "broker_current_price",
+    });
+  }
+
+  return [...pointsByTime.values()].sort((a, b) => a.barTime - b.barTime);
 }
 
 function roundMetric(value, digits = 2) {
@@ -3813,27 +3941,55 @@ const PERF_SELECT_STYLE = {
 
 const MY_TRADES_HELP = {
   buyingPower: {
-    title: "Buying Power",
+    title: "Live Buying Power",
     body: "Cash your broker allows for new positions — includes margin if your account has it.",
+  },
+  homeOverview: {
+    title: "Home Overview",
+    body: "Total P/L is the dollar amount made or lost across tracked trades with price data. Total Portfolio Return is return on deployed capital from the same analytics set. Detailed stats like Win Rate and Total R live in Performance.",
   },
   positionSize: {
     title: "Position Size",
-    body: "Shares or units in the trade. Bigger size amplifies both gain and loss.",
+    body: "Qty uses units directly. $ Amount converts dollars into units. P&L / Risk sizes from how much you plan to risk.",
   },
   orderType: {
     title: "Order Type",
     body: "Market fills immediately at best price. Limit waits for your price or better.",
   },
+  timeInForce: {
+    title: "Time In Force",
+    body: "GTC stays open until filled or canceled. IOC fills immediately and cancels any remainder. FOK fills the whole order immediately or cancels.",
+  },
   exits: {
-    title: "Stop Loss / Take Profit",
-    body: "Planning fields — not attached to the submitted order yet.",
+    title: "Exit Plan",
+    body: "Plan Only means Rayla records your stop/target idea, but does not send those levels to Alpaca yet.",
+  },
+  riskReward: {
+    title: "R/R Ratio",
+    body: "Risk-to-reward compares what you might lose to what you are aiming to make. 1:2 means risking $1 to target $2.",
+  },
+  brokerPortfolio: {
+    title: "Broker Portfolio",
+    body: "This panel uses real broker account data from Alpaca: account value, positions, fills, and unrealized P/L.",
+  },
+  totalPortfolioReturn: {
+    title: "Total Portfolio Return",
+    body: "This is Rayla analytics from journaled/tracked trade performance, separate from your live broker account.",
+  },
+  direction: {
+    title: "Long / Short",
+    body: "Long means you expect price to rise. Short means you are betting price falls and risk can grow if price rises.",
   },
   leverage: {
     title: "Leverage / Margin",
-    body: "Depends on your Alpaca account. Rayla submits broker orders through your connected Alpaca account.",
+    body: "Margin can use borrowed buying power. It can increase gains, but it can also increase losses quickly.",
+  },
+  timeframe: {
+    title: "Chart Timeframe",
+    body: "The timeframe changes each candle/bar length. Shorter frames show more noise; longer frames show broader movement.",
   },
   unrealizedPnL: {
-    title: "Unrealized P/L",
+    title: "Live Unrealized P/L",
     body: "Open position gain/loss. Only becomes real when you close.",
   },
 };
@@ -3845,9 +4001,18 @@ function InlineHelpButton({ topic, activeTopic, onToggle, label = "What's this?"
       className="ghostButton"
       onClick={() => onToggle(activeTopic === topic ? null : topic)}
       style={{
-        padding: "3px 8px",
-        fontSize: 10,
+        width: "auto",
+        minWidth: 0,
+        maxWidth: "fit-content",
+        minHeight: 18,
+        alignSelf: "center",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "2px 6px",
+        fontSize: 8.5,
         fontWeight: 700,
+        lineHeight: 1,
         borderRadius: 999,
         color: activeTopic === topic ? "#d7efff" : "#7f8ea3",
         borderColor: activeTopic === topic ? "rgba(124,196,255,0.28)" : "rgba(255,255,255,0.08)",
@@ -4091,7 +4256,7 @@ function PerformanceLiveChartCard({
   const displayedLines = useMemo(() => {
     const nextLines = [];
     if (appliedSelection.includePortfolio) {
-      nextLines.push({ symbol: "Portfolio", color: "#7CC4FF", points: portfolioSeries });
+      nextLines.push({ symbol: "Strategy Total", color: "#7CC4FF", points: portfolioSeries });
     }
     assetSeries.forEach((line) => {
       if (line.points.length) nextLines.push(line);
@@ -4108,7 +4273,7 @@ function PerformanceLiveChartCard({
   );
   const selectedRealizedPnl = selectedClosedTrades.reduce((sum, trade) => sum + (Number(trade.pnl) || 0), 0);
   const chartStatsLabel = appliedSelection.includePortfolio
-    ? "Portfolio + selected assets"
+    ? "Strategy total + selected assets"
     : "Selected assets only";
 
   return (
@@ -4119,7 +4284,7 @@ function PerformanceLiveChartCard({
             Closed Trade History
           </div>
           <div style={{ fontSize: 17, fontWeight: 700, color: "#e2e8f0" }}>
-            {appliedSelection.includePortfolio ? "Portfolio Realized P/L" : appliedSelection.symbols.length ? appliedSelection.symbols.join(", ") : "Select an asset"}
+            {appliedSelection.includePortfolio ? "Strategy Realized P/L" : appliedSelection.symbols.length ? appliedSelection.symbols.join(", ") : "Select an asset"}
           </div>
           <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
             Closed trades only. Open positions are excluded from this chart and any asset overlays.
@@ -4190,7 +4355,7 @@ function PerformanceLiveChartCard({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Portfolio</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Strategy Total</div>
                 <div style={{ fontSize: 12, color: selectedRealizedPnl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
                   {`${selectedRealizedPnl >= 0 ? "+" : ""}${formatCurrency(selectedRealizedPnl)}`}
                 </div>
@@ -4482,8 +4647,8 @@ function PerformanceDashboard({
 
   const TOOLTIP_CONTENT = {
     winrate: { title: "Win Rate", body: "Win rate is the percentage of your trades that finished as winners. Higher isn't always better — what matters is win rate in combination with how much you make vs. lose per trade." },
-    avgr: { title: "Avg Result / Trade", body: "Average result shows what your typical completed trade earns or loses across the trades currently included in analysis." },
-    totalr: { title: "Total Result", body: "Total result is the cumulative profit and loss across the trades currently included in analysis." },
+    avgr: { title: "Avg R / Trade", body: "Average R shows what your typical completed trade earns or loses across the trades currently included in Rayla analytics." },
+    totalr: { title: "Total R", body: "Total R is the cumulative strategy result across the trades currently included in Rayla analytics." },
     pf: { title: "Profit Factor", body: "Profit Factor = total gross wins ÷ total gross losses. Above 1.0 means the system is net profitable. Below 1.0 means losses are outpacing wins in dollar terms." },
   };
 
@@ -4545,13 +4710,6 @@ function PerformanceDashboard({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <RaylaLaunchButton
-          label="Ask Rayla"
-          onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
-        />
-      </div>
-
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {allAssets.length > 1 && (
@@ -4620,8 +4778,8 @@ function PerformanceDashboard({
           {[
             { label: "Trades", value: report.trades, sub: `${winCount}W · ${lossCount}L`, color: "#f3f7fc" },
             { label: "Win Rate", value: hasMixedResultUnits ? "Blended" : `${report.winRate.toFixed(1)}%`, sub: hasMixedResultUnits ? "strategy + broker history" : "% of winners", color: hasMixedResultUnits ? "#94a3b8" : report.winRate >= 50 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "winrate" },
-            { label: "Total Result", value: hasMixedResultUnits ? "Blended" : `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, sub: hasMixedResultUnits ? "strategy + broker history" : "net result", color: hasMixedResultUnits ? "#94a3b8" : report.totalR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "totalr" },
-            { label: "Avg Result / Trade", value: hasMixedResultUnits ? "Blended" : `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, sub: hasMixedResultUnits ? "strategy + broker history" : "per trade", color: hasMixedResultUnits ? "#94a3b8" : report.avgR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "avgr" },
+            { label: "Total R", value: hasMixedResultUnits ? "Blended" : `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, sub: hasMixedResultUnits ? "strategy + broker history" : "strategy result", color: hasMixedResultUnits ? "#94a3b8" : report.totalR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "totalr" },
+            { label: "Avg R / Trade", value: hasMixedResultUnits ? "Blended" : `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, sub: hasMixedResultUnits ? "strategy + broker history" : "per trade", color: hasMixedResultUnits ? "#94a3b8" : report.avgR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "avgr" },
             { label: "Avg Win", value: hasMixedResultUnits ? "Blended" : report.avgWin > 0 ? `+${report.avgWin.toFixed(2)}` : "—", sub: hasMixedResultUnits ? "strategy + broker history" : "avg winner", color: hasMixedResultUnits ? "#94a3b8" : "#4ade80" },
             { label: "Avg Loss", value: hasMixedResultUnits ? "Blended" : report.avgLoss > 0 ? `-${report.avgLoss.toFixed(2)}` : "—", sub: hasMixedResultUnits ? "strategy + broker history" : "avg loser", color: hasMixedResultUnits ? "#94a3b8" : "#f87171" },
             ...(report.profitFactor !== null && !hasMixedResultUnits ? [{ label: "Profit Factor", value: report.profitFactor.toFixed(2), sub: ">1.0 profitable", color: report.profitFactor >= 1 ? "#4ade80" : "#f87171", tip: "pf" }] : []),
@@ -4888,7 +5046,7 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
         <div className="cardHeader"><h2>Coach Insights</h2></div>
         <div className="cardBody">
           <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
-            {`Win Rate: ${report.winRate.toFixed(1)}% · Avg Result: ${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)} · Trades: ${report.trades}`}
+            {`Win Rate: ${report.winRate.toFixed(1)}% · Avg R: ${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)} · Trades: ${report.trades}`}
           </div>
           {report.bestCombo && (
             <div style={{ marginTop: 10, fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
@@ -4939,14 +5097,14 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
 
       {!hideOverall && (
       <div className="card">
-        <div className="cardHeader"><h2>Overall Performance</h2></div>
+        <div className="cardHeader"><h2>Strategy Performance</h2></div>
         <div className="cardBody">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 12 }}>
             {[
               { label: "Trades", value: report.trades },
               { label: "Win Rate", value: `${report.winRate.toFixed(1)}%`, tone: report.winRate >= 50 ? "positive" : "negative" },
-              { label: "Avg Result", value: `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, tone: report.avgR >= 0 ? "positive" : "negative" },
-              { label: "Total Result", value: `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, tone: report.totalR >= 0 ? "positive" : "negative" },
+              { label: "Avg R", value: `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, tone: report.avgR >= 0 ? "positive" : "negative" },
+              { label: "Total R", value: `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, tone: report.totalR >= 0 ? "positive" : "negative" },
               { label: "Avg Win", value: `+${report.avgWin.toFixed(2)}R`, tone: "positive" },
               { label: "Avg Loss", value: `-${report.avgLoss.toFixed(2)}R`, tone: "negative" },
               ...(report.profitFactor !== null ? [{ label: "Profit Factor", value: report.profitFactor.toFixed(2), tone: report.profitFactor >= 1 ? "positive" : "negative" }] : []),
@@ -5088,6 +5246,15 @@ function formatPctChange(value) {
   if (value == null || Number.isNaN(value)) return "--";
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
+}
+
+function formatPerformancePercent(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "—";
+  const sign = numericValue >= 0 ? "+" : "";
+  const absolute = Math.abs(numericValue);
+  const decimals = absolute > 0 && absolute < 0.01 ? 3 : 2;
+  return `${sign}${numericValue.toFixed(decimals)}%`;
 }
 
 function getSvgZoomFactor(data, zoomLevel = "normal") {
@@ -5504,20 +5671,13 @@ function buildPortfolioBenchmarkChart(positionCharts, positions, visibleStart, v
     const bars = Array.isArray(chart?.bars) ? chart.bars : [];
     const qty = Math.abs(Number(position?.qty) || 0);
     const entryTimeMs = Number(chart?.entryTimeMs);
-    const clippedStartMs = Math.max(
-      Number.isFinite(visibleStart) ? visibleStart : 0,
-      Number.isFinite(entryTimeMs) ? entryTimeMs : Number.isFinite(visibleStart) ? visibleStart : 0
-    );
-    const filteredBars = bars
-      .map((bar) => {
-        const timeMs = Date.parse(String(bar?.time || bar?.t || ""));
-        const close = Number(bar?.close);
-        return Number.isFinite(timeMs) && Number.isFinite(close) && close > 0
-          ? { timeMs, close }
-          : null;
-      })
-      .filter(Boolean)
-      .filter((bar) => bar.timeMs >= clippedStartMs);
+    const filteredBars = buildBrokerPositionCurveBars({
+      position,
+      rawBars: bars,
+      entryTimeMs,
+      requestedStartMs: Number.isFinite(visibleStart) ? visibleStart : null,
+      nowMs: Number.isFinite(visibleEnd) ? visibleEnd : Date.now(),
+    }).map((bar) => ({ timeMs: bar.barTime, close: Number(bar.close) }));
     return {
       symbol,
       qty,
@@ -5565,7 +5725,7 @@ function buildPortfolioBenchmarkChart(positionCharts, positions, visibleStart, v
   if (bars.length < 2) return null;
 
   return {
-    symbol: "Portfolio",
+    symbol: "Broker Portfolio Benchmark",
     rangeMode: "portfolio_benchmark",
     bars,
   };
@@ -5767,7 +5927,16 @@ function buildEquityTimeScale(points, range) {
 if (import.meta.env.DEV && typeof window !== "undefined") {
   window.__raylaRegression = {
     buildRaylaPicksContext,
+    getTradeOutcomeValue,
+    brokerSymbolsMatch,
+    formatBrokerQuantity,
+    findMatchingBrokerOrder,
+    getPendingCloseOrderForPosition,
+    getBrokerOrderStatusKind,
+    getBrokerOrderStatusPresentation,
+    resolveTradePortfolioEntryTime,
     buildPerformanceOutcomeReport,
+    buildBrokerPositionCurveBars,
     buildCoachReport,
     buildTopEdges,
     buildLoggedEquityCurvePoints,
@@ -6171,7 +6340,7 @@ function EquityCurveCard({
   const startValue = values[0];
   const currentValue = values[values.length - 1];
   const netValue = currentValue - startValue;
-  const yourReturnPct = startValue > 0 ? ((netValue / startValue) * 100) : 0;
+  const yourReturnPct = startValue > 0 ? (netValue / startValue) * 100 : 0;
   const lastBenchmarkPoint = benchmarkPoints[benchmarkPoints.length - 1];
   const rawBenchmarkReturnPct = benchmarkPoints.length > 1
     ? Number(lastBenchmarkPoint?.pctChange)
@@ -6241,7 +6410,7 @@ function EquityCurveCard({
   };
 
   const controlRow = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
       <div className="chartTabs" style={{ marginBottom: 0 }}>
         {["1D","1W","1M","3M","ALL"].map((range) => (
           <button key={range} className={`chartTab ${chartRange === range ? "active" : ""}`} onClick={() => setChartRange(range)} type="button">{range}</button>
@@ -6304,25 +6473,24 @@ function EquityCurveCard({
 
   if (equityPoints.length < 2) {
     return (
-      <Card title="Equity Curve" className="equityCard">
+      <Card title="Strategy Equity Curve" className="equityCard">
         <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
-          Your account value over time based on logged trades
+          Rayla analytics value over time based on logged trades
         </div>
-        {controlRow}
         <div style={{ minHeight: 220, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
           No closed trades match this source and range yet.
         </div>
+        {controlRow}
         <div className="equityFooter"><div className="equityFooterLabel">{sourceLabel}</div></div>
       </Card>
     );
   }
 
   return (
-    <Card title="Equity Curve" className="equityCard">
+    <Card title="Strategy Equity Curve" className="equityCard">
       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
-        Your account value over time based on logged trades
+        Rayla analytics value over time based on logged trades
       </div>
-      {controlRow}
       <div className="equityMeta">
         <div><span>Start</span><strong>{formatCurrency(startValue)}</strong></div>
         <div><span>Current</span><strong>{formatCurrency(currentValue)}</strong></div>
@@ -6330,26 +6498,27 @@ function EquityCurveCard({
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 14 }}>
         <div style={statCardStyle}>
-          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Your Return %</span>
-          <strong style={{ fontSize: 16, color: yourReturnPct >= 0 ? "#4ade80" : "#f87171" }}>{`${yourReturnPct >= 0 ? "+" : ""}${yourReturnPct.toFixed(2)}%`}</strong>
+          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Total Portfolio Return %</span>
+          <strong style={{ fontSize: 16, color: yourReturnPct >= 0 ? "#4ade80" : "#f87171" }}>{formatPerformancePercent(yourReturnPct)}</strong>
         </div>
         <div style={statCardStyle}>
           <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>{`${resolvedBenchmarkLabel} Return %`}</span>
           <strong style={{ fontSize: 16, color: benchmarkReturnPct != null && benchmarkReturnPct >= 0 ? "#4ade80" : "#f87171" }}>
-            {benchmarkReturnPct == null ? "—" : `${benchmarkReturnPct >= 0 ? "+" : ""}${benchmarkReturnPct.toFixed(2)}%`}
+            {benchmarkReturnPct == null ? "—" : formatPerformancePercent(benchmarkReturnPct)}
           </strong>
         </div>
         <div style={statCardStyle}>
           <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Difference</span>
           <strong style={{ fontSize: 16, color: benchmarkDifference != null && benchmarkDifference >= 0 ? "#4ade80" : "#f87171" }}>
-            {benchmarkDifference == null ? "—" : `${benchmarkDifference >= 0 ? "+" : ""}${benchmarkDifference.toFixed(2)}%`}
+            {benchmarkDifference == null ? "—" : formatPerformancePercent(benchmarkDifference)}
           </strong>
         </div>
         <div style={statCardStyle}>
           <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Max Drawdown</span>
-          <strong style={{ fontSize: 16, color: maxDrawdown >= 0 ? "#e2e8f0" : "#f87171" }}>{`${maxDrawdown.toFixed(2)}%`}</strong>
+          <strong style={{ fontSize: 16, color: maxDrawdown >= 0 ? "#e2e8f0" : "#f87171" }}>{formatPerformancePercent(maxDrawdown)}</strong>
         </div>
       </div>
+      {controlRow}
       <div className="equityChart">
         <EquityComparisonChart
           equityPoints={equityPoints}
@@ -6448,7 +6617,13 @@ function getCapabilityBadgeStyle(tone = "blue") {
   };
 }
 
-function calculateBrokerDayPnL(positions) {
+function calculateBrokerDayPnL(positions, account = null) {
+  const brokerEquity = Number(account?.equity ?? account?.portfolioValue ?? account?.raw?.equity ?? account?.raw?.portfolio_value);
+  const brokerLastEquity = Number(account?.lastEquity ?? account?.raw?.last_equity);
+  if (Number.isFinite(brokerEquity) && Number.isFinite(brokerLastEquity)) {
+    return brokerEquity - brokerLastEquity;
+  }
+
   return (positions || []).reduce((total, position) => {
     const marketValue = Number(position?.marketValue ?? 0);
     const changeToday = Number(position?.changeToday ?? 0);
@@ -6468,12 +6643,12 @@ function BrokerTradeLogCard({ trades }) {
           <div className="listSubtext">No synced broker orders yet. Refresh after placing a broker order, or use the journal for manual trades.</div>
         ) : (
           trades.map((trade) => {
-            const statusPresentation = getBrokerOrderStatusPresentation(trade.status, trade.submitted_at);
+            const statusPresentation = getBrokerOrderStatusPresentation(trade);
             return (
               <div className="listRow" key={trade.id}>
                 <div>
                   <div className="listTitle">
-                    <span className="assetText">{trade.symbol}</span> · {trade.side} · {Number(trade.qty || 0)} share(s)
+                    <span className="assetText">{trade.symbol}</span> · {trade.side} · {formatBrokerQuantity(trade.qty)} unit(s)
                   </div>
                   <div className="listSubtext">
                     {trade.order_type} {trade.limit_price ? `· Limit ${formatCurrency(trade.limit_price)}` : ""} · {trade.source === "rayla" ? "Placed in Rayla" : "Broker import (Alpaca)"}
@@ -6996,6 +7171,7 @@ useEffect(() => {
             {selectedItem && (
               <div style={{ display: "flex", justifyContent: "flex-start", padding: "8px 12px 0 12px" }}>
                 <button
+                  className="raylaAskTypography"
                   type="button"
                   onClick={(event) => {
                     event.preventDefault();
@@ -7072,6 +7248,7 @@ useEffect(() => {
             {selectedItem && (
               <div style={{ display: "flex", justifyContent: "flex-start", padding: "8px 12px 0 12px" }}>
                 <button
+                  className="raylaAskTypography"
                   type="button"
                   onClick={(event) => {
                     event.preventDefault();
@@ -7153,8 +7330,7 @@ function getScoreLabel(score) {
 function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quoteOverride = null }) {
   if (!item) return null;
   const { label, cls } = getScoreLabel(item.score);
-  const liveChangeValue = Number(quoteOverride?.change);
-  const displayChange = Number.isFinite(liveChangeValue) ? formatPctChange(liveChangeValue) : item.change;
+  const displayChange = item.change;
   const changePos = !String(displayChange || "").startsWith("-");
   const article = (item.rawArticles || [])[0];
   const drivers = item.breakdown
@@ -7178,78 +7354,65 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   const articleSnippet = String(article?.description || "").trim();
 
   return (
-    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 14, marginBottom: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff" }}>{item.symbol}</div>
-            <div style={{ fontSize: 11, color: "#7f8ea3", marginTop: 1 }}>{item.name}</div>
+    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10, marginBottom: 7 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#ffffff" }}>{item.symbol}</div>
+            <div style={{ fontSize: 10, color: "#7f8ea3" }}>{item.name}</div>
           </div>
-          <div style={{ fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 999, background: pill.bg, color: pill.color }}>{label}</div>
+          <div style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: pill.bg, color: pill.color, whiteSpace: "nowrap", flexShrink: 0 }}>{label}</div>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: changePos ? "#4ade80" : "#f87171" }}>{displayChange}</div>
-          <div style={{ fontSize: 11, color: "#7f8ea3", marginTop: 2 }}>Score: {item.score}</div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: changePos ? "#4ade80" : "#f87171" }}>{displayChange}</div>
+          <div style={{ fontSize: 10, color: "#7f8ea3" }}>Score: {item.score}</div>
         </div>
       </div>
       {drivers.length > 0 && (
-        <div className="intelDriverTags" style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <div className="intelDriverTags" style={{ display: "flex", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
           {drivers.map(([key, val]) => (
-            <div key={key} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 999, background: val > 0 ? "rgba(74,222,128,0.1)" : val < 0 ? "rgba(248,113,113,0.1)" : "rgba(255,255,255,0.06)", color: val > 0 ? "#4ade80" : val < 0 ? "#f87171" : "#7f8ea3", fontWeight: 600 }}>
+            <div key={key} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 999, background: val > 0 ? "rgba(74,222,128,0.1)" : val < 0 ? "rgba(248,113,113,0.1)" : "rgba(255,255,255,0.06)", color: val > 0 ? "#4ade80" : val < 0 ? "#f87171" : "#7f8ea3", fontWeight: 600 }}>
               {driverLabels[key] || key} {val > 0 ? "↑" : val < 0 ? "↓" : "—"}
             </div>
           ))}
         </div>
       )}
       {summaryText && (
-        <div style={{ marginBottom: 8, fontSize: 12, color: "#dbe7f3", lineHeight: 1.55 }}>
+        <div style={{ marginBottom: 6, fontSize: 11, color: "#dbe7f3", lineHeight: 1.45, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
           {summaryText}
         </div>
       )}
-      {driverText && (
-        <div style={{ marginBottom: 8, padding: "9px 10px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 4 }}>
-            What Is Driving It
-          </div>
-          <div style={{ fontSize: 11, color: "#aebfd3", lineHeight: 1.5 }}>
-            {driverText}
-          </div>
-        </div>
-      )}
-      {article ? (
-        <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 10, textDecoration: "none", marginTop: 6, padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
+      {article && (
+        <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, textDecoration: "none", marginTop: 4, padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
           {article.image ? (
-            <img src={article.image} alt="" onError={e => e.target.style.display = "none"} style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8, flexShrink: 0 }} />
+            <img src={article.image} alt="" onError={e => { e.target.style.display = "none"; }} style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
           ) : (
-            <div style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0, background: "rgba(124,196,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>📰</div>
+            <div style={{ width: 40, height: 40, borderRadius: 6, flexShrink: 0, background: "rgba(124,196,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📰</div>
           )}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: "#7CC4FF", lineHeight: 1.4, marginBottom: 3 }}>{article.title}</div>
+            <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.35, marginBottom: 2 }}>{article.title}</div>
             <div style={{ fontSize: 10, color: "#7f8ea3" }}>{article.source?.name}</div>
-            {articleSnippet && <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.45, marginTop: 4 }}>{articleSnippet.slice(0, 160)}{articleSnippet.length > 160 ? "..." : ""}</div>}
+            {articleSnippet && (
+              <div style={{ fontSize: 10, color: "#94a3b8", lineHeight: 1.4, marginTop: 3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {articleSnippet}
+              </div>
+            )}
           </div>
         </a>
-      ) : (
-        <div style={{ marginTop: 6, padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.05)", fontSize: 11, color: "#7f8ea3", lineHeight: 1.45 }}>
-          No article available yet.
-        </div>
       )}
       {(onTrySimulation || onAskRayla) && (
-        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
           {onTrySimulation && (
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTrySimulation(item);
-              }}
+              onClick={(e) => { e.stopPropagation(); onTrySimulation(item); }}
               style={{
                 border: "1px solid rgba(124,196,255,0.34)",
                 background: "linear-gradient(180deg, rgba(124,196,255,0.94), rgba(82,169,255,0.9))",
                 color: "#08111b",
                 borderRadius: 999,
-                padding: "10px 14px",
-                fontSize: 12,
+                padding: "7px 12px",
+                fontSize: 11,
                 fontWeight: 800,
                 cursor: "pointer",
                 boxShadow: "0 8px 20px rgba(20,116,214,0.22)",
@@ -7261,14 +7424,72 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
           {onAskRayla && (
             <button
               type="button"
-              className="ghostButton"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAskRayla(item);
-              }}
-              style={{ fontSize: 12, opacity: 0.85 }}
+              className="ghostButton raylaAskTypography"
+              onClick={(e) => { e.stopPropagation(); onAskRayla(item); }}
+              style={{ fontSize: 11, opacity: 0.85 }}
             >
               Ask Rayla why →
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IntelAssetCardMini({ item, onTrySimulation = null, onAskRayla = null, quoteOverride = null }) {
+  if (!item) return null;
+  const { label, cls } = getScoreLabel(item.score);
+  const displayChange = item.change;
+  const changePos = !String(displayChange || "").startsWith("-");
+  const article = (item.rawArticles || [])[0];
+  const topDriver = item.breakdown
+    ? Object.entries(item.breakdown).filter(([k]) => k !== "total").sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]
+    : null;
+  const pillColors = {
+    "hot": { bg: "rgba(239,68,68,0.15)", color: "#f87171" },
+    "leaning-hot": { bg: "rgba(239,68,68,0.08)", color: "#fca5a5" },
+    "cold": { bg: "rgba(124,196,255,0.15)", color: "#7CC4FF" },
+    "leaning-cold": { bg: "rgba(124,196,255,0.08)", color: "#93c5fd" },
+    "neutral": { bg: "rgba(255,255,255,0.08)", color: "#7f8ea3" },
+  };
+  const pill = pillColors[cls];
+  const driverLabels = { demand: "Demand", costMargin: "Margin", guidance: "Guidance", narrative: "Narrative", priceConfirmation: "Price", liquidity: "Liquidity", sentiment: "Sentiment", momentum: "Momentum", catalyst: "Catalyst", relativeStrength: "Rel. Strength" };
+  return (
+    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 11, padding: 10, width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6, marginBottom: 6 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{item.symbol}</div>
+          <div style={{ fontSize: 10, color: "#7f8ea3", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{item.name}</div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: changePos ? "#4ade80" : "#f87171" }}>{displayChange}</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 5, marginBottom: 7, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 999, background: pill.bg, color: pill.color, whiteSpace: "nowrap" }}>{label}</div>
+        {topDriver && (
+          <div style={{ fontSize: 10, padding: "2px 6px", borderRadius: 999, background: topDriver[1] > 0 ? "rgba(74,222,128,0.1)" : topDriver[1] < 0 ? "rgba(248,113,113,0.1)" : "rgba(255,255,255,0.06)", color: topDriver[1] > 0 ? "#4ade80" : topDriver[1] < 0 ? "#f87171" : "#7f8ea3", fontWeight: 600, whiteSpace: "nowrap" }}>
+            {driverLabels[topDriver[0]] || topDriver[0]} {topDriver[1] > 0 ? "↑" : topDriver[1] < 0 ? "↓" : "—"}
+          </div>
+        )}
+      </div>
+      {article && (
+        <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none", marginBottom: 6, padding: "6px 7px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{article.title}</div>
+          <div style={{ fontSize: 10, color: "#7f8ea3", marginTop: 2 }}>{article.source?.name}</div>
+        </a>
+      )}
+      {(onTrySimulation || onAskRayla) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {onTrySimulation && (
+            <button type="button" onClick={(e) => { e.stopPropagation(); onTrySimulation(item); }} style={{ border: "1px solid rgba(124,196,255,0.34)", background: "linear-gradient(180deg, rgba(124,196,255,0.94), rgba(82,169,255,0.9))", color: "#08111b", borderRadius: 999, padding: "7px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer", width: "100%", textAlign: "center" }}>
+              Try in Sim
+            </button>
+          )}
+          {onAskRayla && (
+            <button type="button" onClick={(e) => { e.stopPropagation(); onAskRayla(item); }} style={{ border: "none", background: "none", padding: "3px 0", fontSize: 10, color: "#64748b", cursor: "pointer", width: "100%", textAlign: "center", fontFamily: "inherit" }}>
+              Ask Rayla →
             </button>
           )}
         </div>
@@ -7318,6 +7539,7 @@ function RaylaPickCard({ pick }) {
 function RaylaLaunchButton({ label, onClick }) {
   return (
     <button
+      className="raylaAskTypography raylaLaunchButton"
       type="button"
       onClick={onClick}
       style={{
@@ -7329,15 +7551,19 @@ function RaylaLaunchButton({ label, onClick }) {
         color: "#d7efff",
         border: "1px solid rgba(124,196,255,0.72)",
         borderRadius: 12,
-        padding: "9px 13px",
-        fontSize: 13,
+        padding: "8px 11px",
+        fontFamily: "var(--font-sans)",
+        fontSize: 12,
         fontWeight: 700,
+        lineHeight: 1.2,
+        letterSpacing: 0,
+        textTransform: "none",
         cursor: "pointer",
         boxShadow: "0 10px 24px rgba(124,196,255,0.14), inset 0 1px 0 rgba(255,255,255,0.05)",
         whiteSpace: "nowrap",
       }}
     >
-      <span>{label}</span>
+      <span style={{ fontFamily: "var(--font-sans)", fontSize: "inherit", fontWeight: "inherit", letterSpacing: "inherit", lineHeight: "inherit", textTransform: "none" }}>{label}</span>
       <img
         src="/badger.png"
         alt=""
@@ -7778,20 +8004,21 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
     [selectedJournalTrades]
   );
 
-  const totalRVal = useMemo(() => selectedJournalTrades.reduce((s, t) => s + getTradeOutcomeValue(t), 0), [selectedJournalTrades]);
-  const wins = useMemo(() => selectedJournalTrades.filter(t => getTradeOutcomeValue(t) > 0), [selectedJournalTrades]);
-  const losses = useMemo(() => selectedJournalTrades.filter(t => getTradeOutcomeValue(t) < 0), [selectedJournalTrades]);
-  const wr = selectedJournalTrades.length ? (wins.length / selectedJournalTrades.length) * 100 : 0;
-  const avgRVal = selectedJournalTrades.length ? totalRVal / selectedJournalTrades.length : 0;
+  const journalAnalyticsTrades = filtered;
+  const totalRVal = useMemo(() => journalAnalyticsTrades.reduce((s, t) => s + getTradeOutcomeValue(t), 0), [journalAnalyticsTrades]);
+  const wins = useMemo(() => journalAnalyticsTrades.filter(t => getTradeOutcomeValue(t) > 0), [journalAnalyticsTrades]);
+  const losses = useMemo(() => journalAnalyticsTrades.filter(t => getTradeOutcomeValue(t) < 0), [journalAnalyticsTrades]);
+  const wr = journalAnalyticsTrades.length ? (wins.length / journalAnalyticsTrades.length) * 100 : 0;
+  const avgRVal = journalAnalyticsTrades.length ? totalRVal / journalAnalyticsTrades.length : 0;
   const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / wins.length : 0;
   const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / losses.length) : 0;
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
-  const bestTrade = selectedJournalTrades.length ? selectedJournalTrades.reduce((b, t) => getTradeOutcomeValue(t) > getTradeOutcomeValue(b) ? t : b) : null;
-  const worstTrade = selectedJournalTrades.length ? selectedJournalTrades.reduce((b, t) => getTradeOutcomeValue(t) < getTradeOutcomeValue(b) ? t : b) : null;
+  const bestTrade = journalAnalyticsTrades.length ? journalAnalyticsTrades.reduce((b, t) => getTradeOutcomeValue(t) > getTradeOutcomeValue(b) ? t : b) : null;
+  const worstTrade = journalAnalyticsTrades.length ? journalAnalyticsTrades.reduce((b, t) => getTradeOutcomeValue(t) < getTradeOutcomeValue(b) ? t : b) : null;
 
   const setupBreakdown = useMemo(() => {
     const map = {};
-    selectedJournalTrades.forEach(t => {
+    journalAnalyticsTrades.forEach(t => {
       if (!t.setup) return;
       if (!map[t.setup]) map[t.setup] = { trades: 0, wins: 0, totalR: 0 };
       map[t.setup].trades++;
@@ -7801,11 +8028,11 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
     return Object.entries(map)
       .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
       .sort((a, b) => b.totalR - a.totalR);
-  }, [selectedJournalTrades]);
+  }, [journalAnalyticsTrades]);
 
   const sessionBreakdown = useMemo(() => {
     const map = {};
-    selectedJournalTrades.forEach(t => {
+    journalAnalyticsTrades.forEach(t => {
       const key = t.session || "Untagged";
       if (!map[key]) map[key] = { trades: 0, wins: 0, totalR: 0 };
       map[key].trades++;
@@ -7815,7 +8042,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
     return Object.entries(map)
       .map(([session, s]) => ({ session, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
       .sort((a, b) => b.totalR - a.totalR);
-  }, [selectedJournalTrades]);
+  }, [journalAnalyticsTrades]);
 
   function rCol(v) {
     const n = parseFloat(v);
@@ -7905,12 +8132,6 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
             })}
           </div>
         </div>
-        <div style={{ position: "absolute", right: 0, top: 0 }}>
-          <RaylaLaunchButton
-            label="Ask Rayla"
-            onClick={() => onOpenRaylaPopup?.("Ask Rayla")}
-          />
-        </div>
       </div>
     );
   }
@@ -7941,10 +8162,10 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
       {/* Summary stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
         {[
-          { label: "Total Trades", value: selectedJournalTrades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
+          { label: "Total Trades", value: journalAnalyticsTrades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
           { label: "Win Rate", value: `${wr.toFixed(1)}%`, sub: `${wins.length} winners`, color: wr >= 50 ? "#4ade80" : "#f87171" },
-          { label: "Total Result", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}`, sub: "net result", color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
-          { label: "Avg Result / Trade", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}`, sub: "per trade", color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Total R", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}`, sub: "strategy result", color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Avg R / Trade", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}`, sub: "per trade", color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
           { label: "Avg Win", value: avgWin > 0 ? `+${avgWin.toFixed(2)}` : "—", sub: "avg winner", color: "#4ade80" },
           { label: "Avg Loss", value: avgLoss > 0 ? `-${avgLoss.toFixed(2)}` : "—", sub: "avg loser", color: "#f87171" },
           ...(profitFactor !== null ? [{ label: "Profit Factor", value: profitFactor.toFixed(2), sub: ">1.0 profitable", color: profitFactor >= 1 ? "#4ade80" : "#f87171" }] : []),
@@ -8366,21 +8587,20 @@ useEffect(() => {
   const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
-  const [homeMobileTab, setHomeMobileTab] = useState(0);
   const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
   const homeMarketSearchTimeoutRef = useRef(null);
   const intelFetchDebugRef = useRef(null);
 
-  const [intelLoading, setIntelLoading] = useState(false);
-  const [hotColdReport, setHotColdReport] = useState(() => {
-    try {
-      const cached = JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null");
-      return isPopulatedIntelReport(cached) ? cached : null;
-    } catch {
-      return null;
-    }
-  });
+	  const [intelLoading, setIntelLoading] = useState(false);
+	  const [hotColdReport, setHotColdReport] = useState(() => {
+	    try {
+	      const cached = JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null");
+	      return hasUsableIntelMoveData(cached) ? cached : null;
+	    } catch {
+	      return null;
+	    }
+	  });
   const [intelLiveQuotes, setIntelLiveQuotes] = useState({});
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
@@ -8424,6 +8644,7 @@ useEffect(() => {
   const [pendingAlpacaOrderConfirmation, setPendingAlpacaOrderConfirmation] = useState(null);
   const [preparedCloseOrder, setPreparedCloseOrder] = useState(null);
   const [submittedCloseOrder, setSubmittedCloseOrder] = useState(null);
+  const alpacaOrderSubmittingRef = useRef(false);
   const orderTicketRef = useRef(null);
   const [alpacaAssetSearchResults, setAlpacaAssetSearchResults] = useState([]);
   const [alpacaAssetSearchLoading, setAlpacaAssetSearchLoading] = useState(false);
@@ -8516,6 +8737,50 @@ useEffect(() => {
     }
   }, [activeTab]);
   useEffect(() => {
+    const getMobileNavTabFromPoint = (clientX, clientY) => {
+      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+      if (typeof window !== "undefined" && window.matchMedia?.("(min-width: 601px)")?.matches) return null;
+
+      const nav = document.querySelector(".mobileNav");
+      const navRect = nav?.getBoundingClientRect?.();
+      const fallbackTop = window.innerHeight - 96;
+      const withinNavBand = navRect
+        ? clientY >= navRect.top && clientY <= navRect.bottom
+        : clientY >= fallbackTop;
+      if (!withinNavBand) return null;
+
+      const buttons = Array.from(nav?.querySelectorAll?.("[data-mobile-nav-tab]") || []);
+      const directButton = buttons.find((button) => {
+        const rect = button.getBoundingClientRect();
+        return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+      });
+      if (directButton?.dataset?.mobileNavTab) return directButton.dataset.mobileNavTab;
+
+      const tabIds = [...NAV_TABS.map((tab) => tab.id), "profile"];
+      const left = navRect?.left ?? 0;
+      const width = navRect?.width || window.innerWidth;
+      const index = Math.min(tabIds.length - 1, Math.max(0, Math.floor(((clientX - left) / Math.max(1, width)) * tabIds.length)));
+      return tabIds[index] || null;
+    };
+
+    const handleNativeMobileNav = (event) => {
+      const point = event.changedTouches?.[0] || event.touches?.[0] || event;
+      const tabId = getMobileNavTabFromPoint(Number(point.clientX), Number(point.clientY))
+        || event.target?.closest?.("[data-mobile-nav-tab]")?.dataset?.mobileNavTab;
+      if (!tabId) return;
+      event.preventDefault();
+      setActiveTab(tabId);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    };
+
+    document.addEventListener("pointerdown", handleNativeMobileNav, true);
+    document.addEventListener("touchstart", handleNativeMobileNav, { capture: true, passive: false });
+    return () => {
+      document.removeEventListener("pointerdown", handleNativeMobileNav, true);
+      document.removeEventListener("touchstart", handleNativeMobileNav, true);
+    };
+  }, []);
+  useEffect(() => {
     try {
       sessionStorage.setItem(PERFORMANCE_SOURCE_STORAGE_KEY, performanceAnalysisSource);
     } catch {
@@ -8530,7 +8795,6 @@ useEffect(() => {
   const [equityBenchmarkLabel, setEquityBenchmarkLabel] = useState("SPY");
   const [equityBenchmarkChart, setEquityBenchmarkChart] = useState(null);
   const [equityBenchmarkLoading, setEquityBenchmarkLoading] = useState(false);
-  const [displayName, setDisplayName] = useState("");
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
@@ -8573,7 +8837,7 @@ useEffect(() => {
   const [lastAnalyzedCounts, setLastAnalyzedCounts] = useState({ live_trades: -1, live_simulation: -1 });
   const [showNoNewTradesBySource, setShowNoNewTradesBySource] = useState({ live_trades: false, live_simulation: false });
   const [coachSummaries, setCoachSummaries] = useState({ live_trades: null, live_simulation: null });
-  const [equitySourceLabel, setEquitySourceLabel] = useState("Built from manual and broker-imported trades with enough execution detail.");
+  const [equitySourceLabel, setEquitySourceLabel] = useState("Rayla analytics built from manual and broker-imported trades with enough execution detail.");
   const [trades, setTrades] = useState([]);
   const [simulationQuotes, setSimulationQuotes] = useState(() => {
     try {
@@ -8610,7 +8874,7 @@ useEffect(() => {
 
   const tradePanelSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase() || alpacaPositions[0]?.symbol || "";
   const tradePanelMatchingPosition = tradePanelSymbol
-    ? alpacaPositions.find((position) => position.symbol === tradePanelSymbol) || null
+    ? findBrokerPositionBySymbol(alpacaPositions, tradePanelSymbol)
     : null;
   const tradePanelQuote = tradePanelSymbol
     ? getKnownStockQuoteData(tradePanelSymbol, simulationQuotes, marketItems, alpacaAssetQuotes)
@@ -8631,8 +8895,8 @@ useEffect(() => {
       });
   }, [tradePanelSymbol, watchlist, tradePanelMatchingPosition?.symbol, tradePanelMatchingPosition?.exchange]);
   const tradePanelAssetType = tradePanelAsset?.type || "stock";
-  const tradeSelectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === tradePanelSymbol)
-    || (alpacaSelectedAssetMeta?.symbol === tradePanelSymbol ? alpacaSelectedAssetMeta : null);
+  const tradeSelectedBrokerAsset = alpacaAssetSearchResults.find((asset) => brokerSymbolsMatch(asset.symbol, tradePanelSymbol))
+    || (brokerSymbolsMatch(alpacaSelectedAssetMeta?.symbol, tradePanelSymbol) ? alpacaSelectedAssetMeta : null);
   const tradeSelectedLeverageOptions = getAvailableLeverageOptions(alpacaAccount?.raw?.multiplier);
   const tradeMarketChartSeries = tradeMarketChart?.symbol === tradePanelSymbol
     ? extractChartCloseSeries(tradeMarketChart)
@@ -8681,7 +8945,7 @@ useEffect(() => {
       ? (activeTradeChartSelection.symbols[0] || tradePanelSymbol || alpacaPositions[0]?.symbol || (shouldUseDefaultLiveTradeSymbol ? DEFAULT_LIVE_TRADE_SYMBOL : ""))
       : "";
   const tradeChartMatchingPosition = tradeChartSymbol
-    ? alpacaPositions.find((position) => position.symbol === tradeChartSymbol) || null
+    ? findBrokerPositionBySymbol(alpacaPositions, tradeChartSymbol)
     : null;
   const tradeChartQuote = tradeChartSymbol
     ? getKnownStockQuoteData(tradeChartSymbol, simulationQuotes, marketItems, alpacaAssetQuotes)
@@ -8695,9 +8959,13 @@ useEffect(() => {
     () => findMatchingBrokerOrder(brokerTradeLog, submittedCloseOrder) || submittedCloseOrder,
     [brokerTradeLog, submittedCloseOrder]
   );
-  const submittedCloseStatusKind = getBrokerOrderStatusKind(latestSubmittedCloseBrokerOrder?.status);
+  const latestSubmittedBrokerOrder = useMemo(
+    () => findMatchingBrokerOrder(brokerTradeLog, alpacaOrderResult) || alpacaOrderResult,
+    [brokerTradeLog, alpacaOrderResult]
+  );
+  const submittedCloseStatusKind = getBrokerOrderStatusKind(latestSubmittedCloseBrokerOrder);
   const submittedCloseStatusPresentation = latestSubmittedCloseBrokerOrder
-    ? getBrokerOrderStatusPresentation(latestSubmittedCloseBrokerOrder.status, latestSubmittedCloseBrokerOrder.submitted_at || latestSubmittedCloseBrokerOrder.submittedAt)
+    ? getBrokerOrderStatusPresentation(latestSubmittedCloseBrokerOrder)
     : null;
   const tradeChartAsset = useMemo(() => {
     if (!tradeChartSymbol) return null;
@@ -9097,7 +9365,6 @@ useEffect(() => {
     setUser(null);
     setProfile(null);
     setUserLevel("beginner");
-    setDisplayName("");
     setTrades([]);
     setAlpacaAccount(null);
     setAlpacaPositions([]);
@@ -9939,16 +10206,32 @@ useEffect(() => {
 
     setBrokerTradeLogLoading(true);
     try {
+      let syncedBrokerOrderIds = null;
       if (sync) {
-        const { error } = await supabase.functions.invoke("alpaca-orders", { body: {} });
+        const { data: syncData, error } = await supabase.functions.invoke("alpaca-orders", { body: {} });
         if (error) throw error;
+        syncedBrokerOrderIds = Array.from(new Set(
+          (Array.isArray(syncData?.orders) ? syncData.orders : [])
+            .map((order) => order?.id)
+            .filter(Boolean)
+        ));
+        if (syncData?.connected === false || syncedBrokerOrderIds.length === 0) {
+          setBrokerTradeLog([]);
+          return;
+        }
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("broker_trade_logs")
         .select("*")
         .order("submitted_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
+
+      if (syncedBrokerOrderIds) {
+        query = query.eq("broker_provider", "alpaca").in("broker_order_id", syncedBrokerOrderIds);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -10066,10 +10349,10 @@ useEffect(() => {
     const timeInForce = String(alpacaOrderForm.timeInForce || "gtc").toLowerCase();
     const limitPrice = type === "limit" || type === "stop_limit" ? Number(alpacaOrderForm.limitPrice) : null;
     const stopPrice = type === "stop" || type === "stop_limit" ? Number(alpacaOrderForm.stopPrice) : null;
-    const matchingPosition = alpacaPositions.find((position) => position.symbol === symbol) || null;
-    const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === symbol)
-      || (alpacaSelectedAssetMeta?.symbol === symbol ? alpacaSelectedAssetMeta : null)
-      || (tradeSelectedBrokerAsset?.symbol === symbol ? tradeSelectedBrokerAsset : null);
+    const matchingPosition = findBrokerPositionBySymbol(alpacaPositions, symbol);
+    const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => brokerSymbolsMatch(asset.symbol, symbol))
+      || (brokerSymbolsMatch(alpacaSelectedAssetMeta?.symbol, symbol) ? alpacaSelectedAssetMeta : null)
+      || (brokerSymbolsMatch(tradeSelectedBrokerAsset?.symbol, symbol) ? tradeSelectedBrokerAsset : null);
     const sourceQuote = getKnownStockQuoteData(symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
     const quoteIsFresh = Boolean(sourceQuote?.price) && isQuoteFresh(sourceQuote);
     const estimatedPrice = getOrderEstimatePrice(symbol, limitPrice, matchingPosition);
@@ -10087,9 +10370,11 @@ useEffect(() => {
     const currentQty = Math.abs(Number(matchingPosition?.qty ?? 0));
     const hasShortPosition = matchingPosition?.side === "short" && currentQty > 0;
     const hasLongPosition = matchingPosition?.side === "long" && currentQty > 0;
+    const actionIsCloseAction = (action === "sell" && hasLongPosition) || (action === "buy_to_cover" && hasShortPosition);
+    const matchingPendingCloseOrder = matchingPosition ? getPendingCloseOrderForPosition(brokerTradeLog, matchingPosition) : null;
     const isPreparedCloseOrder = Boolean(
       preparedCloseOrder
-      && preparedCloseOrder.symbol === symbol
+      && brokerSymbolsMatch(preparedCloseOrder.symbol, symbol)
       && preparedCloseOrder.side === action
       && type === "market"
       && Number.isFinite(qty)
@@ -10129,11 +10414,13 @@ useEffect(() => {
     } else if (action === "buy_to_cover" && !hasShortPosition) {
       error = `You need an open short position in ${symbol} before using Buy to Cover.`;
     } else if (action === "sell" && !hasLongPosition) {
-      error = `You need shares of ${symbol} before using Sell. Use Short Sell to open a short position.`;
+      error = `You need open ${symbol} units before using Sell. Use Short Sell to open a short position.`;
     } else if (action === "buy_to_cover" && qty > currentQty) {
-      error = `Buy to Cover cannot exceed your current short position of ${currentQty} share(s).`;
+      error = `Buy to Cover cannot exceed your current short position of ${formatBrokerQuantity(currentQty)} unit(s).`;
     } else if (action === "sell" && qty > currentQty) {
-      error = `Sell cannot exceed your current long position of ${currentQty} share(s).`;
+      error = `Sell cannot exceed your current long position of ${formatBrokerQuantity(currentQty)} unit(s).`;
+    } else if (actionIsCloseAction && matchingPendingCloseOrder) {
+      error = `${symbol} already has a pending close order. Wait for the broker status to update before submitting another close.`;
     } else if (requiresFreshQuote && !quoteIsFresh) {
       error = "Waiting for fresh Alpaca market data before placing order.";
     } else if (requiresBuyingPowerCheck && Number.isFinite(buyingPowerLimit) && buyingPowerLimit > 0 && orderValueExceedsBuyingPower) {
@@ -10165,6 +10452,7 @@ useEffect(() => {
       accountMultiplier,
       hasShortPosition,
       hasLongPosition,
+      matchingPendingCloseOrder,
       error,
     };
   }
@@ -10176,7 +10464,7 @@ useEffect(() => {
     const currentSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
     const currentQty = Number(alpacaOrderForm.qty);
     const orderStillMatchesCloseIntent = (
-      currentSymbol === preparedCloseOrder.symbol
+      brokerSymbolsMatch(currentSymbol, preparedCloseOrder.symbol)
       && alpacaOrderForm.side === preparedCloseOrder.side
       && alpacaOrderForm.type === "market"
       && Number.isFinite(currentQty)
@@ -10200,7 +10488,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (!latestSubmittedCloseBrokerOrder) return;
-    const statusKind = getBrokerOrderStatusKind(latestSubmittedCloseBrokerOrder.status);
+    const statusKind = getBrokerOrderStatusKind(latestSubmittedCloseBrokerOrder);
     if (statusKind === "filled" || statusKind === "failed") {
       setPreparedCloseOrder(null);
     }
@@ -10210,7 +10498,7 @@ useEffect(() => {
     if (!submittedCloseOrder) return;
     if (submittedCloseStatusKind !== "filled") return;
     const symbol = String(submittedCloseOrder.symbol || "").trim().toUpperCase();
-    const stillOpen = alpacaPositions.some((position) => String(position.symbol || "").trim().toUpperCase() === symbol);
+    const stillOpen = alpacaPositions.some((position) => brokerSymbolsMatch(position.symbol, symbol));
     if (stillOpen) return;
     setPreparedCloseOrder(null);
     setAlpacaOrderForm((prev) => {
@@ -10224,8 +10512,8 @@ useEffect(() => {
         stopPrice: "",
       };
     });
-    if (tradeAppliedSelection.mode === "asset" && tradeAppliedSelection.symbols.includes(symbol)) {
-      const nextSymbols = alpacaPositions.map((position) => position.symbol).filter((item) => item && item !== symbol);
+    if (tradeAppliedSelection.mode === "asset" && brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, symbol)) {
+      const nextSymbols = alpacaPositions.map((position) => position.symbol).filter((item) => item && !brokerSymbolsMatch(item, symbol));
       applyTradeSelection(nextSymbols.length ? { mode: "portfolio", symbols: nextSymbols } : { mode: "portfolio", symbols: [] });
     }
   }, [alpacaPositions, submittedCloseOrder, submittedCloseStatusKind, tradeAppliedSelection]);
@@ -10320,11 +10608,27 @@ useEffect(() => {
 
   async function handleConfirmAlpacaOrder() {
     if (!pendingAlpacaOrderConfirmation) return;
-    if (alpacaOrderSubmitting) return;
+    if (alpacaOrderSubmitting || alpacaOrderSubmittingRef.current) return;
+    alpacaOrderSubmittingRef.current = true;
 
     try {
       setAlpacaOrderSubmitting(true);
       setAlpacaOrderResult(null);
+
+      if (pendingAlpacaOrderConfirmation.isCloseOrder) {
+        const closePosition = findBrokerPositionBySymbol(alpacaPositions, pendingAlpacaOrderConfirmation.symbol);
+        if (!closePosition) {
+          setPendingAlpacaOrderConfirmation(null);
+          setPreparedCloseOrder(null);
+          throw new Error(`${pendingAlpacaOrderConfirmation.symbol} is no longer open in broker positions. Refresh broker data before retrying.`);
+        }
+        const existingPendingClose = getPendingCloseOrderForPosition(brokerTradeLog, closePosition);
+        if (existingPendingClose) {
+          setPendingAlpacaOrderConfirmation(null);
+          setPreparedCloseOrder(null);
+          throw new Error(`${pendingAlpacaOrderConfirmation.symbol} already has a pending close order. Wait for the broker status to update before retrying.`);
+        }
+      }
 
       const payload = {
         symbol: pendingAlpacaOrderConfirmation.symbol,
@@ -10368,6 +10672,7 @@ useEffect(() => {
     } catch (error) {
       showToast(error?.message || "Could not place Alpaca order.", "error");
     } finally {
+      alpacaOrderSubmittingRef.current = false;
       setAlpacaOrderSubmitting(false);
     }
   }
@@ -10377,33 +10682,42 @@ useEffect(() => {
     const qty = Math.abs(Number(position?.qty ?? 0));
     if (!symbol || !Number.isFinite(qty) || qty <= 0) return;
 
+    const existingPendingClose = getPendingCloseOrderForPosition(brokerTradeLog, position);
+    if (existingPendingClose) {
+      showToast(`${symbol} already has a pending close order. Wait for broker status before submitting another.`, "warning");
+      return;
+    }
+
     const closeSide = position?.side === "short" ? "buy_to_cover" : "sell";
-    setAlpacaOrderForm((prev) => ({
-      ...prev,
+    const timeInForce = String(alpacaOrderForm.timeInForce || "gtc").toLowerCase();
+    const estimatedPrice = getOrderEstimatePrice(symbol, null, position);
+    const estimatedValue = Number.isFinite(estimatedPrice) ? estimatedPrice * qty : Number(position?.marketValue);
+    setPendingAlpacaOrderConfirmation({
       symbol,
-      side: closeSide,
-      qty: String(qty),
-      type: "market",
-      limitPrice: "",
-      stopPrice: "",
-      timeInForce: prev.timeInForce || "gtc",
-      leverage: "1x",
-    }));
-    setPreparedCloseOrder({
-      symbol,
-      side: closeSide,
+      action: closeSide,
+      side: getAlpacaOrderPayloadSide(closeSide),
+      closeActionLabel: getAlpacaCloseActionLabel(closeSide),
       qty,
+      type: "market",
+      limitPrice: null,
+      stopPrice: null,
+      timeInForce,
+      leverage: "1x",
+      estimatedPrice: Number.isFinite(estimatedPrice) ? estimatedPrice : null,
+      estimatedValue: Number.isFinite(estimatedValue) ? estimatedValue : null,
+      unrealizedPl: Number.isFinite(Number(position?.unrealizedPl)) ? Number(position.unrealizedPl) : null,
+      unrealizedPlpc: Number.isFinite(Number(position?.unrealizedPlpc)) ? Number(position.unrealizedPlpc) : null,
       positionSide: position?.side || "long",
+      isCloseOrder: true,
+      insight: `This submits a market order to close your full ${symbol} broker position.`,
+      realityCheck: [],
     });
+    setPreparedCloseOrder(null);
     setSubmittedCloseOrder(null);
     setAlpacaSelectedAssetMeta(null);
     setAlpacaAssetSearchOpen(false);
     applyTradeSelection({ mode: "asset", symbols: [symbol] });
     setTradeLogChartSymbol(symbol);
-    window.setTimeout(() => {
-      orderTicketRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 50);
-    showToast(`Ready to close ${symbol}. Review the order ticket, then submit.`, "success");
   }
 
   useEffect(() => {
@@ -10647,12 +10961,12 @@ useEffect(() => {
     }
     setTradePendingSelection((prev) => {
       if (prev.mode === "portfolio") return { mode: "portfolio", symbols };
-      const valid = prev.symbols.filter((symbol) => symbols.includes(symbol));
+      const valid = prev.symbols.filter((symbol) => brokerSelectionIncludesSymbol(symbols, symbol));
       return valid.length ? { mode: valid.length === 1 ? "asset" : "multi", symbols: valid } : { mode: "asset", symbols: [symbols[0]] };
     });
     setTradeAppliedSelection((prev) => {
       if (prev.mode === "portfolio") return { mode: "portfolio", symbols };
-      const valid = prev.symbols.filter((symbol) => symbols.includes(symbol));
+      const valid = prev.symbols.filter((symbol) => brokerSelectionIncludesSymbol(symbols, symbol));
       return valid.length ? { mode: valid.length === 1 ? "asset" : "multi", symbols: valid } : { mode: "asset", symbols: [symbols[0]] };
     });
     setPerformanceLiveAppliedSelection((prev) => normalizePerformanceLiveSelection(prev));
@@ -10660,7 +10974,7 @@ useEffect(() => {
 
   useEffect(() => {
     setTradePortfolioSelectedSymbols((prev) => {
-      const valid = prev.filter((symbol) => tradePortfolioAllSymbols.includes(symbol));
+      const valid = prev.filter((symbol) => brokerSelectionIncludesSymbol(tradePortfolioAllSymbols, symbol));
       return valid.length ? valid : tradePortfolioAllSymbols;
     });
   }, [tradePortfolioAllSymbols]);
@@ -10708,9 +11022,9 @@ useEffect(() => {
       try {
         const chartResults = await Promise.all(
           tradePortfolioDisplayedSymbols.map(async (symbol) => {
-            const position = alpacaPositions.find((item) => item.symbol === symbol) || null;
+            const position = findBrokerPositionBySymbol(alpacaPositions, symbol);
             const assetType = position?.assetClass === "crypto" ? "crypto" : "stock";
-            const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog, trades);
+            const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog);
             const { data, error } = await supabase.functions.invoke("market-data", {
               body: {
                 chartSymbol: symbol,
@@ -10785,7 +11099,7 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, activeTradeChartSelection.mode, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, trades, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl]);
+  }, [activeTab, activeTradeChartSelection.mode, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl]);
 
   useEffect(() => {
   supabase.auth.getSession().then(({ data }) => {
@@ -10999,10 +11313,6 @@ useEffect(() => {
     };
   }, [hotColdReport]);
 
-useEffect(() => {
-  if (user) setDisplayName(user.user_metadata?.display_name || user.email?.split("@")[0] || "");
-}, [user]);
-
   useEffect(() => {
     if (!askRaylaHasMessages || !askRaylaThreadRef.current) return;
     askRaylaThreadRef.current.scrollTop = askRaylaThreadRef.current.scrollHeight;
@@ -11181,7 +11491,7 @@ useEffect(() => {
       if (!localStorage.getItem("rayla-visited")) {
         setShowTutorial(true);
       }
-      setEquitySourceLabel("Built from manual and broker-imported trades with enough execution detail.");
+      setEquitySourceLabel("Rayla analytics built from manual and broker-imported trades with enough execution detail.");
     }
     loadUserAndTrades();
     return () => {
@@ -11210,16 +11520,29 @@ useEffect(() => {
     () => buildLoggedEquityCurvePoints(combinedTrades),
     [combinedTrades]
   );
-  const portfolioMovementPercent = useMemo(() => {
-    if (equityPoints.length < 2) return null;
-    const firstEquity = Number(equityPoints[0]?.equity);
-    const lastEquity = Number(equityPoints[equityPoints.length - 1]?.equity);
-    if (!Number.isFinite(firstEquity) || firstEquity <= 0 || !Number.isFinite(lastEquity)) return null;
-    return ((lastEquity - firstEquity) / firstEquity) * 100;
-  }, [equityPoints]);
+  // Total P/L and return use the same $10K analytics baseline shown in Performance,
+  // so Home and the Strategy Equity Curve stay mathematically aligned.
+  const homePerformance = useMemo(() => {
+    let totalPnl = 0;
+    let pnlCount = 0;
+    for (const trade of combinedTrades) {
+      const pnl = calculateTradeDollarPnl(trade);
+      if (Number.isFinite(pnl)) {
+        totalPnl += pnl;
+        pnlCount += 1;
+      }
+    }
+    if (!pnlCount) return { totalPnl: null, returnPct: null };
+    return { totalPnl, returnPct: (totalPnl / SIMULATION_STARTING_BALANCE) * 100 };
+  }, [combinedTrades]);
+  const portfolioMovementPercent = homePerformance.returnPct;
+  const homeTotalDollarPnl = homePerformance.totalPnl;
   const portfolioMovement = portfolioMovementPercent == null
     ? "--"
-    : `${portfolioMovementPercent >= 0 ? "+" : ""}${portfolioMovementPercent.toFixed(2)}%`;
+    : formatPerformancePercent(portfolioMovementPercent);
+  const homeTotalPnlDisplay = homeTotalDollarPnl == null
+    ? "--"
+    : `${homeTotalDollarPnl >= 0 ? "+" : ""}${formatCurrency(Math.abs(homeTotalDollarPnl))}`;
   const liveSimulationEquityPoints = useMemo(
     () => buildLoggedEquityCurvePoints(liveSimulationPerformanceTrades),
     [liveSimulationPerformanceTrades]
@@ -11284,7 +11607,7 @@ useEffect(() => {
         : [{
             symbol: "Portfolio",
             type: "portfolio",
-            label: "Portfolio Benchmark",
+            label: "Broker Portfolio Benchmark",
             group: "Your benchmarks",
           }]),
       ...tradedSymbols,
@@ -11375,7 +11698,7 @@ useEffect(() => {
               const requestedRange = assetType === "stock" && benchmarkRange === "1D"
                 ? "1W"
                 : benchmarkRange;
-              const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog, trades);
+              const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog);
               const { data, error } = await supabase.functions.invoke("market-data", {
                 body: {
                   chartSymbol: symbol,
@@ -11455,7 +11778,7 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [chartRange, equityBenchmarkSymbol, equityBenchmarkType, equityBenchmarkOptions, strictFilteredEquityPoints, alpacaPositions, brokerTradeLog, trades, equityBenchmarkVisibleStart, equityBenchmarkVisibleEnd]);
+  }, [chartRange, equityBenchmarkSymbol, equityBenchmarkType, equityBenchmarkOptions, strictFilteredEquityPoints, alpacaPositions, brokerTradeLog, equityBenchmarkVisibleStart, equityBenchmarkVisibleEnd]);
 
   function isPlausibleTradeAssetSymbol(value) {
     const normalized = String(value || "").trim().toUpperCase();
@@ -15308,33 +15631,17 @@ function buildSimulationAssetFromPosition(position) {
     };
   }
 
-  function renderSimulationInfoButton(key, label = "What is this?") {
+  function renderSimulationInfoButton(key, label = "What's this?") {
     if (!showBeginnerGuidance) return null;
-    const compact = label === "?";
     return (
       <button
         type="button"
         className="ghostButton"
-        aria-label={compact ? "What is this?" : undefined}
-        title={compact ? "What is this?" : undefined}
         onClick={(e) => {
           e.stopPropagation();
           handleSimulationInfoToggle(key);
         }}
-        style={compact
-          ? {
-              width: 26,
-              height: 26,
-              padding: 0,
-              borderRadius: 999,
-              borderColor: activeSimulationInfoKey === key ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.08)",
-              background: activeSimulationInfoKey === key ? "rgba(124,196,255,0.09)" : "transparent",
-              color: activeSimulationInfoKey === key ? "#bfe7ff" : "#64748b",
-              fontSize: 12,
-              fontWeight: 700,
-              opacity: 1,
-            }
-          : { padding: "6px 10px", fontSize: 12, opacity: activeSimulationInfoKey === key ? 1 : 0.8 }}
+        style={{ padding: "6px 10px", fontSize: 12, opacity: activeSimulationInfoKey === key ? 1 : 0.8 }}
       >
         {label}
       </button>
@@ -15603,6 +15910,11 @@ async function handleDeleteAccount() {
   }
 }
 
+function handleMobileNavSelect(tabId) {
+  setActiveTab(tabId);
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
 return (
 
   
@@ -15857,7 +16169,7 @@ return (
                           {beginnerTutorialStep === 9 && (
                             <>
                               <div style={{ fontSize: 40 }}>📊</div>
-                              <div style={{ fontSize: 18, fontWeight: 700 }}>Equity Curve</div>
+                              <div style={{ fontSize: 18, fontWeight: 700 }}>Strategy Equity Curve</div>
                               <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
                                 Your equity curve shows how your results are changing over time.
                                 <br /><br />
@@ -15903,7 +16215,7 @@ return (
                             ) : (
                               <button
                                 type="button"
-                                className="ghostButton"
+                                className="ghostButton raylaAskTypography"
                                 onClick={() => {
                                   setShowBeginnerTutorial(false);
                                   setActiveTab("ai");
@@ -15979,7 +16291,7 @@ return (
         <div style={{ fontSize: 40 }}>📈</div>
         <div style={{ fontSize: 18, fontWeight: 700 }}>Your Tools</div>
         <div style={{ fontSize: 14, color: "#e2e8f0", lineHeight: 1.7 }}>
-          <strong>Equity Curve:</strong> shows how your results are moving over time.
+          <strong>Strategy Equity Curve:</strong> shows how your Rayla analytics results are moving over time.
           <br />
           <strong>Live Market:</strong> lets you quickly watch assets and charts.
           <br />
@@ -16054,13 +16366,17 @@ return (
       </nav>
 
       <div className="appShellInner">
-        {activeTab !== "home" && activeTab !== "trades" && (
-          <div className="topbar">
+        {activeTab !== "home" && activeTab !== "trades" && activeTab !== "simulation" && (
+          <div className="topbar mobilePageHeader">
             <div>
-              <p style={{ margin: 0, color: "#f8fbff", fontSize: 20, fontWeight: 850, lineHeight: 1.1, letterSpacing: 0 }}>
+              <p className="mobilePageTitle" style={{ margin: 0, color: "#f8fbff", fontSize: 20, fontWeight: 900, lineHeight: 1.1, letterSpacing: 0 }}>
                 {activeTab === "profile" ? "Profile & Settings" : NAV_TABS.find((tab) => tab.id === activeTab)?.label || "Rayla"}
               </p>
             </div>
+            <RaylaLaunchButton
+              label="Ask Rayla"
+              onClick={() => openGlobalRaylaPopup("Ask Rayla")}
+            />
           </div>
         )}
 
@@ -16122,11 +16438,13 @@ return (
               .homePageTitle {
                 grid-area: title;
                 align-self: center;
-                color: #f8fbff;
-                font-size: 20px;
-                font-weight: 850;
-                line-height: 1.1;
-                letter-spacing: 0;
+                margin: 0;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #cbd8e6;
+                line-height: 1.2;
               }
               .homeMarketStatusBar {
                 grid-area: status;
@@ -16353,37 +16671,167 @@ return (
                 display: none !important;
               }
               @media (max-width: 767px) {
-                .homeLayout { flex-direction: column; height: auto; overflow: visible; }
+                .homeLayout {
+                  flex-direction: column;
+                  height: auto;
+                  min-height: 100dvh;
+                  overflow: visible;
+                  margin: calc(-18px - env(safe-area-inset-top)) -14px 0;
+                  padding-bottom: calc(128px + env(safe-area-inset-bottom));
+                  background: #050d1f;
+                }
                 .homeLeft { min-height: 420px; overflow: visible; }
-                .homeRight { height: auto; display: flex; flex-direction: column; padding: 0; overflow-y: auto; background: #0a1628; }
+                .homeRight {
+                  height: auto;
+                  min-height: 0;
+                  display: flex;
+                  flex-direction: column;
+                  position: relative;
+                  gap: 14px;
+                  padding: calc(16px + env(safe-area-inset-top)) 12px 0;
+                  overflow-y: visible;
+                  background:
+                    radial-gradient(circle at 50% -4%, rgba(124,196,255,0.12), transparent 34%),
+                    linear-gradient(180deg, #071321 0%, #050b14 100%);
+                }
                 .homeMarketStatusBar,
                 .homePageTitle,
                 .homeTopActions,
                 .homeMarketSearchBar,
                 .homeMarketCarouselSection,
                 .homeMarketControls,
-                .homeChartStage { grid-area: auto; }
-                .homeUtilityRail { display: none; }
-                .homeChartExplainRow { display: block !important; }
-                .homeRightFullscreen { height: 100vh; }
+                .homeChartStage,
+                .homeUtilityRail { grid-area: auto; }
+                .homePageTitle {
+                  width: 100%;
+                  padding: 0 72px;
+                  text-align: center;
+                }
+                .homePageTitle { order: 1; }
+                .homeTopActions {
+                  order: 1;
+                  position: absolute;
+                  top: calc(13px + env(safe-area-inset-top));
+                  right: 12px;
+                  align-self: auto;
+                  margin: 0;
+                  z-index: 2;
+                }
+                .homeUtilityRail {
+                  order: 3;
+                  margin-top: 12px;
+                }
+                .homeMarketStatusBar {
+                  order: 4;
+                  padding: 0 2px !important;
+                }
+                .homeMarketSearchBar {
+                  order: 5;
+                }
+                .homeMarketCarouselSection {
+                  order: 6;
+                }
+                .homeMarketControls {
+                  order: 7;
+                }
+                .homeChartStage {
+                  order: 8;
+                }
+                .homeChartExplainRow {
+                  order: 9;
+                }
+                .homeMarketSearchBar,
+                .homeMarketCarouselSection,
+                .homeMarketControls {
+                  padding-left: 0 !important;
+                  padding-right: 0 !important;
+                }
+                .homeMarketSearchBar > div:first-child {
+                  display: grid !important;
+                  grid-template-columns: minmax(0, 1fr);
+                  gap: 8px !important;
+                  max-width: none;
+                }
+                .homeMarketSearchBar .ghostButton {
+                  width: 100%;
+                }
+                .homeMarketSearchBar .authInput,
+                .homeMarketSearchBar .ghostButton {
+                  min-height: 44px;
+                }
+                .homeMarketCarouselSection {
+                  border-bottom: 0;
+                }
+                .homeMarketCarouselSection .asset-carousel {
+                  padding-bottom: 2px !important;
+                  scroll-snap-type: x mandatory;
+                }
+                .homeMarketCarouselSection .asset-carousel > div {
+                  min-width: 92px !important;
+                  padding: 8px 10px !important;
+                  scroll-snap-align: start;
+                }
+                .homeMarketControls {
+                  gap: 8px !important;
+                  align-items: center !important;
+                  display: grid !important;
+                  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                }
+                .homeMarketControls > * {
+                  max-width: 100%;
+                }
+                .homeMarketControls .raylaDropdown {
+                  justify-self: start;
+                  width: 88px !important;
+                  min-width: 88px !important;
+                }
+                .homeMarketControls > .ghostButton {
+                  justify-self: end;
+                  width: auto;
+                  min-width: 88px;
+                }
+                .homeMarketControls > div:last-child {
+                  grid-column: 1 / -1;
+                  justify-self: end;
+                  margin-left: 0 !important;
+                }
+                .homeChartStage {
+                  flex: 0 0 auto !important;
+                  min-height: 520px !important;
+                  height: 520px !important;
+                  padding: 0 !important;
+                  border-radius: 16px;
+                }
+                .homeUtilityRail {
+                  display: flex;
+                  height: auto;
+                  min-height: 0;
+                  overflow: visible;
+                }
+                .homeUtilityBody {
+                  overflow: visible;
+                }
+                .homeChartExplainRow {
+                  display: block !important;
+                  padding: 0 0 16px !important;
+                }
+                .homeRightFullscreen {
+                  height: 100dvh;
+                  padding-bottom: calc(88px + env(safe-area-inset-bottom));
+                }
+                .homeRightFullscreen .homeMarketCarouselSection {
+                  display: none;
+                }
               }
             `}</style>
             <div className="homeLayout">
-              {/* Mobile segmented control — hidden on desktop via inline conditional */}
-              {isMobileView && (
-                <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 5, margin: "12px 16px 10px", gap: 2, flexShrink: 0 }}>
-                  {[{ label: "Ask Rayla", index: 0 }, { label: "Live Market", index: 1 }].map(({ label, index }) => (
-                    <button key={label} type="button" onClick={() => setHomeMobileTab(index)} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: homeMobileTab === index ? "rgba(124,196,255,0.14)" : "transparent", color: homeMobileTab === index ? "#7CC4FF" : "#64748b", fontWeight: homeMobileTab === index ? 600 : 400, fontSize: 13, cursor: "pointer", transition: "color 0.15s ease, background 0.15s ease", whiteSpace: "nowrap", overflow: "hidden" }}>{label}</button>
-                  ))}
-                </div>
-              )}
               {/* LEFT: Ask Rayla */}
-              {!isHomeLiveChartFullscreen && isMobileView && homeMobileTab === 0 && (
+              {false && !isHomeLiveChartFullscreen && isMobileView && (
               <div className="homeLeft">
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <img src="/badger.png" alt="" style={{ width: 32, height: 32, objectFit: "contain", animation: "badgerPulse 3s ease-in-out infinite" }} />
-                  <span style={{ color: "#7aa8d8", fontSize: 16, fontWeight: 600 }}>Ask Rayla</span>
+                  <span className="raylaAskTypography" style={{ color: "#7aa8d8", fontSize: 16, fontWeight: 600 }}>Ask Rayla</span>
                 </div>
                 {/* Scrollable middle */}
                 <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -16496,9 +16944,8 @@ return (
               </div>
               )}
               {/* RIGHT: Live Market */}
-              {(!isMobileView || homeMobileTab === 1) && (
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
-                <div className="homePageTitle">Home</div>
+                  <div className="homePageTitle mobilePageTitle">Home</div>
                 {/* Label */}
                 <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   Live Market
@@ -16623,7 +17070,7 @@ return (
                       {[
                         ["overview", "Overview"],
                         ["positions", "Positions"],
-                        ["orders", "Orders"],
+                        ["account", "Account Balance"],
                       ].map(([tabId, label]) => (
                         <button
                           key={tabId}
@@ -16639,57 +17086,20 @@ return (
                       {homeUtilityTab === "overview" && (
                         <>
                           <section className="homeUtilitySection">
-                            <div style={{ display: "flex", gap: 24, alignItems: "flex-end" }}>
+                            {showBeginnerGuidance && (
+                              <div style={{ display: "flex", justifyContent: "center" }}>
+                                <InlineHelpButton topic="homeOverview" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
+                              </div>
+                            )}
+                            {showBeginnerGuidance && tradeHelpTopic === "homeOverview" ? <InlineHelpCard topic="homeOverview" /> : null}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
                               <div>
-                                <div className="homeUtilityBig">{winRate}</div>
-                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Win Rate</div>
+                                <div className="homeUtilityBig" style={{ color: homeTotalDollarPnl == null ? "#94a3b8" : homeTotalDollarPnl < 0 ? "#f87171" : "#4ade80" }}>{homeTotalPnlDisplay}</div>
+                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Total P/L</div>
                               </div>
                               <div>
-                                <div className="homeUtilityBig" style={{ color: portfolioMovementPercent == null ? "#4ade80" : portfolioMovementPercent < 0 ? "#f87171" : "#4ade80" }}>{portfolioMovement}</div>
-                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Portfolio</div>
-                              </div>
-                            </div>
-                            <div className="homeUtilityMetrics">
-                              <div className="homeUtilityMetric">
-                                <span>Total R</span>
-                                <strong>{totalR}</strong>
-                              </div>
-                              <div className="homeUtilityMetric">
-                                <span>Avg R</span>
-                                <strong>{avgR}</strong>
-                              </div>
-                              <div className="homeUtilityMetric">
-                                <span>Trades</span>
-                                <strong>{combinedHomeStats.combinedResolvedTradeCount}</strong>
-                              </div>
-                            </div>
-                          </section>
-
-                          <section className="homeUtilitySection">
-                            <div className="homeUtilityKicker">Account Balance</div>
-                            <div className="homeUtilityMetrics" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-                              <div className="homeUtilityMetric">
-                                <span>Portfolio</span>
-                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.portfolioValue ?? alpacaAccount.equity) : "--"}</strong>
-                              </div>
-                              <div className="homeUtilityMetric">
-                                <span>Buying Power</span>
-                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.buyingPower) : "--"}</strong>
-                              </div>
-                              <div className="homeUtilityMetric">
-                                <span>Cash</span>
-                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.cash) : "--"}</strong>
-                              </div>
-                              <div className="homeUtilityMetric">
-                                <span>Day P/L</span>
-                                {(() => {
-                                  const dayPnL = calculateBrokerDayPnL(alpacaPositions);
-                                  return (
-                                    <strong style={{ color: Number.isFinite(dayPnL) && dayPnL < 0 ? "#f87171" : "#4ade80" }}>
-                                      {Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--"}
-                                    </strong>
-                                  );
-                                })()}
+                                <div className="homeUtilityBig" style={{ color: portfolioMovementPercent == null ? "#94a3b8" : portfolioMovementPercent < 0 ? "#f87171" : "#4ade80" }}>{portfolioMovement}</div>
+                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Total Portfolio Return</div>
                               </div>
                             </div>
                           </section>
@@ -16697,17 +17107,33 @@ return (
                           <section className="homeUtilitySection">
                             <div className="homeUtilityKicker">Recent Trades</div>
                             <div className="homeUtilityRows">
-                              {recentTrades.length ? recentTrades.slice(0, 4).map((trade, index) => {
-                                const resultValue = Number(trade.result_r ?? trade.resultR);
-                                const hasResult = Number.isFinite(resultValue);
+                              {combinedTrades.slice(0, 4).length ? combinedTrades.slice(0, 4).map((trade, index) => {
+                                const dollarPnl = calculateTradeDollarPnl(trade);
+                                const resultR = parseOptionalTradeResult(trade.result_r ?? trade.resultR);
+                                const hasDollarPnl = Number.isFinite(dollarPnl);
+                                const hasR = resultR != null;
+                                const primaryColor = hasDollarPnl
+                                  ? (dollarPnl < 0 ? "#f87171" : "#4ade80")
+                                  : hasR
+                                    ? (resultR < 0 ? "#f87171" : "#4ade80")
+                                    : "#94a3b8";
                                 return (
                                   <div className="homeUtilityRow" key={`home-recent-${trade.id || index}`}>
                                     <div>
                                       <div>{trade.asset || trade.symbol || "Trade"}</div>
                                       <small>{trade.direction || trade.side || trade.setup || "Logged"}</small>
                                     </div>
-                                    <div style={{ textAlign: "right", color: hasResult ? (resultValue < 0 ? "#f87171" : "#4ade80") : "#94a3b8", fontWeight: 800 }}>
-                                      {hasResult ? `${resultValue >= 0 ? "+" : ""}${resultValue.toFixed(2)}R` : "Logged"}
+                                    <div style={{ textAlign: "right", fontWeight: 800 }}>
+                                      {hasDollarPnl ? (
+                                        <span style={{ color: primaryColor }}>
+                                          {dollarPnl >= 0 ? "+" : ""}{formatCurrency(dollarPnl)}
+                                          {hasR && <span style={{ color: "#64748b", fontWeight: 600, fontSize: "0.8em", marginLeft: 4 }}>{resultR >= 0 ? "+" : ""}{resultR.toFixed(2)}R</span>}
+                                        </span>
+                                      ) : hasR ? (
+                                        <span style={{ color: primaryColor }}>{resultR >= 0 ? "+" : ""}{resultR.toFixed(2)}R</span>
+                                      ) : (
+                                        <span style={{ color: "#94a3b8" }}>Logged</span>
+                                      )}
                                     </div>
                                   </div>
                                 );
@@ -16740,23 +17166,37 @@ return (
                         </section>
                       )}
 
-                      {homeUtilityTab === "orders" && (
+                      {homeUtilityTab === "account" && (
                         <section className="homeUtilitySection">
-                          <div className="homeUtilityKicker">Orders</div>
-                          <div className="homeUtilityRows">
-                            {brokerTradeLog.length ? brokerTradeLog.map((order, index) => (
-                              <div className="homeUtilityRow" key={`home-order-${order.broker_order_id || order.id || index}`}>
-                                <div>
-                                  <div>{order.symbol || order.asset || "Order"}</div>
-                                  <small>{order.side || order.action || "Broker"}</small>
-                                </div>
-                                <div style={{ textAlign: "right", color: "#94a3b8", fontWeight: 800 }}>
-                                  {order.status || "--"}
-                                </div>
+                          <div className="homeUtilityKicker">Account Balance</div>
+                          <div className="homeUtilityMetrics" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                            <div className="homeUtilityMetric">
+                              <span>Cash</span>
+                              <strong>{alpacaAccount ? formatCurrency(alpacaAccount.cash) : "--"}</strong>
+                            </div>
+                            <div className="homeUtilityMetric">
+                              <span>Buying Power</span>
+                              <strong>{alpacaAccount ? formatCurrency(alpacaAccount.buyingPower) : "--"}</strong>
+                            </div>
+                            <div className="homeUtilityMetric">
+                              <span>Equity</span>
+                              <strong>{alpacaAccount ? formatCurrency(alpacaAccount.equity) : "--"}</strong>
+                            </div>
+                            <div className="homeUtilityMetric">
+                              <span>Broker Portfolio Value</span>
+                              <strong>{alpacaAccount ? formatCurrency(alpacaAccount.portfolioValue ?? alpacaAccount.equity) : "--"}</strong>
+                            </div>
+                            <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
+                              <span>Day P/L</span>
+                              {(() => {
+                                const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
+                                return (
+                                  <strong style={{ color: Number.isFinite(dayPnL) && dayPnL < 0 ? "#f87171" : "#4ade80" }}>
+                                    {Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--"}
+                                  </strong>
+                                );
+                              })()}
                               </div>
-                            )) : (
-                              <div className="homeUtilityMuted">No broker orders synced yet.</div>
-                            )}
                           </div>
                         </section>
                       )}
@@ -16766,7 +17206,7 @@ return (
                 {/* Ask Rayla → Explain chart */}
                 {homeMarketSelectedItem && (
                   <div className="homeChartExplainRow" style={{ padding: "0 20px 16px", flexShrink: 0 }}>
-                    <button type="button"
+                    <button className="raylaAskTypography" type="button"
                       onClick={() => {
                         const context = buildChartExplainContext({
                           symbol: homeMarketSelectedItem.id,
@@ -16783,7 +17223,6 @@ return (
                   </div>
                 )}
               </div>
-              )}
             </div>
           </>
         )}
@@ -16815,7 +17254,7 @@ return (
                 .tradePageTitle {
                   color: #f8fbff;
                   font-size: 20px;
-                  font-weight: 850;
+                  font-weight: 900;
                   line-height: 1.1;
                   letter-spacing: 0;
                 }
@@ -16978,9 +17417,9 @@ return (
               }
             `}</style>
             <div className="span12">
-              <div className="tradePageHeader">
+              <div className="tradePageHeader mobilePageHeader">
                 <div>
-                  <div className="tradePageTitle">Live Trades</div>
+                  <div className="tradePageTitle mobilePageTitle">Live Trades</div>
                 </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
@@ -17006,7 +17445,7 @@ return (
                     style={{ maxWidth: 420, width: "100%" }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="cardHeader"><h2>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Confirm Close Order" : "Confirm Broker Order"}</h2></div>
+                    <div className="cardHeader"><h2>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Confirm Close" : "Confirm Broker Order"}</h2></div>
                     <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                         <div>
@@ -17015,10 +17454,12 @@ return (
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <div style={{ fontSize: 15, fontWeight: 800, color: pendingAlpacaOrderConfirmation.side === "buy" ? "#4ade80" : "#fca5a5" }}>
-                            {getAlpacaOrderActionLabel(pendingAlpacaOrderConfirmation.action)}
+                            {pendingAlpacaOrderConfirmation.isCloseOrder
+                              ? pendingAlpacaOrderConfirmation.closeActionLabel || getAlpacaCloseActionLabel(pendingAlpacaOrderConfirmation.action)
+                              : getAlpacaOrderActionLabel(pendingAlpacaOrderConfirmation.action)}
                           </div>
                           <div style={{ fontSize: 13, color: "#cbd5e1", marginTop: 4 }}>
-                            {pendingAlpacaOrderConfirmation.qty} share(s)
+                            {formatBrokerQuantity(pendingAlpacaOrderConfirmation.qty)} unit(s)
                           </div>
                         </div>
                       </div>
@@ -17026,10 +17467,10 @@ return (
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Order Type</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                            {getAlpacaOrderTypeLabel(pendingAlpacaOrderConfirmation.type)}
+                            {pendingAlpacaOrderConfirmation.isCloseOrder ? "Market close" : getAlpacaOrderTypeLabel(pendingAlpacaOrderConfirmation.type)}
                           </div>
                         </div>
-                        {(pendingAlpacaOrderConfirmation.type === "limit" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
+                        {!pendingAlpacaOrderConfirmation.isCloseOrder && (pendingAlpacaOrderConfirmation.type === "limit" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
                           <div>
                             <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Limit Price</div>
                             <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
@@ -17037,7 +17478,7 @@ return (
                             </div>
                           </div>
                         )}
-                        {(pendingAlpacaOrderConfirmation.type === "stop" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
+                        {!pendingAlpacaOrderConfirmation.isCloseOrder && (pendingAlpacaOrderConfirmation.type === "stop" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
                           <div>
                             <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Stop Price</div>
                             <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
@@ -17052,7 +17493,7 @@ return (
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Estimated Price</div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Current Broker Price" : "Estimated Price"}</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                             {pendingAlpacaOrderConfirmation.estimatedPrice != null
                               ? formatCurrency(pendingAlpacaOrderConfirmation.estimatedPrice)
@@ -17060,21 +17501,31 @@ return (
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Estimated Value</div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Estimated Close Value" : "Estimated Value"}</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                             {pendingAlpacaOrderConfirmation.estimatedValue != null
                               ? formatCurrency(pendingAlpacaOrderConfirmation.estimatedValue)
                               : pendingAlpacaOrderConfirmation.isCloseOrder ? "Unavailable until fill" : "--"}
                           </div>
                         </div>
-                        <div>
+                        {!pendingAlpacaOrderConfirmation.isCloseOrder && <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Leverage Plan</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                             {pendingAlpacaOrderConfirmation.leverage || "1x"}
                           </div>
-                        </div>
+                        </div>}
+                        {pendingAlpacaOrderConfirmation.isCloseOrder && (
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Live Unrealized P/L</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: Number(pendingAlpacaOrderConfirmation.unrealizedPl) >= 0 ? "#4ade80" : "#f87171" }}>
+                              {Number.isFinite(pendingAlpacaOrderConfirmation.unrealizedPl)
+                                ? `${pendingAlpacaOrderConfirmation.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(pendingAlpacaOrderConfirmation.unrealizedPl)}${Number.isFinite(pendingAlpacaOrderConfirmation.unrealizedPlpc) ? ` (${pendingAlpacaOrderConfirmation.unrealizedPlpc >= 0 ? "+" : ""}${(pendingAlpacaOrderConfirmation.unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
+                                : "--"}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {(pendingAlpacaOrderConfirmation.planStop || pendingAlpacaOrderConfirmation.planTarget) && (
+                      {!pendingAlpacaOrderConfirmation.isCloseOrder && (pendingAlpacaOrderConfirmation.planStop || pendingAlpacaOrderConfirmation.planTarget) && (
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80" }}>
@@ -17108,6 +17559,16 @@ return (
                         </div>
                       )}
 
+                      {pendingAlpacaOrderConfirmation.isCloseOrder ? (
+                        <div style={{ padding: 12, borderRadius: 12, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.18)" }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#fecaca", marginBottom: 6 }}>
+                            Real Broker Order
+                          </div>
+                          <div style={{ fontSize: 13, color: "#fee2e2", lineHeight: 1.6 }}>
+                            This submits a real broker market order to close the full position. Status will update through Synced Orders and Positions & Holdings.
+                          </div>
+                        </div>
+                      ) : (
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
                           Rayla Insight
@@ -17116,8 +17577,9 @@ return (
                           {pendingAlpacaOrderConfirmation.insight}
                         </div>
                       </div>
+                      )}
 
-                      {pendingAlpacaOrderConfirmation.realityCheck?.length ? (
+                      {!pendingAlpacaOrderConfirmation.isCloseOrder && pendingAlpacaOrderConfirmation.realityCheck?.length ? (
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
                           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#94a3b8", marginBottom: 6 }}>
                             Reality Check
@@ -17139,7 +17601,7 @@ return (
                           onClick={() => setPendingAlpacaOrderConfirmation(null)}
                           disabled={alpacaOrderSubmitting}
                         >
-                          Back to ticket
+                          {pendingAlpacaOrderConfirmation.isCloseOrder ? "Cancel" : "Back to ticket"}
                         </button>
                         <button
                           type="button"
@@ -17151,7 +17613,7 @@ return (
                           {alpacaOrderSubmitting
                             ? "Submitting..."
                             : pendingAlpacaOrderConfirmation.isCloseOrder
-                              ? "Submit close order"
+                              ? "Confirm Close"
                               : "Submit order"}
                         </button>
                       </div>
@@ -17229,17 +17691,17 @@ return (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                           {[
                             { label: "Status", value: alpacaAccount.status || "--" },
-                            { label: "Buying Power", value: formatCurrency(alpacaAccount.buyingPower), helpTopic: "buyingPower" },
-                            { label: "Cash", value: formatCurrency(alpacaAccount.cash) },
-                            { label: "Portfolio", value: formatCurrency(alpacaAccount.portfolioValue) },
-                            { label: "Equity", value: formatCurrency(alpacaAccount.equity) },
+                            { label: "Live Buying Power", value: formatCurrency(alpacaAccount.buyingPower), helpTopic: "buyingPower" },
+                            { label: "Live Cash", value: formatCurrency(alpacaAccount.cash) },
+                            { label: "Broker Portfolio", value: formatCurrency(alpacaAccount.portfolioValue) },
+                            { label: "Broker Equity", value: formatCurrency(alpacaAccount.equity) },
                             {
                               label: "Day P/L",
                               value: (() => {
-                                const dayPnL = calculateBrokerDayPnL(alpacaPositions);
+                                const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
                                 return Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
                               })(),
-                              color: calculateBrokerDayPnL(alpacaPositions) >= 0 ? "#4ade80" : "#f87171",
+                              color: calculateBrokerDayPnL(alpacaPositions, alpacaAccount) >= 0 ? "#4ade80" : "#f87171",
                             },
                             {
                               label: "Margin",
@@ -17279,10 +17741,13 @@ return (
 
                   {alpacaAccount && (
                     <div className="tradeExecutionGrid" style={{ display: "grid", gridTemplateColumns: "minmax(560px, 1.75fr) minmax(305px, 0.95fr) minmax(245px, 0.85fr)", gap: 14, alignItems: "stretch" }}>
-                      <div className="tradePositionsPanel" style={{ order: 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+                      <div className="tradePositionsPanel" style={{ order: isMobileView ? 2 : 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                            Positions & Holdings
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                              Positions & Holdings
+                            </div>
+                            {showBeginnerGuidance && <InlineHelpButton topic="brokerPortfolio" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                           </div>
                           {alpacaPositions.length > 0 ? (
                             <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>
@@ -17295,8 +17760,9 @@ return (
                             <div style={{ fontSize: 11, color: "#7f8ea3", letterSpacing: "0.2px", lineHeight: 1.45 }}>Select for chart focus.</div>
                           </div>
                         )}
+                        {showBeginnerGuidance && tradeHelpTopic === "brokerPortfolio" ? <InlineHelpCard topic="brokerPortfolio" /> : null}
                         {alpacaPositions.length ? (
-                          <div className="tradePositionsList" style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", minHeight: 0 }}>
+                          <div className="tradePositionsList" style={{ display: "flex", flexDirection: "column", gap: isMobileView ? 6 : 10, overflowY: "auto", minHeight: 0 }}>
                             {(() => {
                               const isPortfolioPending = tradeAppliedSelection.mode === "portfolio";
                               const portfolioMarketValue = alpacaPositions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
@@ -17307,7 +17773,7 @@ return (
                                   onClick={() => applyTradeSelection({ mode: "portfolio", symbols: tradePortfolioAllSymbols })}
                                   className="tradePortfolioButton"
                                   style={{
-                                    padding: 12,
+                                    padding: isMobileView ? 10 : 12,
                                     borderRadius: 12,
                                     background: isPortfolioPending ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
                                     border: `1px solid ${isPortfolioPending ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
@@ -17318,13 +17784,13 @@ return (
                                     transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
                                   }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Portfolio</div>
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
+                                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Broker Portfolio</div>
                                     <div style={{ fontSize: 12, color: portfolioUnrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
                                       {`${portfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(portfolioUnrealizedPl)}`}
                                     </div>
                                   </div>
-                                  <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                                  <div style={{ marginTop: isMobileView ? 4 : 6, fontSize: isMobileView ? 11 : 12, color: "#94a3b8", lineHeight: isMobileView ? 1.35 : 1.6 }}>
                                     {alpacaPositions.length} assets selected · Combined value {formatCurrency(portfolioMarketValue)}
                                   </div>
                                 </button>
@@ -17334,12 +17800,12 @@ return (
                               const pendingCloseOrder = getPendingCloseOrderForPosition(brokerTradeLog, position);
                               const failedCloseOrder = pendingCloseOrder ? null : getLastFailedCloseOrderForPosition(brokerTradeLog, position);
                               const pendingCloseStatus = pendingCloseOrder
-                                ? getBrokerOrderStatusPresentation(pendingCloseOrder.status, pendingCloseOrder.submitted_at)
+                                ? getBrokerOrderStatusPresentation(pendingCloseOrder)
                                 : null;
                               const failedCloseStatus = failedCloseOrder
-                                ? getBrokerOrderStatusPresentation(failedCloseOrder.status, failedCloseOrder.submitted_at)
+                                ? getBrokerOrderStatusPresentation(failedCloseOrder)
                                 : null;
-                              const isPositionSelected = tradeAppliedSelection.symbols.includes(position.symbol) && tradeAppliedSelection.mode === "asset";
+                              const isPositionSelected = brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, position.symbol) && tradeAppliedSelection.mode === "asset";
                               return (
                                 <div
                                   key={position.symbol}
@@ -17353,7 +17819,7 @@ return (
                                   }}
                                   className="tradePositionRow"
                                   style={{
-                                    padding: 12,
+                                    padding: isMobileView ? 9 : 12,
                                     borderRadius: 12,
                                     background: pendingCloseOrder
                                       ? "rgba(251,146,60,0.055)"
@@ -17380,16 +17846,16 @@ return (
                                     }
                                   }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                      <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap" }}>
+                                      <div style={{ fontSize: isMobileView ? 14 : 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
                                       {pendingCloseOrder ? (
                                         <div style={{ padding: "3px 8px", borderRadius: 999, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, color: pendingCloseStatus.color, fontSize: 10, fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase" }}>
                                           Close pending
                                         </div>
                                       ) : null}
                                     </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                                       <div style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
                                         {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
                                       </div>
@@ -17404,12 +17870,13 @@ return (
                                           prepareCloseAlpacaPosition(position);
                                         }}
                                         style={{
-                                          padding: "7px 10px",
-                                          borderRadius: 8,
+                                          padding: isMobileView ? "5px 8px" : "7px 10px",
+                                          minHeight: isMobileView ? 28 : undefined,
+                                          borderRadius: isMobileView ? 7 : 8,
                                           border: pendingCloseOrder ? "1px solid rgba(251,146,60,0.18)" : "1px solid rgba(248,113,113,0.2)",
                                           background: pendingCloseOrder ? "rgba(251,146,60,0.055)" : "rgba(248,113,113,0.045)",
                                           color: pendingCloseOrder ? "#fbbf24" : "#fecaca",
-                                          fontSize: 11,
+                                          fontSize: isMobileView ? 10 : 11,
                                           fontWeight: 800,
                                           cursor: pendingCloseOrder ? "not-allowed" : "pointer",
                                           whiteSpace: "nowrap",
@@ -17420,8 +17887,8 @@ return (
                                       </button>
                                     </div>
                                   </div>
-                                  <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                                    Qty {position.qty} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(tradePanelSymbol === position.symbol && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
+                                  <div style={{ marginTop: isMobileView ? 4 : 6, fontSize: isMobileView ? 11 : 12, color: "#94a3b8", lineHeight: isMobileView ? 1.35 : 1.6 }}>
+                                    Qty {formatBrokerQuantity(position.qty)} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(brokerSymbolsMatch(tradePanelSymbol, position.symbol) && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
                                   </div>
                                   {pendingCloseOrder ? (
                                     <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(251,146,60,0.07)", border: "1px solid rgba(251,146,60,0.16)", color: "#fed7aa", fontSize: 11, lineHeight: 1.45 }}>
@@ -17459,12 +17926,12 @@ return (
                                   <div>
                                     <div style={{ fontSize: 17, fontWeight: 700, color: "#e2e8f0" }}>
                                       {tradeAppliedSelection.mode === "portfolio"
-                                        ? "Portfolio Performance"
+                                        ? "Broker Portfolio"
                                         : tradeChartSymbol}
                                     </div>
                                     <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
                                       {tradeAppliedSelection.mode === "portfolio"
-                                        ? "Combined portfolio performance over time"
+                                        ? "Broker account holdings over time"
                                         : `${Number.isFinite(tradeChartCurrentPrice) ? formatCurrency(tradeChartCurrentPrice) : "--"}${tradeChartQuote?.change != null ? ` · ${tradeChartQuote.change >= 0 ? "+" : ""}${tradeChartQuote.change.toFixed(2)}%` : ""} · Live price chart`}
                                     </div>
                                   </div>
@@ -17478,14 +17945,16 @@ return (
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                                   <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
                                       <ChartTimeframeDropdown
                                         value={tradeChartRange}
                                         onChange={setTradeChartRange}
                                         options={LIVE_WIDGET_INTERVAL_OPTIONS}
                                         width={88}
                                       />
+                                      {showBeginnerGuidance && <InlineHelpButton topic="timeframe" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                                     </div>
+                                    {showBeginnerGuidance && tradeHelpTopic === "timeframe" ? <InlineHelpCard topic="timeframe" /> : null}
                                     {tradeIsComparisonMode ? (
                                       <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                                         {[["line", "Line"]].map(([mode, label]) => (
@@ -17521,6 +17990,7 @@ return (
                               {tradeChartSymbol && !tradeIsComparisonMode && (
                                 <div style={{ display: "flex", justifyContent: "flex-start" }}>
                                   <button
+                                    className="raylaAskTypography"
                                     type="button"
                                     onClick={() => {
                                       const chartContext = buildChartExplainContext({
@@ -17565,25 +18035,23 @@ return (
                                 const lineInputs = tradePortfolioDisplayedPositions.map((pos, pi) => {
                                   const chart = tradePortfolioCharts[pos.symbol];
                                   const rawBars = Array.isArray(chart?.bars) ? chart.bars : [];
-                                  const fallbackEntryResolution = resolveTradePortfolioEntryTime(pos, brokerTradeLog, trades);
+                                  const fallbackEntryResolution = resolveTradePortfolioEntryTime(pos, brokerTradeLog);
                                   const entryTimeMs = chart?.entryTimeMs ?? fallbackEntryResolution.timeMs;
                                   const entryTimeSource = chart?.entryTimeSource ?? fallbackEntryResolution.source;
-                                  const safeStartMs = Math.max(
-                                    tradePortfolioRequestedStartMs ?? (rawBars[0]?.time ? new Date(rawBars[0].time).getTime() : tradePortfolioNowMs),
-                                    Number.isFinite(entryTimeMs) ? entryTimeMs : tradePortfolioRequestedStartMs ?? 0
-                                  );
-                                  const filteredBars = rawBars
-                                    .map((bar) => {
-                                      const barTime = new Date(bar.time || bar.t || 0).getTime();
-                                      return Number.isFinite(barTime) ? { ...bar, barTime } : null;
-                                    })
-                                    .filter(Boolean)
-                                    .filter((bar) => bar.barTime >= safeStartMs);
+                                  const filteredBars = buildBrokerPositionCurveBars({
+                                    position: pos,
+                                    rawBars,
+                                    entryTimeMs,
+                                    requestedStartMs: tradePortfolioRequestedStartMs,
+                                    nowMs: tradePortfolioNowMs,
+                                  });
                                   const baseline = Number(filteredBars[0]?.close);
                                   const points = Number.isFinite(baseline) && baseline > 0
                                     ? filteredBars.map((bar) => ({
                                         timeMs: bar.barTime,
                                         value: ((Number(bar.close) - baseline) / baseline) * 100,
+                                        rawValue: Number(bar.close),
+                                        source: bar.source || "market_bar",
                                       }))
                                     : [];
                                   if (DEBUG_CHARTS) {
@@ -17666,9 +18134,13 @@ return (
                                     rawValue: point.value,
                                   }));
                                 })();
-                                const displayedLines = tradeIsPortfolioTotalMode
+                                const shouldShowSingleAssetPerformance = tradeIsPortfolioTotalMode
+                                  && tradePortfolioDisplayedPositions.length === 1
+                                  && totalPortfolioPoints.length < 2
+                                  && portfolioLines.length === 1;
+                                const displayedLines = tradeIsPortfolioTotalMode && !shouldShowSingleAssetPerformance
                                   ? [{
-                                      symbol: "Portfolio",
+                                      symbol: "Broker Portfolio",
                                       color: "#7CC4FF",
                                       series: totalPortfolioPoints.map((point) => point.value),
                                       xRatios: totalPortfolioPoints.map((point) => {
@@ -17697,7 +18169,7 @@ return (
                                 if (allVals.length < 2) {
                                   return (
                                     <div className="tradeLiveChartBox" style={{ height: 300, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
-                                      {tradePortfolioChartsLoading ? "Loading portfolio chart..." : "Open positions with enough price history will appear here."}
+                                      {tradePortfolioChartsLoading ? "Loading portfolio chart..." : tradePortfolioDisplayedPositions.length === 1 ? "Building asset performance from entry onward..." : "Open positions with enough price history will appear here."}
                                     </div>
                                   );
                                 }
@@ -17730,7 +18202,7 @@ return (
                                         points: line.points,
                                       }))}
                                       valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
-                                      emptyMessage={tradePortfolioChartsLoading ? "Loading portfolio chart..." : "Open positions with enough price history will appear here."}
+                                      emptyMessage={tradePortfolioChartsLoading ? "Loading portfolio chart..." : tradePortfolioDisplayedPositions.length === 1 ? "Building asset performance from entry onward..." : "Open positions with enough price history will appear here."}
                                     />
                                   </div>
                                 );
@@ -17757,7 +18229,7 @@ return (
                               {tradeIsComparisonMode ? (
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
                                   {(tradeIsPortfolioTotalMode
-                                    ? [{ symbol: "Portfolio", color: "#7CC4FF" }]
+                                    ? [{ symbol: "Broker Portfolio", color: "#7CC4FF" }]
                                     : tradePortfolioDisplayedPositions.map((position, index) => ({
                                         symbol: position.symbol,
                                         color: ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"][index % 6],
@@ -17781,11 +18253,11 @@ return (
                                   <div>
                                     <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{tradeIsComparisonMode ? "Comparison Mode" : "Avg Entry"}</div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
-                                      {tradeIsComparisonMode ? (tradeIsPortfolioTotalMode ? "Portfolio" : "% change") : tradeChartMatchingPosition ? formatCurrency(tradeChartMatchingPosition.avgEntryPrice) : "--"}
+                                      {tradeIsComparisonMode ? (tradeIsPortfolioTotalMode ? "Broker Portfolio" : "% change") : tradeChartMatchingPosition ? formatCurrency(tradeChartMatchingPosition.avgEntryPrice) : "--"}
                                     </div>
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Position Value</div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{tradeIsComparisonMode ? "Live Position Value" : "Position Value"}</div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
                                       {tradeIsComparisonMode
                                         ? formatCurrency(tradePortfolioCombinedMarketValue)
@@ -17793,7 +18265,7 @@ return (
                                     </div>
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Unrealized P/L</div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Live Unrealized P/L</div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: tradeIsComparisonMode ? (tradePortfolioCombinedUnrealizedPl >= 0 ? "#4ade80" : "#f87171") : tradeChartMatchingPosition?.unrealizedPl >= 0 ? "#4ade80" : tradeChartMatchingPosition ? "#f87171" : "#e2e8f0" }}>
                                       {tradeIsComparisonMode
                                         ? `${tradePortfolioCombinedUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(tradePortfolioCombinedUnrealizedPl)}`
@@ -17809,7 +18281,7 @@ return (
                         );
                       })()}
 
-                      <div ref={orderTicketRef} className="tradeOrderTicket" style={{ order: 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
+                      <div ref={orderTicketRef} className="tradeOrderTicket" style={{ order: isMobileView ? 3 : 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
@@ -17819,7 +18291,7 @@ return (
                               Ready to close {preparedCloseOrder.symbol}
                             </div>
                             <div style={{ fontSize: 12, color: "#f8fafc", lineHeight: 1.55 }}>
-                              Market close prepared for {preparedCloseOrder.qty} share(s). Submit opens the final confirmation.
+                              Market close prepared for {formatBrokerQuantity(preparedCloseOrder.qty)} unit(s). Submit opens the final confirmation.
                             </div>
                           </div>
                         ) : null}
@@ -17829,7 +18301,7 @@ return (
                               Close order {submittedCloseStatusKind === "filled" ? "filled" : submittedCloseStatusKind === "failed" ? "needs review" : "pending"}
                             </div>
                             <div style={{ fontSize: 12, color: "#f8fafc", lineHeight: 1.55 }}>
-                              {latestSubmittedCloseBrokerOrder.symbol} {latestSubmittedCloseBrokerOrder.side} {Number(latestSubmittedCloseBrokerOrder.qty || 0)} share(s) • {submittedCloseStatusPresentation.label}
+                              {latestSubmittedCloseBrokerOrder.symbol} {latestSubmittedCloseBrokerOrder.side} {formatBrokerQuantity(latestSubmittedCloseBrokerOrder.qty)} unit(s) • {submittedCloseStatusPresentation.label}
                             </div>
                             {submittedCloseStatusKind === "pending" || submittedCloseStatusKind === "partial" ? (
                               <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.5 }}>
@@ -17850,9 +18322,9 @@ return (
                           const selectedSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
                           if (!selectedSymbol) return null;
 
-                          const matchingPosition = alpacaPositions.find((position) => position.symbol === selectedSymbol) || null;
+                          const matchingPosition = findBrokerPositionBySymbol(alpacaPositions, selectedSymbol);
                           const selectedOrderQuote = getKnownStockQuoteData(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
-                          const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && selectedSymbol === tradePanelSymbol
+                          const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && brokerSymbolsMatch(selectedSymbol, tradePanelSymbol)
                             ? tradePanelCurrentPrice
                             : getKnownStockQuotePrice(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                           const selectedOrderBid = Number(selectedOrderQuote?.bid);
@@ -17865,8 +18337,8 @@ return (
                             : matchingPosition?.currentPrice;
                           const unrealizedPl = matchingPosition?.unrealizedPl ?? null;
                           const unrealizedPlpc = matchingPosition?.unrealizedPlpc ?? null;
-                          const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => asset.symbol === selectedSymbol)
-                            || (tradeSelectedBrokerAsset?.symbol === selectedSymbol ? tradeSelectedBrokerAsset : null);
+                          const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => brokerSymbolsMatch(asset.symbol, selectedSymbol))
+                            || (brokerSymbolsMatch(tradeSelectedBrokerAsset?.symbol, selectedSymbol) ? tradeSelectedBrokerAsset : null);
                           const selectedBrokerAssetLabel = selectedBrokerAsset?.assetClass === "crypto" ? "Crypto" : selectedBrokerAsset?.exchange || "";
                           const accountMultiplier = Math.max(1, Number(alpacaAccount?.raw?.multiplier ?? 1) || 1);
                           const leverageAvailable = accountMultiplier > 1 && selectedBrokerAsset?.marginable;
@@ -17919,8 +18391,8 @@ return (
                               {matchingPosition ? (
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                                   <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Shares</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{matchingPosition.qty}</div>
+                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Units</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatBrokerQuantity(matchingPosition.qty)}</div>
                                   </div>
                                   <div>
                                     <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Price</div>
@@ -17934,7 +18406,7 @@ return (
                                   </div>
                                   <div>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
-                                      <div style={{ fontSize: 12, color: "#7f8ea3" }}>Unrealized P/L</div>
+                                      <div style={{ fontSize: 12, color: "#7f8ea3" }}>Live Unrealized P/L</div>
                                       {showBeginnerGuidance && <InlineHelpButton topic="unrealizedPnL" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                                     </div>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: unrealizedPl >= 0 ? "#4ade80" : "#f87171" }}>
@@ -18000,7 +18472,7 @@ return (
                           <div style={{ position: "relative" }}>
                             {(() => {
                               const selectedOrderQuote = getKnownStockQuoteData(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
-                              const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && String(alpacaOrderForm.symbol || "").trim().toUpperCase() === tradePanelSymbol
+                              const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && brokerSymbolsMatch(alpacaOrderForm.symbol, tradePanelSymbol)
                                 ? tradePanelCurrentPrice
                                 : getKnownStockQuotePrice(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                               const orderQuoteIsFresh = isQuoteFresh(selectedOrderQuote);
@@ -18108,7 +18580,11 @@ return (
                             })()}
                           </div>
                           <div>
-                            <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
+                              {showBeginnerGuidance && <InlineHelpButton topic="direction" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                            </div>
+                            {showBeginnerGuidance && tradeHelpTopic === "direction" ? <InlineHelpCard topic="direction" /> : null}
                             <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                               {[
                                 { label: "Long", value: "buy", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
@@ -18203,7 +18679,7 @@ return (
                                   className="authInput"
                                   type="number"
                                   min="0"
-                                  step="0.0001"
+                                  step="0.00000001"
                                   placeholder="Qty"
                                   value={alpacaOrderForm.qty}
                                   onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
@@ -18216,7 +18692,7 @@ return (
                               const hasPrice = Number.isFinite(price) && price > 0;
                               const dollars = Number(alpacaOrderSizeInput);
                               const derivedQty = hasPrice && Number.isFinite(dollars) && dollars > 0
-                                ? parseFloat((dollars / price).toFixed(8)) : null;
+                                ? Number.parseFloat((dollars / price).toFixed(8)) : null;
                               return (
                                 <>
                                   <input
@@ -18239,7 +18715,7 @@ return (
                                   />
                                   {derivedQty != null ? (
                                     <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{derivedQty}</span> at {formatCurrency(price)}
+                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{formatBrokerQuantity(derivedQty)}</span> at {formatCurrency(price)}
                                     </div>
                                   ) : alpacaOrderSizeInput ? (
                                     <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 6 }}>Waiting for price data to estimate quantity.</div>
@@ -18254,7 +18730,7 @@ return (
                               const riskPerShare = hasPriceStop ? Math.abs(price - planStopNum) : null;
                               const riskDollars = Number(alpacaOrderSizeInput);
                               const estimatedQty = hasPriceStop && riskPerShare > 0 && Number.isFinite(riskDollars) && riskDollars > 0
-                                ? parseFloat((riskDollars / riskPerShare).toFixed(4)) : null;
+                                ? Number.parseFloat((riskDollars / riskPerShare).toFixed(8)) : null;
                               return (
                                 <>
                                   <input
@@ -18273,13 +18749,13 @@ return (
                                       const currentHasPriceStop = alpacaOrderPlanMode === "price" && Number.isFinite(currentPlanStop) && currentPlanStop > 0 && Number.isFinite(currentPrice) && currentPrice > 0;
                                       const currentRiskPerShare = currentHasPriceStop ? Math.abs(currentPrice - currentPlanStop) : null;
                                       if (currentRiskPerShare && currentRiskPerShare > 0 && Number.isFinite(rd) && rd > 0) {
-                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: String(parseFloat((rd / currentRiskPerShare).toFixed(4))) }));
+                                        setAlpacaOrderForm((prev) => ({ ...prev, qty: String(Number.parseFloat((rd / currentRiskPerShare).toFixed(8))) }));
                                       }
                                     }}
                                   />
                                   {estimatedQty != null && Number.isFinite(riskDollars) && riskDollars > 0 ? (
                                     <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{estimatedQty}</span> share(s) · {formatCurrency(riskPerShare)}/share risk
+                                      Estimated qty: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{formatBrokerQuantity(estimatedQty)}</span> unit(s) · {formatCurrency(riskPerShare)}/unit risk
                                     </div>
                                   ) : (
                                     <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
@@ -18307,13 +18783,17 @@ return (
                               {showBeginnerGuidance && tradeHelpTopic === "orderType" ? <InlineHelpCard topic="orderType" /> : null}
                             </div>
                             <div>
-                              <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
+                                {showBeginnerGuidance && <InlineHelpButton topic="timeInForce" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                              </div>
                               <RaylaDropdown
                                 value={alpacaOrderForm.timeInForce}
                                 onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: value }))}
                                 options={ALPACA_TIME_IN_FORCE_OPTIONS}
                                 ariaLabel="Time in force"
                               />
+                              {showBeginnerGuidance && tradeHelpTopic === "timeInForce" ? <InlineHelpCard topic="timeInForce" /> : null}
                             </div>
                           </div>
                           {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit" || alpacaOrderForm.type === "stop") && (
@@ -18387,15 +18867,19 @@ return (
                             ) : null;
                           })()}
                           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
-                            <button
-                              type="button"
-                              onClick={() => setAlpacaOrderPlanOpen((prev) => !prev)}
-                              style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
-                            >
-                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Exit Plan</div>
-                              <div style={{ fontSize: 10, color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.18)", borderRadius: 6, padding: "2px 7px" }}>PLAN ONLY</div>
-                              <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{alpacaOrderPlanOpen ? "▲" : "▼"}</div>
-                            </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                              <button
+                                type="button"
+                                onClick={() => setAlpacaOrderPlanOpen((prev) => !prev)}
+                                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, flex: 1, minWidth: 0 }}
+                              >
+                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Exit Plan</div>
+                                <div style={{ fontSize: 10, color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.18)", borderRadius: 6, padding: "2px 7px" }}>PLAN ONLY</div>
+                                <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{alpacaOrderPlanOpen ? "▲" : "▼"}</div>
+                              </button>
+                            {showBeginnerGuidance && <InlineHelpButton topic="exits" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                            </div>
+                            {showBeginnerGuidance && tradeHelpTopic === "exits" ? <InlineHelpCard topic="exits" /> : null}
                             {alpacaOrderPlanOpen && (
                               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                                 <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
@@ -18491,13 +18975,17 @@ return (
                                       )}
                                       {rr != null && (
                                         <div>
-                                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 2 }}>R/R Ratio</div>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
+                                            <div style={{ fontSize: 11, color: "#7f8ea3" }}>R/R Ratio</div>
+                                            {showBeginnerGuidance && <InlineHelpButton topic="riskReward" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                                          </div>
                                           <div style={{ fontSize: 14, fontWeight: 700, color: rr >= 2 ? "#4ade80" : rr >= 1 ? "#fbbf24" : "#f87171" }}>1 : {rr.toFixed(1)}</div>
                                         </div>
                                       )}
                                     </div>
                                   );
                                 })()}
+                                {showBeginnerGuidance && tradeHelpTopic === "riskReward" ? <InlineHelpCard topic="riskReward" /> : null}
                               </div>
                             )}
                           </div>
@@ -18522,16 +19010,16 @@ return (
                             </div>
                           ) : null}
                         </form>
-                        {alpacaOrderResult && (
+                        {latestSubmittedBrokerOrder && (
                           <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.6, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.16)" }}>
-                            Order sent: {alpacaOrderResult.symbol} {alpacaOrderResult.side} {alpacaOrderResult.qty} share(s) • {alpacaOrderResult.type} •{" "}
+                            Order sent: {latestSubmittedBrokerOrder.symbol} {latestSubmittedBrokerOrder.side} {formatBrokerQuantity(latestSubmittedBrokerOrder.qty)} unit(s) • {latestSubmittedBrokerOrder.type || latestSubmittedBrokerOrder.order_type} •{" "}
                             <span
                               style={{
-                                color: getBrokerOrderStatusPresentation(alpacaOrderResult.status).color,
+                                color: getBrokerOrderStatusPresentation(latestSubmittedBrokerOrder).color,
                                 fontWeight: 700,
                               }}
                             >
-                              {getBrokerOrderStatusPresentation(alpacaOrderResult.status).label}
+                              {getBrokerOrderStatusPresentation(latestSubmittedBrokerOrder).label}
                             </span>
                           </div>
                         )}
@@ -18716,6 +19204,13 @@ return (
         {activeTab === "simulation" && (
           <div className="mainGrid">
             <div className="span12">
+              <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
+                <div className="mobilePageTitle" style={{ color: "#f8fbff", fontSize: 20, fontWeight: 900, lineHeight: 1.1, letterSpacing: 0 }}>Simulation</div>
+                <RaylaLaunchButton
+                  label="Ask Rayla"
+                  onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
+                />
+              </div>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
@@ -18774,12 +19269,6 @@ return (
                             ? "Live mode uses current market quotes so you can practice execution on real movement without risking capital."
                             : "Scenario mode creates structured training conditions so you can rehearse setups, risk, and decision-making faster."}
                         </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <RaylaLaunchButton
-                          label="Ask Rayla"
-                          onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
-                        />
                       </div>
                   </div>
                     {showBeginnerGuidance && simulationMode === "scenario" && capitalGuideScenarioIntro && (
@@ -19617,15 +20106,53 @@ return (
                   )}
 
                   <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0, order: isMobileView ? 1 : 0 })}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div className="scenarioChartHeaderRow" style={{ display: "flex", alignItems: isMobileView ? "stretch" : "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         {simulationMode === "scenario" ? "Scenario Chart" : "Live Chart"}
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <div className="scenarioChartControlArea" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flex: isMobileView ? 1 : undefined }}>
                         {simulationMode === "scenario" && (
                           <>
-                            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "flex-end", flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.018)", border: "1px solid rgba(255,255,255,0.045)" }}>
+                            <div className="scenarioChartToolbarStack" style={{ display: "flex", alignItems: "center", gap: isMobileView ? 8 : 14, flexWrap: "wrap", justifyContent: isMobileView ? "center" : "flex-end", flex: 1, minWidth: 0 }}>
+                              <div className="scenarioChartActionToolbar">
+                                <button
+                                  type="button"
+                                  className="ghostButton scenarioPlaybackButton"
+                                  onClick={handleStartScenarioRep}
+                                  style={{
+                                    padding: "9px 16px",
+                                    fontSize: 12,
+                                    fontWeight: 800,
+                                    color: simulationScenarioIsPlaying ? "#e2e8f0" : "#0b1017",
+                                    background: simulationScenarioIsPlaying ? "rgba(255,255,255,0.06)" : "#7CC4FF",
+                                    borderColor: simulationScenarioIsPlaying ? "rgba(255,255,255,0.1)" : "rgba(124,196,255,0.38)",
+                                    boxShadow: simulationScenarioIsPlaying ? "none" : "0 10px 24px rgba(124,196,255,0.18)",
+                                  }}
+                                >
+                                  {!simulationScenarioIsPlaying && scenarioPlaybackElapsedMsRef.current === 0
+                                    ? "Play"
+                                    : simulationScenarioIsPlaying
+                                      ? "Pause"
+                                      : "Resume"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghostButton scenarioPlaybackButton"
+                                  onClick={resetScenarioPlayback}
+                                  style={{
+                                    padding: "9px 14px",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: "#aab7c7",
+                                    background: "rgba(255,255,255,0.035)",
+                                    borderColor: "rgba(255,255,255,0.08)",
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                                {renderSimulationInfoButton("chart")}
+                              </div>
+                              <div className="scenarioModeToolbar" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.018)", border: "1px solid rgba(255,255,255,0.045)" }}>
                                 <ChartTimeframeDropdown value={simulationChartTimeframe} onChange={setSimulationChartTimeframe} />
                                 <div style={{ display: "flex", gap: 3, padding: 2, borderRadius: 8, background: "rgba(9,14,22,0.72)", border: "1px solid rgba(255,255,255,0.045)" }}>
                                   {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
@@ -19650,7 +20177,7 @@ return (
                                   ))}
                                 </div>
                               </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)" }}>
+                              <div className="scenarioDrawingToolbarWide" style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", justifyContent: isMobileView ? "center" : "flex-start", padding: isMobileView ? "6px 8px" : "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)", flex: isMobileView ? 1 : undefined }}>
                                 {[
                                   ["horizontal", "Line"],
                                   ["profit", "Profit Line"],
@@ -19662,7 +20189,7 @@ return (
                                     className="ghostButton"
                                     onClick={() => setSimulationScenarioDrawingMode((prev) => (prev === tool ? "none" : tool))}
                                     style={{
-                                      padding: "4px 8px",
+                                      padding: isMobileView ? "6px 11px" : "4px 8px",
                                       fontSize: 10,
                                       borderRadius: 6,
                                       borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.06)",
@@ -19680,7 +20207,7 @@ return (
                                   className="ghostButton"
                                   onClick={() => undoStoredChartDrawing(scenarioDrawingStorageKey)}
                                   style={{
-                                    padding: "4px 8px",
+                                    padding: isMobileView ? "6px 11px" : "4px 8px",
                                     fontSize: 10,
                                     borderRadius: 6,
                                     borderColor: "rgba(255,255,255,0.06)",
@@ -19697,7 +20224,7 @@ return (
                                   className="ghostButton"
                                   onClick={clearScenarioDrawings}
                                   style={{
-                                    padding: "4px 8px",
+                                    padding: isMobileView ? "6px 11px" : "4px 8px",
                                     fontSize: 10,
                                     borderRadius: 6,
                                     borderColor: "rgba(248,113,113,0.16)",
@@ -19710,8 +20237,8 @@ return (
                                   Clear Chart
                                 </button>
                               </div>
-                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 112 }}>
-                                <div style={{ fontSize: 11, color: "#7f8ea3", textAlign: "right", whiteSpace: "nowrap" }}>
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: isMobileView ? "center" : "flex-end", gap: 2, minWidth: isMobileView ? undefined : 112 }}>
+                                <div style={{ fontSize: 11, color: "#7f8ea3", textAlign: isMobileView ? "center" : "right", whiteSpace: "nowrap" }}>
                                   {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"} · {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
                                 </div>
                                 {scenarioDrawingStatus ? (
@@ -19721,41 +20248,6 @@ return (
                                 ) : null}
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              className="ghostButton"
-                              onClick={handleStartScenarioRep}
-                              style={{
-                                padding: "9px 16px",
-                                fontSize: 12,
-                                fontWeight: 800,
-                                color: simulationScenarioIsPlaying ? "#e2e8f0" : "#0b1017",
-                                background: simulationScenarioIsPlaying ? "rgba(255,255,255,0.06)" : "#7CC4FF",
-                                borderColor: simulationScenarioIsPlaying ? "rgba(255,255,255,0.1)" : "rgba(124,196,255,0.38)",
-                                boxShadow: simulationScenarioIsPlaying ? "none" : "0 10px 24px rgba(124,196,255,0.18)",
-                              }}
-                            >
-                              {!simulationScenarioIsPlaying && scenarioPlaybackElapsedMsRef.current === 0
-                                ? "Play"
-                                : simulationScenarioIsPlaying
-                                  ? "Pause"
-                                  : "Resume"}
-                            </button>
-                            <button
-                              type="button"
-                              className="ghostButton"
-                              onClick={resetScenarioPlayback}
-                              style={{
-                                padding: "9px 14px",
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: "#aab7c7",
-                                background: "rgba(255,255,255,0.035)",
-                                borderColor: "rgba(255,255,255,0.08)",
-                              }}
-                            >
-                              Reset
-                            </button>
                           </>
                         )}
                         {simulationMode === "live" && (
@@ -19805,7 +20297,7 @@ return (
                             )}
                           </>
                         )}
-                        {renderSimulationInfoButton("chart", "?")}
+                        {simulationMode !== "scenario" ? renderSimulationInfoButton("chart") : null}
                       </div>
                     </div>
                     {simulationMode === "scenario" && (
@@ -20243,6 +20735,7 @@ return (
                             {raylaReviewPreview.join(" ")}
                           </div>
                           <button
+                            className="raylaAskTypography"
                             type="button"
                             onClick={() => openPostTradeRaylaReview(visibleSimulationClosedTrade)}
                             style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, color: "#4a5568", textDecoration: "underline", textUnderlineOffset: 3 }}
@@ -20888,6 +21381,15 @@ return (
 
         {activeTab === "intel" && (
           <div className="mainGrid">
+            <style>{`
+              .intelDesktopGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; align-items: start; }
+              .intelMobileGrid  { display: none; width: 100%; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; align-items: start; overflow: hidden; box-sizing: border-box; }
+              .intelMobileGrid > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+              @media (max-width: 600px) {
+                .intelDesktopGrid { display: none; }
+                .intelMobileGrid  { display: grid; }
+              }
+            `}</style>
             <div className="span12">
               <div className="card">
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -20898,7 +21400,6 @@ return (
                         Pick a hot or cold asset, then try the idea in Simulation before risking real capital.
                       </div>
                     </div>
-                    <RaylaLaunchButton label="Ask Rayla" onClick={() => openGlobalRaylaPopup("Ask Rayla")} />
                   </div>
                 {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
@@ -20947,62 +21448,80 @@ return (
                     },
                     {
                       label: "Market",
-                      content: (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, alignItems: "start" }}>
-                          {[
-                            {
-                              stockLabel: "Hottest Stocks / ETFs",
-                              stockColor: "#ef4444",
-                              stockItems: hotColdReport.stockHot,
-                              cryptoLabel: "Hottest Crypto",
-                              cryptoColor: "#ef4444",
-                              cryptoItem: hotColdReport.cryptoHot,
-                            },
-                            {
-                              stockLabel: "Coldest Stocks / ETFs",
-                              stockColor: "#7CC4FF",
-                              stockItems: hotColdReport.stockCold,
-                              cryptoLabel: "Coldest Crypto",
-                              cryptoColor: "#7CC4FF",
-                              cryptoItem: hotColdReport.cryptoCold,
-                            },
-                          ].map(({ stockLabel, stockColor, stockItems, cryptoLabel, cryptoColor, cryptoItem }) => {
-                            const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
-                            return (
-                              <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-                                <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
-                                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
-                                  </div>
-                                  {visibleStockItems.length ? (
-                                    visibleStockItems.map((item) => (
-                                      <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                    ))
-                                  ) : (
-                                    <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>
-                                      No visible assets in this bucket yet.
+                      content: (() => {
+                        const hotStocks  = getRenderableIntelAssets(hotColdReport.stockHot).slice(0, 3);
+                        const coldStocks = getRenderableIntelAssets(hotColdReport.stockCold).slice(0, 3);
+                        const hotCrypto  = hotColdReport.cryptoHot;
+                        const coldCrypto = hotColdReport.cryptoCold;
+                        const maxStocks  = Math.max(hotStocks.length, coldStocks.length);
+                        const colHeader = (label, color, dot) => (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 6, borderBottom: `1px solid ${dot}33`, marginBottom: 2 }}>
+                            <div style={{ width: 7, height: 7, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color }}>{label}</div>
+                          </div>
+                        );
+                        return (
+                          <>
+                            {/* ── Desktop layout: one column per sentiment ─────────────────── */}
+                            <div className="intelDesktopGrid">
+                              {[
+                                { stockLabel: "Hottest Stocks / ETFs", stockColor: "#ef4444", stockItems: hotColdReport.stockHot, cryptoLabel: "Hottest Crypto", cryptoColor: "#ef4444", cryptoItem: hotCrypto },
+                                { stockLabel: "Coldest Stocks / ETFs", stockColor: "#7CC4FF", stockItems: hotColdReport.stockCold, cryptoLabel: "Coldest Crypto", cryptoColor: "#7CC4FF", cryptoItem: coldCrypto },
+                              ].map(({ stockLabel, stockColor, stockItems, cryptoLabel, cryptoColor, cryptoItem }) => {
+                                const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
+                                return (
+                                  <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+                                    <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
+                                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
+                                      </div>
+                                      {visibleStockItems.length ? visibleStockItems.map((item) => (
+                                        <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                      )) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible assets in this bucket yet.</div>}
                                     </div>
-                                  )}
-                                </div>
-                                <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
-                                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
-                                  </div>
-                                  {cryptoItem ? (
-                                    <IntelAssetCard item={cryptoItem} quoteOverride={intelLiveQuotes[cryptoItem.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                  ) : (
-                                    <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>
-                                      No visible crypto asset yet.
+                                    <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
+                                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
+                                      </div>
+                                      {cryptoItem ? (
+                                        <IntelAssetCard item={cryptoItem} quoteOverride={intelLiveQuotes[cryptoItem.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                      ) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible crypto asset yet.</div>}
                                     </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ),
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* ── Mobile layout: paired hot/cold rows ──────────────────────── */}
+                            <div className="intelMobileGrid">
+                              {/* Stock section headers */}
+                              {colHeader("Hot", "#f87171", "#ef4444")}
+                              {colHeader("Cold", "#7CC4FF", "#7CC4FF")}
+                              {/* Stock paired rows */}
+                              {Array.from({ length: maxStocks }).flatMap((_, i) => [
+                                hotStocks[i]
+                                  ? <IntelAssetCardMini key={`mh-s-${i}`} item={hotStocks[i]} quoteOverride={intelLiveQuotes[hotStocks[i].symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                  : <div key={`mh-empty-s-${i}`} />,
+                                coldStocks[i]
+                                  ? <IntelAssetCardMini key={`mc-s-${i}`} item={coldStocks[i]} quoteOverride={intelLiveQuotes[coldStocks[i].symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                  : <div key={`mc-empty-s-${i}`} />,
+                              ])}
+                              {/* Crypto section headers */}
+                              {colHeader("Hot Crypto", "#f87171", "#ef4444")}
+                              {colHeader("Cold Crypto", "#7CC4FF", "#7CC4FF")}
+                              {/* Crypto paired row */}
+                              {hotCrypto
+                                ? <IntelAssetCardMini key="mh-crypto" item={hotCrypto} quoteOverride={intelLiveQuotes[hotCrypto.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                : <div key="mh-crypto-empty" />}
+                              {coldCrypto
+                                ? <IntelAssetCardMini key="mc-crypto" item={coldCrypto} quoteOverride={intelLiveQuotes[coldCrypto.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                : <div key="mc-crypto-empty" />}
+                            </div>
+                          </>
+                        );
+                      })(),
                     },
                   ]} />
                 )}
@@ -21024,29 +21543,6 @@ return (
           <button className="ghostButton" type="button" onClick={handleSignOut}>Sign out</button>
         </div>
         <div className="profileGrid">
-          <div className="profilePanel">
-            <div className="listTitle">Identity</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-              <input className="authInput" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Display name" />
-              <button className="ghostButton" type="button" onClick={async () => {
-                const nextDisplayName = displayName.trim();
-                if (!nextDisplayName) {
-                  showToast("Enter a display name before saving.", "warning");
-                  return;
-                }
-                if (nextDisplayName.length > 60) {
-                  showToast("Display name must be 60 characters or fewer.", "warning");
-                  return;
-                }
-                const { data, error } = await supabase.auth.updateUser({ data: { display_name: nextDisplayName } });
-                if (error) { showToast("Could not save name.", "error"); return; }
-                if (data?.user) setUser(data.user);
-                setDisplayName(nextDisplayName);
-                showToast("Name updated.", "success");
-              }}>Save name</button>
-            </div>
-          </div>
-
           <div className="profilePanel">
             <div className="listTitle">Rayla Mode</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
@@ -21811,12 +22307,35 @@ return (
 
         <div className="mobileNav">
           {NAV_TABS.map(tab => (
-            <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => { setActiveTab(tab.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-              {tab.icon}<span>{tab.label}</span>
+            <button
+              key={tab.id}
+              type="button"
+              data-mobile-nav-tab={tab.id}
+              className={activeTab === tab.id ? "active" : ""}
+              onPointerDown={(event) => {
+                if (event.pointerType === "touch") {
+                  event.preventDefault();
+                  handleMobileNavSelect(tab.id);
+                }
+              }}
+              onClick={() => handleMobileNavSelect(tab.id)}
+            >
+              {tab.icon}<span>{tab.id === "trades" ? "Live" : tab.id === "simulation" ? "Sim" : tab.id === "ai" ? "Perf" : tab.label}</span>
             </button>
           ))}
-          <button className={activeTab === "profile" ? "active" : ""} onClick={() => { setActiveTab("profile"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-            <User size={18} /><span>Profile & Settings</span>
+          <button
+            type="button"
+            data-mobile-nav-tab="profile"
+            className={activeTab === "profile" ? "active" : ""}
+            onPointerDown={(event) => {
+              if (event.pointerType === "touch") {
+                event.preventDefault();
+                handleMobileNavSelect("profile");
+              }
+            }}
+            onClick={() => handleMobileNavSelect("profile")}
+          >
+            <User size={18} /><span>Profile</span>
           </button>
         </div>
         {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}

@@ -17,6 +17,10 @@
 
 html, body, #root {
   font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -26,12 +30,24 @@ body {
   color: var(--text);
 }
 
-button, input, select, textarea, label, table, th, td, nav, a {
-  font-family: inherit;
+button,
+input,
+select,
+option,
+optgroup,
+textarea,
+label,
+table,
+th,
+td,
+nav,
+a {
+  font: inherit;
+  font-family: var(--font-sans);
 }
 
-button {
-  font: inherit;
+::placeholder {
+  font-family: var(--font-sans);
 }
 
 h1 {

@@ -124,6 +124,8 @@ export function normalizeAlpacaAccount(account: any, isPaper = false) {
     cash: Number(account?.cash ?? 0),
     portfolioValue: Number(account?.portfolio_value ?? 0),
     equity: Number(account?.equity ?? 0),
+    lastEquity: Number(account?.last_equity ?? 0),
+    dayPnl: Number(account?.equity ?? 0) - Number(account?.last_equity ?? account?.equity ?? 0),
     isPaper,
     currency: account?.currency || "USD",
     raw: account,
