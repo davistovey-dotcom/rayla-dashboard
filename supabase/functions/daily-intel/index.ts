@@ -1403,10 +1403,11 @@ const scoredStocksRaw = await mapWithConcurrency(topCandidates, 6, async (candid
 
       // 6) Crypto news + score (news BEFORE scoring)
 const scoredCryptoRaw = await mapWithConcurrency(CRYPTO_UNIVERSE, 6, async (coin) => {
-  const quote = cryptoQuotes.find((q) => q.symbol === coin.symbol) || {
+  const foundQuote = cryptoQuotes.find((q) => q.symbol === coin.symbol);
+  const quote = foundQuote || {
     symbol: coin.symbol,
     name: coin.name,
-    dayChangePct: 0,
+    dayChangePct: 0,  // neutral for scoring when data is unavailable
     price: null,
   };
 
@@ -1423,6 +1424,8 @@ const scoredCryptoRaw = await mapWithConcurrency(CRYPTO_UNIVERSE, 6, async (coin
     ...scored,
     symbol: coin.symbol,
     rawArticles: articles.slice(0, 1),
+    // show "N/A" instead of "+0.00%" when no real price data was fetched
+    change: foundQuote ? scored.change : "N/A",
   };
 });
 

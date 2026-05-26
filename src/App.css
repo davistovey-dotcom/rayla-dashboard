@@ -22,6 +22,8 @@
   --radius-panel: 14px;
   --shadow-card: 0 18px 54px rgba(0,0,0,0.22);
   --font-sans: "Satoshi", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --rayla-keyboard-inset: 0px;
+  --rayla-visual-viewport-height: 100dvh;
 }
 
 html, body, #root {
@@ -373,6 +375,35 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   height: auto !important;
   min-height: 0;
   overflow: visible !important;
+}
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  .simulationWorkspaceGrid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 16px !important;
+  }
+
+  .simulationControlsPanel,
+  .simulationChartPanel {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+    min-width: 0;
+  }
+
+  .simulationChartPanel .simulationChartFrame {
+    width: 100%;
+  }
+
+  .simulationControlCardsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  .simulationControlCardsGrid > div {
+    min-width: 0;
+    height: 100%;
+  }
 }
 
 .performanceHistoryGrid {
@@ -1501,15 +1532,55 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   .equityChart { height: 300px; }
   .equityCard { min-height: unset; height: auto; }
+  .equityCard .equityCurveControls {
+    width: 100%;
+    max-width: 100%;
+    align-items: stretch !important;
+  }
+
+  .equityCard .equityCurveControls .chartTabs,
+  .equityCard [data-benchmark-selector="true"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .equityCard [data-benchmark-selector="true"] .raylaDropdown {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .equityCard [data-benchmark-selector="true"] .raylaDropdownMenu {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+  }
+
+  .equityCard [data-benchmark-selector="true"] .raylaDropdownOption {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .equityCard [data-benchmark-selector="true"] .raylaDropdownOption span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .equityChart:has(.equityComparisonChart) {
     height: auto;
-    overflow: visible;
-    padding: 10px;
+    overflow: hidden;
+    padding: 8px;
   }
   .equityComparisonChart {
+    width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     display: flex !important;
     flex-direction: column;
     gap: 10px;
@@ -1519,9 +1590,15 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     position: relative !important;
     inset: auto !important;
     width: 100% !important;
+    max-width: 100% !important;
     height: 230px !important;
     min-height: 230px;
     order: 1;
+    overflow: hidden !important;
+  }
+  .equityComparisonChartCanvas > div,
+  .equityComparisonChartCanvas canvas {
+    max-width: 100% !important;
   }
   .equityComparisonChartTooltip {
     position: relative !important;
@@ -2025,6 +2102,25 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     min-width: 0;
     overflow-wrap: anywhere;
   }
+}
+
+body.raylaKeyboardOpen .appShell:has(.tradeMobileScope) {
+  min-height: var(--rayla-visual-viewport-height, 100dvh);
+  padding-bottom: calc(130px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom)) !important;
+}
+
+body.raylaKeyboardOpen .tradeMobileScope {
+  padding-bottom: calc(150px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom)) !important;
+  scroll-padding-bottom: calc(150px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom));
+}
+
+body.raylaKeyboardOpen .tradeOrderTicket,
+body.raylaKeyboardOpen .tradeOrderTicket input,
+body.raylaKeyboardOpen .tradeOrderTicket textarea,
+body.raylaKeyboardOpen .tradeOrderTicket select,
+body.raylaKeyboardOpen .tradeOrderTicket button,
+body.raylaKeyboardOpen .tradeOrderSubmitButton {
+  scroll-margin-bottom: calc(160px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom));
 }
 
 :root {

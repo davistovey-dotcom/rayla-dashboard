@@ -4039,6 +4039,42 @@ function InlineHelpCard({ topic }) {
   );
 }
 
+function BrokerDisclosureNote({ children, compact = false, action = null }) {
+  return (
+    <div
+      className="brokerDisclosureNote"
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8,
+        padding: compact ? "8px 10px" : "10px 12px",
+        borderRadius: compact ? 10 : 12,
+        background: "rgba(124,196,255,0.045)",
+        border: "1px solid rgba(124,196,255,0.12)",
+        color: "#9fb0c5",
+        fontSize: compact ? 11 : 12,
+        lineHeight: 1.55,
+        flexWrap: "wrap",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: "rgba(124,196,255,0.72)",
+          flex: "0 0 auto",
+          marginTop: compact ? 5 : 6,
+          boxShadow: "0 0 0 3px rgba(124,196,255,0.08)",
+        }}
+      />
+      <span style={{ flex: "1 1 220px", minWidth: 0 }}>{children}</span>
+      {action}
+    </div>
+  );
+}
+
 function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = null, hideOutcomeValues = false }) {
   if (!rows || rows.length === 0) return null;
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.totalR)), 0.01);
@@ -6410,7 +6446,7 @@ function EquityCurveCard({
   };
 
   const controlRow = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
+    <div className="equityCurveControls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
       <div className="chartTabs" style={{ marginBottom: 0 }}>
         {["1D","1W","1M","3M","ALL"].map((range) => (
           <button key={range} className={`chartTab ${chartRange === range ? "active" : ""}`} onClick={() => setChartRange(range)} type="button">{range}</button>
@@ -7198,7 +7234,7 @@ useEffect(() => {
               {selectedItem && selectedItemExplicitlyUnsupported ? (
                 <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                   <div>Live chart unavailable</div>
-                  <div>Alpaca does not currently support trading this asset.</div>
+                  <div>This asset is not currently tradable through your connected broker.</div>
                 </div>
               ) : selectedItem && (marketChartLoading && selectedChartBars.length < 2) ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
@@ -7274,7 +7310,7 @@ useEffect(() => {
               {selectedItem && selectedItemExplicitlyUnsupported ? (
                 <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                   <div>Live chart unavailable</div>
-                  <div>Alpaca does not currently support trading this asset.</div>
+                  <div>This asset is not currently tradable through your connected broker.</div>
                 </div>
               ) : selectedItem && (marketChartLoading && selectedChartBars.length < 2) ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8" }}>
@@ -7330,8 +7366,11 @@ function getScoreLabel(score) {
 function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quoteOverride = null }) {
   if (!item) return null;
   const { label, cls } = getScoreLabel(item.score);
-  const displayChange = item.change;
-  const changePos = !String(displayChange || "").startsWith("-");
+  const liveChange = quoteOverride?.change;
+  const displayChange = Number.isFinite(liveChange)
+    ? `${liveChange >= 0 ? "+" : ""}${liveChange.toFixed(2)}%`
+    : (item.change || "N/A");
+  const changePos = !String(displayChange).startsWith("-");
   const article = (item.rawArticles || [])[0];
   const drivers = item.breakdown
     ? Object.entries(item.breakdown).filter(([k]) => k !== "total").sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 2)
@@ -7354,7 +7393,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   const articleSnippet = String(article?.description || "").trim();
 
   return (
-    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10, marginBottom: 7 }}>
+    <div className="intelAssetCard" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10, marginBottom: 7 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <div style={{ minWidth: 0 }}>
@@ -7383,7 +7422,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
         </div>
       )}
       {article && (
-        <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, textDecoration: "none", marginTop: 4, padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
+        <a className="intelAssetCardArticle" href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, textDecoration: "none", marginTop: 4, padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
           {article.image ? (
             <img src={article.image} alt="" onError={e => { e.target.style.display = "none"; }} style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
           ) : (
@@ -7401,7 +7440,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
         </a>
       )}
       {(onTrySimulation || onAskRayla) && (
-        <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div className="intelAssetCardActions" style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
           {onTrySimulation && (
             <button
               type="button"
@@ -7440,8 +7479,11 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
 function IntelAssetCardMini({ item, onTrySimulation = null, onAskRayla = null, quoteOverride = null }) {
   if (!item) return null;
   const { label, cls } = getScoreLabel(item.score);
-  const displayChange = item.change;
-  const changePos = !String(displayChange || "").startsWith("-");
+  const liveChange = quoteOverride?.change;
+  const displayChange = Number.isFinite(liveChange)
+    ? `${liveChange >= 0 ? "+" : ""}${liveChange.toFixed(2)}%`
+    : (item.change || "N/A");
+  const changePos = !String(displayChange).startsWith("-");
   const article = (item.rawArticles || [])[0];
   const topDriver = item.breakdown
     ? Object.entries(item.breakdown).filter(([k]) => k !== "total").sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]
@@ -8778,6 +8820,63 @@ useEffect(() => {
     return () => {
       document.removeEventListener("pointerdown", handleNativeMobileNav, true);
       document.removeEventListener("touchstart", handleNativeMobileNav, true);
+    };
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const root = document.documentElement;
+    const body = document.body;
+    let scrollTimer = null;
+
+    const updateKeyboardState = () => {
+      const viewport = window.visualViewport;
+      const layoutHeight = window.innerHeight || root.clientHeight || 0;
+      const visualHeight = viewport?.height || layoutHeight;
+      const offsetTop = viewport?.offsetTop || 0;
+      const keyboardInset = Math.max(0, layoutHeight - visualHeight - offsetTop);
+      const isNarrowTouchViewport = window.matchMedia?.("(max-width: 900px)")?.matches
+        || window.matchMedia?.("(pointer: coarse)")?.matches;
+      const keyboardOpen = isNarrowTouchViewport && keyboardInset > 80;
+
+      root.style.setProperty("--rayla-keyboard-inset", `${Math.round(keyboardInset)}px`);
+      root.style.setProperty("--rayla-visual-viewport-height", `${Math.round(visualHeight)}px`);
+      body.classList.toggle("raylaKeyboardOpen", keyboardOpen);
+
+      if (!keyboardOpen) return;
+      const active = document.activeElement;
+      if (!active?.matches?.("input, textarea, select, [contenteditable='true']")) return;
+      if (!active.closest?.(".tradeMobileScope")) return;
+
+      window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(() => {
+        active.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+        active.closest?.(".tradeOrderTicket")?.querySelector?.(".tradeOrderSubmitButton")?.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+          behavior: "smooth",
+        });
+      }, 80);
+    };
+
+    const viewport = window.visualViewport;
+    updateKeyboardState();
+    viewport?.addEventListener("resize", updateKeyboardState);
+    viewport?.addEventListener("scroll", updateKeyboardState);
+    window.addEventListener("resize", updateKeyboardState);
+    document.addEventListener("focusin", updateKeyboardState);
+    document.addEventListener("focusout", updateKeyboardState);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      viewport?.removeEventListener("resize", updateKeyboardState);
+      viewport?.removeEventListener("scroll", updateKeyboardState);
+      window.removeEventListener("resize", updateKeyboardState);
+      document.removeEventListener("focusin", updateKeyboardState);
+      document.removeEventListener("focusout", updateKeyboardState);
+      root.style.removeProperty("--rayla-keyboard-inset");
+      root.style.removeProperty("--rayla-visual-viewport-height");
+      body.classList.remove("raylaKeyboardOpen");
     };
   }, []);
   useEffect(() => {
@@ -10406,9 +10505,9 @@ useEffect(() => {
     } else if (type === "stop_limit" && (!Number.isFinite(stopPrice) || stopPrice <= 0 || !Number.isFinite(limitPrice) || limitPrice <= 0)) {
       error = "Stop limit orders require both a stop price and a limit price.";
     } else if (selectedBrokerAsset && selectedBrokerAsset.tradable === false) {
-      error = "Alpaca does not currently support trading this asset.";
+      error = "This asset is not currently tradable through your connected broker.";
     } else if (action === "short_sell" && !selectedBrokerAsset?.shortable) {
-      error = "Shorting is not available for this Alpaca asset.";
+      error = "Short selling is currently unavailable for this asset through your connected broker.";
     } else if (action === "short_sell" && hasLongPosition) {
       error = `Use Sell to reduce your current long ${symbol} position before opening a short.`;
     } else if (action === "buy_to_cover" && !hasShortPosition) {
@@ -16670,6 +16769,43 @@ return (
               .homeChartExplainRow {
                 display: none !important;
               }
+              @media (min-width: 768px) and (max-width: 1180px) {
+                .homeLayout {
+                  height: auto;
+                  min-height: 100vh;
+                  overflow: visible;
+                }
+                .homeRight {
+                  height: auto;
+                  min-height: 100vh;
+                  overflow: visible;
+                  grid-template-columns: minmax(0, 1fr);
+                  grid-template-rows: 38px 20px 104px 40px 34px auto minmax(620px, 1fr);
+                  grid-template-areas:
+                    "title"
+                    "status"
+                    "carousel"
+                    "search"
+                    "controls"
+                    "rail"
+                    "chart";
+                }
+                .homeTopActions {
+                  grid-area: title;
+                }
+                .homeUtilityRail {
+                  height: auto;
+                  min-height: 0;
+                  overflow: visible;
+                }
+                .homeUtilityBody {
+                  overflow: visible;
+                }
+                .homeChartStage {
+                  min-height: 620px !important;
+                  height: min(68vh, 760px);
+                }
+              }
               @media (max-width: 767px) {
                 .homeLayout {
                   flex-direction: column;
@@ -17053,7 +17189,7 @@ return (
                   {homeMarketSelectedItem && homeMarketAssetExplicitlyUnsupported ? (
                     <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                       <div>Live chart unavailable</div>
-                      <div>Alpaca does not currently support trading this asset.</div>
+                      <div>This asset is not currently tradable through your connected broker.</div>
                     </div>
                   ) : homeMarketSelectedItem ? (
                     <TradingViewLiveChart
@@ -18213,7 +18349,7 @@ return (
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
-                                        <div>Alpaca does not currently support trading this asset.</div>
+                                        <div>This asset is not currently tradable through your connected broker.</div>
                                       </div>
                                     ) : (
                                       <TradingViewLiveChart
@@ -18285,6 +18421,9 @@ return (
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
+                        <BrokerDisclosureNote compact>
+                          Asset availability, margin/leverage, and short selling depend on your connected broker, account permissions, and current borrow availability.
+                        </BrokerDisclosureNote>
                         {preparedCloseOrder ? (
                           <div style={{ padding: 12, borderRadius: 12, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.22)", display: "flex", flexDirection: "column", gap: 6 }}>
                             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.9px", textTransform: "uppercase", color: "#fecaca" }}>
@@ -18432,7 +18571,7 @@ return (
                                 <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
                                   {leverageAvailable
                                     ? `${selectedSymbol} is marginable on this account. Max buying power: ${accountMultiplier}x.`
-                                    : "Leverage is not available for this Alpaca account."}
+                                    : "Margin/leverage availability depends on your broker account permissions."}
                                 </div>
                                 {showBeginnerGuidance && tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
                               </div>
@@ -18570,7 +18709,7 @@ return (
                                   ))
                                 ) : alpacaOrderForm.symbol.trim() ? (
                                   <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
-                                    No tradable broker asset found. Check the symbol or try a different asset.
+                                    This asset is not currently tradable through your connected broker. Check the symbol or try a different asset.
                                   </div>
                                 ) : null}
                               </div>
@@ -18847,7 +18986,7 @@ return (
                               </>
                             ) : (
                               <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                                Leverage is not available for this Alpaca account.
+                                Margin/leverage availability depends on your broker account permissions.
                               </div>
                             )}
                           </div>
@@ -18991,7 +19130,7 @@ return (
                           </div>
                           <button
                             type="submit"
-                            className="ghostButton"
+                            className="ghostButton tradeOrderSubmitButton"
                             disabled={alpacaOrderSubmitting || Boolean(alpacaOrderValidation.error)}
                             title={alpacaOrderValidation.error || undefined}
                             style={{
@@ -19536,9 +19675,9 @@ return (
                       ))}
                     </div>
                   )}
-                  <div style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(300px, 340px) minmax(0, 1fr)" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "start" }}>
+                  <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(300px, 340px) minmax(0, 1fr)" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "start" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: useScenarioDesktopLayout ? "1" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined })}>
+                  <div className="simulationControlsPanel" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: useScenarioDesktopLayout ? "1" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         Trade Controls
@@ -19688,6 +19827,7 @@ return (
                     </div>
 
                     <div
+                      className="simulationControlCardsGrid"
                       key={`simulation-controls-${simulationAsset?.id || "none"}`}
                       style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}
                     >
@@ -19989,7 +20129,7 @@ return (
                   </div>
                   )}
                   {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
-                  <div style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: useScenarioDesktopLayout ? "2" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined }}>
+                  <div className="simulationChartPanel" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: useScenarioDesktopLayout ? "2" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -20369,7 +20509,7 @@ return (
                         {selectedSimulationAssetExplicitlyUnsupported ? (
                           <div style={{ minHeight: simulationChartViewportHeight, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                             <div>Live chart unavailable</div>
-                            <div>Alpaca does not currently support trading this asset.</div>
+                            <div>This asset is not currently tradable through your connected broker.</div>
                           </div>
                         ) : (
                           <TradingViewLiveChart
@@ -21382,7 +21522,14 @@ return (
         {activeTab === "intel" && (
           <div className="mainGrid">
             <style>{`
-              .intelDesktopGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; align-items: start; }
+              .intelDesktopGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+              .intelDesktopGrid > div { display: flex !important; flex-direction: column; gap: 12px !important; min-width: 0; }
+              .intelDesktopGrid > div > div { min-width: 0; }
+              .intelMarketPanel { display: flex; flex-direction: column; min-width: 0; }
+              .intelMarketPanel .intelAssetCard { height: 244px; min-height: 244px; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px !important; }
+              .intelMarketPanel .intelAssetCard:last-child { margin-bottom: 0 !important; }
+              .intelMarketPanel .intelAssetCardArticle { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+              .intelMarketPanel .intelAssetCardActions { margin-top: auto !important; }
               .intelMobileGrid  { display: none; width: 100%; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; align-items: start; overflow: hidden; box-sizing: border-box; }
               .intelMobileGrid > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
               @media (max-width: 600px) {
@@ -21401,6 +21548,31 @@ return (
                       </div>
                     </div>
                   </div>
+                  <BrokerDisclosureNote
+                    action={(
+                      <button
+                        type="button"
+                        className="ghostButton raylaAskTypography"
+                        onClick={() => openGlobalRaylaPopup("Ask Rayla")}
+                        style={{
+                          width: "auto",
+                          minHeight: 26,
+                          padding: "4px 9px",
+                          borderRadius: 999,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#d7efff",
+                          background: "rgba(124,196,255,0.08)",
+                          borderColor: "rgba(124,196,255,0.2)",
+                          flex: "0 0 auto",
+                        }}
+                      >
+                        Ask Rayla
+                      </button>
+                    )}
+                  >
+                    Market Intel may include assets unavailable through your connected broker. For deeper analysis and broker-aware opportunities, ask Rayla.
+                  </BrokerDisclosureNote>
                 {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
                   <MobileSegmentedPager segments={[
@@ -21471,7 +21643,7 @@ return (
                                 const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
                                 return (
                                   <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
-                                    <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                    <div className="intelMarketPanel intelMarketPanelStocks" style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
                                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
@@ -21480,7 +21652,7 @@ return (
                                         <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
                                       )) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible assets in this bucket yet.</div>}
                                     </div>
-                                    <div style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                    <div className="intelMarketPanel intelMarketPanelCrypto" style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
                                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
