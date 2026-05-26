@@ -8831,22 +8831,29 @@ useEffect(() => {
 
     const updateKeyboardState = () => {
       const viewport = window.visualViewport;
-      const layoutHeight = window.innerHeight || root.clientHeight || 0;
+      const active = document.activeElement;
+      const activeTradeInput = Boolean(
+        active?.matches?.("input, textarea, select, [contenteditable='true']")
+        && active.closest?.(".tradeMobileScope")
+      );
+      const layoutHeight = Math.max(
+        window.innerHeight || 0,
+        root.clientHeight || 0,
+        window.screen?.height || 0
+      );
       const visualHeight = viewport?.height || layoutHeight;
       const offsetTop = viewport?.offsetTop || 0;
       const keyboardInset = Math.max(0, layoutHeight - visualHeight - offsetTop);
       const isNarrowTouchViewport = window.matchMedia?.("(max-width: 900px)")?.matches
         || window.matchMedia?.("(pointer: coarse)")?.matches;
-      const keyboardOpen = isNarrowTouchViewport && keyboardInset > 80;
+      const viewportShrunk = layoutHeight > 0 && visualHeight < layoutHeight * 0.82;
+      const keyboardOpen = activeTradeInput && isNarrowTouchViewport && (keyboardInset > 80 || viewportShrunk);
 
       root.style.setProperty("--rayla-keyboard-inset", `${Math.round(keyboardInset)}px`);
       root.style.setProperty("--rayla-visual-viewport-height", `${Math.round(visualHeight)}px`);
       body.classList.toggle("raylaKeyboardOpen", keyboardOpen);
 
       if (!keyboardOpen) return;
-      const active = document.activeElement;
-      if (!active?.matches?.("input, textarea, select, [contenteditable='true']")) return;
-      if (!active.closest?.(".tradeMobileScope")) return;
 
       window.clearTimeout(scrollTimer);
       scrollTimer = window.setTimeout(() => {
@@ -8856,7 +8863,7 @@ useEffect(() => {
           inline: "nearest",
           behavior: "smooth",
         });
-      }, 80);
+      }, 120);
     };
 
     const viewport = window.visualViewport;

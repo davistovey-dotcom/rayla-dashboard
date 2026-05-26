@@ -2123,6 +2123,23 @@ body.raylaKeyboardOpen .tradeOrderSubmitButton {
   scroll-margin-bottom: calc(160px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom));
 }
 
+@media (max-width: 900px), (pointer: coarse) {
+  body.raylaKeyboardOpen .mobileNav {
+    transform: translate3d(0, calc(100% + 18px + env(safe-area-inset-bottom)), 0) !important;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none !important;
+  }
+
+  body.raylaKeyboardOpen .tradeMobileScope {
+    min-height: var(--rayla-visual-viewport-height, 100dvh);
+  }
+
+  body.raylaKeyboardOpen .tradeOrderTicket {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
 :root {
   --rayla-blue: #6FA0D8;
   --rayla-dark: #020A1A;
