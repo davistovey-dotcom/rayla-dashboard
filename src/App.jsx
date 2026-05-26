@@ -21,6 +21,11 @@ const POSITION_TYPE_DEFINITIONS = [
   { value: "crypto_hold", label: "Crypto Hold", category: "holding", defaultTimeHorizon: "long_term" },
 ];
 const POSITION_TYPE_OPTIONS = POSITION_TYPE_DEFINITIONS.map(({ value, label }) => ({ value, label }));
+const PERFORMANCE_POSITION_FILTER_OPTIONS = [
+  { value: "all", label: "All Positions" },
+  { value: "active", label: "Active Trades" },
+  { value: "holdings", label: "Long-Term Holdings" },
+];
 const POSITION_INTENT_STORAGE_KEY = "rayla-position-intents-v1";
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
@@ -61,11 +66,11 @@ function inferPositionTypeFromSymbol() {
 }
 
 function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITION_TYPE) {
-  const positionType = normalizePositionType(record.positionType || record.position_type, fallbackType);
+  const positionType = normalizePositionType(record.positionType || record.position_type || record.positionIntent?.type, fallbackType);
   const meta = getPositionTypeMeta(positionType);
-  const entryReason = String(record.entryReason || record.entry_reason || "").trim();
-  const timeHorizon = String(record.timeHorizon || record.time_horizon || meta.defaultTimeHorizon || "").trim();
-  const thesis = String(record.thesis || "").trim();
+  const entryReason = String(record.entryReason || record.entry_reason || record.positionIntent?.entryReason || "").trim();
+  const timeHorizon = String(record.timeHorizon || record.time_horizon || record.positionIntent?.timeHorizon || meta.defaultTimeHorizon || "").trim();
+  const thesis = String(record.thesis || record.positionIntent?.thesis || "").trim();
   return {
     positionType,
     position_type: positionType,
@@ -86,6 +91,18 @@ function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITIO
       entryReason,
     },
   };
+}
+
+function matchesPerformancePositionFilter(record, filterValue = "all") {
+  if (filterValue === "all") return true;
+  const { positionType } = buildPositionIntentMetadata(record, DEFAULT_POSITION_TYPE);
+  if (filterValue === "active") {
+    return positionType === "day_trade" || positionType === "swing_trade";
+  }
+  if (filterValue === "holdings") {
+    return positionType === "investment" || positionType === "crypto_hold";
+  }
+  return true;
 }
 
 function clampNumber(value, min, max) {
@@ -8879,6 +8896,7 @@ useEffect(() => {
       return "live_trades";
     }
   });
+  const [performancePositionFilter, setPerformancePositionFilter] = useState("all");
   const [tradePendingSelection, setTradePendingSelection] = useState({ mode: "asset", symbols: [] });
   const [tradeAppliedSelection, setTradeAppliedSelection] = useState({ mode: "asset", symbols: [] });
   useEffect(() => {
@@ -11867,16 +11885,17 @@ useEffect(() => {
   const homeTotalPnlDisplay = homeTotalDollarPnl == null
     ? "--"
     : `${homeTotalDollarPnl >= 0 ? "+" : ""}${formatCurrency(Math.abs(homeTotalDollarPnl))}`;
-  const liveSimulationEquityPoints = useMemo(
-    () => buildLoggedEquityCurvePoints(liveSimulationPerformanceTrades),
-    [liveSimulationPerformanceTrades]
-  );
   const selectedPerformanceTrades = performanceAnalysisSource === "live_simulation"
     ? liveSimulationPerformanceTrades
     : combinedTrades;
-  const selectedPerformanceEquityPoints = performanceAnalysisSource === "live_simulation"
-    ? liveSimulationEquityPoints
-    : equityPoints;
+  const positionFilteredPerformanceTrades = useMemo(
+    () => selectedPerformanceTrades.filter((trade) => matchesPerformancePositionFilter(trade, performancePositionFilter)),
+    [selectedPerformanceTrades, performancePositionFilter]
+  );
+  const selectedPerformanceEquityPoints = useMemo(
+    () => buildLoggedEquityCurvePoints(positionFilteredPerformanceTrades),
+    [positionFilteredPerformanceTrades]
+  );
   const filteredEquityPoints = useMemo(
     () => filterEquityCurvePointsByRange(selectedPerformanceEquityPoints, chartRange),
     [selectedPerformanceEquityPoints, chartRange]
@@ -11904,7 +11923,7 @@ useEffect(() => {
 
     seen.add("PORTFOLIO");
 
-    selectedPerformanceTrades.forEach((trade) => {
+    positionFilteredPerformanceTrades.forEach((trade) => {
       const symbol = String(trade?.asset || "").trim().toUpperCase();
       if (!symbol || seen.has(symbol)) return;
       seen.add(symbol);
@@ -11937,7 +11956,7 @@ useEffect(() => {
       ...tradedSymbols,
       ...defaultOptions,
     ];
-  }, [selectedPerformanceTrades, performanceAnalysisSource]);
+  }, [positionFilteredPerformanceTrades, performanceAnalysisSource]);
 
   useEffect(() => {
     if (!equityBenchmarkOptions.some((option) => option.symbol === equityBenchmarkSymbol)) {
@@ -21274,7 +21293,7 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
                     Source
@@ -21307,14 +21326,31 @@ return (
                     })}
                   </div>
                 </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
+                    Position Intent
+                  </div>
+                  <RaylaDropdown
+                    value={performancePositionFilter}
+                    onChange={setPerformancePositionFilter}
+                    options={PERFORMANCE_POSITION_FILTER_OPTIONS}
+                    width={180}
+                    minWidth={180}
+                    size="compact"
+                    ariaLabel="Performance position intent filter"
+                  />
+                </div>
               </div>
-              <PerformanceRenderBoundary resetKey={performanceAnalysisSource}>
+              <div style={{ marginTop: -8, textAlign: "center", fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+                Performance filters currently apply to logged/closed trades. Open holdings remain tracked in Live Trades.
+              </div>
+              <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
                 <PerformanceDashboard
-                  key={performanceAnalysisSource}
-                  trades={selectedPerformanceTrades}
+                  key={`${performanceAnalysisSource}:${performancePositionFilter}`}
+                  trades={positionFilteredPerformanceTrades}
                   performanceSourceLabel={performanceAnalysisSource === "live_simulation" ? "Live Simulation" : "Live Trades"}
                   alternateEmptyHint={
-                    performanceAnalysisSource === "live_trades" && selectedPerformanceTrades.length === 0 && liveSimulationPerformanceTrades.length > 0
+                    performanceAnalysisSource === "live_trades" && positionFilteredPerformanceTrades.length === 0 && liveSimulationPerformanceTrades.length > 0
                       ? "You have simulation history. Switch to Live Simulation above to review it."
                       : null
                   }
@@ -21335,7 +21371,7 @@ return (
                   alpacaConnected={Boolean(alpacaAccount)}
                   coachSummary={coachSummaries[performanceAnalysisSource] || null}
                   showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
-                  onRunAnalysis={() => runAIAnalysis(selectedPerformanceTrades, performanceAnalysisSource)}
+                  onRunAnalysis={() => runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource)}
                   onOpenRaylaPopup={openGlobalRaylaPopup}
                   alpacaPositions={alpacaPositions}
                   performanceLiveAppliedSelection={performanceLiveAppliedSelection}
