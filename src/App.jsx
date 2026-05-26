@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState } from "react";
+import { Component, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
@@ -13,6 +13,15 @@ import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepa
 import { Tutorial } from "./Login";
 
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
+const DEFAULT_POSITION_TYPE = "day_trade";
+const POSITION_TYPE_DEFINITIONS = [
+  { value: "day_trade", label: "Day Trade", category: "trading", defaultTimeHorizon: "intraday" },
+  { value: "swing_trade", label: "Swing Trade", category: "trading", defaultTimeHorizon: "days_to_weeks" },
+  { value: "investment", label: "Investment", category: "holding", defaultTimeHorizon: "months_to_years" },
+  { value: "crypto_hold", label: "Crypto Hold", category: "holding", defaultTimeHorizon: "long_term" },
+];
+const POSITION_TYPE_OPTIONS = POSITION_TYPE_DEFINITIONS.map(({ value, label }) => ({ value, label }));
+const POSITION_INTENT_STORAGE_KEY = "rayla-position-intents-v1";
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
 const TICKER_ALIASES = {
@@ -29,6 +38,54 @@ const TICKER_ALIASES = {
 function resolveTickerAlias(raw) {
   const upper = String(raw || "").trim().toUpperCase();
   return TICKER_ALIASES[upper] || upper;
+}
+
+function normalizePositionType(value, fallback = DEFAULT_POSITION_TYPE) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return POSITION_TYPE_DEFINITIONS.some((item) => item.value === normalized)
+    ? normalized
+    : fallback;
+}
+
+function getPositionTypeMeta(value) {
+  return POSITION_TYPE_DEFINITIONS.find((item) => item.value === normalizePositionType(value))
+    || POSITION_TYPE_DEFINITIONS[0];
+}
+
+function normalizePositionIntentKey(symbol) {
+  return String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function inferPositionTypeFromSymbol() {
+  return DEFAULT_POSITION_TYPE;
+}
+
+function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITION_TYPE) {
+  const positionType = normalizePositionType(record.positionType || record.position_type, fallbackType);
+  const meta = getPositionTypeMeta(positionType);
+  const entryReason = String(record.entryReason || record.entry_reason || "").trim();
+  const timeHorizon = String(record.timeHorizon || record.time_horizon || meta.defaultTimeHorizon || "").trim();
+  const thesis = String(record.thesis || "").trim();
+  return {
+    positionType,
+    position_type: positionType,
+    positionTypeLabel: meta.label,
+    positionCategory: meta.category,
+    isLongTermHolding: meta.category === "holding",
+    thesis,
+    entryReason,
+    entry_reason: entryReason,
+    timeHorizon,
+    time_horizon: timeHorizon,
+    positionIntent: {
+      type: positionType,
+      label: meta.label,
+      category: meta.category,
+      timeHorizon,
+      thesis,
+      entryReason,
+    },
+  };
 }
 
 function clampNumber(value, min, max) {
@@ -975,6 +1032,7 @@ function buildPerformanceSegmentMetrics(trades, { profitAccessor = getTradeProfi
 function normalizeSimulationTradeForPerformance(trade) {
   const asset = String(trade?.asset || trade?.symbol || trade?.ticker || "").trim().toUpperCase();
   const symbol = asset || null;
+  const positionIntent = buildPositionIntentMetadata(trade, DEFAULT_POSITION_TYPE);
   const resultR = Number(trade?.rMultiple);
   const profitValue = getTradeProfitValue(trade);
   const setup = normalizeSetupType(trade?.setupType) || String(trade?.setup || "").trim() || "";
@@ -1033,6 +1091,16 @@ function normalizeSimulationTradeForPerformance(trade) {
     exit_price: exitPrice,
     source: trade?.source || "live_simulation",
     source_label: trade?.source_label || "Live Simulation",
+    positionType: positionIntent.positionType,
+    position_type: positionIntent.positionType,
+    positionTypeLabel: positionIntent.positionTypeLabel,
+    positionCategory: positionIntent.positionCategory,
+    positionIntent: positionIntent.positionIntent,
+    thesis: positionIntent.thesis,
+    entryReason: positionIntent.entryReason,
+    entry_reason: positionIntent.entryReason,
+    timeHorizon: positionIntent.timeHorizon,
+    time_horizon: positionIntent.timeHorizon,
   };
 }
 
@@ -2956,6 +3024,7 @@ function detectSimulationTradeSourceType(trade) {
 
 function normalizeTradeForRaylaContext(trade, sourceType) {
   const sourceMeta = normalizeTradeSourceType(sourceType);
+  const positionIntent = buildPositionIntentMetadata(trade, DEFAULT_POSITION_TYPE);
   const manualResultR = parseTradeResult(trade?.result_r);
   const simulationResultR = Number(trade?.rMultiple);
   const resultR = Number.isFinite(manualResultR)
@@ -2984,6 +3053,13 @@ function normalizeTradeForRaylaContext(trade, sourceType) {
     symbol: String(trade?.asset || "").trim().toUpperCase() || null,
     sourceType: sourceMeta.sourceType,
     sourceLabel: sourceMeta.sourceLabel,
+    positionType: positionIntent.positionType,
+    positionTypeLabel: positionIntent.positionTypeLabel,
+    positionCategory: positionIntent.positionCategory,
+    positionIntent: positionIntent.positionIntent,
+    thesis: positionIntent.thesis,
+    entryReason: positionIntent.entryReason,
+    timeHorizon: positionIntent.timeHorizon,
     closedAt: trade?.closedAt || trade?.created_at || trade?.exit_time || trade?.entry_time || null,
     resultR,
     profitLoss,
@@ -3021,6 +3097,11 @@ function buildTradeSourceSummary({ trades, simulationTradeHistory }) {
     lastRealTrade: findLatestByType(realTrades, "real_trade"),
     lastLiveSimTrade: findLatestByType(simTrades, "live_sim_trade"),
     lastScenarioSimTrade: findLatestByType(simTrades, "scenario_sim_trade"),
+    positionIntentCounts: [...realTrades, ...simTrades].reduce((counts, trade) => {
+      const key = trade.positionType || DEFAULT_POSITION_TYPE;
+      counts[key] = (counts[key] || 0) + 1;
+      return counts;
+    }, {}),
   };
 }
 
@@ -3363,7 +3444,7 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
@@ -3390,6 +3471,23 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedM
     marketIntelContext: marketIntelContext || null,
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
+    brokerPositionContext: Array.isArray(brokerPositions) && brokerPositions.length
+      ? brokerPositions.map((position) => {
+        const intent = buildPositionIntentMetadata(position, inferPositionTypeFromSymbol(position?.symbol));
+        return {
+          symbol: position?.symbol || "",
+          qty: position?.qty ?? null,
+          marketValue: position?.marketValue ?? null,
+          unrealizedPl: position?.unrealizedPl ?? null,
+          positionType: intent.positionType,
+          positionTypeLabel: intent.positionTypeLabel,
+          positionCategory: intent.positionCategory,
+          timeHorizon: intent.timeHorizon,
+          thesis: intent.thesis,
+          entryReason: intent.entryReason,
+        };
+      })
+      : null,
     recentTrades: (Array.isArray(trades) ? trades : []).slice(0, 10).map((trade) => ({
       asset: trade?.asset || "",
       setup: trade?.setup || "",
@@ -3401,6 +3499,7 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, selectedM
       createdAt: trade?.created_at || trade?.entry_time || null,
       sourceType: "real_trade",
       sourceLabel: "Real trade",
+      positionIntent: buildPositionIntentMetadata(trade, DEFAULT_POSITION_TYPE).positionIntent,
     })),
   };
 }
@@ -6612,6 +6711,61 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
   );
 }
 
+function HoldingsCard({ positions }) {
+  return (
+    <Card title="Holdings" className="tradeHistoryCard">
+      <div className="listSubtext" style={{ marginBottom: "8px" }}>
+        {positions.length} open position{positions.length !== 1 ? "s" : ""}
+      </div>
+      <div className="list tradeHistoryList">
+        {positions.length === 0 ? (
+          <div className="listSubtext">No open positions. Connect your broker to see live holdings.</div>
+        ) : (
+          positions.map((position) => {
+            const pl = Number(position.unrealizedPl);
+            const plPct = Number(position.unrealizedPlpc);
+            const isPositive = pl >= 0;
+            const isEquity = position.assetClass && position.assetClass !== "crypto";
+            return (
+              <div className="listRow" key={position.symbol}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="listTitle" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span className="assetText">{position.symbol}</span>
+                    {position.assetClass ? (
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                        color: isEquity ? "#7CC4FF" : "#a78bfa",
+                        background: isEquity ? "rgba(124,196,255,0.1)" : "rgba(167,139,250,0.1)",
+                        border: `1px solid ${isEquity ? "rgba(124,196,255,0.22)" : "rgba(167,139,250,0.22)"}`,
+                        padding: "2px 6px", borderRadius: 5,
+                      }}>
+                        {isEquity ? "Equity" : "Crypto"}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="listSubtext">
+                    Qty {position.qty || "--"} · Avg {position.avgEntryPrice ? `$${Number(position.avgEntryPrice).toFixed(2)}` : "--"} · Value {position.marketValue ? formatCurrency(position.marketValue) : "--"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div className={`tradeResult ${pl < 0 ? "negative" : pl > 0 ? "positive" : "neutral"}`}>
+                    {Number.isFinite(pl) ? `${isPositive ? "+" : ""}${formatCurrency(pl)}` : "--"}
+                  </div>
+                  {Number.isFinite(plPct) ? (
+                    <div className="listSubtext" style={{ color: isPositive ? "#4ade80" : "#f87171", marginTop: 2 }}>
+                      {`${isPositive ? "+" : ""}${(plPct * 100).toFixed(2)}%`}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function getBrokerCapabilityBadges(asset) {
   if (!asset) return [];
 
@@ -8227,12 +8381,12 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
           {setupBreakdown.length > 0 && (
             <div style={breakdownTableStyle}>
-              <div style={breakdownHeaderStyle}>By Setup</div>
+              <div style={breakdownHeaderStyle}>By Strategy</div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ fontSize: 11, color: "#475569" }}>
-                    {["Setup", "Trades", "Win%", "Avg", "Total"].map(h => (
-                      <th key={h} style={{ padding: "6px 14px", textAlign: h === "Setup" ? "left" : "right", fontWeight: 500 }}>{h}</th>
+                    {["Strategy", "Trades", "Win%", "Avg", "Total"].map(h => (
+                      <th key={h} style={{ padding: "6px 14px", textAlign: h === "Strategy" ? "left" : "right", fontWeight: 500 }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -8297,7 +8451,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search asset, setup, session…"
+          placeholder="Search asset, strategy, session…"
           style={{ flex: "1 1 180px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, outline: "none" }}
         />
         <select value={filterResult} onChange={e => setFilterResult(e.target.value)} className="filterSelect">
@@ -8313,7 +8467,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
         </select>
         {allSetups.length > 0 && (
           <select value={filterSetup} onChange={e => setFilterSetup(e.target.value)} className="filterSelect">
-            <option value="all">All Setups</option>
+            <option value="all">All Strategies</option>
             {allSetups.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         )}
@@ -8679,6 +8833,14 @@ useEffect(() => {
   const [alpacaConnectionLoading, setAlpacaConnectionLoading] = useState(false);
   const [alpacaAccount, setAlpacaAccount] = useState(null);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
+  const [positionIntentOverrides, setPositionIntentOverrides] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(POSITION_INTENT_STORAGE_KEY) || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
   const [brokerTradeLog, setBrokerTradeLog] = useState([]);
   const [brokerTradeLogLoading, setBrokerTradeLogLoading] = useState(false);
   const [alpacaOrderSubmitting, setAlpacaOrderSubmitting] = useState(false);
@@ -8719,6 +8881,13 @@ useEffect(() => {
   });
   const [tradePendingSelection, setTradePendingSelection] = useState({ mode: "asset", symbols: [] });
   const [tradeAppliedSelection, setTradeAppliedSelection] = useState({ mode: "asset", symbols: [] });
+  useEffect(() => {
+    try {
+      localStorage.setItem(POSITION_INTENT_STORAGE_KEY, JSON.stringify(positionIntentOverrides));
+    } catch {
+      // Position intent labels are optional UI metadata; broker data remains unaffected.
+    }
+  }, [positionIntentOverrides]);
   useEffect(() => {
     setTradePortfolioViewport({ zoom: 1, offset: 1 });
   }, [tradeChartRange, tradeAppliedSelection.mode, tradeAppliedSelection.symbols.join(","), tradePortfolioChartView]);
@@ -8836,6 +9005,12 @@ useEffect(() => {
         active?.matches?.("input, textarea, select, [contenteditable='true']")
         && active.closest?.(".tradeMobileScope")
       );
+      const activeAssetSearchInput = Boolean(active?.classList?.contains("tradeAssetSearchInput"));
+      const activeLowerTradeFormInput = Boolean(
+        activeTradeInput
+        && active?.closest?.(".tradeOrderForm")
+        && !activeAssetSearchInput
+      );
       const layoutHeight = Math.max(
         window.innerHeight || 0,
         root.clientHeight || 0,
@@ -8848,17 +9023,16 @@ useEffect(() => {
         || window.matchMedia?.("(pointer: coarse)")?.matches;
       const viewportShrunk = layoutHeight > 0 && visualHeight < layoutHeight * 0.82;
       const keyboardOpen = activeTradeInput && isNarrowTouchViewport && (keyboardInset > 80 || viewportShrunk);
+      const lowerTradeFormKeyboardOpen = keyboardOpen && activeLowerTradeFormInput;
+      const assetSearchKeyboardOpen = keyboardOpen && activeAssetSearchInput;
 
       root.style.setProperty("--rayla-keyboard-inset", `${Math.round(keyboardInset)}px`);
       root.style.setProperty("--rayla-visual-viewport-height", `${Math.round(visualHeight)}px`);
       body.classList.toggle("raylaKeyboardOpen", keyboardOpen);
+      body.classList.toggle("raylaTradeFormKeyboardOpen", lowerTradeFormKeyboardOpen);
+      body.classList.toggle("raylaAssetSearchKeyboardOpen", assetSearchKeyboardOpen);
 
-      if (!keyboardOpen) return;
-      const shouldForceOrderFieldIntoView = Boolean(
-        active?.closest?.(".tradeOrderForm")
-        && !active?.classList?.contains("tradeAssetSearchInput")
-      );
-      if (!shouldForceOrderFieldIntoView) return;
+      if (!lowerTradeFormKeyboardOpen) return;
 
       window.clearTimeout(scrollTimer);
       scrollTimer = window.setTimeout(() => {
@@ -8892,6 +9066,8 @@ useEffect(() => {
       root.style.removeProperty("--rayla-keyboard-inset");
       root.style.removeProperty("--rayla-visual-viewport-height");
       body.classList.remove("raylaKeyboardOpen");
+      body.classList.remove("raylaTradeFormKeyboardOpen");
+      body.classList.remove("raylaAssetSearchKeyboardOpen");
     };
   }, []);
   useEffect(() => {
@@ -9026,6 +9202,40 @@ useEffect(() => {
     () => alpacaPositions.map((position) => position.symbol).filter(Boolean),
     [alpacaPositions]
   );
+  const brokerPositionsWithIntent = useMemo(() => (
+    alpacaPositions.map((position) => {
+      const key = normalizePositionIntentKey(position?.symbol);
+      const override = positionIntentOverrides[key] || {};
+      const fallbackType = override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol);
+      return {
+        ...position,
+        ...buildPositionIntentMetadata({ ...position, ...override }, fallbackType),
+      };
+    })
+  ), [alpacaPositions, positionIntentOverrides]);
+  const sortedBrokerPositionsWithIntent = useMemo(() => (
+    [...brokerPositionsWithIntent].sort((a, b) => Number(a.isLongTermHolding) - Number(b.isLongTermHolding))
+  ), [brokerPositionsWithIntent]);
+  const updateBrokerPositionIntent = (symbol, updates) => {
+    const key = normalizePositionIntentKey(symbol);
+    if (!key) return;
+    setPositionIntentOverrides((prev) => {
+      const previous = prev[key] || {};
+      const nextType = normalizePositionType(updates?.positionType || updates?.position_type || previous.positionType || inferPositionTypeFromSymbol(symbol));
+      const nextMeta = getPositionTypeMeta(nextType);
+      return {
+        ...prev,
+        [key]: {
+          ...previous,
+          ...updates,
+          positionType: nextType,
+          position_type: nextType,
+          timeHorizon: updates?.timeHorizon || updates?.time_horizon || previous.timeHorizon || nextMeta.defaultTimeHorizon,
+          time_horizon: updates?.timeHorizon || updates?.time_horizon || previous.time_horizon || nextMeta.defaultTimeHorizon,
+        },
+      };
+    });
+  };
   const normalizePerformanceLiveSelection = (selection) => {
     const validSymbols = Array.from(new Set((selection?.symbols || []).filter((symbol) => tradePortfolioAllSymbols.includes(symbol))));
     const includePortfolio = Boolean(selection?.includePortfolio);
@@ -12426,6 +12636,7 @@ useEffect(() => {
       context: buildAskRaylaContext({
         trades,
         simulationTradeHistory: visibleSimulationTradeHistoryAll,
+        brokerPositions: brokerPositionsWithIntent,
         selectedMarketId,
         adaptiveProfile,
         chartContext: extraContext?.chartContext || null,
@@ -17947,7 +18158,7 @@ return (
                                 </button>
                               );
                             })()}
-                            {alpacaPositions.map((position) => {
+                            {sortedBrokerPositionsWithIntent.map((position, positionIndex, allPositions) => {
                               const pendingCloseOrder = getPendingCloseOrderForPosition(brokerTradeLog, position);
                               const failedCloseOrder = pendingCloseOrder ? null : getLastFailedCloseOrderForPosition(brokerTradeLog, position);
                               const pendingCloseStatus = pendingCloseOrder
@@ -17957,7 +18168,35 @@ return (
                                 ? getBrokerOrderStatusPresentation(failedCloseOrder)
                                 : null;
                               const isPositionSelected = brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, position.symbol) && tradeAppliedSelection.mode === "asset";
+                              const previousPosition = allPositions[positionIndex - 1];
+                              const showIntentGroup = positionIndex === 0 || previousPosition?.positionCategory !== position.positionCategory;
+                              const intentGroupLabel = position.isLongTermHolding ? "Long-Term Holdings" : "Trading Positions";
+                              const intentGroupHint = position.isLongTermHolding
+                                ? "Investment and hold-style positions."
+                                : "Active trade intent positions.";
                               return (
+                                <Fragment key={position.symbol}>
+                                  {showIntentGroup ? (
+                                    <div
+                                      key={`${position.positionCategory}-header`}
+                                      className="tradePositionGroupHeader"
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        gap: 8,
+                                        marginTop: positionIndex === 0 ? 2 : 8,
+                                        padding: "0 2px",
+                                      }}
+                                    >
+                                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                                        {intentGroupLabel}
+                                      </div>
+                                      {!isMobileView ? (
+                                        <div style={{ fontSize: 10, color: "#64748b" }}>{intentGroupHint}</div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
                                 <div
                                   key={position.symbol}
                                   role="button"
@@ -18000,6 +18239,22 @@ return (
                                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap" }}>
                                       <div style={{ fontSize: isMobileView ? 14 : 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
+                                      <div
+                                        className="tradePositionIntentControl"
+                                        onClick={(event) => event.stopPropagation()}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                      >
+                                        <RaylaDropdown
+                                          value={position.positionType}
+                                          onChange={(value) => updateBrokerPositionIntent(position.symbol, { positionType: value })}
+                                          options={POSITION_TYPE_OPTIONS}
+                                          width={isMobileView ? 112 : 126}
+                                          size="compact"
+                                          ariaLabel="Position type"
+                                          menuWidth={isMobileView ? 180 : 190}
+                                        />
+                                      </div>
                                       {pendingCloseOrder ? (
                                         <div style={{ padding: "3px 8px", borderRadius: 999, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, color: pendingCloseStatus.color, fontSize: 10, fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase" }}>
                                           Close pending
@@ -18051,6 +18306,7 @@ return (
                                     </div>
                                   ) : null}
                                 </div>
+                                </Fragment>
                               );
                             })}
                           </div>
@@ -19216,6 +19472,7 @@ return (
                     <button type="button" className="ghostButton" onClick={() => setTradeView("log")} style={{ opacity: tradeView === "log" ? 1 : 0.5 }}>Log Trade</button>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("recent")} style={{ opacity: tradeView === "recent" ? 1 : 0.5 }}>Recent Trades</button>
                     <button type="button" className="ghostButton" onClick={() => setTradeView("all")} style={{ opacity: tradeView === "all" ? 1 : 0.5 }}>All Trades</button>
+                    <button type="button" className="ghostButton" onClick={() => setTradeView("holdings")} style={{ opacity: tradeView === "holdings" ? 1 : 0.5 }}>Holdings</button>
                   </div>
                   {tradeView === "log" && (
                     <div className="card">
@@ -19320,7 +19577,7 @@ return (
                         <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => { clearScreenshotFieldNote("entryTime"); setTradeForm({ ...tradeForm, entryTime: e.target.value }); }} />
                         {screenshotFieldNotes.entryTime ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.entryTime}</div> : null}
                         <select className="authInput" value={tradeForm.setup} onChange={(e) => setTradeForm({ ...tradeForm, setup: e.target.value })}>
-                          <option value="">Select Setup (optional)</option>
+                          <option value="">Select Strategy (optional)</option>
                           {SETUP_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                         <select className="authInput" value={tradeForm.session} onChange={(e) => setTradeForm({ ...tradeForm, session: e.target.value })}>
@@ -19349,6 +19606,7 @@ return (
                   )}
                   {tradeView === "recent" && <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />}
                   {tradeView === "all" && <RecentTradesCard recentTrades={trades} onDeleteTrade={handleDeleteTrade} />}
+                  {tradeView === "holdings" && <HoldingsCard positions={alpacaPositions} />}
                 </div>
               </div>
             </div>

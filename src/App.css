@@ -2104,23 +2104,23 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   }
 }
 
-body.raylaKeyboardOpen .appShell:has(.tradeMobileScope) {
+body.raylaTradeFormKeyboardOpen .appShell:has(.tradeMobileScope) {
   min-height: var(--rayla-visual-viewport-height, 100dvh);
   padding-bottom: calc(130px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom)) !important;
 }
 
-body.raylaKeyboardOpen .tradeMobileScope {
+body.raylaTradeFormKeyboardOpen .tradeMobileScope {
   padding-bottom: calc(150px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom)) !important;
   scroll-padding-bottom: calc(150px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom));
   overflow-x: hidden !important;
 }
 
-body.raylaKeyboardOpen .tradeOrderTicket,
-body.raylaKeyboardOpen .tradeOrderTicket input,
-body.raylaKeyboardOpen .tradeOrderTicket textarea,
-body.raylaKeyboardOpen .tradeOrderTicket select,
-body.raylaKeyboardOpen .tradeOrderTicket button,
-body.raylaKeyboardOpen .tradeOrderSubmitButton {
+body.raylaTradeFormKeyboardOpen .tradeOrderTicket,
+body.raylaTradeFormKeyboardOpen .tradeOrderTicket input,
+body.raylaTradeFormKeyboardOpen .tradeOrderTicket textarea,
+body.raylaTradeFormKeyboardOpen .tradeOrderTicket select,
+body.raylaTradeFormKeyboardOpen .tradeOrderTicket button,
+body.raylaTradeFormKeyboardOpen .tradeOrderSubmitButton {
   scroll-margin-bottom: calc(160px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom));
 }
 
@@ -2132,12 +2132,16 @@ body.raylaKeyboardOpen .tradeOrderSubmitButton {
     pointer-events: none !important;
   }
 
-  body.raylaKeyboardOpen .tradeMobileScope {
+  body.raylaTradeFormKeyboardOpen .tradeMobileScope {
     min-height: var(--rayla-visual-viewport-height, 100dvh);
   }
 
-  body.raylaKeyboardOpen .tradeOrderTicket {
+  body.raylaTradeFormKeyboardOpen .tradeOrderTicket {
     padding-bottom: calc(28px + env(safe-area-inset-bottom)) !important;
+  }
+
+  body.raylaAssetSearchKeyboardOpen .tradeMobileScope {
+    overflow-x: hidden !important;
   }
 }
 
