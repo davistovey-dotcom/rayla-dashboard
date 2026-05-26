@@ -58,7 +58,14 @@ function getPositionTypeMeta(value) {
 }
 
 function normalizePositionIntentKey(symbol) {
-  return String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const normalizedAsset = normalizePickAssetSymbol(symbol);
+  return String(normalizedAsset || symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function getPositionIntentOverride(symbol, overrides = {}) {
+  const canonicalKey = normalizePositionIntentKey(symbol);
+  const legacyKey = String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return overrides[canonicalKey] || overrides[legacyKey] || {};
 }
 
 function inferPositionTypeFromSymbol() {
@@ -4672,6 +4679,148 @@ function PerformanceLiveChartCard({
   );
 }
 
+function HoldingsPerformancePanel({ positions = [], alpacaConnected = false }) {
+  const holdings = Array.isArray(positions) ? positions : [];
+  const summary = useMemo(() => {
+    const totalValue = holdings.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
+    const totalUnrealizedPl = holdings.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0);
+    const totalCostBasis = holdings.reduce((sum, position) => {
+      const qty = Math.abs(Number(position?.qty));
+      const avgEntryPrice = Number(position?.avgEntryPrice);
+      const marketValue = Number(position?.marketValue);
+      const unrealizedPl = Number(position?.unrealizedPl);
+      if (Number.isFinite(qty) && qty > 0 && Number.isFinite(avgEntryPrice) && avgEntryPrice > 0) {
+        return sum + qty * avgEntryPrice;
+      }
+      if (Number.isFinite(marketValue) && Number.isFinite(unrealizedPl)) {
+        return sum + Math.max(0, marketValue - unrealizedPl);
+      }
+      return sum;
+    }, 0);
+    const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
+    return {
+      totalValue,
+      totalUnrealizedPl,
+      unrealizedPct,
+    };
+  }, [holdings]);
+
+  const valueColor = summary.totalUnrealizedPl >= 0 ? "#4ade80" : "#f87171";
+  const metricCards = [
+    { label: "Holdings Value", value: formatCurrency(summary.totalValue), color: "#e2e8f0" },
+    {
+      label: "Unrealized P/L",
+      value: `${summary.totalUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(summary.totalUnrealizedPl)}`,
+      color: valueColor,
+    },
+    {
+      label: "Unrealized %",
+      value: summary.unrealizedPct == null ? "—" : formatPerformancePercent(summary.unrealizedPct),
+      color: valueColor,
+    },
+    { label: "Open Holdings", value: holdings.length, color: "#e2e8f0" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="card" style={{ padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Holdings Performance</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+              Open broker positions classified as Investment or Crypto Hold. Closed-trade analytics stay separate.
+            </div>
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7CC4FF" }}>
+            Broker positions
+          </div>
+        </div>
+
+        {!holdings.length ? (
+          <div style={{ padding: 16, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "#94a3b8", fontSize: 13, lineHeight: 1.6 }}>
+            {alpacaConnected
+              ? "No open positions are classified as Investment or Crypto Hold yet. Update a position type in Live Trades to include it here."
+              : "Connect your broker to see open long-term holdings here."}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+              {metricCards.map((metric) => (
+                <div key={metric.label} style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
+                    {metric.label}
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800, color: metric.color }}>
+                    {metric.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 14 }}>
+              <div style={{ padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 10 }}>
+                  Allocation
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {holdings
+                    .slice()
+                    .sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0))
+                    .map((position) => {
+                      const marketValue = Number(position?.marketValue) || 0;
+                      const allocation = summary.totalValue > 0 ? (marketValue / summary.totalValue) * 100 : 0;
+                      return (
+                        <div key={position.symbol}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 12, color: "#cbd5e1", fontWeight: 700 }}>
+                            <span>{position.symbol}</span>
+                            <span>{formatPerformancePercent(allocation)}</span>
+                          </div>
+                          <div style={{ marginTop: 6, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                            <div style={{ width: `${Math.max(0, Math.min(100, allocation))}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, rgba(124,196,255,0.95), rgba(74,222,128,0.82))" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              <div style={{ padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 10 }}>
+                  Holdings
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {holdings.map((position) => {
+                    const pl = Number(position?.unrealizedPl) || 0;
+                    const plpc = Number(position?.unrealizedPlpc);
+                    return (
+                      <div key={position.symbol} style={{ padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: "#e2e8f0" }}>{position.symbol}</div>
+                            <div style={{ marginTop: 2, fontSize: 11, color: "#7f8ea3" }}>
+                              {position.positionTypeLabel} · Qty {formatBrokerQuantity(position.qty)} · Avg {formatCurrency(position.avgEntryPrice)}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", fontSize: 12, fontWeight: 800, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
+                            {`${pl >= 0 ? "+" : ""}${formatCurrency(pl)}`}
+                            <div style={{ marginTop: 2, fontSize: 11 }}>
+                              {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PerformanceDashboard({
   trades,
   performanceSourceLabel = "Live Trades",
@@ -9222,8 +9371,7 @@ useEffect(() => {
   );
   const brokerPositionsWithIntent = useMemo(() => (
     alpacaPositions.map((position) => {
-      const key = normalizePositionIntentKey(position?.symbol);
-      const override = positionIntentOverrides[key] || {};
+      const override = getPositionIntentOverride(position?.symbol, positionIntentOverrides);
       const fallbackType = override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol);
       return {
         ...position,
@@ -9234,6 +9382,10 @@ useEffect(() => {
   const sortedBrokerPositionsWithIntent = useMemo(() => (
     [...brokerPositionsWithIntent].sort((a, b) => Number(a.isLongTermHolding) - Number(b.isLongTermHolding))
   ), [brokerPositionsWithIntent]);
+  const longTermBrokerPositions = useMemo(
+    () => brokerPositionsWithIntent.filter((position) => position.isLongTermHolding),
+    [brokerPositionsWithIntent]
+  );
   const updateBrokerPositionIntent = (symbol, updates) => {
     const key = normalizePositionIntentKey(symbol);
     if (!key) return;
@@ -21342,8 +21494,14 @@ return (
                 </div>
               </div>
               <div style={{ marginTop: -8, textAlign: "center", fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
-                Performance filters currently apply to logged/closed trades. Open holdings remain tracked in Live Trades.
+                Active trade filters use logged/closed trades. Long-Term Holdings uses open broker positions classified as holdings.
               </div>
+              {performancePositionFilter === "holdings" ? (
+                <HoldingsPerformancePanel
+                  positions={longTermBrokerPositions}
+                  alpacaConnected={Boolean(alpacaAccount)}
+                />
+              ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
                 <PerformanceDashboard
                   key={`${performanceAnalysisSource}:${performancePositionFilter}`}
@@ -21404,6 +21562,7 @@ return (
                   tradeMarketChart={tradeMarketChart}
                 />
               </PerformanceRenderBoundary>
+              )}
             </div>
           </div>
         )}
