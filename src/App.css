@@ -2112,6 +2112,7 @@ body.raylaKeyboardOpen .appShell:has(.tradeMobileScope) {
 body.raylaKeyboardOpen .tradeMobileScope {
   padding-bottom: calc(150px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom)) !important;
   scroll-padding-bottom: calc(150px + var(--rayla-keyboard-inset, 0px) + env(safe-area-inset-bottom));
+  overflow-x: hidden !important;
 }
 
 body.raylaKeyboardOpen .tradeOrderTicket,

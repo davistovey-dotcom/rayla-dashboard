@@ -8854,22 +8854,31 @@ useEffect(() => {
       body.classList.toggle("raylaKeyboardOpen", keyboardOpen);
 
       if (!keyboardOpen) return;
+      const shouldForceOrderFieldIntoView = Boolean(
+        active?.closest?.(".tradeOrderForm")
+        && !active?.classList?.contains("tradeAssetSearchInput")
+      );
+      if (!shouldForceOrderFieldIntoView) return;
 
       window.clearTimeout(scrollTimer);
       scrollTimer = window.setTimeout(() => {
-        active.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
-        active.closest?.(".tradeOrderTicket")?.querySelector?.(".tradeOrderSubmitButton")?.scrollIntoView({
-          block: "nearest",
-          inline: "nearest",
-          behavior: "smooth",
-        });
+        const rect = active.getBoundingClientRect?.();
+        const needsScroll = !rect || rect.bottom > visualHeight * 0.58 || rect.top < 72;
+        if (!needsScroll) return;
+        active.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+        window.setTimeout(() => {
+          active.closest?.(".tradeOrderTicket")?.querySelector?.(".tradeOrderSubmitButton")?.scrollIntoView({
+            block: "nearest",
+            inline: "nearest",
+            behavior: "auto",
+          });
+        }, 40);
       }, 120);
     };
 
     const viewport = window.visualViewport;
     updateKeyboardState();
     viewport?.addEventListener("resize", updateKeyboardState);
-    viewport?.addEventListener("scroll", updateKeyboardState);
     window.addEventListener("resize", updateKeyboardState);
     document.addEventListener("focusin", updateKeyboardState);
     document.addEventListener("focusout", updateKeyboardState);
@@ -8877,7 +8886,6 @@ useEffect(() => {
     return () => {
       window.clearTimeout(scrollTimer);
       viewport?.removeEventListener("resize", updateKeyboardState);
-      viewport?.removeEventListener("scroll", updateKeyboardState);
       window.removeEventListener("resize", updateKeyboardState);
       document.removeEventListener("focusin", updateKeyboardState);
       document.removeEventListener("focusout", updateKeyboardState);
@@ -18625,7 +18633,7 @@ return (
                               return (
                                 <>
                             <input
-                              className="authInput"
+                              className="authInput tradeAssetSearchInput"
                               placeholder="Search tradable asset (AAPL)"
                               value={alpacaOrderForm.symbol}
                               onChange={(e) => {
@@ -19249,7 +19257,7 @@ return (
                       <form onSubmit={handleAddTrade} className="tradeEntryRow">
                         <div style={{ position: "relative" }}>
                           <input
-                            className="authInput"
+                            className="authInput tradeAssetSearchInput"
                             placeholder="Search asset (AAPL, BTC, NRG)"
                             value={tradeForm.asset}
                             onChange={(e) => handleManualTradeAssetChange(e.target.value)}
