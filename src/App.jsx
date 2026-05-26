@@ -571,6 +571,7 @@ const MANUAL_TRADE_FORM_DEFAULT = {
   result: "",
   exitPrice: "",
   exitTime: "",
+  notes: "",
 };
 const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
   completed: "rayla_first_trade_onboarding_completed",
@@ -6866,6 +6867,9 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
                 {Number.isFinite(getTradeOutcomeValue(trade)) ? `${getTradeOutcomeValue(trade) > 0 ? "+" : ""}${Number(getTradeOutcomeValue(trade)).toFixed(1)}${trade.isBrokerTrade ? "$" : "R"}` : "-"}
               </div>
               <div className="listSubtext">{trade.coachTag || "Disciplined"}</div>
+              {trade.notes ? (
+                <div className="listSubtext" style={{ color: "#94a3b8", fontStyle: "italic", marginTop: 2 }}>{trade.notes}</div>
+              ) : null}
               {isEditableManualTrade(trade) ? (
                 <button type="button" className="deleteTradeButton" onClick={() => onDeleteTrade(trade)}>Delete</button>
               ) : null}
@@ -12387,6 +12391,7 @@ useEffect(() => {
       entry_size: entrySize, entry_time: tradeForm.entryTime, setup: tradeForm.setup || "",
       session: tradeForm.session || "", direction: String(tradeForm.direction || "").trim().toLowerCase(), result_r: resultR,
       exit_price: tradeForm.exitPrice ? exitPrice : null, exit_time: tradeForm.exitTime || null,
+      notes: tradeForm.notes?.trim() || null,
     };
     if (findDuplicateManualTradeCandidate(newTrade)) {
       showToast("This looks like a duplicate trade. Review before saving again.", "warning");
@@ -19769,6 +19774,14 @@ return (
                         </select>
                         <input className="authInput" placeholder="Result, e.g. +1.5R or -0.5R" value={tradeForm.result} onChange={(e) => { clearScreenshotFieldNote("result"); setTradeForm({ ...tradeForm, result: e.target.value }); }} />
                         {screenshotFieldNotes.result ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.result}</div> : null}
+                        <textarea
+                          className="authInput"
+                          placeholder="Notes (optional) — thesis, observations, lessons"
+                          value={tradeForm.notes}
+                          onChange={(e) => setTradeForm({ ...tradeForm, notes: e.target.value })}
+                          rows={3}
+                          style={{ resize: "vertical", minHeight: 64 }}
+                        />
                         <button type="submit" className="ghostButton" disabled={isSavingTrade || isParsingScreenshot}>
                           {isSavingTrade ? "Saving..." : "Save Trade"}
                         </button>
