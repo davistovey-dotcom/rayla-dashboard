@@ -27,6 +27,7 @@ const PERFORMANCE_POSITION_FILTER_OPTIONS = [
   { value: "holdings", label: "Long-Term Holdings" },
 ];
 const POSITION_INTENT_STORAGE_KEY = "rayla-position-intents-v1";
+const BROKER_ONBOARDING_SKIP_KEY = "rayla-broker-onboarding-skip-v1";
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
 function createClientId(prefix = "rayla") {
@@ -35,6 +36,10 @@ function createClientId(prefix = "rayla") {
   }
   const randomPart = Math.random().toString(36).slice(2, 10);
   return `${prefix}-${Date.now().toString(36)}-${randomPart}`;
+}
+
+function getBrokerOnboardingSkipStorageKey(userId) {
+  return userId ? `${BROKER_ONBOARDING_SKIP_KEY}:${userId}` : BROKER_ONBOARDING_SKIP_KEY;
 }
 const TICKER_ALIASES = {
   APPL: "AAPL",
@@ -5652,6 +5657,13 @@ function PerformanceDashboard({
       return fResult === "win" ? r > 0 : fResult === "loss" ? r < 0 : r === 0;
     }), [trades, fAsset, fSetup, fSession, fDir, fResult, getOutcomeValue]);
 
+  const dashboardEquityPoints = useMemo(
+    () => normalizeChartSeriesToStrictAscending(
+      filterEquityCurvePointsByRange(buildLoggedEquityCurvePoints(ft), chartRange)
+    ),
+    [ft, chartRange]
+  );
+
   const report = useMemo(() => buildPerformanceOutcomeReport(ft, { valueAccessor: getOutcomeValue }), [ft, getOutcomeValue]);
   const hasMixedResultUnits = Boolean(report?.hasMixedUnits);
   const strategyFilteredTrades = useMemo(() => ft.filter(isStrategyInsightTrade), [ft]);
@@ -5875,6 +5887,22 @@ function PerformanceDashboard({
           </div>
         </div>
       )}
+
+      {!isSimulationSource ? (
+        <EquityCurveCard
+          equityPoints={dashboardEquityPoints}
+          sourceLabel={sourceLabel}
+          chartRange={chartRange}
+          setChartRange={setChartRange}
+          benchmarkSymbol={benchmarkSymbol}
+          benchmarkLabel={benchmarkLabel}
+          onSelectBenchmark={onSelectBenchmark}
+          benchmarkOptions={benchmarkOptions}
+          benchmarkPoints={benchmarkPoints}
+          benchmarkLoading={benchmarkLoading}
+          alpacaConnected={alpacaConnected}
+        />
+      ) : null}
 
       {!isSimulationSource ? (
         <PortfolioTrendCard
@@ -8939,6 +8967,7 @@ function formatBillingDate(value) {
 
 function getSubscriptionPresentation(subscription) {
   const status = String(subscription?.status || "inactive");
+  if (subscription?.plan_key === "rayla_discount" && status === "active") return { label: "Discount", tone: "blue", detail: "Discount access is active." };
   if (status === "active") return { label: "Active", tone: "green", detail: "Your Rayla plan is active." };
   if (status === "trialing") return { label: "Trial", tone: "blue", detail: subscription?.trial_ends_at ? `Trial ends ${formatBillingDate(subscription.trial_ends_at)}.` : "Your Rayla trial is active." };
   if (status === "past_due") return { label: "Past due", tone: "amber", detail: "Update billing in Stripe to keep access current." };
@@ -8948,11 +8977,147 @@ function getSubscriptionPresentation(subscription) {
   return { label: "Not subscribed", tone: "neutral", detail: "Start checkout when you are ready." };
 }
 
+function hasActiveRaylaSubscription(subscription) {
+  const status = String(subscription?.status || "inactive").toLowerCase();
+  if (status === "active") return true;
+  if (status !== "trialing") return false;
+  if (!subscription?.trial_ends_at) return true;
+  const trialEndMs = new Date(subscription.trial_ends_at).getTime();
+  return !Number.isFinite(trialEndMs) || trialEndMs > Date.now();
+}
+
 function getBillingBadgeStyle(tone) {
   if (tone === "green") return { background: "rgba(74,222,128,0.1)", color: "#86efac" };
   if (tone === "blue") return { background: "rgba(124,196,255,0.1)", color: "#bae6fd" };
   if (tone === "amber") return { background: "rgba(251,191,36,0.11)", color: "#fde68a" };
   return { background: "rgba(148,163,184,0.1)", color: "#cbd5e1" };
+}
+
+function UnlockRaylaPage({
+  subscription,
+  isLoading,
+  action,
+  error,
+  onStartCheckout,
+  onOpenPortal,
+  onRedeemDiscountCode,
+  onSignOut,
+}) {
+  const presentation = getSubscriptionPresentation(subscription);
+  const canManage = Boolean(subscription?.stripe_customer_id)
+    && ["past_due", "unpaid", "incomplete", "incomplete_expired", "checkout_started", "canceled"].includes(String(subscription?.status || ""));
+  const capabilities = [
+    "AI trading + investing operating system",
+    "Adaptive portfolio intelligence",
+    "Broker-connected analytics",
+    "Simulation and training",
+    "Performance tracking",
+    "Market intelligence",
+  ];
+
+  return (
+    <div className="unlockPage">
+      <div className="unlockShell">
+        <div className="unlockHero">
+          <div className="unlockEyebrow">Unlock Rayla</div>
+          <h1>Your trading workspace starts with live intelligence.</h1>
+          <p>
+            Start with 14 days free. Connect your broker, bring your portfolio into focus,
+            and let Rayla turn market data, performance, and decisions into one calm operating system.
+          </p>
+          <div className="unlockActions">
+            <button type="button" className="unlockPrimaryButton" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
+              {action === "checkout" ? "Opening Stripe..." : "Start 14-day trial"}
+            </button>
+            {canManage ? (
+              <button type="button" className="unlockSecondaryButton" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
+                {action === "portal" ? "Opening billing..." : "Manage billing"}
+              </button>
+            ) : null}
+          </div>
+          <form className="unlockDiscountForm" onSubmit={onRedeemDiscountCode}>
+            <input name="discountCode" type="text" placeholder="Discount code" autoComplete="off" disabled={action === "discount" || isLoading} />
+            <button type="submit" disabled={action === "discount" || isLoading}>
+              {action === "discount" ? "Unlocking..." : "Redeem"}
+            </button>
+          </form>
+          <div className="unlockPromise">Cancel anytime. Stripe handles billing securely after your trial.</div>
+          {error ? <div className="unlockError">{error}</div> : null}
+        </div>
+
+        <div className="unlockPanel">
+          <div className="unlockStatusRow">
+            <span>Rayla Base</span>
+            <strong>{isLoading ? "Checking access" : presentation.label}</strong>
+          </div>
+          <div className="unlockPlanPrice">$30<span>/month after trial</span></div>
+          <div className="unlockPlanNote">
+            {isLoading ? "Syncing your subscription status." : presentation.detail}
+          </div>
+          <div className="unlockCapabilityGrid">
+            {capabilities.map((capability) => (
+              <div key={capability} className="unlockCapability">
+                <span />
+                {capability}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <button type="button" className="unlockSignOut" onClick={onSignOut}>Sign out</button>
+    </div>
+  );
+}
+
+function BrokerOnboardingPage({
+  isLoading,
+  error,
+  onConnectAlpaca,
+  onCreateAlpaca,
+  onSkip,
+  onSignOut,
+}) {
+  return (
+    <div className="unlockPage brokerOnboardingPage">
+      <div className="brokerOnboardingShell">
+        <div className="brokerOnboardingHero">
+          <div className="unlockEyebrow">Connect your portfolio</div>
+          <h1>Make Rayla live from the first session.</h1>
+          <p>
+            Sync Alpaca so Rayla can see your buying power, positions, holdings, and broker activity.
+            You can skip for now, but the connected experience is where Rayla becomes portfolio-aware.
+          </p>
+        </div>
+
+        <div className="brokerOnboardingGrid">
+          <button type="button" className="brokerOnboardingCard primary" onClick={onConnectAlpaca} disabled={isLoading}>
+            <span className="brokerOnboardingCardKicker">Existing Alpaca user</span>
+            <strong>{isLoading ? "Starting connection..." : "Connect Existing Alpaca Account"}</strong>
+            <small>Authorize Rayla, sync live positions, and land in the populated dashboard.</small>
+          </button>
+
+          <button type="button" className="brokerOnboardingCard" onClick={onCreateAlpaca}>
+            <span className="brokerOnboardingCardKicker">New to Alpaca</span>
+            <strong>Create Alpaca Account</strong>
+            <small>Open Alpaca, create your account, then return here to connect it to Rayla.</small>
+          </button>
+        </div>
+
+        <div className="brokerOnboardingBenefits">
+          {["Sync your live positions", "Unlock real-time portfolio analytics", "Reduce empty dashboard setup", "Keep simulation available while you connect"].map((item) => (
+            <div key={item}>{item}</div>
+          ))}
+        </div>
+
+        {error ? <div className="unlockError">{error}</div> : null}
+
+        <div className="brokerOnboardingFooter">
+          <button type="button" className="unlockSecondaryButton" onClick={onSkip}>Skip for now</button>
+          <button type="button" className="unlockSignOut inline" onClick={onSignOut}>Sign out</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SubscriptionCard({ subscription, isLoading, action, error, onStartCheckout, onOpenPortal }) {
@@ -9779,6 +9944,7 @@ useEffect(() => {
   const [guidedScenarioMessageStep, setGuidedScenarioMessageStep] = useState(0);
   const [pendingGuidedScenarioLaunch, setPendingGuidedScenarioLaunch] = useState(null);
   const [alpacaConnectionLoading, setAlpacaConnectionLoading] = useState(false);
+  const [alpacaConnectionLoaded, setAlpacaConnectionLoaded] = useState(false);
   const [alpacaAccount, setAlpacaAccount] = useState(null);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
   const [positionIntentOverrides, setPositionIntentOverrides] = useState(() => {
@@ -10073,8 +10239,10 @@ useEffect(() => {
   const [authLoading, setAuthLoading] = useState(true);
   const [billingSubscription, setBillingSubscription] = useState(null);
   const [billingLoading, setBillingLoading] = useState(false);
+  const [billingLoaded, setBillingLoaded] = useState(false);
   const [billingAction, setBillingAction] = useState("");
   const [billingError, setBillingError] = useState("");
+  const [brokerOnboardingSkipped, setBrokerOnboardingSkipped] = useState(false);
   const [lastAnalyzedCounts, setLastAnalyzedCounts] = useState({ live_trades: -1, live_simulation: -1 });
   const [showNoNewTradesBySource, setShowNoNewTradesBySource] = useState({ live_trades: false, live_simulation: false });
   const [coachSummaries, setCoachSummaries] = useState({ live_trades: null, live_simulation: null });
@@ -10651,6 +10819,7 @@ useEffect(() => {
     setUserLevel("beginner");
     setTrades([]);
     setAlpacaAccount(null);
+    setAlpacaConnectionLoaded(false);
     setAlpacaPositions([]);
     setBrokerTradeLog([]);
     setAlpacaOrderResult(null);
@@ -10659,7 +10828,9 @@ useEffect(() => {
     setAlpacaOrderSubmitting(false);
     setBillingSubscription(null);
     setBillingError("");
+    setBillingLoaded(false);
     setBillingAction("");
+    setBrokerOnboardingSkipped(false);
     setActiveTab("home");
     setPerformanceAnalysisSource("live_trades");
     setSelectedMarketId("BTC");
@@ -11430,8 +11601,12 @@ useEffect(() => {
   }
 
   async function fetchAlpacaBrokerData({ silent = false } = {}) {
-    if (!session) return;
+    if (!session) {
+      setAlpacaConnectionLoaded(false);
+      return;
+    }
 
+    setAlpacaConnectionLoaded(false);
     setAlpacaConnectionLoading(true);
     try {
       const { data: accountData, error: accountError } = await supabase.functions.invoke("alpaca-account", {
@@ -11481,6 +11656,7 @@ useEffect(() => {
         showToast(error?.message || "Could not load Alpaca connection.", "error");
       }
     } finally {
+      setAlpacaConnectionLoaded(true);
       setAlpacaConnectionLoading(false);
     }
   }
@@ -11533,9 +11709,11 @@ useEffect(() => {
     if (!session) {
       setBillingSubscription(null);
       setBillingError("");
+      setBillingLoaded(false);
       return;
     }
 
+    setBillingLoaded(false);
     if (!silent) setBillingLoading(true);
     setBillingError("");
 
@@ -11551,6 +11729,7 @@ useEffect(() => {
     } catch (error) {
       setBillingError(error instanceof Error ? error.message : "Billing status is unavailable.");
     } finally {
+      setBillingLoaded(true);
       if (!silent) setBillingLoading(false);
     }
   }
@@ -11593,6 +11772,52 @@ useEffect(() => {
     }
   }
 
+  async function handleRedeemDiscountCode(event) {
+    event.preventDefault();
+    if (billingAction) return;
+
+    const form = event.currentTarget;
+    const code = String(new FormData(form).get("discountCode") || "").trim();
+    if (!code) {
+      setBillingError("Enter your discount code to unlock Rayla.");
+      return;
+    }
+
+    setBillingAction("discount");
+    setBillingError("");
+
+    try {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      const response = await fetch(`${PRODUCT_SUPABASE_FUNCTIONS_BASE_URL}/redeem-discount-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentSession?.access_token || ""}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.message || data?.error || `Unable to redeem discount code (${response.status}).`);
+      if (!data?.ok) throw new Error(data?.message || data?.error || "Unable to redeem discount code.");
+
+      form.reset();
+      await fetchBillingSubscription({ silent: true });
+      showToast("Discount access unlocked.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to redeem discount code.";
+      setBillingError(message.includes("Failed to send a request")
+        ? "Discount code activation is not available yet. Deploy the discount-code Edge Function, then try again."
+        : message);
+    } finally {
+      setBillingAction("");
+    }
+  }
+
   async function handleConnectAlpaca(isPaper = false) {
     try {
       const { data, error } = await supabase.functions.invoke("alpaca-connect-start", {
@@ -11606,6 +11831,21 @@ useEffect(() => {
     } catch (error) {
       showToast(error?.message || "Could not start Alpaca connect.", "error");
     }
+  }
+
+  function handleSkipBrokerOnboarding() {
+    const userId = session?.user?.id;
+    try {
+      if (userId) localStorage.setItem(getBrokerOnboardingSkipStorageKey(userId), "true");
+    } catch {
+      // Broker onboarding can still be skipped for this session if storage is unavailable.
+    }
+    setBrokerOnboardingSkipped(true);
+    setActiveTab("home");
+  }
+
+  function handleCreateAlpacaAccount() {
+    window.open("https://alpaca.markets/", "_blank", "noopener,noreferrer");
   }
 
   function getOrderEstimatePrice(symbol, limitPrice, matchingPosition) {
@@ -12462,6 +12702,19 @@ useEffect(() => {
 }, []);
 
   useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setBrokerOnboardingSkipped(false);
+      return;
+    }
+    try {
+      setBrokerOnboardingSkipped(localStorage.getItem(getBrokerOnboardingSkipStorageKey(userId)) === "true");
+    } catch {
+      setBrokerOnboardingSkipped(false);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
     let isCancelled = false;
 
     async function loadProfile() {
@@ -12509,6 +12762,12 @@ useEffect(() => {
     if (broker === "alpaca") {
       setActiveTab("home");
       if (brokerStatus === "connected") {
+        try {
+          localStorage.removeItem(getBrokerOnboardingSkipStorageKey(session.user.id));
+          setBrokerOnboardingSkipped(false);
+        } catch {
+          setBrokerOnboardingSkipped(false);
+        }
         showToast(brokerMessage || "Alpaca broker connected.", "success");
       } else if (brokerStatus === "error") {
         showToast(brokerMessage || "Alpaca connection failed.", "error");
@@ -12521,7 +12780,7 @@ useEffect(() => {
     }
 
     if (billingStatus) {
-      setActiveTab("profile");
+      setActiveTab(billingStatus === "success" ? "home" : "profile");
       if (billingStatus === "success") {
         showToast("Stripe checkout complete. Billing will update after confirmation.", "success");
       } else if (billingStatus === "cancelled") {
@@ -12536,7 +12795,7 @@ useEffect(() => {
 
     fetchAlpacaBrokerData({ silent: true });
     fetchBrokerTradeLog({ sync: true, silent: true });
-    fetchBillingSubscription({ silent: true });
+    fetchBillingSubscription({ silent: false });
   }, [session]);
 
   useEffect(() => {
@@ -17375,6 +17634,65 @@ if (authLoading) {
 
 if (!session) return <Login onLogin={() => setShowSplash(false)} />;
 
+const hasRaylaAccess = hasActiveRaylaSubscription(billingSubscription);
+const waitingForAccessState = !billingLoaded || billingLoading;
+const shouldShowBrokerOnboarding = hasRaylaAccess
+  && alpacaConnectionLoaded
+  && !alpacaAccount
+  && !brokerOnboardingSkipped;
+
+if (waitingForAccessState) {
+  return (
+    <div className="authPage">
+      <div className="authCard authStatusCard">
+        <div className="authBrand">Rayla</div>
+        <h1 className="authTitle">Checking access</h1>
+        <p className="authSubtitle">Syncing your trial and subscription status.</p>
+      </div>
+    </div>
+  );
+}
+
+if (!hasRaylaAccess) {
+  return (
+    <UnlockRaylaPage
+      subscription={billingSubscription}
+      isLoading={billingLoading}
+      action={billingAction}
+      error={billingError}
+      onStartCheckout={handleStartStripeCheckout}
+      onOpenPortal={handleOpenStripePortal}
+      onRedeemDiscountCode={handleRedeemDiscountCode}
+      onSignOut={handleSignOut}
+    />
+  );
+}
+
+if (!alpacaConnectionLoaded) {
+  return (
+    <div className="authPage">
+      <div className="authCard authStatusCard">
+        <div className="authBrand">Rayla</div>
+        <h1 className="authTitle">Preparing workspace</h1>
+        <p className="authSubtitle">Checking for a connected portfolio.</p>
+      </div>
+    </div>
+  );
+}
+
+if (shouldShowBrokerOnboarding) {
+  return (
+    <BrokerOnboardingPage
+      isLoading={alpacaConnectionLoading}
+      error={billingError}
+      onConnectAlpaca={() => handleConnectAlpaca(false)}
+      onCreateAlpaca={handleCreateAlpacaAccount}
+      onSkip={handleSkipBrokerOnboarding}
+      onSignOut={handleSignOut}
+    />
+  );
+}
+
 async function handleDeleteAccount() {
   const confirmDelete = window.confirm(
     "Are you sure you want to delete your account? This will permanently delete all your data and cannot be undone."
@@ -20046,7 +20364,7 @@ return (
                               })() : (
                                 <div>
                                   <MarketClosedBanner assetType={tradeChartAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 310, borderRadius: 12, overflow: "hidden", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 310, borderRadius: 12, overflow: "hidden", position: "relative", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
@@ -20060,6 +20378,42 @@ return (
                                         chartType="trades_live"
                                       />
                                     )}
+                                    {(() => {
+                                      if (!tradeChartMatchingPosition) return null;
+                                      const entryPrice = Number(tradeChartMatchingPosition.avgEntryPrice);
+                                      if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+                                      const bars = tradeVisibleBars || [];
+                                      if (bars.length < 2) return null;
+                                      const prices = bars.flatMap((b) => [Number(b.high), Number(b.low)]).filter(Number.isFinite);
+                                      if (!prices.length) return null;
+                                      const rawMin = Math.min(...prices);
+                                      const rawMax = Math.max(...prices);
+                                      const range = rawMax - rawMin || 1;
+                                      const pad = range * 0.15;
+                                      const displayMin = rawMin - pad;
+                                      const displayMax = rawMax + pad;
+                                      const yPct = 100 * (1 - (entryPrice - displayMin) / (displayMax - displayMin));
+                                      if (yPct < 4 || yPct > 94) return null;
+                                      return (
+                                        <div
+                                          style={{ position: "absolute", left: 0, right: 0, top: `${yPct}%`, pointerEvents: "none", zIndex: 10 }}
+                                        >
+                                          <div style={{
+                                            position: "absolute", left: 0, right: 0, height: 1,
+                                            background: "repeating-linear-gradient(90deg, rgba(124,196,255,0.55) 0, rgba(124,196,255,0.55) 5px, transparent 5px, transparent 11px)",
+                                          }} />
+                                          <div style={{
+                                            position: "absolute", right: 6, top: -11,
+                                            padding: "2px 6px", borderRadius: 4,
+                                            background: "rgba(10,14,20,0.88)", border: "1px solid rgba(124,196,255,0.38)",
+                                            fontSize: 10, fontWeight: 700, color: "#7CC4FF",
+                                            whiteSpace: "nowrap", letterSpacing: "0.3px",
+                                          }}>
+                                            Avg Entry · {formatCurrency(entryPrice)}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               )}
@@ -22614,7 +22968,7 @@ return (
                   ? "Portfolio shows your live open positions and investing overview."
                   : performancePositionFilter === "holdings"
                     ? "Long-Term Holdings shows open broker positions classified as investments."
-                    : "Active Trades shows your live portfolio chart beside closed-trade analytics."}
+                    : "Active Trades shows the closed-trade equity curve with realized trade analytics."}
               </div>
                 {isLiveTradesPerformance && performancePositionFilter === "portfolio" ? (
                 <PortfolioPerformancePanel
