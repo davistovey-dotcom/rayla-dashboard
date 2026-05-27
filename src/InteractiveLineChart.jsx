@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   CrosshairMode,
@@ -43,10 +43,15 @@ export default function InteractiveLineChart({
   valueFormatter = defaultValueFormatter,
   className = "",
   emptyMessage = "No chart data yet.",
+  showLastPointPulse = false,
+  minimal = false,
 }) {
+  const rootRef = useRef(null);
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRefs = useRef([]);
+  const normalizedLinesRef = useRef([]);
+  const [lastPointMarker, setLastPointMarker] = useState(null);
 
   const normalizedLines = useMemo(() => (
     (Array.isArray(lines) ? lines : [])
@@ -57,6 +62,10 @@ export default function InteractiveLineChart({
       }))
       .filter((line) => line.data.length > 0)
   ), [lines]);
+
+  useEffect(() => {
+    normalizedLinesRef.current = normalizedLines;
+  }, [normalizedLines]);
 
   useEffect(() => {
     if (!containerRef.current) return undefined;
@@ -71,8 +80,8 @@ export default function InteractiveLineChart({
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.035)" },
-        horzLines: { color: "rgba(255,255,255,0.045)" },
+        vertLines: { color: minimal ? "transparent" : "rgba(255,255,255,0.035)" },
+        horzLines: { color: minimal ? "transparent" : "rgba(255,255,255,0.045)" },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -88,14 +97,15 @@ export default function InteractiveLineChart({
         },
       },
       rightPriceScale: {
-        visible: true,
-        borderColor: "rgba(255,255,255,0.08)",
+        visible: !minimal,
+        borderColor: minimal ? "transparent" : "rgba(255,255,255,0.08)",
         scaleMargins: { top: 0.18, bottom: 0.14 },
       },
       leftPriceScale: { visible: false },
       timeScale: {
-        borderColor: "rgba(255,255,255,0.08)",
-        timeVisible: true,
+        visible: !minimal,
+        borderColor: minimal ? "transparent" : "rgba(255,255,255,0.08)",
+        timeVisible: !minimal,
         secondsVisible: false,
         rightOffset: 12,
         barSpacing: 10,
@@ -130,15 +140,38 @@ export default function InteractiveLineChart({
     };
     chartElement.addEventListener("wheel", handleWheelIntent, { passive: false });
 
+    const updateLastPointMarker = () => {
+      const currentLines = normalizedLinesRef.current;
+      if (!showLastPointPulse || !chartRef.current || !seriesRefs.current[0] || !currentLines[0]?.data?.length) {
+        setLastPointMarker(null);
+        return;
+      }
+      const lastPoint = currentLines[0].data[currentLines[0].data.length - 1];
+      const x = chartRef.current.timeScale().timeToCoordinate(lastPoint.time);
+      const y = seriesRefs.current[0].priceToCoordinate(lastPoint.value);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        setLastPointMarker(null);
+        return;
+      }
+      const canvasRect = containerRef.current?.getBoundingClientRect();
+      const rootRect = rootRef.current?.getBoundingClientRect();
+      const offsetX = canvasRect && rootRect ? canvasRect.left - rootRect.left : 0;
+      const offsetY = canvasRect && rootRect ? canvasRect.top - rootRect.top : 0;
+      setLastPointMarker({ x: x + offsetX, y: y + offsetY, color: currentLines[0].color });
+    };
+
     const resizeObserver = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect || !chartRef.current) return;
       chartRef.current.applyOptions({ width: rect.width, height: rect.height });
+      window.requestAnimationFrame(updateLastPointMarker);
     });
     resizeObserver.observe(containerRef.current);
+    chart.timeScale().subscribeVisibleTimeRangeChange(updateLastPointMarker);
 
     return () => {
       resizeObserver.disconnect();
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(updateLastPointMarker);
       chartElement.removeEventListener("wheel", handleWheelIntent);
       try {
         chart.remove();
@@ -147,8 +180,9 @@ export default function InteractiveLineChart({
       }
       chartRef.current = null;
       seriesRefs.current = [];
+      setLastPointMarker(null);
     };
-  }, [valueFormatter]);
+  }, [valueFormatter, showLastPointPulse, minimal]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -180,7 +214,21 @@ export default function InteractiveLineChart({
     });
 
     chartRef.current.timeScale().fitContent();
-  }, [normalizedLines, valueFormatter]);
+    window.requestAnimationFrame(() => {
+      if (!showLastPointPulse || !chartRef.current || !seriesRefs.current[0] || !normalizedLines[0]?.data?.length) {
+        setLastPointMarker(null);
+        return;
+      }
+      const lastPoint = normalizedLines[0].data[normalizedLines[0].data.length - 1];
+      const x = chartRef.current.timeScale().timeToCoordinate(lastPoint.time);
+      const y = seriesRefs.current[0].priceToCoordinate(lastPoint.value);
+      const canvasRect = containerRef.current?.getBoundingClientRect();
+      const rootRect = rootRef.current?.getBoundingClientRect();
+      const offsetX = canvasRect && rootRect ? canvasRect.left - rootRect.left : 0;
+      const offsetY = canvasRect && rootRect ? canvasRect.top - rootRect.top : 0;
+      setLastPointMarker(Number.isFinite(x) && Number.isFinite(y) ? { x: x + offsetX, y: y + offsetY, color: normalizedLines[0].color } : null);
+    });
+  }, [normalizedLines, valueFormatter, showLastPointPulse]);
 
   const fitChart = () => {
     chartRef.current?.timeScale().fitContent();
@@ -188,14 +236,14 @@ export default function InteractiveLineChart({
 
   if (!normalizedLines.length) {
     return (
-      <div className={`interactiveLineChart ${className}`} style={{ height }}>
+      <div ref={rootRef} className={`interactiveLineChart ${className}`} style={{ height }}>
         <div className="interactiveLineChartEmpty">{emptyMessage}</div>
       </div>
     );
   }
 
   return (
-    <div className={`interactiveLineChart ${className}`} style={{ height }}>
+    <div ref={rootRef} className={`interactiveLineChart ${className}`} style={{ height }}>
       <div className="interactiveLineChartLegend">
         {normalizedLines.map((line) => {
           const lastValue = line.data[line.data.length - 1]?.value;
@@ -216,6 +264,17 @@ export default function InteractiveLineChart({
         className="interactiveLineChartCanvas"
         onDoubleClick={fitChart}
       />
+      {showLastPointPulse && lastPointMarker ? (
+        <div
+          className="interactiveLineChartPulsePoint"
+          style={{
+            left: lastPointMarker.x,
+            top: lastPointMarker.y,
+            background: lastPointMarker.color,
+            boxShadow: `0 0 12px ${lastPointMarker.color}99`,
+          }}
+        />
+      ) : null}
     </div>
   );
 }

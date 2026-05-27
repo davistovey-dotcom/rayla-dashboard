@@ -1,4 +1,4 @@
-import { Component, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
@@ -22,13 +22,20 @@ const POSITION_TYPE_DEFINITIONS = [
 ];
 const POSITION_TYPE_OPTIONS = POSITION_TYPE_DEFINITIONS.map(({ value, label }) => ({ value, label }));
 const PERFORMANCE_POSITION_FILTER_OPTIONS = [
-  { value: "all", label: "All Positions" },
-  { value: "active", label: "Active Trades" },
+  { value: "portfolio", label: "Portfolio" },
+  { value: "all", label: "Active Trades" },
   { value: "holdings", label: "Long-Term Holdings" },
 ];
 const POSITION_INTENT_STORAGE_KEY = "rayla-position-intents-v1";
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
+function createClientId(prefix = "rayla") {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now().toString(36)}-${randomPart}`;
+}
 const TICKER_ALIASES = {
   APPL: "AAPL",
   APPLE: "AAPL",
@@ -343,7 +350,7 @@ function normalizeStoredChartDrawing(drawing) {
     : [];
   if (!points.length) return null;
   return {
-    id: String(drawing.id || crypto.randomUUID()),
+    id: String(drawing.id || createClientId()),
     type,
     points,
     text: type === "text" ? String(drawing.text || "").trim().slice(0, 80) : "",
@@ -1550,6 +1557,7 @@ function getAlpacaOrderTypeLabel(type) {
 }
 
 function getAlpacaTimeInForceLabel(value) {
+  if (value === "day") return "DAY";
   if (value === "gtc") return "GTC";
   if (value === "ioc") return "IOC";
   if (value === "fok") return "FOK";
@@ -3900,31 +3908,32 @@ function getPicksEligibilityIssue(trade) {
   return missing.length ? missing : null;
 }
 
-function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false } = {}) {
+function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false, valueAccessor = getTradePerformanceValue } = {}) {
   if (!trades || trades.length === 0) return null;
   const reportTrades = excludeBrokerTrades
     ? trades.filter(t => isStrategyInsightTrade(t) && parseOptionalTradeResult(t?.result_r) != null)
     : trades;
   if (!reportTrades.length) return null;
+  const getValue = typeof valueAccessor === "function" ? valueAccessor : getTradePerformanceValue;
   const strategyTrades = reportTrades.filter(isStrategyInsightTrade);
   const brokerTradeCount = reportTrades.filter(t => t?.isBrokerTrade).length;
   const hasBrokerTrades = brokerTradeCount > 0;
   const hasStrategyTrades = strategyTrades.length > 0;
   const hasMixedUnits = hasBrokerTrades && hasStrategyTrades;
 
-  const wins = reportTrades.filter(t => getTradePerformanceValue(t) > 0);
-  const losses = reportTrades.filter(t => getTradePerformanceValue(t) < 0);
+  const wins = reportTrades.filter(t => getValue(t) > 0);
+  const losses = reportTrades.filter(t => getValue(t) < 0);
   const winRate = reportTrades.length ? (wins.length / reportTrades.length) * 100 : 0;
-  const avgR = reportTrades.length ? reportTrades.reduce((s, t) => s + getTradePerformanceValue(t), 0) / reportTrades.length : 0;
-  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradePerformanceValue(t), 0) / wins.length : 0;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradePerformanceValue(t), 0) / losses.length) : 0;
-  const totalR = reportTrades.reduce((s, t) => s + getTradePerformanceValue(t), 0);
+  const avgR = reportTrades.length ? reportTrades.reduce((s, t) => s + getValue(t), 0) / reportTrades.length : 0;
+  const avgWin = wins.length ? wins.reduce((s, t) => s + getValue(t), 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getValue(t), 0) / losses.length) : 0;
+  const totalR = reportTrades.reduce((s, t) => s + getValue(t), 0);
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
-  const strategyWins = strategyTrades.filter(t => getTradePerformanceValue(t) > 0);
-  const strategyLosses = strategyTrades.filter(t => getTradePerformanceValue(t) < 0);
+  const strategyWins = strategyTrades.filter(t => getValue(t) > 0);
+  const strategyLosses = strategyTrades.filter(t => getValue(t) < 0);
   const strategyWinRate = strategyTrades.length ? (strategyWins.length / strategyTrades.length) * 100 : 0;
-  const strategyAvgWin = strategyWins.length ? strategyWins.reduce((s, t) => s + getTradePerformanceValue(t), 0) / strategyWins.length : 0;
-  const strategyAvgLoss = strategyLosses.length ? Math.abs(strategyLosses.reduce((s, t) => s + getTradePerformanceValue(t), 0) / strategyLosses.length) : 0;
+  const strategyAvgWin = strategyWins.length ? strategyWins.reduce((s, t) => s + getValue(t), 0) / strategyWins.length : 0;
+  const strategyAvgLoss = strategyLosses.length ? Math.abs(strategyLosses.reduce((s, t) => s + getValue(t), 0) / strategyLosses.length) : 0;
   const strategyProfitFactor = strategyAvgLoss > 0 ? (strategyAvgWin * strategyWins.length) / (strategyAvgLoss * strategyLosses.length) : null;
 
   const setupMap = {};
@@ -3933,8 +3942,8 @@ function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false } =
     if (!setup) return;
     if (!setupMap[setup]) setupMap[setup] = { trades: 0, wins: 0, totalR: 0 };
     setupMap[setup].trades++;
-    setupMap[setup].totalR += getTradePerformanceValue(t);
-    if (getTradePerformanceValue(t) > 0) setupMap[setup].wins++;
+    setupMap[setup].totalR += getValue(t);
+    if (getValue(t) > 0) setupMap[setup].wins++;
   });
   const setupStats = Object.entries(setupMap)
     .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -3945,8 +3954,8 @@ function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false } =
     const asset = (t.asset || "Unknown").toUpperCase();
     if (!assetMap[asset]) assetMap[asset] = { trades: 0, wins: 0, totalR: 0 };
     assetMap[asset].trades++;
-    assetMap[asset].totalR += getTradePerformanceValue(t);
-    if (getTradePerformanceValue(t) > 0) assetMap[asset].wins++;
+    assetMap[asset].totalR += getValue(t);
+    if (getValue(t) > 0) assetMap[asset].wins++;
   });
   const assetStats = Object.entries(assetMap)
     .map(([asset, s]) => ({ asset, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
@@ -3977,8 +3986,8 @@ function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false } =
     const key = `${(t.asset||"").toUpperCase()}_${setup}`;
     if (!comboMap[key]) comboMap[key] = { asset: (t.asset||"").toUpperCase(), setup, trades: 0, wins: 0, totalR: 0 };
     comboMap[key].trades++;
-    comboMap[key].totalR += getTradePerformanceValue(t);
-    if (getTradePerformanceValue(t) > 0) comboMap[key].wins++;
+    comboMap[key].totalR += getValue(t);
+    if (getValue(t) > 0) comboMap[key].wins++;
   });
   const comboStats = Object.values(comboMap)
     .map(c => ({ ...c, winRate: (c.wins / c.trades) * 100, avgR: c.totalR / c.trades }))
@@ -3991,7 +4000,7 @@ function buildPerformanceOutcomeReport(trades, { excludeBrokerTrades = false } =
   if (strategyTrades.length > 0 && strategyProfitFactor !== null && strategyProfitFactor < 1) warnings.push("Profit factor is below 1.0 — system is net negative. Review setups immediately.");
   if (strategyTrades.length >= 5 && strategyWinRate < 50) warnings.push("Win rate under 50% with 5+ trades — possible overtrading or setup quality issues.");
   if (!hasMixedUnits && broadAssetSpreadIsHurting) warnings.push(`Your weaker results are coming outside your top assets. Keep an eye on whether breadth is diluting edge quality.`);
-  const recentLosses = strategyTrades.slice(0, 4).filter(t => getTradePerformanceValue(t) < 0).length;
+  const recentLosses = strategyTrades.slice(0, 4).filter(t => getValue(t) < 0).length;
   if (recentLosses >= 3) warnings.push("3 or more losses in your last 4 trades — consider taking a break.");
 
   const actions = [];
@@ -4082,7 +4091,7 @@ const MY_TRADES_HELP = {
   },
   timeInForce: {
     title: "Time In Force",
-    body: "GTC stays open until filled or canceled. IOC fills immediately and cancels any remainder. FOK fills the whole order immediately or cancels.",
+    body: "DAY fills during market hours and cancels at close — required for fractional and dollar-amount equity orders. GTC stays open until filled or canceled. IOC fills immediately and cancels any remainder. FOK fills the whole order immediately or cancels.",
   },
   exits: {
     title: "Exit Plan",
@@ -4201,7 +4210,7 @@ function BrokerDisclosureNote({ children, compact = false, action = null }) {
 
 function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = null, hideOutcomeValues = false }) {
   if (!rows || rows.length === 0) return null;
-  const maxAbs = Math.max(...rows.map(r => Math.abs(r.totalR)), 0.01);
+  const maxAbs = Math.max(5, ...rows.map(r => Math.abs(r.totalR)));
   const isAssetBreakdown = title === "By Asset";
   const rowAreaHeight = isAssetBreakdown
     ? 180
@@ -4260,6 +4269,191 @@ function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = nu
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function PositionPerformanceInsights({
+  positions = [],
+  title = "Position Analytics",
+  scopeLabel = "positions",
+  totalValue = null,
+  totalUnrealizedPl = null,
+  unrealizedPct = null,
+}) {
+  const safePositions = Array.isArray(positions) ? positions : [];
+  if (!safePositions.length) return null;
+
+  const resolvedTotalValue = Number.isFinite(Number(totalValue))
+    ? Number(totalValue)
+    : safePositions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
+  const resolvedUnrealizedPl = Number.isFinite(Number(totalUnrealizedPl))
+    ? Number(totalUnrealizedPl)
+    : safePositions.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0);
+  const costBasis = safePositions.reduce((sum, position) => {
+    const qty = Math.abs(Number(position?.qty));
+    const avg = Number(position?.avgEntryPrice);
+    if (qty > 0 && avg > 0) return sum + qty * avg;
+    return sum + Math.max(0, (Number(position?.marketValue) || 0) - (Number(position?.unrealizedPl) || 0));
+  }, 0);
+  const resolvedUnrealizedPct = Number.isFinite(Number(unrealizedPct))
+    ? Number(unrealizedPct)
+    : costBasis > 0 ? (resolvedUnrealizedPl / costBasis) * 100 : null;
+
+  const sortedPositions = [...safePositions].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0));
+  const winningPositions = safePositions.filter((position) => (Number(position?.unrealizedPl) || 0) > 0);
+  const losingPositions = safePositions.filter((position) => (Number(position?.unrealizedPl) || 0) < 0);
+  const flatPositions = safePositions.length - winningPositions.length - losingPositions.length;
+  const topPosition = sortedPositions[0] || null;
+  const topAllocation = topPosition && resolvedTotalValue > 0
+    ? ((Number(topPosition.marketValue) || 0) / resolvedTotalValue) * 100
+    : null;
+
+  const buildGroupRows = (getKey, getName) => {
+    const groups = new Map();
+    safePositions.forEach((position) => {
+      const key = getKey(position);
+      const name = getName(position);
+      const previous = groups.get(key) || { name, count: 0, value: 0, pl: 0 };
+      previous.count += 1;
+      previous.value += Number(position?.marketValue) || 0;
+      previous.pl += Number(position?.unrealizedPl) || 0;
+      groups.set(key, previous);
+    });
+    return Array.from(groups.values()).sort((a, b) => b.value - a.value);
+  };
+
+  const intentRows = buildGroupRows(
+    (position) => position.positionType || "unclassified",
+    (position) => position.positionTypeLabel || getPositionTypeMeta(position.positionType).label || "Unclassified"
+  );
+  const assetClassRows = buildGroupRows(
+    (position) => String(position.assetClass || position.asset_class || "equity").toLowerCase(),
+    (position) => {
+      const assetClass = String(position.assetClass || position.asset_class || "equity").toLowerCase();
+      return assetClass === "crypto" ? "Crypto" : "Equity";
+    }
+  );
+
+  const scopedPositionNoun = losingPositions.length === 1 && scopeLabel.endsWith("s")
+    ? scopeLabel.slice(0, -1)
+    : scopeLabel;
+  const concentrationWarning = Number.isFinite(topAllocation) && topAllocation >= 70
+    ? `${topPosition.symbol} is ${topAllocation.toFixed(0)}% of this view. That concentration matters more than the number of positions.`
+    : null;
+  const lossWarning = losingPositions.length
+    ? `${losingPositions.length} ${scopedPositionNoun}${losingPositions.length === 1 ? " is" : " are"} currently underwater. Review whether the original thesis still applies.`
+    : null;
+  const nextAction = concentrationWarning
+    ? "Check whether the largest allocation is intentional before adding more exposure."
+    : lossWarning
+      ? "Review the underwater positions first; separate temporary drawdown from broken thesis."
+      : "Keep monitoring allocation, unrealized P/L, and whether each position still matches its intent.";
+
+  const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        {[
+          { label: "Open Positions", value: safePositions.length, sub: scopeLabel, color: "#f3f7fc" },
+          { label: "Unrealized P/L", value: `${resolvedUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(resolvedUnrealizedPl)}`, sub: Number.isFinite(resolvedUnrealizedPct) ? formatPerformancePercent(resolvedUnrealizedPct) : "open P/L", color: resolvedUnrealizedPl >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Winning", value: winningPositions.length, sub: `${losingPositions.length} underwater`, color: winningPositions.length >= losingPositions.length ? "#4ade80" : "#f87171" },
+          { label: "Top Position", value: topPosition?.symbol || "—", sub: Number.isFinite(topAllocation) ? `${topAllocation.toFixed(1)}% allocation` : "largest allocation", color: "#7CC4FF" },
+        ].map((item) => (
+          <div key={item.label} style={{ ...cardBase, padding: "14px 16px" }}>
+            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: item.color, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.value}</div>
+            <div style={{ fontSize: 11, color: "#475569" }}>{item.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...cardBase, padding: "16px 20px" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 14 }}>
+          Position Outcomes
+        </div>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Winning", count: winningPositions.length, color: "#4ade80" },
+            { label: "Underwater", count: losingPositions.length, color: "#f87171" },
+            ...(flatPositions > 0 ? [{ label: "Flat", count: flatPositions, color: "#64748b" }] : []),
+          ].map((item) => (
+            <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: item.color }}>{item.count}</span>
+              <span style={{ fontSize: 12, color: "#64748b" }}>{item.label} · {safePositions.length ? ((item.count / safePositions.length) * 100).toFixed(0) : 0}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, alignItems: "start" }}>
+        <PositionBreakdownCard title="By Intent" rows={intentRows} totalValue={resolvedTotalValue} />
+        <PositionBreakdownCard title="By Asset Class" rows={assetClassRows} totalValue={resolvedTotalValue} />
+        <PositionBreakdownCard title="Largest Positions" rows={sortedPositions.slice(0, 6).map((position) => ({
+          name: position.symbol,
+          count: 1,
+          value: Number(position?.marketValue) || 0,
+          pl: Number(position?.unrealizedPl) || 0,
+        }))} totalValue={resolvedTotalValue} />
+      </div>
+
+      <div style={cardBase}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#7CC4FF" }}>Rayla's Position Diagnosis</div>
+          <div style={{ fontSize: 11, color: "#475569" }}>{title}</div>
+        </div>
+        <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {concentrationWarning ? (
+            <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.18)", fontSize: 13, color: "#fbbf24", lineHeight: 1.6 }}>
+              {concentrationWarning}
+            </div>
+          ) : null}
+          {lossWarning ? (
+            <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.14)", fontSize: 13, color: "#fecaca", lineHeight: 1.6 }}>
+              {lossWarning}
+            </div>
+          ) : null}
+          <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.15)" }}>
+            <div style={{ fontSize: 11, color: "#7CC4FF", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8, fontWeight: 700 }}>Next Action</div>
+            <div style={{ display: "flex", gap: 8, fontSize: 13, color: "#e2e8f0", lineHeight: 1.5 }}>
+              <span style={{ color: "#7CC4FF", fontWeight: 800, flexShrink: 0 }}>1.</span>
+              <span>{nextAction}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PositionBreakdownCard({ title, rows = [], totalValue = 0 }) {
+  if (!rows.length) return null;
+  const maxValue = Math.max(100, ...rows.map((row) => Math.abs(Number(row.value) || 0)));
+  return (
+    <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
+        <div style={{ fontSize: 11, color: "#475569" }}>{rows.length}</div>
+      </div>
+      <div style={{ padding: "4px 0" }}>
+        {rows.map((row, index) => {
+          const value = Number(row.value) || 0;
+          const pl = Number(row.pl) || 0;
+          const allocation = totalValue > 0 ? (value / totalValue) * 100 : 0;
+          return (
+            <div key={`${row.name}-${index}`} style={{ padding: "10px 16px", borderBottom: index < rows.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ minWidth: 92, maxWidth: 140, fontSize: 12, color: "#e2e8f0", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
+              <div style={{ fontSize: 11, color: "#475569", whiteSpace: "nowrap", flexShrink: 0 }}>{row.count} · {allocation.toFixed(0)}%</div>
+              <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.max(4, (Math.abs(value) / maxValue) * 100)}%`, background: "#7CC4FF", borderRadius: 2 }} />
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: pl >= 0 ? "#4ade80" : "#f87171", minWidth: 64, textAlign: "right", flexShrink: 0 }}>{pl >= 0 ? "+" : ""}{formatCurrency(pl)}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -4645,8 +4839,9 @@ function PerformanceLiveChartCard({
               </div>
             );
           })() : (
-            <div style={{ height: 360, borderRadius: 12, background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
-              No closed trades match this range yet. Open positions are intentionally excluded from the Performance chart.
+            <div className="emptyState">
+              <div className="emptyStateTitle">No closed trades in this range yet</div>
+              <div className="emptyStateCopy">Open positions stay out of this realized performance chart so the review stays clean once trades are complete.</div>
             </div>
           )}
         </div>
@@ -4680,144 +4875,682 @@ function PerformanceLiveChartCard({
   );
 }
 
-function HoldingsPerformancePanel({ positions = [], alpacaConnected = false }) {
-  const holdings = Array.isArray(positions) ? positions : [];
-  const summary = useMemo(() => {
-    const totalValue = holdings.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
-    const totalUnrealizedPl = holdings.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0);
-    const totalCostBasis = holdings.reduce((sum, position) => {
-      const qty = Math.abs(Number(position?.qty));
-      const avgEntryPrice = Number(position?.avgEntryPrice);
-      const marketValue = Number(position?.marketValue);
-      const unrealizedPl = Number(position?.unrealizedPl);
-      if (Number.isFinite(qty) && qty > 0 && Number.isFinite(avgEntryPrice) && avgEntryPrice > 0) {
-        return sum + qty * avgEntryPrice;
-      }
-      if (Number.isFinite(marketValue) && Number.isFinite(unrealizedPl)) {
-        return sum + Math.max(0, marketValue - unrealizedPl);
-      }
-      return sum;
-    }, 0);
-    const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
-    return {
-      totalValue,
-      totalUnrealizedPl,
-      unrealizedPct,
-    };
-  }, [holdings]);
-
-  const valueColor = summary.totalUnrealizedPl >= 0 ? "#4ade80" : "#f87171";
-  const metricCards = [
-    { label: "Holdings Value", value: formatCurrency(summary.totalValue), color: "#e2e8f0" },
-    {
-      label: "Unrealized P/L",
-      value: `${summary.totalUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(summary.totalUnrealizedPl)}`,
-      color: valueColor,
-    },
-    {
-      label: "Unrealized %",
-      value: summary.unrealizedPct == null ? "—" : formatPerformancePercent(summary.unrealizedPct),
-      color: valueColor,
-    },
-    { label: "Open Holdings", value: holdings.length, color: "#e2e8f0" },
+function PortfolioTrendCard({
+  positions = [],
+  alpacaAccount = null,
+  tradePortfolioCharts = {},
+  tradePortfolioChartsLoading = false,
+  portfolioRange = "MAX",
+  setPortfolioRange = () => {},
+  title = "Portfolio",
+  subtitle = "Live broker positions grouped into one portfolio view.",
+  emptyMessage = "Portfolio trend will appear once broker and market history are available.",
+  statusLabel = null,
+  chartHeight = 340,
+}) {
+  const portfolioRanges = [
+    { value: "1D", label: "1D" },
+    { value: "1W", label: "1W" },
+    { value: "1M", label: "1M" },
+    { value: "3M", label: "3M" },
+    { value: "MAX", label: "ALL" },
   ];
+  const rangeMs = getChartSelectionWindowMs(portfolioRange);
+  const nowMs = Date.now();
+  const myRequestedStartMs = rangeMs ? nowMs - rangeMs : null;
+  const allPositions = Array.isArray(positions) ? positions : [];
+  const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
+  const totalUnrealizedPl = allPositions.reduce((s, p) => s + (Number(p?.unrealizedPl) || 0), 0);
+  const totalCostBasis = allPositions.reduce((s, p) => {
+    const qty = Math.abs(Number(p?.qty));
+    const avg = Number(p?.avgEntryPrice);
+    if (qty > 0 && avg > 0) return s + qty * avg;
+    return s + Math.max(0, (Number(p?.marketValue) || 0) - (Number(p?.unrealizedPl) || 0));
+  }, 0);
+  const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
+  const portfolioValue = Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || totalMarketValue || 0;
+  const portfolioBenchmarkChart = useMemo(
+    () => buildPortfolioBenchmarkChart(
+      tradePortfolioCharts,
+      allPositions,
+      myRequestedStartMs,
+      nowMs
+    ),
+    [tradePortfolioCharts, allPositions, myRequestedStartMs, nowMs]
+  );
+  const portfolioLinePoints = useMemo(() => {
+    const bars = extractChartBars(portfolioBenchmarkChart)
+      .map((bar) => {
+        const timeMs = getChartBarTimeMs(bar);
+        const value = Number(bar?.close);
+        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0
+          ? { timeMs, value }
+          : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.timeMs - b.timeMs);
+    const baseline = Number(bars[0]?.value);
+    if (!Number.isFinite(baseline) || baseline <= 0) return [];
+    return bars.map((point) => ({
+      timeMs: point.timeMs,
+      value: ((point.value - baseline) / baseline) * 100,
+      rawValue: point.value,
+    }));
+  }, [portfolioBenchmarkChart]);
+  const portfolioReturnPct = portfolioLinePoints[portfolioLinePoints.length - 1]?.value ?? unrealizedPct;
+  const portfolioPositive = Number(portfolioReturnPct ?? totalUnrealizedPl) >= 0;
+  const performancePortfolioLines = [
+    portfolioLinePoints.length >= 2
+      ? { symbol: "Portfolio", color: "#7CC4FF", points: portfolioLinePoints }
+      : null,
+  ].filter(Boolean);
+  const resolvedStatusLabel = statusLabel ?? (alpacaAccount?.isPaper != null ? (alpacaAccount.isPaper ? "Paper" : "Live") : null);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="card" style={{ padding: 18 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Holdings Performance</div>
-            <div style={{ marginTop: 4, fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
-              Open broker positions classified as Investment or Crypto Hold. Closed-trade analytics stay separate.
-            </div>
+    <div className="performancePortfolioTrendCard" style={{
+      "--performancePortfolioChartHeight": `${chartHeight}px`,
+      minHeight: chartHeight + 174,
+      background: "radial-gradient(ellipse at 18% 0%, rgba(124,196,255,0.08) 0%, transparent 58%), rgba(8,16,26,0.95)",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 18,
+      overflow: "hidden",
+      padding: 16,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+    }}>
+      <div className="performancePortfolioHomeHeader">
+        <div>
+          <div className="performancePortfolioHomeTitle">{title}</div>
+          <div className="performancePortfolioHomeValue">
+            {portfolioValue > 0 ? formatCurrency(portfolioValue) : "--"}
           </div>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7CC4FF" }}>
-            Broker positions
+          <div className="performancePortfolioHomeSubcopy">{subtitle}</div>
+        </div>
+        <div className="performancePortfolioHomeMetric" style={{ color: portfolioPositive ? "#4ade80" : "#f87171" }}>
+          <div>
+            <span>{portfolioPositive ? "+" : ""}{formatCurrency(totalUnrealizedPl)}</span>
+            {Number.isFinite(portfolioReturnPct) ? (
+              <span style={{ marginLeft: 6 }}>{formatPerformancePercent(portfolioReturnPct)}</span>
+            ) : null}
+          </div>
+          <div className="performancePortfolioHomeMetricMeta">
+            {portfolioRanges.find((option) => option.value === portfolioRange)?.label || "ALL"} · {allPositions.length} position{allPositions.length === 1 ? "" : "s"} · {formatCurrency(totalMarketValue)}
+          </div>
+        </div>
+      </div>
+
+      <div className="performancePortfolioHomeToolbar">
+        <div className="performancePortfolioRangeGroup">
+          {portfolioRanges.map((opt) => {
+            const active = portfolioRange === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setPortfolioRange(opt.value)}
+                className={active ? "active" : ""}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {resolvedStatusLabel ? (
+          <div className="performancePortfolioStatus">
+            {resolvedStatusLabel}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="performancePortfolioHomeChart">
+        {tradePortfolioChartsLoading ? (
+          <div className="performancePortfolioHomeEmpty">Loading portfolio chart...</div>
+        ) : performancePortfolioLines.length ? (
+            <InteractiveLineChart
+              className="tradePortfolioEngineChart performancePortfolioLineChart"
+              height={chartHeight}
+              lines={performancePortfolioLines}
+              valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
+              emptyMessage={emptyMessage}
+            showLastPointPulse
+          />
+        ) : (
+          <div className="performancePortfolioHomeEmpty">
+            {emptyMessage}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PortfolioPerformancePanel({
+  positions = [],
+  alpacaAccount = null,
+  alpacaConnected = false,
+  tradePortfolioCharts = {},
+  tradePortfolioChartsLoading = false,
+  brokerTradeLog = [],
+  portfolioRange = "MAX",
+  setPortfolioRange = () => {},
+  equityPoints = [],
+  sourceLabel = "Portfolio",
+  chartRange = "ALL",
+  setChartRange = () => {},
+  benchmarkSymbol = "SPY",
+  benchmarkLabel = "SPY",
+  onSelectBenchmark = () => {},
+  benchmarkOptions = [],
+  benchmarkPoints = [],
+  benchmarkLoading = false,
+}) {
+  const portfolioRanges = [
+    { value: "1D", label: "1D" },
+    { value: "1W", label: "1W" },
+    { value: "1M", label: "1M" },
+    { value: "3M", label: "3M" },
+    { value: "MAX", label: "ALL" },
+  ];
+  const rangeMs = getChartSelectionWindowMs(portfolioRange);
+  const nowMs = Date.now();
+  const myRequestedStartMs = rangeMs ? nowMs - rangeMs : null;
+
+  const allPositions = Array.isArray(positions) ? positions : [];
+  const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
+  const totalUnrealizedPl = allPositions.reduce((s, p) => s + (Number(p?.unrealizedPl) || 0), 0);
+  const totalCostBasis = allPositions.reduce((s, p) => {
+    const qty = Math.abs(Number(p?.qty));
+    const avg = Number(p?.avgEntryPrice);
+    if (qty > 0 && avg > 0) return s + qty * avg;
+    return s + Math.max(0, (Number(p?.marketValue) || 0) - (Number(p?.unrealizedPl) || 0));
+  }, 0);
+  const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
+  const dayPnL = calculateBrokerDayPnL(allPositions, alpacaAccount);
+  const portfolioValue = Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || totalMarketValue || 0;
+  const cash = alpacaAccount ? (Number(alpacaAccount.cash) || 0) : null;
+  const plPos = totalUnrealizedPl >= 0;
+  const dayPos = Number.isFinite(dayPnL) && dayPnL >= 0;
+  const sortedPositions = useMemo(
+    () => [...allPositions].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0)),
+    [allPositions]
+  );
+
+  const portfolioBenchmarkChart = useMemo(
+    () => buildPortfolioBenchmarkChart(
+      tradePortfolioCharts,
+      allPositions,
+      myRequestedStartMs,
+      nowMs
+    ),
+    [tradePortfolioCharts, allPositions, myRequestedStartMs, nowMs]
+  );
+  const portfolioLinePoints = useMemo(() => {
+    const bars = extractChartBars(portfolioBenchmarkChart)
+      .map((bar) => {
+        const timeMs = getChartBarTimeMs(bar);
+        const value = Number(bar?.close);
+        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0
+          ? { timeMs, value }
+          : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.timeMs - b.timeMs);
+    const baseline = Number(bars[0]?.value);
+    if (!Number.isFinite(baseline) || baseline <= 0) return [];
+    return bars.map((point) => ({
+      timeMs: point.timeMs,
+      value: ((point.value - baseline) / baseline) * 100,
+      rawValue: point.value,
+    }));
+  }, [portfolioBenchmarkChart]);
+  const portfolioReturnPct = portfolioLinePoints[portfolioLinePoints.length - 1]?.value ?? unrealizedPct;
+  const portfolioPositive = Number(portfolioReturnPct ?? totalUnrealizedPl) >= 0;
+  const portfolioLineColor = "#7CC4FF";
+  const performancePortfolioLines = [
+    portfolioLinePoints.length >= 2
+      ? { symbol: "Portfolio", color: portfolioLineColor, points: portfolioLinePoints }
+      : null,
+  ].filter(Boolean);
+
+  if (!alpacaConnected) {
+    return (
+      <div style={{ padding: "48px 24px", textAlign: "center", color: "#4a5568", fontSize: 13 }}>
+        Connect your broker to view your live portfolio here.
+      </div>
+    );
+  }
+  if (!allPositions.length) {
+    return (
+      <div style={{ padding: "48px 24px", textAlign: "center", color: "#4a5568", fontSize: 13 }}>
+        No open positions. Portfolio view shows your live broker positions.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      <PortfolioTrendCard
+        positions={allPositions}
+        alpacaAccount={alpacaAccount}
+        tradePortfolioCharts={tradePortfolioCharts}
+        tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+        portfolioRange={portfolioRange}
+        setPortfolioRange={setPortfolioRange}
+        title="Investing"
+        subtitle="Live broker positions grouped into one portfolio view."
+        chartHeight={330}
+      />
+
+      {/* ── Secondary stats strip ────────────────────────────────── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, 1fr)",
+        background: "rgba(8,16,26,0.7)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}>
+        {[
+          { label: "Cash", value: cash !== null ? formatCurrency(cash) : "—", color: "#e2e8f0" },
+          {
+            label: "Day P/L",
+            value: Number.isFinite(dayPnL) ? `${dayPos ? "+" : ""}${formatCurrency(dayPnL)}` : "—",
+            color: Number.isFinite(dayPnL) ? (dayPos ? "#4ade80" : "#f87171") : "#e2e8f0",
+          },
+          { label: "Positions", value: String(allPositions.length), color: "#e2e8f0" },
+        ].map((m, idx, arr) => (
+          <div
+            key={m.label}
+            style={{
+              padding: "13px 18px",
+              borderRight: idx < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none",
+            }}
+          >
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#334155", marginBottom: 5 }}>
+              {m.label}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Allocation + Positions ───────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+
+        {/* Allocation */}
+        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+            Allocation
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+            {sortedPositions.map((pos) => {
+              const mv = Number(pos?.marketValue) || 0;
+              const alloc = totalMarketValue > 0 ? (mv / totalMarketValue) * 100 : 0;
+              const pl = Number(pos?.unrealizedPl) || 0;
+              return (
+                <div key={pos.symbol}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#dde6f0" }}>{pos.symbol}</span>
+                    <span style={{ fontSize: 12, color: "#334155" }}>{formatPerformancePercent(alloc)}</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,0.05)" }}>
+                    <div style={{
+                      width: `${Math.max(0, Math.min(100, alloc))}%`,
+                      height: "100%",
+                      borderRadius: 999,
+                      background: pl >= 0
+                        ? "linear-gradient(90deg, #4ade80, #60a5fa)"
+                        : "linear-gradient(90deg, #f87171, #fb923c)",
+                      opacity: 0.75,
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {!holdings.length ? (
-          <div style={{ padding: 16, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "#94a3b8", fontSize: 13, lineHeight: 1.6 }}>
-            {alpacaConnected
-              ? "No open positions are classified as Investment or Crypto Hold yet. Update a position type in Live Trades to include it here."
-              : "Connect your broker to see open long-term holdings here."}
+        {/* Positions */}
+        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+            Positions
           </div>
-        ) : (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-              {metricCards.map((metric) => (
-                <div key={metric.label} style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
-                    {metric.label}
+          <div>
+            {sortedPositions.map((pos, idx) => {
+              const pl = Number(pos?.unrealizedPl) || 0;
+              const plpc = Number(pos?.unrealizedPlpc);
+              const isEquity = pos.assetClass && pos.assetClass !== "crypto";
+              return (
+                <div
+                  key={pos.symbol}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    padding: "12px 0",
+                    borderBottom: idx < sortedPositions.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                  }}
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: "#f0f6ff" }}>{pos.symbol}</span>
+                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: isEquity ? "#4a7fa8" : "#7c6aad" }}>
+                        {isEquity ? "EQ" : "CR"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#334155", marginTop: 3 }}>
+                      {formatBrokerQuantity(pos.qty)} × {formatCurrency(pos.avgEntryPrice || 0)} · {formatCurrency(pos.marketValue)}
+                    </div>
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800, color: metric.color }}>
-                    {metric.value}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
+                      {pl >= 0 ? "+" : ""}{formatCurrency(pl)}
+                    </div>
+                    <div style={{ fontSize: 11, color: pl >= 0 ? "#6ee7b7" : "#fca5a5", marginTop: 2, opacity: 0.85 }}>
+                      {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
+          </div>
+        </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 14 }}>
-              <div style={{ padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 10 }}>
-                  Allocation
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {holdings
-                    .slice()
-                    .sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0))
-                    .map((position) => {
-                      const marketValue = Number(position?.marketValue) || 0;
-                      const allocation = summary.totalValue > 0 ? (marketValue / summary.totalValue) * 100 : 0;
-                      return (
-                        <div key={position.symbol}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 12, color: "#cbd5e1", fontWeight: 700 }}>
-                            <span>{position.symbol}</span>
-                            <span>{formatPerformancePercent(allocation)}</span>
-                          </div>
-                          <div style={{ marginTop: 6, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                            <div style={{ width: `${Math.max(0, Math.min(100, allocation))}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, rgba(124,196,255,0.95), rgba(74,222,128,0.82))" }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-
-              <div style={{ padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 10 }}>
-                  Holdings
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {holdings.map((position) => {
-                    const pl = Number(position?.unrealizedPl) || 0;
-                    const plpc = Number(position?.unrealizedPlpc);
-                    return (
-                      <div key={position.symbol} style={{ padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: "#e2e8f0" }}>{position.symbol}</div>
-                            <div style={{ marginTop: 2, fontSize: 11, color: "#7f8ea3" }}>
-                              {position.positionTypeLabel} · Qty {formatBrokerQuantity(position.qty)} · Avg {formatCurrency(position.avgEntryPrice)}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: "right", fontSize: 12, fontWeight: 800, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
-                            {`${pl >= 0 ? "+" : ""}${formatCurrency(pl)}`}
-                            <div style={{ marginTop: 2, fontSize: 11 }}>
-                              {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
       </div>
+
+      <PositionPerformanceInsights
+        title="Portfolio"
+        scopeLabel="positions"
+        positions={sortedPositions}
+        totalValue={totalMarketValue}
+        totalUnrealizedPl={totalUnrealizedPl}
+        unrealizedPct={unrealizedPct}
+      />
+    </div>
+  );
+}
+
+function HoldingsPerformancePanel({
+  positions = [],
+  alpacaConnected = false,
+  tradePortfolioCharts = {},
+  tradePortfolioChartsLoading = false,
+  brokerTradeLog = [],
+  portfolioRange = "MAX",
+  setPortfolioRange = () => {},
+}) {
+  const holdings = Array.isArray(positions) ? positions : [];
+  const rangeOptions = [
+    { value: "1D", label: "1D" },
+    { value: "1W", label: "1W" },
+    { value: "1M", label: "1M" },
+    { value: "3M", label: "3M" },
+    { value: "MAX", label: "ALL" },
+  ];
+  const rangeMs = getChartSelectionWindowMs(portfolioRange);
+  const nowMs = Date.now();
+  const myRequestedStartMs = rangeMs ? nowMs - rangeMs : null;
+
+  const summary = useMemo(() => {
+    const totalValue = holdings.reduce((sum, p) => sum + (Number(p?.marketValue) || 0), 0);
+    const totalUnrealizedPl = holdings.reduce((sum, p) => sum + (Number(p?.unrealizedPl) || 0), 0);
+    const totalCostBasis = holdings.reduce((sum, p) => {
+      const qty = Math.abs(Number(p?.qty));
+      const avg = Number(p?.avgEntryPrice);
+      if (qty > 0 && avg > 0) return sum + qty * avg;
+      return sum + Math.max(0, (Number(p?.marketValue) || 0) - (Number(p?.unrealizedPl) || 0));
+    }, 0);
+    const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
+    return { totalValue, totalUnrealizedPl, unrealizedPct };
+  }, [holdings]);
+
+  const sortedHoldings = useMemo(
+    () => [...holdings].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0)),
+    [holdings]
+  );
+
+  const holdingsBenchmarkChart = useMemo(
+    () => buildPortfolioBenchmarkChart(tradePortfolioCharts, holdings, myRequestedStartMs, nowMs),
+    [tradePortfolioCharts, holdings, myRequestedStartMs, nowMs]
+  );
+  const holdingsLinePoints = useMemo(() => {
+    const bars = extractChartBars(holdingsBenchmarkChart)
+      .map((bar) => {
+        const timeMs = getChartBarTimeMs(bar);
+        const value = Number(bar?.close);
+        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0 ? { timeMs, value } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.timeMs - b.timeMs);
+    const baseline = Number(bars[0]?.value);
+    if (!Number.isFinite(baseline) || baseline <= 0) return [];
+    return bars.map((pt) => ({ timeMs: pt.timeMs, value: ((pt.value - baseline) / baseline) * 100, rawValue: pt.value }));
+  }, [holdingsBenchmarkChart]);
+
+  const holdingsReturnPct = holdingsLinePoints[holdingsLinePoints.length - 1]?.value ?? summary.unrealizedPct;
+  const holdingsPositive = Number(holdingsReturnPct ?? summary.totalUnrealizedPl) >= 0;
+  const holdingsLineColor = "#7CC4FF";
+  const chartLines = holdingsLinePoints.length >= 2
+    ? [{ symbol: "Holdings", color: holdingsLineColor, points: holdingsLinePoints }]
+    : [];
+
+  if (!alpacaConnected) {
+    return (
+      <div className="emptyState">
+        <div className="emptyStateTitle">Connect your broker to view holdings</div>
+        <div className="emptyStateCopy">Long-term positions will appear here with trend, allocation, and unrealized P/L once broker data is available.</div>
+      </div>
+    );
+  }
+  if (!holdings.length) {
+    return (
+      <div className="emptyState">
+        <div className="emptyStateTitle">No long-term holdings selected yet</div>
+        <div className="emptyStateCopy">Classify a broker position as Investment or Crypto Hold in Live Trades and Rayla will move it into this view.</div>
+      </div>
+    );
+  }
+
+  const plPos = summary.totalUnrealizedPl >= 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Hero + Chart ─────────────────────────────────────────── */}
+      <div style={{
+        background: "radial-gradient(ellipse at 18% 0%, rgba(124,196,255,0.08) 0%, transparent 58%), rgba(8,16,26,0.95)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 18,
+        overflow: "hidden",
+        padding: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}>
+        <div className="performancePortfolioHomeHeader">
+          <div>
+            <div className="performancePortfolioHomeTitle">Long-Term Holdings</div>
+            <div className="performancePortfolioHomeValue">
+              {summary.totalValue > 0 ? formatCurrency(summary.totalValue) : "--"}
+            </div>
+            <div className="performancePortfolioHomeSubcopy">
+              Broker positions classified as investments or long-term holds.
+            </div>
+          </div>
+          <div className="performancePortfolioHomeMetric" style={{ color: plPos ? "#4ade80" : "#f87171" }}>
+            <div>
+              <span>{plPos ? "+" : ""}{formatCurrency(summary.totalUnrealizedPl)}</span>
+              {Number.isFinite(holdingsReturnPct) ? (
+                <span style={{ marginLeft: 6 }}>{formatPerformancePercent(holdingsReturnPct)}</span>
+              ) : null}
+            </div>
+            <div className="performancePortfolioHomeMetricMeta">
+              {rangeOptions.find((o) => o.value === portfolioRange)?.label || "ALL"} · {holdings.length} holding{holdings.length === 1 ? "" : "s"} · {formatCurrency(summary.totalValue)}
+            </div>
+          </div>
+        </div>
+
+        <div className="performancePortfolioHomeToolbar">
+          <div className="performancePortfolioRangeGroup">
+            {rangeOptions.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setPortfolioRange(opt.value)}
+                className={portfolioRange === opt.value ? "active" : ""}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="performancePortfolioStatus" style={{ background: "rgba(74,222,128,0.1)", borderColor: "rgba(74,222,128,0.2)", color: "#4ade80" }}>
+            Holdings
+          </div>
+        </div>
+
+        <div className="performancePortfolioHomeChart">
+          {tradePortfolioChartsLoading ? (
+            <div className="performancePortfolioHomeEmpty">Loading holdings chart...</div>
+          ) : chartLines.length ? (
+            <InteractiveLineChart
+              className="tradePortfolioEngineChart performancePortfolioLineChart"
+              height={420}
+              lines={chartLines}
+              valueFormatter={(v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--"}
+              emptyMessage="Holdings trend will appear once broker and market history are available."
+              showLastPointPulse
+            />
+          ) : (
+            <div className="performancePortfolioHomeEmpty">
+              Holdings trend will appear once broker and market history are available.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Stats strip ─────────────────────────────────────────── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, 1fr)",
+        background: "rgba(8,16,26,0.7)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}>
+        {[
+          { label: "Holdings Value", value: formatCurrency(summary.totalValue), color: "#e2e8f0" },
+          {
+            label: "Unrealized P/L",
+            value: `${plPos ? "+" : ""}${formatCurrency(summary.totalUnrealizedPl)}`,
+            color: plPos ? "#4ade80" : "#f87171",
+          },
+          {
+            label: "Unrealized %",
+            value: summary.unrealizedPct == null ? "—" : formatPerformancePercent(summary.unrealizedPct),
+            color: plPos ? "#4ade80" : "#f87171",
+          },
+        ].map((m, idx, arr) => (
+          <div key={m.label} style={{ padding: "13px 18px", borderRight: idx < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#334155", marginBottom: 5 }}>
+              {m.label}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Allocation + Holdings list ───────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+
+        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+            Allocation
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+            {sortedHoldings.map((pos) => {
+              const mv = Number(pos?.marketValue) || 0;
+              const alloc = summary.totalValue > 0 ? (mv / summary.totalValue) * 100 : 0;
+              const pl = Number(pos?.unrealizedPl) || 0;
+              return (
+                <div key={pos.symbol}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#dde6f0" }}>{pos.symbol}</span>
+                    <span style={{ fontSize: 12, color: "#334155" }}>{formatPerformancePercent(alloc)}</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,0.05)" }}>
+                    <div style={{
+                      width: `${Math.max(0, Math.min(100, alloc))}%`,
+                      height: "100%",
+                      borderRadius: 999,
+                      background: pl >= 0 ? "linear-gradient(90deg, #4ade80, #60a5fa)" : "linear-gradient(90deg, #f87171, #fb923c)",
+                      opacity: 0.75,
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+            Holdings
+          </div>
+          <div>
+            {sortedHoldings.map((pos, idx) => {
+              const pl = Number(pos?.unrealizedPl) || 0;
+              const plpc = Number(pos?.unrealizedPlpc);
+              const isEquity = pos.assetClass && pos.assetClass !== "crypto";
+              return (
+                <div
+                  key={pos.symbol}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    padding: "12px 0",
+                    borderBottom: idx < sortedHoldings.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                  }}
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: "#f0f6ff" }}>{pos.symbol}</span>
+                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: isEquity ? "#4a7fa8" : "#7c6aad" }}>
+                        {isEquity ? "EQ" : "CR"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#334155", marginTop: 3 }}>
+                      {formatBrokerQuantity(pos.qty)} × {formatCurrency(pos.avgEntryPrice || 0)} · {formatCurrency(pos.marketValue)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
+                      {pl >= 0 ? "+" : ""}{formatCurrency(pl)}
+                    </div>
+                    <div style={{ fontSize: 11, color: pl >= 0 ? "#6ee7b7" : "#fca5a5", marginTop: 2, opacity: 0.85 }}>
+                      {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+      </div>
+
+      <PositionPerformanceInsights
+        title="Long-Term Holdings"
+        scopeLabel="holdings"
+        positions={sortedHoldings}
+        totalValue={summary.totalValue}
+        totalUnrealizedPl={summary.totalUnrealizedPl}
+        unrealizedPct={summary.unrealizedPct}
+      />
     </div>
   );
 }
@@ -4837,6 +5570,7 @@ function PerformanceDashboard({
   benchmarkPoints,
   benchmarkLoading,
   alpacaConnected,
+  alpacaAccount,
   coachSummary,
   showNoNewTrades,
   onRunAnalysis,
@@ -4865,6 +5599,8 @@ function PerformanceDashboard({
   tradePortfolioDisplayedPositions,
   tradePortfolioChartsLoading,
   tradePortfolioCharts,
+  performancePortfolioRange = "MAX",
+  setPerformancePortfolioRange = () => {},
   brokerTradeLog,
   tradePortfolioRequestedStartMs,
   tradePortfolioNowMs,
@@ -4874,6 +5610,17 @@ function PerformanceDashboard({
   const isSimulationSource = performanceSourceLabel === "Live Simulation";
   const effectiveCoachSummary = coachSummary;
   const effectiveShowNoNewTrades = showNoNewTrades;
+  const getOutcomeValue = useCallback((trade) => {
+    if (isSimulationSource) {
+      const pnl = getTradeProfitValue(trade);
+      if (Number.isFinite(pnl)) return pnl;
+    }
+    return getTradePerformanceValue(trade);
+  }, [isSimulationSource]);
+  const formatOutcomeValue = useCallback((value) => {
+    if (isSimulationSource) return `${value >= 0 ? "+" : ""}${formatCurrency(Math.abs(value))}`;
+    return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+  }, [isSimulationSource]);
   const canRunAiAnalysis = typeof onRunAnalysis === "function";
   const [fAsset, setFAsset] = useState("all");
   const [fSetup, setFSetup] = useState("all");
@@ -4894,11 +5641,11 @@ function PerformanceDashboard({
     .filter(t => fDir === "all" || (t.direction || "").toLowerCase() === fDir)
     .filter(t => {
       if (fResult === "all") return true;
-      const r = getTradeOutcomeValue(t);
+      const r = getOutcomeValue(t);
       return fResult === "win" ? r > 0 : fResult === "loss" ? r < 0 : r === 0;
-    }), [trades, fAsset, fSetup, fSession, fDir, fResult]);
+    }), [trades, fAsset, fSetup, fSession, fDir, fResult, getOutcomeValue]);
 
-  const report = useMemo(() => buildPerformanceOutcomeReport(ft), [ft]);
+  const report = useMemo(() => buildPerformanceOutcomeReport(ft, { valueAccessor: getOutcomeValue }), [ft, getOutcomeValue]);
   const hasMixedResultUnits = Boolean(report?.hasMixedUnits);
   const strategyFilteredTrades = useMemo(() => ft.filter(isStrategyInsightTrade), [ft]);
   const strategyReport = useMemo(() => buildCoachReport(ft), [ft]);
@@ -4911,13 +5658,13 @@ function PerformanceDashboard({
       const k = t.session || "Untagged";
       if (!map[k]) map[k] = { trades: 0, wins: 0, totalR: 0 };
       map[k].trades++;
-      map[k].totalR += getTradeOutcomeValue(t);
-      if (getTradeOutcomeValue(t) > 0) map[k].wins++;
+      map[k].totalR += getOutcomeValue(t);
+      if (getOutcomeValue(t) > 0) map[k].wins++;
     });
     return Object.entries(map)
       .map(([session, s]) => ({ session, trades: s.trades, winRate: s.trades > 0 ? (s.wins / s.trades) * 100 : 0, avgR: s.trades > 0 ? s.totalR / s.trades : 0, totalR: s.totalR }))
       .sort((a, b) => b.totalR - a.totalR);
-  }, [strategyFilteredTrades]);
+  }, [strategyFilteredTrades, getOutcomeValue]);
 
   const recent5 = useMemo(() => [...trades]
     .sort((a, b) => (b.entry_time ? new Date(b.entry_time).getTime() : 0) - (a.entry_time ? new Date(a.entry_time).getTime() : 0))
@@ -4927,11 +5674,11 @@ function PerformanceDashboard({
     const sorted = [...trades].sort((a, b) => (b.entry_time ? new Date(b.entry_time).getTime() : 0) - (a.entry_time ? new Date(a.entry_time).getTime() : 0));
     let streak = 0;
     for (const t of sorted) {
-      if (getTradeOutcomeValue(t) < 0) streak++;
+      if (getOutcomeValue(t) < 0) streak++;
       else break;
     }
     return streak;
-  }, [trades]);
+  }, [trades, getOutcomeValue]);
 
   const rStdDev = useMemo(() => {
     if (ft.length < 3) return null;
@@ -4982,18 +5729,17 @@ function PerformanceDashboard({
 
   if (trades.length === 0) {
     return (
-      <div style={{ textAlign: "center", padding: "80px 24px" }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
-        <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>
-          {isSimulationSource ? "No live simulation trades to analyze yet" : "No trades to analyze yet"}
-        </div>
-        <div style={{ fontSize: 14, color: "#64748b", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
-          {isSimulationSource
-            ? "Close one live simulation trade and it will show up here automatically."
-            : <>Start with <strong style={{ color: "#7CC4FF" }}>Simulation</strong>, then log or sync the trade when you are ready. Your analytics dashboard will unlock here.</>}
-        </div>
-        {alternateEmptyHint ? (
-          <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 380, margin: "10px auto 0", lineHeight: 1.55 }}>
+        <div className="emptyState">
+          <div className="emptyStateTitle">
+            {isSimulationSource ? "No live simulation trades to analyze yet" : "No trades to analyze yet"}
+          </div>
+          <div className="emptyStateCopy">
+            {isSimulationSource
+              ? "Close one live simulation trade and Rayla will turn it into win rate, P/L, and review context automatically."
+              : <>Start with <strong style={{ color: "#7CC4FF" }}>Simulation</strong>, then log or sync the trade when you are ready. Your analytics dashboard will unlock here.</>}
+          </div>
+          {alternateEmptyHint ? (
+          <div className="emptyStateCopy" style={{ marginTop: 2 }}>
             {alternateEmptyHint}
           </div>
         ) : null}
@@ -5003,7 +5749,7 @@ function PerformanceDashboard({
 
   const winCount = report?.wins || 0;
   const lossCount = report?.losses || 0;
-  const beCount = ft.filter(t => getTradeOutcomeValue(t) === 0).length;
+  const beCount = ft.filter(t => getOutcomeValue(t) === 0).length;
   const totalCount = ft.length;
 
   function clearFilters() {
@@ -5080,10 +5826,10 @@ function PerformanceDashboard({
           {[
             { label: "Trades", value: report.trades, sub: `${winCount}W · ${lossCount}L`, color: "#f3f7fc" },
             { label: "Win Rate", value: hasMixedResultUnits ? "Blended" : `${report.winRate.toFixed(1)}%`, sub: hasMixedResultUnits ? "strategy + broker history" : "% of winners", color: hasMixedResultUnits ? "#94a3b8" : report.winRate >= 50 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "winrate" },
-            { label: "Total R", value: hasMixedResultUnits ? "Blended" : `${report.totalR >= 0 ? "+" : ""}${report.totalR.toFixed(2)}`, sub: hasMixedResultUnits ? "strategy + broker history" : "strategy result", color: hasMixedResultUnits ? "#94a3b8" : report.totalR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "totalr" },
-            { label: "Avg R / Trade", value: hasMixedResultUnits ? "Blended" : `${report.avgR >= 0 ? "+" : ""}${report.avgR.toFixed(2)}`, sub: hasMixedResultUnits ? "strategy + broker history" : "per trade", color: hasMixedResultUnits ? "#94a3b8" : report.avgR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "avgr" },
-            { label: "Avg Win", value: hasMixedResultUnits ? "Blended" : report.avgWin > 0 ? `+${report.avgWin.toFixed(2)}` : "—", sub: hasMixedResultUnits ? "strategy + broker history" : "avg winner", color: hasMixedResultUnits ? "#94a3b8" : "#4ade80" },
-            { label: "Avg Loss", value: hasMixedResultUnits ? "Blended" : report.avgLoss > 0 ? `-${report.avgLoss.toFixed(2)}` : "—", sub: hasMixedResultUnits ? "strategy + broker history" : "avg loser", color: hasMixedResultUnits ? "#94a3b8" : "#f87171" },
+            { label: isSimulationSource ? "Total P/L" : "Total R", value: hasMixedResultUnits ? "Blended" : formatOutcomeValue(report.totalR), sub: hasMixedResultUnits ? "strategy + broker history" : isSimulationSource ? "money made" : "strategy result", color: hasMixedResultUnits ? "#94a3b8" : report.totalR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits || isSimulationSource ? null : "totalr" },
+            { label: isSimulationSource ? "Avg P/L / Trade" : "Avg R / Trade", value: hasMixedResultUnits ? "Blended" : formatOutcomeValue(report.avgR), sub: hasMixedResultUnits ? "strategy + broker history" : "per trade", color: hasMixedResultUnits ? "#94a3b8" : report.avgR >= 0 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits || isSimulationSource ? null : "avgr" },
+            { label: "Avg Win", value: hasMixedResultUnits ? "Blended" : report.avgWin > 0 ? formatOutcomeValue(report.avgWin) : "—", sub: hasMixedResultUnits ? "strategy + broker history" : "avg winner", color: hasMixedResultUnits ? "#94a3b8" : "#4ade80" },
+            { label: "Avg Loss", value: hasMixedResultUnits ? "Blended" : report.avgLoss > 0 ? formatOutcomeValue(-report.avgLoss) : "—", sub: hasMixedResultUnits ? "strategy + broker history" : "avg loser", color: hasMixedResultUnits ? "#94a3b8" : "#f87171" },
             ...(report.profitFactor !== null && !hasMixedResultUnits ? [{ label: "Profit Factor", value: report.profitFactor.toFixed(2), sub: ">1.0 profitable", color: report.profitFactor >= 1 ? "#4ade80" : "#f87171", tip: "pf" }] : []),
             ...(report.setupStats.length > 0 ? [{ label: "Best Setup", value: report.setupStats[0].setup, sub: `${report.setupStats[0].avgR >= 0 ? "+" : ""}${report.setupStats[0].avgR.toFixed(2)} avg`, color: "#7CC4FF" }] : []),
             ...(report.setupStats.length > 1 ? [{ label: "Weakest Setup", value: report.setupStats[report.setupStats.length - 1].setup, sub: `${report.setupStats[report.setupStats.length - 1].avgR >= 0 ? "+" : ""}${report.setupStats[report.setupStats.length - 1].avgR.toFixed(2)} avg`, color: "#f87171" }] : []),
@@ -5122,20 +5868,20 @@ function PerformanceDashboard({
         </div>
       )}
 
-      {/* Equity curve */}
-      <EquityCurveCard
-        equityPoints={equityPoints}
-        sourceLabel={sourceLabel}
-        chartRange={chartRange}
-        setChartRange={setChartRange}
-        benchmarkSymbol={benchmarkSymbol}
-        benchmarkLabel={benchmarkLabel}
-        onSelectBenchmark={onSelectBenchmark}
-        benchmarkOptions={benchmarkOptions}
-        benchmarkPoints={benchmarkPoints}
-        benchmarkLoading={benchmarkLoading}
-        alpacaConnected={alpacaConnected}
-      />
+      {!isSimulationSource ? (
+        <PortfolioTrendCard
+          positions={alpacaPositions}
+          alpacaAccount={alpacaAccount}
+          tradePortfolioCharts={tradePortfolioCharts}
+          tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+          portfolioRange={performancePortfolioRange}
+          setPortfolioRange={setPerformancePortfolioRange}
+          title="Portfolio"
+          subtitle="Live broker portfolio trend beside your active-trade analytics."
+          emptyMessage="Portfolio trend will appear once broker positions and market history are available."
+          statusLabel={alpacaConnected ? "Live" : null}
+        />
+      ) : null}
 
       {trades.length > 0 ? (
         <PerformanceLiveChartCard
@@ -5174,15 +5920,10 @@ function PerformanceDashboard({
       {report && totalCount > 0 && (
         <div style={{ ...cardBase, padding: "16px 20px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 14 }}>Trade Outcomes</div>
-          <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", marginBottom: 14, gap: 2 }}>
-            {winCount > 0 && <div style={{ flex: winCount, background: "#4ade80", borderRadius: 2 }} />}
-            {lossCount > 0 && <div style={{ flex: lossCount, background: "#f87171", borderRadius: 2 }} />}
-            {beCount > 0 && <div style={{ flex: beCount, background: "#64748b", borderRadius: 2 }} />}
-          </div>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             {[
-              { label: "Winners", count: winCount, color: "#4ade80", detail: report.avgWin > 0 ? `+${report.avgWin.toFixed(2)} avg` : "" },
-              { label: "Losers", count: lossCount, color: "#f87171", detail: report.avgLoss > 0 ? `-${report.avgLoss.toFixed(2)} avg` : "" },
+              { label: "Winners", count: winCount, color: "#4ade80", detail: report.avgWin > 0 ? `${formatOutcomeValue(report.avgWin)} avg` : "" },
+              { label: "Losers", count: lossCount, color: "#f87171", detail: report.avgLoss > 0 ? `${formatOutcomeValue(-report.avgLoss)} avg` : "" },
               ...(beCount > 0 ? [{ label: "Breakeven", count: beCount, color: "#64748b", detail: "" }] : []),
             ].map(item => (
               <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -5198,10 +5939,10 @@ function PerformanceDashboard({
               <span style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: "0.4px" }}>Recent form</span>
               <div style={{ display: "flex", gap: 5 }}>
                 {recent5.map((t, i) => {
-                  const r = getTradeOutcomeValue(t);
+                  const r = getOutcomeValue(t);
                   return (
                     <div key={i}
-                      title={`${(t.asset || "").toUpperCase()} · ${r >= 0 ? "+" : ""}${r.toFixed(2)}`}
+                      title={`${(t.asset || "").toUpperCase()} · ${formatOutcomeValue(r)}`}
                       style={{ width: 11, height: 11, borderRadius: "50%", background: r > 0 ? "#4ade80" : r < 0 ? "#f87171" : "#64748b" }} />
                   );
                 })}
@@ -6712,7 +7453,7 @@ function EquityCurveCard({
   };
 
   const controlRow = (
-    <div className="equityCurveControls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
+    <div className="equityCurveControls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
       <div className="chartTabs" style={{ marginBottom: 0 }}>
         {["1D","1W","1M","3M","ALL"].map((range) => (
           <button key={range} className={`chartTab ${chartRange === range ? "active" : ""}`} onClick={() => setChartRange(range)} type="button">{range}</button>
@@ -6775,7 +7516,7 @@ function EquityCurveCard({
 
   if (equityPoints.length < 2) {
     return (
-      <Card title="Strategy Equity Curve" className="equityCard">
+      <Card title="Equity Curve" className="equityCard portfolioEquityCard">
         <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
           Rayla analytics value over time based on logged trades
         </div>
@@ -6789,7 +7530,7 @@ function EquityCurveCard({
   }
 
   return (
-    <Card title="Strategy Equity Curve" className="equityCard">
+    <Card title="Equity Curve" className="equityCard portfolioEquityCard">
       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
         Rayla analytics value over time based on logged trades
       </div>
@@ -6842,7 +7583,10 @@ function RecentTradesCard({ recentTrades, onDeleteTrade }) {
       <div className="listSubtext" style={{ marginBottom: "8px" }}>{recentTrades.length} trades logged</div>
       <div className="list tradeHistoryList">
         {recentTrades.length === 0 ? (
-          <div className="listSubtext">No trades yet — log your first trade to start tracking.</div>
+          <div className="emptyState emptyStateCompact">
+            <div className="emptyStateTitle">No completed trades yet</div>
+            <div className="emptyStateCopy">Log a trade or close a simulation rep and Rayla will start building your review trail here.</div>
+          </div>
         ) : (
           recentTrades.map((trade) => (
             <div className="listRow" key={trade.id}>
@@ -6889,7 +7633,10 @@ function HoldingsCard({ positions }) {
       </div>
       <div className="list tradeHistoryList">
         {positions.length === 0 ? (
-          <div className="listSubtext">No open positions. Connect your broker to see live holdings.</div>
+          <div className="emptyState emptyStateCompact">
+            <div className="emptyStateTitle">No open holdings yet</div>
+            <div className="emptyStateCopy">Connect your broker or open a position to see live allocation, value, and unrealized P/L in this panel.</div>
+          </div>
         ) : (
           positions.map((position) => {
             const pl = Number(position.unrealizedPl);
@@ -7000,7 +7747,10 @@ function BrokerTradeLogCard({ trades }) {
       <div className="listSubtext" style={{ marginBottom: "8px" }}>{trades.length} synced orders</div>
       <div className="list tradeHistoryList">
         {!trades.length ? (
-          <div className="listSubtext">No synced broker orders yet. Refresh after placing a broker order, or use the journal for manual trades.</div>
+          <div className="emptyState emptyStateCompact">
+            <div className="emptyStateTitle">No synced broker orders yet</div>
+            <div className="emptyStateCopy">Refresh after placing a broker order. Manual and simulation trades stay available in Journal.</div>
+          </div>
         ) : (
           trades.map((trade) => {
             const statusPresentation = getBrokerOrderStatusPresentation(trade);
@@ -7948,6 +8698,7 @@ const ALPACA_ORDER_TYPE_OPTIONS = [
 ];
 
 const ALPACA_TIME_IN_FORCE_OPTIONS = [
+  { value: "day", label: "DAY" },
   { value: "gtc", label: "GTC" },
   { value: "ioc", label: "IOC" },
   { value: "fok", label: "FOK" },
@@ -8245,19 +8996,21 @@ function SubscriptionCard({ subscription, isLoading, action, error, onStartCheck
 }
 
 function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade }) {
+  const formatJournalPnl = (value) => `${value >= 0 ? "+" : ""}${formatCurrency(Math.abs(value))}`;
   return (
     <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
         <thead>
           <tr style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.02)" }}>
-            {["Asset", "Dir", "Setup", "Session", "Source", "Entry", "Exit", "Size", "Held", "Result", "Date", "Action"].map(h => (
-              <th key={h} style={{ padding: "10px 14px", textAlign: h === "Result" ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>
+            {["Asset", "Dir", "Setup", "Session", "Source", "Entry", "Exit", "Size", "Held", "P/L", "Date", "Action"].map(h => (
+              <th key={h} style={{ padding: "10px 14px", textAlign: h === "P/L" ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {trades.map((trade, idx) => {
-            const r = getTradeOutcomeValue(trade);
+            const pnl = getTradeProfitValue(trade);
+            const displayedPnl = Number.isFinite(pnl) ? pnl : 0;
             const duration = tradeDuration(trade.entry_time, trade.exit_time);
             const picksIssue = getPicksEligibilityIssue(trade);
             if (trade?.source === "live_simulation" || trade?.source_label === "Live Simulation") {
@@ -8269,7 +9022,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade })
                 rMultiple: trade.rMultiple,
                 resultR: trade.resultR,
                 result_r: trade.result_r,
-                renderedResultValue: r,
+                renderedResultValue: displayedPnl,
               });
             }
             return (
@@ -8297,7 +9050,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade })
                 <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.exit_price != null ? `$${Number(trade.exit_price).toFixed(2)}` : "—"}</td>
                 <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{trade.entry_size != null ? `$${Number(trade.entry_size).toLocaleString()}` : "—"}</td>
                 <td style={{ padding: "9px 14px", color: "#64748b" }}>{duration || "—"}</td>
-                <td style={{ padding: "9px 14px", textAlign: "right", color: rCol(r), fontWeight: 700 }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}{trade.isBrokerTrade ? "$" : "R"}</td>
+                <td style={{ padding: "9px 14px", textAlign: "right", color: rCol(displayedPnl), fontWeight: 700 }}>{formatJournalPnl(displayedPnl)}</td>
                 <td style={{ padding: "9px 14px", color: "#475569", whiteSpace: "nowrap" }}>{trade.entry_time ? new Date(trade.entry_time).toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
                 <td style={{ padding: "9px 14px", color: "#64748b", whiteSpace: "nowrap" }}>
                   {isDeletableAppTrade(trade) ? (
@@ -8333,6 +9086,15 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
 
   const allSetups = useMemo(() => [...new Set(selectedJournalTrades.map(t => t.setup).filter(Boolean))], [selectedJournalTrades]);
 
+  function journalPnlValue(trade) {
+    const value = getTradeProfitValue(trade);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function formatJournalPnl(value) {
+    return `${value >= 0 ? "+" : ""}${formatCurrency(Math.abs(value))}`;
+  }
+
   const filtered = useMemo(() => selectedJournalTrades
     .filter(t => {
       if (!search) return true;
@@ -8347,10 +9109,11 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
     .filter(t => filterSetup === "all" || t.setup === filterSetup)
     .filter(t => {
       if (filterResult === "all") return true;
-      const r = getTradeOutcomeValue(t);
-      if (filterResult === "win") return r > 0;
-      if (filterResult === "loss") return r < 0;
-      if (filterResult === "be") return r === 0;
+      const pnl = getTradeProfitValue(t);
+      const result = Number.isFinite(pnl) ? pnl : 0;
+      if (filterResult === "win") return result > 0;
+      if (filterResult === "loss") return result < 0;
+      if (filterResult === "be") return result === 0;
       return true;
     })
     .sort((a, b) => {
@@ -8371,43 +9134,44 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
   );
 
   const journalAnalyticsTrades = filtered;
-  const totalRVal = useMemo(() => journalAnalyticsTrades.reduce((s, t) => s + getTradeOutcomeValue(t), 0), [journalAnalyticsTrades]);
-  const wins = useMemo(() => journalAnalyticsTrades.filter(t => getTradeOutcomeValue(t) > 0), [journalAnalyticsTrades]);
-  const losses = useMemo(() => journalAnalyticsTrades.filter(t => getTradeOutcomeValue(t) < 0), [journalAnalyticsTrades]);
+  const totalPnlVal = useMemo(() => journalAnalyticsTrades.reduce((s, t) => s + journalPnlValue(t), 0), [journalAnalyticsTrades]);
+  const wins = useMemo(() => journalAnalyticsTrades.filter(t => journalPnlValue(t) > 0), [journalAnalyticsTrades]);
+  const losses = useMemo(() => journalAnalyticsTrades.filter(t => journalPnlValue(t) < 0), [journalAnalyticsTrades]);
   const wr = journalAnalyticsTrades.length ? (wins.length / journalAnalyticsTrades.length) * 100 : 0;
-  const avgRVal = journalAnalyticsTrades.length ? totalRVal / journalAnalyticsTrades.length : 0;
-  const avgWin = wins.length ? wins.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / wins.length : 0;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + getTradeOutcomeValue(t), 0) / losses.length) : 0;
+  const avgPnlVal = journalAnalyticsTrades.length ? totalPnlVal / journalAnalyticsTrades.length : 0;
+  const avgWin = wins.length ? wins.reduce((s, t) => s + journalPnlValue(t), 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + journalPnlValue(t), 0) / losses.length) : 0;
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : null;
-  const bestTrade = journalAnalyticsTrades.length ? journalAnalyticsTrades.reduce((b, t) => getTradeOutcomeValue(t) > getTradeOutcomeValue(b) ? t : b) : null;
-  const worstTrade = journalAnalyticsTrades.length ? journalAnalyticsTrades.reduce((b, t) => getTradeOutcomeValue(t) < getTradeOutcomeValue(b) ? t : b) : null;
+  const bestTrade = journalAnalyticsTrades.length ? journalAnalyticsTrades.reduce((b, t) => journalPnlValue(t) > journalPnlValue(b) ? t : b) : null;
+  const worstTrade = journalAnalyticsTrades.length ? journalAnalyticsTrades.reduce((b, t) => journalPnlValue(t) < journalPnlValue(b) ? t : b) : null;
+  const maxAbsPnl = useMemo(() => Math.max(100, ...journalAnalyticsTrades.map(t => Math.abs(journalPnlValue(t)))), [journalAnalyticsTrades]);
 
   const setupBreakdown = useMemo(() => {
     const map = {};
     journalAnalyticsTrades.forEach(t => {
       if (!t.setup) return;
-      if (!map[t.setup]) map[t.setup] = { trades: 0, wins: 0, totalR: 0 };
+      if (!map[t.setup]) map[t.setup] = { trades: 0, wins: 0, totalPnl: 0 };
       map[t.setup].trades++;
-      map[t.setup].totalR += getTradeOutcomeValue(t);
-      if (getTradeOutcomeValue(t) > 0) map[t.setup].wins++;
+      map[t.setup].totalPnl += journalPnlValue(t);
+      if (journalPnlValue(t) > 0) map[t.setup].wins++;
     });
     return Object.entries(map)
-      .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
-      .sort((a, b) => b.totalR - a.totalR);
+      .map(([setup, s]) => ({ setup, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgPnl: s.totalPnl / s.trades, totalPnl: s.totalPnl }))
+      .sort((a, b) => b.totalPnl - a.totalPnl);
   }, [journalAnalyticsTrades]);
 
   const sessionBreakdown = useMemo(() => {
     const map = {};
     journalAnalyticsTrades.forEach(t => {
       const key = t.session || "Untagged";
-      if (!map[key]) map[key] = { trades: 0, wins: 0, totalR: 0 };
+      if (!map[key]) map[key] = { trades: 0, wins: 0, totalPnl: 0 };
       map[key].trades++;
-      map[key].totalR += getTradeOutcomeValue(t);
-      if (getTradeOutcomeValue(t) > 0) map[key].wins++;
+      map[key].totalPnl += journalPnlValue(t);
+      if (journalPnlValue(t) > 0) map[key].wins++;
     });
     return Object.entries(map)
-      .map(([session, s]) => ({ session, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgR: s.totalR / s.trades, totalR: s.totalR }))
-      .sort((a, b) => b.totalR - a.totalR);
+      .map(([session, s]) => ({ session, trades: s.trades, winRate: (s.wins / s.trades) * 100, avgPnl: s.totalPnl / s.trades, totalPnl: s.totalPnl }))
+      .sort((a, b) => b.totalPnl - a.totalPnl);
   }, [journalAnalyticsTrades]);
 
   function rCol(v) {
@@ -8530,13 +9294,13 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
         {[
           { label: "Total Trades", value: journalAnalyticsTrades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
           { label: "Win Rate", value: `${wr.toFixed(1)}%`, sub: `${wins.length} winners`, color: wr >= 50 ? "#4ade80" : "#f87171" },
-          { label: "Total R", value: `${totalRVal >= 0 ? "+" : ""}${totalRVal.toFixed(2)}`, sub: "strategy result", color: totalRVal >= 0 ? "#4ade80" : "#f87171" },
-          { label: "Avg R / Trade", value: `${avgRVal >= 0 ? "+" : ""}${avgRVal.toFixed(2)}`, sub: "per trade", color: avgRVal >= 0 ? "#4ade80" : "#f87171" },
-          { label: "Avg Win", value: avgWin > 0 ? `+${avgWin.toFixed(2)}` : "—", sub: "avg winner", color: "#4ade80" },
-          { label: "Avg Loss", value: avgLoss > 0 ? `-${avgLoss.toFixed(2)}` : "—", sub: "avg loser", color: "#f87171" },
+          { label: "Total P/L", value: formatJournalPnl(totalPnlVal), sub: "money made", color: totalPnlVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Avg P/L / Trade", value: formatJournalPnl(avgPnlVal), sub: "per trade", color: avgPnlVal >= 0 ? "#4ade80" : "#f87171" },
+          { label: "Avg Win", value: avgWin > 0 ? formatJournalPnl(avgWin) : "—", sub: "avg winner", color: "#4ade80" },
+          { label: "Avg Loss", value: avgLoss > 0 ? formatJournalPnl(-avgLoss) : "—", sub: "avg loser", color: "#f87171" },
           ...(profitFactor !== null ? [{ label: "Profit Factor", value: profitFactor.toFixed(2), sub: ">1.0 profitable", color: profitFactor >= 1 ? "#4ade80" : "#f87171" }] : []),
-          ...(bestTrade ? [{ label: "Best Trade", value: `${getTradeOutcomeValue(bestTrade) >= 0 ? "+" : ""}${getTradeOutcomeValue(bestTrade).toFixed(2)}`, sub: (bestTrade.asset || "").toUpperCase(), color: "#4ade80" }] : []),
-          ...(worstTrade ? [{ label: "Worst Trade", value: `${getTradeOutcomeValue(worstTrade) >= 0 ? "+" : ""}${getTradeOutcomeValue(worstTrade).toFixed(2)}`, sub: (worstTrade.asset || "").toUpperCase(), color: "#f87171" }] : []),
+          ...(bestTrade ? [{ label: "Best Trade", value: formatJournalPnl(journalPnlValue(bestTrade)), sub: (bestTrade.asset || "").toUpperCase(), color: "#4ade80" }] : []),
+          ...(worstTrade ? [{ label: "Worst Trade", value: formatJournalPnl(journalPnlValue(worstTrade)), sub: (worstTrade.asset || "").toUpperCase(), color: "#f87171" }] : []),
         ].map(item => (
           <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px" }}>
             <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
@@ -8566,8 +9330,8 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
                       <td style={{ padding: "8px 14px", color: "#7CC4FF" }}>{row.setup}</td>
                       <td style={{ padding: "8px 14px", textAlign: "right", color: "#94a3b8" }}>{row.trades}</td>
                       <td style={{ padding: "8px 14px", textAlign: "right", color: row.winRate >= 50 ? "#4ade80" : "#f87171" }}>{row.winRate.toFixed(0)}%</td>
-                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.avgR) }}>{row.avgR >= 0 ? "+" : ""}{row.avgR.toFixed(2)}</td>
-                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.totalR) }}>{row.totalR >= 0 ? "+" : ""}{row.totalR.toFixed(2)}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.avgPnl) }}>{formatJournalPnl(row.avgPnl)}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.totalPnl) }}>{formatJournalPnl(row.totalPnl)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -8591,8 +9355,8 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
                       <td style={{ padding: "8px 14px", color: "#94a3b8" }}>{row.session}</td>
                       <td style={{ padding: "8px 14px", textAlign: "right", color: "#94a3b8" }}>{row.trades}</td>
                       <td style={{ padding: "8px 14px", textAlign: "right", color: row.winRate >= 50 ? "#4ade80" : "#f87171" }}>{row.winRate.toFixed(0)}%</td>
-                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.avgR) }}>{row.avgR >= 0 ? "+" : ""}{row.avgR.toFixed(2)}</td>
-                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.totalR) }}>{row.totalR >= 0 ? "+" : ""}{row.totalR.toFixed(2)}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.avgPnl) }}>{formatJournalPnl(row.avgPnl)}</td>
+                      <td style={{ padding: "8px 14px", textAlign: "right", color: rCol(row.totalPnl) }}>{formatJournalPnl(row.totalPnl)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -8703,9 +9467,9 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
           )}
           {(viewingAllTrades ? filtered : recentFive).map((trade, idx) => {
             const tradeId = trade.id || idx;
-            const r = getTradeOutcomeValue(trade);
-            const isWin = r > 0;
-            const isLoss = r < 0;
+            const pnl = journalPnlValue(trade);
+            const isWin = pnl > 0;
+            const isLoss = pnl < 0;
             const isExpanded = expanded.has(tradeId);
             const ref = reflections[tradeId] || {};
             const duration = tradeDuration(trade.entry_time, trade.exit_time);
@@ -8715,7 +9479,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
             const timeStr = trade.entry_time
               ? new Date(trade.entry_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
               : "";
-            const rBarPct = Math.min(Math.abs(r) / 5 * 100, 100);
+            const pnlBarPct = Math.min((Math.abs(pnl) / maxAbsPnl) * 100, 100);
             const picksIssue = getPicksEligibilityIssue(trade);
             if (trade?.source === "live_simulation" || trade?.source_label === "Live Simulation") {
               logRaylaSimulationDebug("[Rayla journal render] simulation trade", {
@@ -8726,7 +9490,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
                 rMultiple: trade.rMultiple,
                 resultR: trade.resultR,
                 result_r: trade.result_r,
-                renderedResultValue: r,
+                renderedResultValue: pnl,
               });
             }
 
@@ -8789,7 +9553,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
                         Delete
                       </button>
                     )}
-                    <span style={{ fontSize: 20, fontWeight: 700, color: rCol(r), minWidth: 56, textAlign: "right" }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}{trade.isBrokerTrade ? "$" : "R"}</span>
+                    <span style={{ fontSize: 20, fontWeight: 700, color: rCol(pnl), minWidth: 72, textAlign: "right" }}>{formatJournalPnl(pnl)}</span>
                       <span style={{ fontSize: 12, color: "#334155" }}>{isExpanded ? "▲" : "▼"}</span>
                     </div>
                   </div>
@@ -8800,9 +9564,9 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
                     {trade.entry_size != null && <span><span style={{ color: "#7f8ea3" }}>Size </span>${Number(trade.entry_size).toLocaleString()}</span>}
                     {duration && <span><span style={{ color: "#7f8ea3" }}>Held </span>{duration}</span>}
                   </div>
-                  {/* R magnitude bar */}
+                  {/* P/L magnitude bar */}
                   <div style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${rBarPct}%`, background: isWin ? "#4ade80" : isLoss ? "#f87171" : "#64748b", borderRadius: 2 }} />
+                    <div style={{ height: "100%", width: `${pnlBarPct}%`, background: isWin ? "#4ade80" : isLoss ? "#f87171" : "#64748b", borderRadius: 2 }} />
                   </div>
                   {/* Active mistake tags preview */}
                   {ref.mistakes?.length > 0 && (
@@ -8951,6 +9715,9 @@ useEffect(() => {
   const [homeMarketChartMode, setHomeMarketChartMode] = useState("candlestick");
   const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
   const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
+  const [homePortfolioViewMode, setHomePortfolioViewMode] = useState("portfolio");
+  const [homePortfolioCharts, setHomePortfolioCharts] = useState({});
+  const [homePortfolioChartsLoading, setHomePortfolioChartsLoading] = useState(false);
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
   const [simMobileTab, setSimMobileTab] = useState(0);
@@ -9050,6 +9817,8 @@ useEffect(() => {
     }
   });
   const [performancePositionFilter, setPerformancePositionFilter] = useState("all");
+  const [performancePortfolioRange, setPerformancePortfolioRange] = useState("MAX");
+  const [performanceHoldingsRange, setPerformanceHoldingsRange] = useState("MAX");
   const [tradePendingSelection, setTradePendingSelection] = useState({ mode: "asset", symbols: [] });
   const [tradeAppliedSelection, setTradeAppliedSelection] = useState({ mode: "asset", symbols: [] });
   useEffect(() => {
@@ -9390,6 +10159,10 @@ useEffect(() => {
     () => brokerPositionsWithIntent.filter((position) => position.isLongTermHolding),
     [brokerPositionsWithIntent]
   );
+  const activeBrokerPositions = useMemo(
+    () => brokerPositionsWithIntent.filter((position) => !position.isLongTermHolding),
+    [brokerPositionsWithIntent]
+  );
   const updateBrokerPositionIntent = (symbol, updates) => {
     const key = normalizePositionIntentKey(symbol);
     if (!key) return;
@@ -9512,13 +10285,15 @@ useEffect(() => {
   const normalizeTradeSelection = (selection) => {
     const validSymbols = Array.from(new Set((selection?.symbols || []).filter((symbol) => tradePortfolioAllSymbols.includes(symbol))));
     if (selection?.mode === "portfolio") {
-      return { mode: "portfolio", symbols: tradePortfolioAllSymbols };
+      return tradePortfolioAllSymbols.length
+        ? { mode: "asset", symbols: [tradePortfolioAllSymbols[0]] }
+        : { mode: "asset", symbols: [] };
     }
     if (validSymbols.length) {
       return { mode: "asset", symbols: [validSymbols[0]] };
     }
     return tradePortfolioAllSymbols.length
-      ? { mode: "portfolio", symbols: tradePortfolioAllSymbols }
+      ? { mode: "asset", symbols: [tradePortfolioAllSymbols[0]] }
       : { mode: "asset", symbols: [] };
   };
   const applyTradeSelection = (selection) => {
@@ -10895,8 +11670,18 @@ useEffect(() => {
       error = "Quantity must be greater than 0.";
     } else if (!["market", "limit", "stop", "stop_limit"].includes(type)) {
       error = "Choose a valid order type.";
-    } else if (!["gtc", "ioc", "fok"].includes(timeInForce)) {
+    } else if (!["gtc", "ioc", "fok", "day"].includes(timeInForce)) {
       error = "Choose a valid time in force.";
+    } else if (
+      (() => {
+        const symBase = symbol.replace(/\/USD.*$/i, "");
+        const isCrypto = selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(symBase);
+        const isFractional = Number.isFinite(qty) && qty > 0 && qty !== Math.floor(qty);
+        const isDollarMode = alpacaOrderSizeMode === "dollars";
+        return !isCrypto && (isFractional || isDollarMode) && timeInForce !== "day";
+      })()
+    ) {
+      error = "Fractional and dollar-amount equity orders require DAY time in force.";
     } else if (type === "limit" && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
       error = "Enter a valid limit price.";
     } else if (type === "stop" && (!Number.isFinite(stopPrice) || stopPrice <= 0)) {
@@ -10957,6 +11742,28 @@ useEffect(() => {
 
   const alpacaOrderValidation = getAlpacaOrderValidationState();
 
+  // Derived: is this order a fractional or notional equity order that requires DAY TIF?
+  const _orderSymBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "");
+  const _orderIsCrypto = alpacaOrderValidation.selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(_orderSymBase);
+  const _orderQty = Number(alpacaOrderForm.qty);
+  const _orderIsFractional = Number.isFinite(_orderQty) && _orderQty > 0 && _orderQty !== Math.floor(_orderQty);
+  const requiresDayTif = !_orderIsCrypto && (_orderIsFractional || alpacaOrderSizeMode === "dollars");
+  const availableTifOptions = requiresDayTif
+    ? ALPACA_TIME_IN_FORCE_OPTIONS.filter((o) => o.value === "day")
+    : ALPACA_TIME_IN_FORCE_OPTIONS;
+
+  // Auto-switch TIF to DAY when a fractional or dollar-amount equity order is detected
+  useEffect(() => {
+    const symBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "");
+    const isCrypto = CRYPTO_SYMBOL_SET.has(symBase);
+    const qty = Number(alpacaOrderForm.qty);
+    const isFractional = Number.isFinite(qty) && qty > 0 && qty !== Math.floor(qty);
+    const isDollar = alpacaOrderSizeMode === "dollars";
+    if (!isCrypto && (isFractional || isDollar) && alpacaOrderForm.timeInForce !== "day") {
+      setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: "day" }));
+    }
+  }, [alpacaOrderForm.qty, alpacaOrderForm.symbol, alpacaOrderSizeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!preparedCloseOrder) return;
     const currentSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
@@ -11012,7 +11819,7 @@ useEffect(() => {
     });
     if (tradeAppliedSelection.mode === "asset" && brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, symbol)) {
       const nextSymbols = alpacaPositions.map((position) => position.symbol).filter((item) => item && !brokerSymbolsMatch(item, symbol));
-      applyTradeSelection(nextSymbols.length ? { mode: "portfolio", symbols: nextSymbols } : { mode: "portfolio", symbols: [] });
+      applyTradeSelection(nextSymbols.length ? { mode: "asset", symbols: [nextSymbols[0]] } : { mode: "asset", symbols: [] });
     }
   }, [alpacaPositions, submittedCloseOrder, submittedCloseStatusKind, tradeAppliedSelection]);
 
@@ -11458,14 +12265,14 @@ useEffect(() => {
       return;
     }
     setTradePendingSelection((prev) => {
-      if (prev.mode === "portfolio") return { mode: "portfolio", symbols };
+      if (prev.mode === "portfolio") return { mode: "asset", symbols: [symbols[0]] };
       const valid = prev.symbols.filter((symbol) => brokerSelectionIncludesSymbol(symbols, symbol));
-      return valid.length ? { mode: valid.length === 1 ? "asset" : "multi", symbols: valid } : { mode: "asset", symbols: [symbols[0]] };
+      return valid.length ? { mode: "asset", symbols: [valid[0]] } : { mode: "asset", symbols: [symbols[0]] };
     });
     setTradeAppliedSelection((prev) => {
-      if (prev.mode === "portfolio") return { mode: "portfolio", symbols };
+      if (prev.mode === "portfolio") return { mode: "asset", symbols: [symbols[0]] };
       const valid = prev.symbols.filter((symbol) => brokerSelectionIncludesSymbol(symbols, symbol));
-      return valid.length ? { mode: valid.length === 1 ? "asset" : "multi", symbols: valid } : { mode: "asset", symbols: [symbols[0]] };
+      return valid.length ? { mode: "asset", symbols: [valid[0]] } : { mode: "asset", symbols: [symbols[0]] };
     });
     setPerformanceLiveAppliedSelection((prev) => normalizePerformanceLiveSelection(prev));
   }, [alpacaPositions]);
@@ -11490,13 +12297,6 @@ useEffect(() => {
   }, [tradeAppliedSelection, tradePendingSelection, tradePortfolioAllSymbols]);
 
   useEffect(() => {
-    if (tradeAppliedSelection.mode === "portfolio") {
-      setTradeViewMode("portfolio");
-      setTradeChartMode("line");
-      setTradePortfolioChartView("portfolio");
-      setTradePortfolioSelectedSymbols(tradePortfolioAllSymbols);
-      return;
-    }
     if (tradeAppliedSelection.mode === "asset") {
       setTradeViewMode("asset");
       const selectedSymbol = tradeAppliedSelection.symbols[0];
@@ -11507,7 +12307,11 @@ useEffect(() => {
   }, [tradeAppliedSelection, tradePortfolioAllSymbols]);
 
   useEffect(() => {
-    if ((activeTab !== "trades" && activeTab !== "ai") || !alpacaAccount || activeTradeChartSelection.mode !== "portfolio" || !tradePortfolioDisplayedSymbols.length) {
+    const needsPerformancePortfolioCharts = activeTab === "ai"
+      && performanceAnalysisSource === "live_trades"
+      && (performancePositionFilter === "portfolio" || performancePositionFilter === "holdings" || performancePositionFilter === "all");
+    const needsPortfolioCharts = activeTradeChartSelection.mode === "portfolio" || needsPerformancePortfolioCharts;
+    if ((activeTab !== "trades" && activeTab !== "ai") || !alpacaAccount || !needsPortfolioCharts || !tradePortfolioDisplayedSymbols.length) {
       setTradePortfolioCharts({});
       setTradePortfolioChartsLoading(false);
       return;
@@ -11518,6 +12322,8 @@ useEffect(() => {
 
     async function fetchTradePortfolioCharts() {
       try {
+        const activePerformanceRange = performancePositionFilter === "holdings" ? performanceHoldingsRange : performancePortfolioRange;
+        const portfolioChartSelection = getChartSelectionConfig(needsPerformancePortfolioCharts ? activePerformanceRange : tradeChartRange);
         const chartResults = await Promise.all(
           tradePortfolioDisplayedSymbols.map(async (symbol) => {
             const position = findBrokerPositionBySymbol(alpacaPositions, symbol);
@@ -11527,8 +12333,8 @@ useEffect(() => {
               body: {
                 chartSymbol: symbol,
                 chartType: assetType,
-                chartRange: tradeChartSelection.fetchRange,
-                chartTimeframe: tradeChartSelection.provider || null,
+                chartRange: portfolioChartSelection.fetchRange,
+                chartTimeframe: portfolioChartSelection.provider || null,
               },
             });
             return {
@@ -11597,7 +12403,7 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, activeTradeChartSelection.mode, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl]);
+  }, [activeTab, activeTradeChartSelection.mode, performanceAnalysisSource, performancePositionFilter, performancePortfolioRange, performanceHoldingsRange, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl]);
 
   useEffect(() => {
   supabase.auth.getSession().then(({ data }) => {
@@ -11835,6 +12641,93 @@ useEffect(() => {
       : []),
     [homeMarketChart, homeMarketChartRange, homeMarketChartMatchesSelection, homeMarketChartViewPreset]
   );
+  const homePortfolioPositions = useMemo(() => {
+    if (homePortfolioViewMode === "active") return activeBrokerPositions;
+    if (homePortfolioViewMode === "holdings") return longTermBrokerPositions;
+    return brokerPositionsWithIntent;
+  }, [homePortfolioViewMode, activeBrokerPositions, brokerPositionsWithIntent, longTermBrokerPositions]);
+  const homePortfolioPositionsKey = useMemo(
+    () => homePortfolioPositions.map((position) => String(position?.symbol || "").trim().toUpperCase()).filter(Boolean).sort().join("|"),
+    [homePortfolioPositions]
+  );
+  const homePortfolioNowMs = Date.now();
+  const homePortfolioRequestedStartMs = (() => {
+    const windowMs = getTradeRangeWindowMs(homeMarketChartRange);
+    return windowMs ? homePortfolioNowMs - windowMs : null;
+  })();
+  const homePortfolioChartLabel = homePortfolioViewMode === "active"
+    ? "Active Trades"
+    : homePortfolioViewMode === "holdings"
+      ? "Holdings"
+      : "Portfolio";
+  const homePortfolioBenchmarkChart = useMemo(
+    () => buildPortfolioBenchmarkChart(
+      homePortfolioCharts,
+      homePortfolioPositions,
+      homePortfolioRequestedStartMs,
+      homePortfolioNowMs
+    ),
+    [homePortfolioCharts, homePortfolioPositions, homePortfolioRequestedStartMs, homePortfolioNowMs]
+  );
+  const homePortfolioLinePoints = useMemo(() => {
+    const bars = extractChartBars(homePortfolioBenchmarkChart)
+      .map((bar) => {
+        const timeMs = getChartBarTimeMs(bar);
+        const value = Number(bar?.close);
+        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0
+          ? { timeMs, value }
+          : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.timeMs - b.timeMs);
+    const baseline = Number(bars[0]?.value);
+    if (!Number.isFinite(baseline) || baseline <= 0) return [];
+    return bars.map((point) => ({
+      timeMs: point.timeMs,
+      value: ((point.value - baseline) / baseline) * 100,
+      rawValue: point.value,
+    }));
+  }, [homePortfolioBenchmarkChart]);
+  const homePortfolioMarketValue = homePortfolioPositions.reduce(
+    (sum, position) => sum + (Number(position?.marketValue) || 0),
+    0
+  );
+  const homePortfolioUnrealizedPl = homePortfolioPositions.reduce(
+    (sum, position) => sum + (Number(position?.unrealizedPl) || 0),
+    0
+  );
+  const holdingsSnapshot = useMemo(() => {
+    const positions = longTermBrokerPositions;
+    const holdingsValue = positions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
+    const unrealizedPl = positions.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0);
+    const costBasis = positions.reduce((sum, position) => {
+      const marketValue = Number(position?.marketValue);
+      const unrealized = Number(position?.unrealizedPl);
+      const qty = Math.abs(Number(position?.qty) || 0);
+      const avgEntry = Number(position?.avgEntryPrice);
+      if (Number.isFinite(qty) && Number.isFinite(avgEntry) && qty > 0 && avgEntry > 0) {
+        return sum + (qty * avgEntry);
+      }
+      if (Number.isFinite(marketValue) && Number.isFinite(unrealized)) {
+        return sum + (marketValue - unrealized);
+      }
+      return sum;
+    }, 0);
+    const unrealizedPercent = costBasis > 0 ? (unrealizedPl / costBasis) * 100 : null;
+    const sortedByValue = [...positions].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0));
+    const topHolding = sortedByValue[0] || null;
+    const largestAllocationPercent = topHolding && holdingsValue > 0
+      ? ((Number(topHolding.marketValue) || 0) / holdingsValue) * 100
+      : null;
+    return {
+      count: positions.length,
+      holdingsValue,
+      unrealizedPl,
+      unrealizedPercent,
+      topHoldingSymbol: topHolding?.symbol || null,
+      largestAllocationPercent,
+    };
+  }, [longTermBrokerPositions]);
   useEffect(() => {
     if (!marketItems.length) return;
     async function fetchHomeQuotes() {
@@ -11853,6 +12746,10 @@ useEffect(() => {
   }, [homeSymbolsKey]);
 
   useEffect(() => {
+    if (homePortfolioViewMode !== "asset") {
+      setHomeMarketChartLoading(false);
+      return;
+    }
     if (!homeMarketSelectedItem) {
       setHomeMarketChart(null);
       setHomeMarketChartLoading(false);
@@ -11904,7 +12801,82 @@ useEffect(() => {
       ? setInterval(fetchHomeChart, (isCryptoHomeAsset || isMarketCurrentlyOpen()) ? 10000 : 30000)
       : null;
     return () => { isCancelled = true; if (interval) clearInterval(interval); };
-  }, [homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketChartRange, homeMarketAssetExplicitlyUnsupported]);
+  }, [homePortfolioViewMode, homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketChartRange, homeMarketAssetExplicitlyUnsupported]);
+
+  useEffect(() => {
+    if (
+      activeTab !== "home"
+      || homePortfolioViewMode === "asset"
+      || !homePortfolioPositions.length
+      || !homePortfolioPositionsKey
+    ) {
+      setHomePortfolioCharts({});
+      setHomePortfolioChartsLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setHomePortfolioChartsLoading(true);
+
+    async function fetchHomePortfolioCharts() {
+      try {
+        const chartResults = await Promise.all(
+          homePortfolioPositions.map(async (position) => {
+            const symbol = String(position?.symbol || "").trim().toUpperCase();
+            if (!symbol) return null;
+            const assetType = position?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(normalizeCryptoAssetId(symbol))
+              ? "crypto"
+              : "stock";
+            const entryResolution = resolveTradePortfolioEntryTime(position, brokerTradeLog);
+            const { data, error } = await supabase.functions.invoke("market-data", {
+              body: {
+                chartSymbol: symbol,
+                chartType: assetType,
+                chartRange: homeMarketChartSelection.fetchRange,
+                chartTimeframe: homeMarketChartSelection.provider || null,
+              },
+            });
+            return {
+              symbol,
+              assetType,
+              entryTimeMs: entryResolution.timeMs,
+              entryTimeSource: entryResolution.source,
+              data,
+              error,
+            };
+          })
+        );
+
+        if (isCancelled) return;
+
+        const nextCharts = {};
+        chartResults.filter(Boolean).forEach(({ symbol, assetType, entryTimeMs, entryTimeSource, data, error }) => {
+          const nextChart = error || !data?.ok ? null : data.chart || null;
+          nextCharts[symbol] = {
+            symbol,
+            assetType,
+            entryTimeMs,
+            entryTimeSource,
+            bars: extractChartBars(nextChart),
+            rangeMode: nextChart?.rangeMode || null,
+            error: error?.message || data?.error || null,
+          };
+        });
+        setHomePortfolioCharts(nextCharts);
+        setHomeMarketChartLastUpdated(new Date());
+      } catch {
+        if (!isCancelled) setHomePortfolioCharts({});
+      } finally {
+        if (!isCancelled) setHomePortfolioChartsLoading(false);
+      }
+    }
+
+    fetchHomePortfolioCharts();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, homePortfolioViewMode, homePortfolioPositionsKey, homeMarketChartRange, brokerTradeLog]);
 
   useEffect(() => {
     if (!chartExplainPopupOpen || !chartExplainPopupThreadRef.current) return;
@@ -12044,9 +13016,14 @@ useEffect(() => {
   const selectedPerformanceTrades = performanceAnalysisSource === "live_simulation"
     ? liveSimulationPerformanceTrades
     : combinedTrades;
+  const isLiveTradesPerformance = performanceAnalysisSource === "live_trades";
   const positionFilteredPerformanceTrades = useMemo(
-    () => selectedPerformanceTrades.filter((trade) => matchesPerformancePositionFilter(trade, performancePositionFilter)),
-    [selectedPerformanceTrades, performancePositionFilter]
+    () => (
+      isLiveTradesPerformance
+        ? selectedPerformanceTrades.filter((trade) => matchesPerformancePositionFilter(trade, performancePositionFilter))
+        : selectedPerformanceTrades
+    ),
+    [selectedPerformanceTrades, performancePositionFilter, isLiveTradesPerformance]
   );
   const selectedPerformanceEquityPoints = useMemo(
     () => buildLoggedEquityCurvePoints(positionFilteredPerformanceTrades),
@@ -12857,7 +13834,7 @@ useEffect(() => {
     if (!question.trim()) return;
 
     const trimmedQuestion = question.trim();
-    const pendingMessageId = useChat ? crypto.randomUUID() : null;
+    const pendingMessageId = useChat ? createClientId() : null;
     const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory: visibleSimulationTradeHistoryAll });
     const nextActiveReviewedTrade = resolveActiveReviewedTradeForQuestion({
       question: trimmedQuestion,
@@ -12869,7 +13846,7 @@ useEffect(() => {
       setRaylaChatMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: createClientId(),
           role: "user",
           content: trimmedQuestion,
         },
@@ -12936,9 +13913,9 @@ useEffect(() => {
 
     const nextContext = chartContext || chartExplainPopupContext;
 
-    const pendingMessageId = crypto.randomUUID();
+    const pendingMessageId = createClientId();
     const nextUserMessage = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       role: "user",
       content: trimmedQuestion,
     };
@@ -13102,7 +14079,7 @@ useEffect(() => {
     setChartExplainPopupContext(helperContext);
     setChartExplainPopupMessages([
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         role: "assistant",
         content: buildSimulationOpeningMessage(helperContext, {
           beginnerMode: raylaAdaptiveProfile?.explanationDepth === "simple" || visibleSimulationTradeHistoryAll.length < 3,
@@ -13219,7 +14196,7 @@ useEffect(() => {
     setChartExplainPopupContext(nextContext);
     setChartExplainPopupMessages([
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         role: "assistant",
         content: buildIntelSimulationRaylaIntro({
           ...intelLaunch,
@@ -13253,12 +14230,12 @@ useEffect(() => {
     setChartExplainPopupMessages((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         role: "assistant",
         content: "One field at a time.",
       },
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         role: "assistant",
         content: `${steps[0].title}\n${steps[0].body}`,
       },
@@ -13273,7 +14250,7 @@ useEffect(() => {
         setChartExplainPopupMessages((messages) => [
           ...messages,
           {
-            id: crypto.randomUUID(),
+            id: createClientId(),
             role: "assistant",
             content: "Setup complete. Opening the simulator with this exact Intel setup.",
           },
@@ -13289,7 +14266,7 @@ useEffect(() => {
       setChartExplainPopupMessages((messages) => [
         ...messages,
         {
-          id: crypto.randomUUID(),
+          id: createClientId(),
           role: "assistant",
           content: `${nextStep.title}\n${nextStep.body}`,
         },
@@ -13565,13 +14542,13 @@ useEffect(() => {
     setChartExplainPopupMessages((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         role: "assistant",
         content: "I'm watching. What do you want to know?",
       },
       ...(coachNote
         ? [{
-            id: crypto.randomUUID(),
+            id: createClientId(),
             role: "assistant",
             content: coachNote,
           }]
@@ -13596,7 +14573,7 @@ useEffect(() => {
       source: "capital-guide",
       guided: true,
       status: "active",
-      id: crypto.randomUUID(),
+      id: createClientId(),
       asset: simulationAsset?.id || "SPY",
       label: direction.title,
       tvSymbol: simulationAsset?.tvSymbol || "AMEX:SPY",
@@ -14590,20 +15567,21 @@ useEffect(() => {
   }
 
   function handleOpenSimulationTrade(options = null) {
-    const effectiveAsset = options?.assetOverride || selectedSimulationItem;
-    const effectiveMode = options?.modeOverride || simulationMode;
-    const effectiveDirection = options?.directionOverride || simulationDirection;
-    const effectiveAmountMode = options?.amountModeOverride || simulationAmountMode;
-    const effectiveExitMode = options?.exitModeOverride || simulationExitMode;
-    const effectiveLeverage = options?.leverageOverride || simulationLeverage;
-    const amount = parseStrictDecimal(options?.amountOverride ?? simulationAmount);
-    const entryPrice = Number.isFinite(options?.entryPriceOverride)
-      ? Number(options.entryPriceOverride)
+    const normalizedOptions = options && typeof options.preventDefault === "function" ? null : options;
+    const effectiveAsset = normalizedOptions?.assetOverride || selectedSimulationItem;
+    const effectiveMode = normalizedOptions?.modeOverride || simulationMode;
+    const effectiveDirection = normalizedOptions?.directionOverride || simulationDirection;
+    const effectiveAmountMode = normalizedOptions?.amountModeOverride || simulationAmountMode;
+    const effectiveExitMode = normalizedOptions?.exitModeOverride || simulationExitMode;
+    const effectiveLeverage = normalizedOptions?.leverageOverride || simulationLeverage;
+    const amount = parseStrictDecimal(normalizedOptions?.amountOverride ?? simulationAmount);
+    const entryPrice = Number.isFinite(normalizedOptions?.entryPriceOverride)
+      ? Number(normalizedOptions.entryPriceOverride)
       : effectiveAsset
         ? getSimulationPrice(effectiveAsset.id, effectiveMode)
         : null;
-    const parsedStopLoss = parseStrictDecimal(options?.stopLossOverride ?? simulationStopLoss, { allowNegative: true });
-    const parsedTakeProfit = parseStrictDecimal(options?.takeProfitOverride ?? simulationTakeProfit, { allowNegative: true });
+    const parsedStopLoss = parseStrictDecimal(normalizedOptions?.stopLossOverride ?? simulationStopLoss, { allowNegative: true });
+    const parsedTakeProfit = parseStrictDecimal(normalizedOptions?.takeProfitOverride ?? simulationTakeProfit, { allowNegative: true });
     const stopLoss = Number.isFinite(parsedStopLoss) ? parsedStopLoss : null;
     const takeProfit = Number.isFinite(parsedTakeProfit) ? parsedTakeProfit : null;
     const leverageMultiplier = getSimulationLeverageMultiplier(effectiveLeverage);
@@ -14689,7 +15667,7 @@ useEffect(() => {
 
     const openedAt = Date.now();
     const setupType = normalizeSetupType(
-      options?.setupTypeOverride
+      normalizedOptions?.setupTypeOverride
       ?? simulationSetupType
       ?? activeGuidedSimulation?.setupType
       ?? guidedSimulationDraft?.setupType
@@ -14705,7 +15683,7 @@ useEffect(() => {
       && openedAt - prevClosedAt < 5 * 60 * 1000
     ) ? openedAt - prevClosedAt : null;
     const newPosition = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       asset: effectiveAsset.id,
       label: effectiveAsset.label,
       tvSymbol: effectiveAsset.tvSymbol,
@@ -14717,8 +15695,8 @@ useEffect(() => {
       openedScenarioSeriesIndex: effectiveMode === "scenario"
         ? Math.max(0, (simulationScenarioSeries[effectiveAsset.id] || []).length - 1)
         : null,
-      guided: options?.guidedOverride != null ? !!options.guidedOverride : !!activeGuidedSimulation,
-      guidedId: options?.guidedIdOverride != null ? options.guidedIdOverride : (activeGuidedSimulation?.id || null),
+      guided: normalizedOptions?.guidedOverride != null ? !!normalizedOptions.guidedOverride : !!activeGuidedSimulation,
+      guidedId: normalizedOptions?.guidedIdOverride != null ? normalizedOptions.guidedIdOverride : (activeGuidedSimulation?.id || null),
       direction: effectiveDirection,
       amount,
       amountMode: effectiveAmountMode,
@@ -14749,10 +15727,10 @@ useEffect(() => {
     }
     setSimulationPositions((prev) => [...prev, newPosition]);
     setSelectedSimulationPositionId(newPosition.id);
-    if (!options?.skipCoachPopup) {
+    if (!normalizedOptions?.skipCoachPopup) {
       openSimulationRaylaHelper(newPosition);
     }
-    if ((options?.guidedOverride != null ? options.guidedOverride : activeGuidedSimulation)) {
+    if ((normalizedOptions?.guidedOverride != null ? normalizedOptions.guidedOverride : activeGuidedSimulation)) {
       setActiveGuidedSimulation((prev) => (prev ? { ...prev, step: "position-open" } : prev));
     }
     return newPosition;
@@ -15043,9 +16021,20 @@ function buildSimulationAssetFromPosition(position) {
   function handleSelectHomeAsset(item) {
     const nextAsset = buildMarketAsset(item);
     if (!nextAsset) return;
+    setHomePortfolioViewMode("asset");
     setHomeMarketActiveAsset(nextAsset);
     setHomeMarketSearchResults([]);
     setNewSymbol("");
+  }
+
+  function handleSelectHomePositionAsset(position) {
+    const symbol = String(position?.symbol || "").trim().toUpperCase();
+    if (!symbol) return;
+    handleSelectHomeAsset({
+      symbol,
+      description: position?.name || position?.assetName || symbol,
+      type: position?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(normalizeCryptoAssetId(symbol)) ? "crypto" : "stock",
+    });
   }
 
   function handleRemoveSymbol(id) {
@@ -15145,7 +16134,7 @@ function buildSimulationAssetFromPosition(position) {
       source: "market-intel",
       guided: true,
       status: "draft",
-      id: crypto.randomUUID(),
+      id: createClientId(),
       asset: upperSymbol,
       label: item.name || item.symbol,
       tvSymbol: resolvedTvSymbol,
@@ -15155,7 +16144,7 @@ function buildSimulationAssetFromPosition(position) {
       createdAt: Date.now(),
     };
     const launch = {
-      handoffId: crypto.randomUUID(),
+      handoffId: createClientId(),
       asset: nextAsset,
       direction: draft.direction,
       intelSignal,
@@ -15619,7 +16608,7 @@ function buildSimulationAssetFromPosition(position) {
       label = customLabel.trim().slice(0, 48);
     }
     return {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       type: "horizontal",
       points: [{ time: Number(point.time), price: Number(point.price) }],
       label,
@@ -17015,6 +18004,31 @@ return (
                 align-self: end;
                 padding: 0 !important;
               }
+              .homeAdaptiveModeSwitch {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 3px;
+                border: 1px solid rgba(255,255,255,0.07);
+                border-radius: 10px;
+                background: rgba(5,11,19,0.72);
+              }
+              .homeAdaptiveModeButton {
+                min-height: 28px;
+                padding: 6px 10px;
+                border: 0;
+                border-radius: 8px;
+                background: transparent;
+                color: #7f8ea3;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0;
+                cursor: pointer;
+              }
+              .homeAdaptiveModeButton.active {
+                background: rgba(124,196,255,0.18);
+                color: #d7efff;
+              }
               .homeChartStage {
                 grid-area: chart;
                 min-height: 0 !important;
@@ -17025,6 +18039,50 @@ return (
                 overflow: hidden;
                 background: rgba(5,11,19,0.72);
                 box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+              }
+              .homePortfolioChartShell {
+                height: 100%;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                padding: 16px;
+                gap: 12px;
+              }
+              .homePortfolioChartHeader {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 14px;
+                flex-shrink: 0;
+              }
+              .homePortfolioChartTitle {
+                color: #f8fbff;
+                font-size: 16px;
+                font-weight: 800;
+                line-height: 1.15;
+              }
+              .homePortfolioChartSubcopy {
+                color: #7f8ea3;
+                font-size: 11px;
+                line-height: 1.45;
+                margin-top: 4px;
+              }
+              .homePortfolioChartMetric {
+                color: #4ade80;
+                font-size: 14px;
+                font-weight: 800;
+                text-align: right;
+                white-space: nowrap;
+              }
+              .homePortfolioChartBody {
+                min-height: 0;
+                flex: 1;
+              }
+              .homePortfolioChartBody .interactiveLineChart {
+                height: 100% !important;
+                min-height: 260px;
+                background: rgba(13,17,23,0.54);
+                border: 1px solid rgba(255,255,255,0.06);
               }
               .homeUtilityRail {
                 grid-area: rail;
@@ -17158,6 +18216,20 @@ return (
               }
               .homeUtilityRow:first-child {
                 border-top: 0;
+              }
+              .homeUtilityActionRow {
+                width: 100%;
+                border-left: 0;
+                border-right: 0;
+                border-bottom: 0;
+                background: transparent;
+                cursor: pointer;
+                text-align: left;
+                font-family: var(--font-sans);
+              }
+              .homeUtilityActionRow:hover {
+                color: #eaf6ff;
+                background: rgba(124,196,255,0.035);
               }
               .homeUtilityRow small {
                 color: #4a6070;
@@ -17314,6 +18386,17 @@ return (
                   align-items: center !important;
                   display: grid !important;
                   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                }
+                .homeAdaptiveModeSwitch {
+                  grid-column: 1 / -1;
+                  display: grid;
+                  grid-template-columns: repeat(4, minmax(0, 1fr));
+                  width: 100%;
+                }
+                .homeAdaptiveModeButton {
+                  padding-left: 6px;
+                  padding-right: 6px;
+                  font-size: 10px;
                 }
                 .homeMarketControls > * {
                   max-width: 100%;
@@ -17486,7 +18569,7 @@ return (
                   <div className="homePageTitle mobilePageTitle">Home</div>
                 {/* Label */}
                 <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
-                  Live Market
+                  {homePortfolioViewMode === "asset" ? "Live Market" : "Portfolio View"}
                 </div>
                 <div className="homeTopActions">
                   <RaylaLaunchButton
@@ -17561,11 +18644,28 @@ return (
                       change: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.change ?? item.changeValue,
                     }))}
                     selectedId={selectedMarketId}
-                    onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); }}
+                    onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); setHomePortfolioViewMode("asset"); }}
                   />
                 </div>
                 {/* Range + Mode toggles */}
                 <div className="homeMarketControls" style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div className="homeAdaptiveModeSwitch" aria-label="Home chart view">
+                    {[
+                      ["portfolio", "Portfolio"],
+                      ["active", "Active"],
+                      ["holdings", "Holdings"],
+                      ["asset", "Asset"],
+                    ].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`homeAdaptiveModeButton ${homePortfolioViewMode === mode ? "active" : ""}`}
+                        onClick={() => setHomePortfolioViewMode(mode)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   <ChartTimeframeDropdown
                     value={homeMarketChartRange}
                     onChange={setHomeMarketChartRange}
@@ -17587,20 +18687,58 @@ return (
                   )}
                 </div>
                 <div className="homeChartStage" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
-                  {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
-                  {homeMarketSelectedItem && homeMarketAssetExplicitlyUnsupported ? (
-                    <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
-                      <div>Live chart unavailable</div>
-                      <div>This asset is not currently tradable through your connected broker.</div>
+                  {homePortfolioViewMode === "asset" ? (
+                    <>
+                      {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
+                      {homeMarketSelectedItem && homeMarketAssetExplicitlyUnsupported ? (
+                        <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                          <div>Live chart unavailable</div>
+                          <div>This asset is not currently tradable through your connected broker.</div>
+                        </div>
+                      ) : homeMarketSelectedItem ? (
+                        <TradingViewLiveChart
+                          asset={homeMarketSelectedItem}
+                          height="100%"
+                          interval={homeMarketChartRange}
+                          chartType="home_live"
+                        />
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="homePortfolioChartShell">
+                      <div className="homePortfolioChartHeader">
+                        <div>
+                          <div className="homePortfolioChartTitle">{homePortfolioChartLabel}</div>
+                          <div className="homePortfolioChartSubcopy">
+                            {homePortfolioViewMode === "holdings"
+                              ? "Long-term positions classified as investments or crypto holds."
+                              : homePortfolioViewMode === "active"
+                                ? "Open broker positions classified as day or swing trades."
+                                : "Open broker positions grouped into one portfolio view."}
+                          </div>
+                        </div>
+                        <div className="homePortfolioChartMetric" style={{ color: homePortfolioUnrealizedPl < 0 ? "#f87171" : "#4ade80" }}>
+                          {homePortfolioPositions.length ? `${homePortfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(homePortfolioUnrealizedPl)}` : "--"}
+                          <div style={{ color: "#64748b", fontSize: 10, fontWeight: 700, marginTop: 3 }}>
+                            {homePortfolioPositions.length ? `${homePortfolioPositions.length} position${homePortfolioPositions.length === 1 ? "" : "s"} · ${formatCurrency(homePortfolioMarketValue)}` : "No positions"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="homePortfolioChartBody">
+                        <InteractiveLineChart
+                          className="tradePortfolioEngineChart"
+                          height="100%"
+                          lines={homePortfolioLinePoints.length >= 2 ? [{
+                            symbol: homePortfolioChartLabel,
+                            color: "#7CC4FF",
+                            points: homePortfolioLinePoints,
+                          }] : []}
+                          valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
+                          emptyMessage={homePortfolioChartsLoading ? "Loading portfolio chart..." : homePortfolioPositions.length ? "Portfolio trend will appear once broker and market history are available." : "Open positions will appear here once broker data is synced."}
+                        />
+                      </div>
                     </div>
-                  ) : homeMarketSelectedItem ? (
-                    <TradingViewLiveChart
-                      asset={homeMarketSelectedItem}
-                      height="100%"
-                      interval={homeMarketChartRange}
-                      chartType="home_live"
-                    />
-                  ) : null}
+                  )}
                 </div>
                 {!isHomeLiveChartFullscreen && (
                   <aside className="homeUtilityRail">
@@ -17640,6 +18778,64 @@ return (
                                 <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Total Portfolio Return</div>
                               </div>
                             </div>
+                          </section>
+
+                          <section className="homeUtilitySection">
+                            <div className="homeUtilityKicker">Holdings Snapshot</div>
+                            {holdingsSnapshot.count ? (
+                              <>
+                                <div className="homeUtilityMetrics" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                                  <div className="homeUtilityMetric">
+                                    <span>Holdings Value</span>
+                                    <strong>{formatCurrency(holdingsSnapshot.holdingsValue)}</strong>
+                                  </div>
+                                  <div className="homeUtilityMetric">
+                                    <span>Unrealized P/L</span>
+                                    <strong style={{ color: holdingsSnapshot.unrealizedPl < 0 ? "#f87171" : "#4ade80" }}>
+                                      {holdingsSnapshot.unrealizedPl >= 0 ? "+" : ""}{formatCurrency(holdingsSnapshot.unrealizedPl)}
+                                    </strong>
+                                  </div>
+                                  <div className="homeUtilityMetric">
+                                    <span>Unrealized %</span>
+                                    <strong style={{ color: holdingsSnapshot.unrealizedPercent != null && holdingsSnapshot.unrealizedPercent < 0 ? "#f87171" : "#4ade80" }}>
+                                      {holdingsSnapshot.unrealizedPercent == null ? "--" : `${holdingsSnapshot.unrealizedPercent >= 0 ? "+" : ""}${holdingsSnapshot.unrealizedPercent.toFixed(2)}%`}
+                                    </strong>
+                                  </div>
+                                  <div className="homeUtilityMetric">
+                                    <span>Top Holding</span>
+                                    <strong>{holdingsSnapshot.topHoldingSymbol || "--"}</strong>
+                                  </div>
+                                  <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
+                                    <span>Largest Allocation</span>
+                                    <strong>
+                                      {holdingsSnapshot.topHoldingSymbol || "--"}
+                                      {holdingsSnapshot.largestAllocationPercent == null ? "" : ` · ${holdingsSnapshot.largestAllocationPercent.toFixed(1)}%`}
+                                    </strong>
+                                  </div>
+                                </div>
+                                <div className="homeUtilityRows" style={{ marginTop: 2 }}>
+                                  {longTermBrokerPositions.slice(0, 4).map((position) => (
+                                    <button
+                                      key={`home-holding-${position.symbol}`}
+                                      type="button"
+                                      className="homeUtilityRow homeUtilityActionRow"
+                                      onClick={() => handleSelectHomePositionAsset(position)}
+                                      title={`Open ${position.symbol} live chart`}
+                                    >
+                                      <div>
+                                        <div>{position.symbol}</div>
+                                        <small>{position.positionTypeLabel || "Holding"} · Click for live chart</small>
+                                      </div>
+                                      <div style={{ textAlign: "right", color: Number(position.unrealizedPl) < 0 ? "#f87171" : "#4ade80", fontWeight: 800 }}>
+                                        {Number.isFinite(Number(position.unrealizedPl)) ? `${Number(position.unrealizedPl) >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}` : "--"}
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="homeUtilityMuted">Classify a broker position as Investment or Crypto Hold to track it here.</div>
+                            )}
                           </section>
 
                           <section className="homeUtilitySection">
@@ -17687,16 +18883,22 @@ return (
                         <section className="homeUtilitySection">
                           <div className="homeUtilityKicker">Positions</div>
                           <div className="homeUtilityRows">
-                            {alpacaPositions.length ? alpacaPositions.map((position) => (
-                              <div className="homeUtilityRow" key={`home-position-${position.symbol}`}>
+                            {brokerPositionsWithIntent.length ? brokerPositionsWithIntent.map((position) => (
+                              <button
+                                type="button"
+                                className="homeUtilityRow homeUtilityActionRow"
+                                key={`home-position-${position.symbol}`}
+                                onClick={() => handleSelectHomePositionAsset(position)}
+                                title={`Open ${position.symbol} live chart`}
+                              >
                                 <div>
                                   <div>{position.symbol}</div>
-                                  <small>Qty {position.qty || "--"}</small>
+                                  <small>{position.positionTypeLabel || "Position"} · Qty {position.qty || "--"}</small>
                                 </div>
                                 <div style={{ textAlign: "right", color: Number(position.unrealizedPl) < 0 ? "#f87171" : "#4ade80", fontWeight: 800 }}>
                                   {Number.isFinite(Number(position.unrealizedPl)) ? `${Number(position.unrealizedPl) >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}` : "--"}
                                 </div>
-                              </div>
+                              </button>
                             )) : (
                               <div className="homeUtilityMuted">No open broker positions synced yet.</div>
                             )}
@@ -17742,18 +18944,34 @@ return (
                   </aside>
                 )}
                 {/* Ask Rayla → Explain chart */}
-                {homeMarketSelectedItem && (
+                {(homePortfolioViewMode !== "asset" || homeMarketSelectedItem) && (
                   <div className="homeChartExplainRow" style={{ padding: "0 20px 16px", flexShrink: 0 }}>
                     <button className="raylaAskTypography" type="button"
                       onClick={() => {
-                        const context = buildChartExplainContext({
-                          symbol: homeMarketSelectedItem.id,
-                          assetName: homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id,
-                          assetType: homeMarketSelectedItem.type || "stock",
-                          range: homeMarketChartRange,
-                          bars: homeMarketVisibleBars,
-                          currentPrice: getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price,
-                        });
+                        const context = homePortfolioViewMode === "asset"
+                          ? buildChartExplainContext({
+                              symbol: homeMarketSelectedItem.id,
+                              assetName: homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id,
+                              assetType: homeMarketSelectedItem.type || "stock",
+                              range: homeMarketChartRange,
+                              bars: homeMarketVisibleBars,
+                              currentPrice: getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price,
+                            })
+                          : {
+                              symbol: homePortfolioChartLabel,
+                              assetName: homePortfolioChartLabel,
+                              assetType: "portfolio",
+                              range: homeMarketChartRange,
+                              bars: homePortfolioLinePoints.map((point) => ({
+                                time: new Date(point.timeMs).toISOString(),
+                                close: point.rawValue,
+                                pctChange: point.value,
+                              })),
+                              currentPrice: homePortfolioMarketValue,
+                              viewMode: homePortfolioViewMode,
+                              focusedSymbols: homePortfolioPositions.map((position) => position.symbol).filter(Boolean),
+                              positionIntent: homePortfolioViewMode,
+                            };
                         openChartExplainPopup(context, "Explain this chart");
                       }}
                       style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid rgba(124,196,255,0.28)", background: "rgba(124,196,255,0.08)", color: "#d7efff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
@@ -18241,22 +19459,20 @@ return (
                               })(),
                               color: calculateBrokerDayPnL(alpacaPositions, alpacaAccount) >= 0 ? "#4ade80" : "#f87171",
                             },
-                            {
+                            ...(Number(alpacaAccount.raw?.multiplier ?? 1) > 1 ? [{
                               label: "Margin",
-                              value: Number(alpacaAccount.raw?.multiplier ?? 1) > 1
-                                ? `${alpacaAccount.raw?.multiplier}x buying power`
-                                : "Margin info unavailable",
+                              value: `${alpacaAccount.raw?.multiplier}x buying power`,
                               helpTopic: "leverage",
-                            },
+                            }] : []),
                           ].map((item) => (
                             <div key={item.label}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
-                                <div style={{ fontSize: 12, color: "#7f8ea3" }}>{item.label}</div>
+                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{item.label}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: item.color || "#e2e8f0" }}>{item.value}</div>
                                 {item.helpTopic && showBeginnerGuidance ? (
                                   <InlineHelpButton topic={item.helpTopic} activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
                                 ) : null}
                               </div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: item.color || "#e2e8f0" }}>{item.value}</div>
                               {showBeginnerGuidance && item.helpTopic && tradeHelpTopic === item.helpTopic ? (
                                 <InlineHelpCard topic={item.helpTopic} />
                               ) : null}
@@ -18299,192 +19515,163 @@ return (
                           </div>
                         )}
                         {showBeginnerGuidance && tradeHelpTopic === "brokerPortfolio" ? <InlineHelpCard topic="brokerPortfolio" /> : null}
-                        {alpacaPositions.length ? (
-                          <div className="tradePositionsList" style={{ display: "flex", flexDirection: "column", gap: isMobileView ? 6 : 10, overflowY: "auto", minHeight: 0 }}>
+                        {brokerPositionsWithIntent.length ? (
+                          <div className="tradePositionsList" style={{ overflowY: "auto", minHeight: 0 }}>
                             {(() => {
-                              const isPortfolioPending = tradeAppliedSelection.mode === "portfolio";
-                              const portfolioMarketValue = alpacaPositions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
-                              const portfolioUnrealizedPl = alpacaPositions.reduce((sum, position) => sum + (Number(position?.unrealizedPl) || 0), 0);
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => applyTradeSelection({ mode: "portfolio", symbols: tradePortfolioAllSymbols })}
-                                  className="tradePortfolioButton"
-                                  style={{
-                                    padding: isMobileView ? 10 : 12,
-                                    borderRadius: 12,
-                                    background: isPortfolioPending ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.03)",
-                                    border: `1px solid ${isPortfolioPending ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
-                                    boxShadow: isPortfolioPending ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
-                                    cursor: "pointer",
-                                    textAlign: "left",
-                                    width: "100%",
-                                    transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
-                                  }}
-                                >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
-                                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>Broker Portfolio</div>
-                                    <div style={{ fontSize: 12, color: portfolioUnrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
-                                      {`${portfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(portfolioUnrealizedPl)}`}
+                              const renderPositionRow = (position) => {
+                                const pendingCloseOrder = getPendingCloseOrderForPosition(brokerTradeLog, position);
+                                const failedCloseOrder = pendingCloseOrder ? null : getLastFailedCloseOrderForPosition(brokerTradeLog, position);
+                                const pendingCloseStatus = pendingCloseOrder
+                                  ? getBrokerOrderStatusPresentation(pendingCloseOrder)
+                                  : null;
+                                const failedCloseStatus = failedCloseOrder
+                                  ? getBrokerOrderStatusPresentation(failedCloseOrder)
+                                  : null;
+                                const isPositionSelected = brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, position.symbol) && tradeAppliedSelection.mode === "asset";
+                                return (
+                                  <div
+                                    key={position.symbol}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => applyTradeSelection({ mode: "asset", symbols: [position.symbol] })}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter" && e.key !== " ") return;
+                                      e.preventDefault();
+                                      applyTradeSelection({ mode: "asset", symbols: [position.symbol] });
+                                    }}
+                                    className="tradePositionRow"
+                                    style={{
+                                      padding: isMobileView ? 9 : 12,
+                                      borderRadius: 12,
+                                      background: pendingCloseOrder
+                                        ? "rgba(251,146,60,0.055)"
+                                        : isPositionSelected
+                                          ? "rgba(124,196,255,0.08)"
+                                          : "rgba(255,255,255,0.03)",
+                                      border: `1px solid ${pendingCloseOrder ? "rgba(251,146,60,0.24)" : isPositionSelected ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
+                                      boxShadow: isPositionSelected ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                                      cursor: "pointer",
+                                      textAlign: "left",
+                                      width: "100%",
+                                      transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!isPositionSelected && !pendingCloseOrder) {
+                                        e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
+                                        e.currentTarget.style.background = "rgba(124,196,255,0.05)";
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!isPositionSelected && !pendingCloseOrder) {
+                                        e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                                        e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                                      }
+                                    }}
+                                  >
+                                    <div className="tradePositionRowHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
+                                      <div className="tradePositionRowIdentity" style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap" }}>
+                                        <div style={{ fontSize: isMobileView ? 14 : 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
+                                        <div
+                                          className="tradePositionIntentControl"
+                                          onClick={(event) => event.stopPropagation()}
+                                          onMouseDown={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                        >
+                                          <RaylaDropdown
+                                            value={position.positionType}
+                                            onChange={(value) => updateBrokerPositionIntent(position.symbol, { positionType: value })}
+                                            options={POSITION_TYPE_OPTIONS}
+                                            width={isMobileView ? 112 : 126}
+                                            size="compact"
+                                            ariaLabel="Position type"
+                                            menuWidth={isMobileView ? 180 : 190}
+                                          />
+                                        </div>
+                                        {pendingCloseOrder ? (
+                                          <div style={{ padding: "3px 8px", borderRadius: 999, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, color: pendingCloseStatus.color, fontSize: 10, fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                                            Close pending
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                      <div className="tradePositionRowActions" style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                        <div className="tradePositionPnl" style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                                          {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
+                                        </div>
+                                        <button
+                                          className="tradeCloseButton"
+                                          type="button"
+                                          disabled={Boolean(pendingCloseOrder)}
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (pendingCloseOrder) return;
+                                            prepareCloseAlpacaPosition(position);
+                                          }}
+                                          style={{
+                                            padding: isMobileView ? "5px 8px" : "7px 10px",
+                                            minHeight: isMobileView ? 28 : undefined,
+                                            borderRadius: isMobileView ? 7 : 8,
+                                            border: pendingCloseOrder ? "1px solid rgba(251,146,60,0.18)" : "1px solid rgba(248,113,113,0.2)",
+                                            background: pendingCloseOrder ? "rgba(251,146,60,0.055)" : "rgba(248,113,113,0.045)",
+                                            color: pendingCloseOrder ? "#fbbf24" : "#fecaca",
+                                            fontSize: isMobileView ? 10 : 11,
+                                            fontWeight: 800,
+                                            cursor: pendingCloseOrder ? "not-allowed" : "pointer",
+                                            whiteSpace: "nowrap",
+                                            opacity: pendingCloseOrder ? 0.78 : 1,
+                                          }}
+                                        >
+                                          {pendingCloseOrder ? "Awaiting fill" : "Close"}
+                                        </button>
+                                      </div>
                                     </div>
+                                    <div className="tradePositionRowMeta" style={{ marginTop: isMobileView ? 4 : 6, fontSize: isMobileView ? 11 : 12, color: "#94a3b8", lineHeight: isMobileView ? 1.35 : 1.6 }}>
+                                      Qty {formatBrokerQuantity(position.qty)} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(brokerSymbolsMatch(tradePanelSymbol, position.symbol) && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
+                                    </div>
+                                    {pendingCloseOrder ? (
+                                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(251,146,60,0.07)", border: "1px solid rgba(251,146,60,0.16)", color: "#fed7aa", fontSize: 11, lineHeight: 1.45 }}>
+                                        {pendingCloseStatus.label}
+                                      </div>
+                                    ) : failedCloseOrder ? (
+                                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.14)", color: "#fecaca", fontSize: 11, lineHeight: 1.45 }}>
+                                        Last close attempt: {failedCloseStatus.label}
+                                      </div>
+                                    ) : null}
                                   </div>
-                                  <div style={{ marginTop: isMobileView ? 4 : 6, fontSize: isMobileView ? 11 : 12, color: "#94a3b8", lineHeight: isMobileView ? 1.35 : 1.6 }}>
-                                    {alpacaPositions.length} assets selected · Combined value {formatCurrency(portfolioMarketValue)}
-                                  </div>
-                                </button>
+                                );
+                              };
+                              const sections = [
+                                {
+                                  id: "active",
+                                  title: "Active Trades",
+                                  empty: "No active trade positions.",
+                                  positions: activeBrokerPositions,
+                                },
+                                {
+                                  id: "holdings",
+                                  title: "Long-Term Holdings",
+                                  empty: "No long-term holdings classified yet.",
+                                  positions: longTermBrokerPositions,
+                                },
+                              ];
+                              return (
+                                <div className="tradePositionsSplit">
+                                  {sections.map((section) => (
+                                    <section className="tradePositionsColumn" key={section.id}>
+                                      <div className="tradePositionsColumnHeader">
+                                        <div className="tradePositionsColumnTitle">{section.title}</div>
+                                        <div className="tradePositionsColumnCount">{section.positions.length}</div>
+                                      </div>
+                                      {section.positions.length ? (
+                                        section.positions.map(renderPositionRow)
+                                      ) : (
+                                        <div className="tradePositionsColumnEmpty">{section.empty}</div>
+                                      )}
+                                    </section>
+                                  ))}
+                                </div>
                               );
                             })()}
-                            {sortedBrokerPositionsWithIntent.map((position, positionIndex, allPositions) => {
-                              const pendingCloseOrder = getPendingCloseOrderForPosition(brokerTradeLog, position);
-                              const failedCloseOrder = pendingCloseOrder ? null : getLastFailedCloseOrderForPosition(brokerTradeLog, position);
-                              const pendingCloseStatus = pendingCloseOrder
-                                ? getBrokerOrderStatusPresentation(pendingCloseOrder)
-                                : null;
-                              const failedCloseStatus = failedCloseOrder
-                                ? getBrokerOrderStatusPresentation(failedCloseOrder)
-                                : null;
-                              const isPositionSelected = brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, position.symbol) && tradeAppliedSelection.mode === "asset";
-                              const previousPosition = allPositions[positionIndex - 1];
-                              const showIntentGroup = positionIndex === 0 || previousPosition?.positionCategory !== position.positionCategory;
-                              const intentGroupLabel = position.isLongTermHolding ? "Long-Term Holdings" : "Trading Positions";
-                              const intentGroupHint = position.isLongTermHolding
-                                ? "Investment and hold-style positions."
-                                : "Active trade intent positions.";
-                              return (
-                                <Fragment key={position.symbol}>
-                                  {showIntentGroup ? (
-                                    <div
-                                      key={`${position.positionCategory}-header`}
-                                      className="tradePositionGroupHeader"
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "space-between",
-                                        gap: 8,
-                                        marginTop: positionIndex === 0 ? 2 : 8,
-                                        padding: "0 2px",
-                                      }}
-                                    >
-                                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                                        {intentGroupLabel}
-                                      </div>
-                                      {!isMobileView ? (
-                                        <div style={{ fontSize: 10, color: "#64748b" }}>{intentGroupHint}</div>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                <div
-                                  key={position.symbol}
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() => applyTradeSelection({ mode: "asset", symbols: [position.symbol] })}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== "Enter" && e.key !== " ") return;
-                                    e.preventDefault();
-                                    applyTradeSelection({ mode: "asset", symbols: [position.symbol] });
-                                  }}
-                                  className="tradePositionRow"
-                                  style={{
-                                    padding: isMobileView ? 9 : 12,
-                                    borderRadius: 12,
-                                    background: pendingCloseOrder
-                                      ? "rgba(251,146,60,0.055)"
-                                      : isPositionSelected
-                                        ? "rgba(124,196,255,0.08)"
-                                        : "rgba(255,255,255,0.03)",
-                                    border: `1px solid ${pendingCloseOrder ? "rgba(251,146,60,0.24)" : isPositionSelected ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
-                                    boxShadow: isPositionSelected ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
-                                    cursor: "pointer",
-                                    textAlign: "left",
-                                    width: "100%",
-                                    transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (!isPositionSelected && !pendingCloseOrder) {
-                                      e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
-                                      e.currentTarget.style.background = "rgba(124,196,255,0.05)";
-                                    }
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (!isPositionSelected && !pendingCloseOrder) {
-                                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                                      e.currentTarget.style.background = "rgba(255,255,255,0.03)";
-                                    }
-                                  }}
-                                >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap" }}>
-                                      <div style={{ fontSize: isMobileView ? 14 : 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
-                                      <div
-                                        className="tradePositionIntentControl"
-                                        onClick={(event) => event.stopPropagation()}
-                                        onMouseDown={(event) => event.stopPropagation()}
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                      >
-                                        <RaylaDropdown
-                                          value={position.positionType}
-                                          onChange={(value) => updateBrokerPositionIntent(position.symbol, { positionType: value })}
-                                          options={POSITION_TYPE_OPTIONS}
-                                          width={isMobileView ? 112 : 126}
-                                          size="compact"
-                                          ariaLabel="Position type"
-                                          menuWidth={isMobileView ? 180 : 190}
-                                        />
-                                      </div>
-                                      {pendingCloseOrder ? (
-                                        <div style={{ padding: "3px 8px", borderRadius: 999, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, color: pendingCloseStatus.color, fontSize: 10, fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-                                          Close pending
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                      <div style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
-                                        {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
-                                      </div>
-                                      <button
-                                        className="tradeCloseButton"
-                                        type="button"
-                                        disabled={Boolean(pendingCloseOrder)}
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          if (pendingCloseOrder) return;
-                                          prepareCloseAlpacaPosition(position);
-                                        }}
-                                        style={{
-                                          padding: isMobileView ? "5px 8px" : "7px 10px",
-                                          minHeight: isMobileView ? 28 : undefined,
-                                          borderRadius: isMobileView ? 7 : 8,
-                                          border: pendingCloseOrder ? "1px solid rgba(251,146,60,0.18)" : "1px solid rgba(248,113,113,0.2)",
-                                          background: pendingCloseOrder ? "rgba(251,146,60,0.055)" : "rgba(248,113,113,0.045)",
-                                          color: pendingCloseOrder ? "#fbbf24" : "#fecaca",
-                                          fontSize: isMobileView ? 10 : 11,
-                                          fontWeight: 800,
-                                          cursor: pendingCloseOrder ? "not-allowed" : "pointer",
-                                          whiteSpace: "nowrap",
-                                          opacity: pendingCloseOrder ? 0.78 : 1,
-                                        }}
-                                      >
-                                        {pendingCloseOrder ? "Awaiting fill" : "Close"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <div style={{ marginTop: isMobileView ? 4 : 6, fontSize: isMobileView ? 11 : 12, color: "#94a3b8", lineHeight: isMobileView ? 1.35 : 1.6 }}>
-                                    Qty {formatBrokerQuantity(position.qty)} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(brokerSymbolsMatch(tradePanelSymbol, position.symbol) && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
-                                  </div>
-                                  {pendingCloseOrder ? (
-                                    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(251,146,60,0.07)", border: "1px solid rgba(251,146,60,0.16)", color: "#fed7aa", fontSize: 11, lineHeight: 1.45 }}>
-                                      {pendingCloseStatus.label}
-                                    </div>
-                                  ) : failedCloseOrder ? (
-                                    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.14)", color: "#fecaca", fontSize: 11, lineHeight: 1.45 }}>
-                                      Last close attempt: {failedCloseStatus.label}
-                                    </div>
-                                  ) : null}
-                                </div>
-                                </Fragment>
-                              );
-                            })}
                           </div>
                         ) : (
                           <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
@@ -19376,9 +20563,14 @@ return (
                               <RaylaDropdown
                                 value={alpacaOrderForm.timeInForce}
                                 onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: value }))}
-                                options={ALPACA_TIME_IN_FORCE_OPTIONS}
+                                options={availableTifOptions}
                                 ariaLabel="Time in force"
                               />
+                              {requiresDayTif && (
+                                <div style={{ marginTop: 5, fontSize: 11, color: "#7CC4FF", lineHeight: 1.4 }}>
+                                  Fractional equity orders require DAY duration.
+                                </div>
+                              )}
                               {showBeginnerGuidance && tradeHelpTopic === "timeInForce" ? <InlineHelpCard topic="timeInForce" /> : null}
                             </div>
                           </div>
@@ -19615,183 +20807,23 @@ return (
                 </div>
               </div>
 
-              <div className="tradeHistoryGrid liveTradesHistoryGrid" style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1.15fr) minmax(360px, 1fr)", gap: 16, alignItems: "stretch", marginBottom: 16 }}>
-                <div className="liveTradesHistoryColumn">
-                  <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Broker Trade History</div>
-                      <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
-                        Recent broker-synced orders and fills from your connected Alpaca broker workspace.
-                      </div>
+              <div className="liveTradesHistoryGrid" style={{ marginBottom: 16 }}>
+                <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Broker Trade History</div>
+                    <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
+                      Recent broker-synced orders and fills from your connected Alpaca broker workspace.
                     </div>
                   </div>
-                  <div className="liveTradesHistoryActions" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                    <button type="button" className="ghostButton" onClick={() => refreshBrokerStateAfterOrder({ delayed: false })} disabled={brokerTradeLogLoading || alpacaConnectionLoading}>
-                      {brokerTradeLogLoading ? "Refreshing..." : "Refresh"}
-                    </button>
-                  </div>
-                  <BrokerTradeLogCard
-                    trades={brokerTradeLog}
-                  />
                 </div>
-
-                <div className="liveTradesHistoryColumn">
-                  <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Manual Trade Journal</div>
-                      <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
-                        Keep Rayla journal entries separate from broker fills so manual review and execution history stay easy to scan.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="tradeJournalTabs liveTradesHistoryActions" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                    <button type="button" className="ghostButton" onClick={() => setTradeView("log")} style={{ opacity: tradeView === "log" ? 1 : 0.5 }}>Log Trade</button>
-                    <button type="button" className="ghostButton" onClick={() => setTradeView("recent")} style={{ opacity: tradeView === "recent" ? 1 : 0.5 }}>Recent Trades</button>
-                    <button type="button" className="ghostButton" onClick={() => setTradeView("all")} style={{ opacity: tradeView === "all" ? 1 : 0.5 }}>All Trades</button>
-                    <button type="button" className="ghostButton" onClick={() => setTradeView("holdings")} style={{ opacity: tradeView === "holdings" ? 1 : 0.5 }}>Holdings</button>
-                  </div>
-                  {tradeView === "log" && (
-                    <div className="card">
-                      <h3>Log Trade</h3>
-                      <div style={{ marginBottom: 12 }}>
-                        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", background: "rgba(124,196,255,0.08)", border: "1px dashed rgba(124,196,255,0.3)", borderRadius: 10, cursor: isParsingScreenshot ? "default" : "pointer", fontSize: 13, color: isParsingScreenshot ? "#4a5568" : "#7CC4FF", fontWeight: 600, opacity: isParsingScreenshot ? 0.6 : 1, pointerEvents: isParsingScreenshot ? "none" : "auto" }}>
-                          {isParsingScreenshot ? "Reading screenshot..." : "📸 Upload Trade Screenshot"}
-                          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleScreenshotUpload} disabled={isParsingScreenshot} />
-                        </label>
-                        {screenshotParseNotice && (
-                          <div
-                            style={{
-                              marginTop: 10,
-                              padding: "10px 12px",
-                              borderRadius: 10,
-                              border: screenshotParseNotice.tone === "error"
-                                ? "1px solid rgba(248,113,113,0.22)"
-                                : screenshotParseNotice.tone === "warning"
-                                  ? "1px solid rgba(251,191,36,0.22)"
-                                  : "1px solid rgba(74,222,128,0.2)",
-                              background: screenshotParseNotice.tone === "error"
-                                ? "rgba(248,113,113,0.08)"
-                                : screenshotParseNotice.tone === "warning"
-                                  ? "rgba(251,191,36,0.08)"
-                                  : "rgba(74,222,128,0.07)",
-                              color: screenshotParseNotice.tone === "error"
-                                ? "#fca5a5"
-                                : screenshotParseNotice.tone === "warning"
-                                  ? "#fbbf24"
-                                  : "#86efac",
-                              fontSize: 12,
-                              lineHeight: 1.55,
-                            }}
-                          >
-                            {screenshotParseNotice.message}
-                          </div>
-                        )}
-                      </div>
-                      <form onSubmit={handleAddTrade} className="tradeEntryRow">
-                        <div style={{ position: "relative" }}>
-                          <input
-                            className="authInput tradeAssetSearchInput"
-                            placeholder="Search asset (AAPL, BTC, NRG)"
-                            value={tradeForm.asset}
-                            onChange={(e) => handleManualTradeAssetChange(e.target.value)}
-                            onFocus={() => {
-                              if (tradeForm.asset.trim()) {
-                                setManualTradeAssetSearchOpen(true);
-                                if (!manualTradeAssetSearchResults.length) handleManualTradeAssetChange(tradeForm.asset);
-                              }
-                            }}
-                            onBlur={(e) => {
-                              const sym = resolveTickerAlias(e.target.value.trim()).toUpperCase();
-                              if (sym) setTradeLogChartSymbol(sym);
-                              window.setTimeout(() => setManualTradeAssetSearchOpen(false), 120);
-                            }}
-                            autoComplete="off"
-                          />
-                          {manualTradeAssetSearchOpen && (
-                            <div className="brokerAssetDropdown" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 999, maxHeight: 220, overflowY: "auto" }}>
-                              {manualTradeAssetSearchLoading ? (
-                                <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
-                                  Searching assets...
-                                </div>
-                              ) : manualTradeAssetSearchError ? (
-                                <div style={{ padding: "10px 14px", fontSize: 12, color: "#fca5a5" }}>
-                                  {manualTradeAssetSearchError}
-                                </div>
-                              ) : manualTradeAssetSearchResults.length > 0 ? (
-                                manualTradeAssetSearchResults.map((asset) => (
-                                  <button
-                                    key={`${asset.symbol}-${asset.type || asset.exchange || "asset"}`}
-                                    type="button"
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    onClick={() => handleSelectManualTradeAsset(asset)}
-                                    className="brokerAssetOption"
-                                    style={{ width: "100%", textAlign: "left", padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}
-                                  >
-                                    <div>
-                                      <div style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{asset.symbol}</div>
-                                      <div style={{ color: "#7f8ea3", fontSize: 12, marginTop: 2 }}>{asset.description || asset.name || asset.label || "Tradable asset"}</div>
-                                    </div>
-                                    <div style={{ color: "#94a3b8", fontSize: 11, whiteSpace: "nowrap" }}>
-                                      {asset.type === "crypto" ? "Crypto" : asset.exchange || "Equity"}
-                                    </div>
-                                  </button>
-                                ))
-                              ) : tradeForm.asset.trim() ? (
-                                <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
-                                  No asset match yet. You can still save a valid ticker.
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
-                        </div>
-                        {screenshotFieldNotes.asset ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.asset}</div> : null}
-                        <input className="authInput" placeholder="Entry Price" value={tradeForm.entryPrice} onChange={(e) => { clearScreenshotFieldNote("entryPrice"); setTradeForm({ ...tradeForm, entryPrice: e.target.value }); }} />
-                        {screenshotFieldNotes.entryPrice ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.entryPrice}</div> : null}
-                        <input className="authInput" placeholder="Size ($)" value={tradeForm.size} onChange={(e) => { clearScreenshotFieldNote("size"); setTradeForm({ ...tradeForm, size: e.target.value }); }} />
-                        {screenshotFieldNotes.size ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.size}</div> : null}
-                        {screenshotFieldNotes.quantity ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.quantity}</div> : null}
-                        <input className="authInput" type="datetime-local" value={tradeForm.entryTime} onChange={(e) => { clearScreenshotFieldNote("entryTime"); setTradeForm({ ...tradeForm, entryTime: e.target.value }); }} />
-                        {screenshotFieldNotes.entryTime ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.entryTime}</div> : null}
-                        <select className="authInput" value={tradeForm.setup} onChange={(e) => setTradeForm({ ...tradeForm, setup: e.target.value })}>
-                          <option value="">Select Strategy (optional)</option>
-                          {SETUP_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <select className="authInput" value={tradeForm.session} onChange={(e) => setTradeForm({ ...tradeForm, session: e.target.value })}>
-                          <option value="">Select Session (optional)</option>
-                          {SESSION_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <select className="authInput" value={tradeForm.direction} onChange={(e) => setTradeForm({ ...tradeForm, direction: e.target.value })}>
-                          <option value="">Direction</option>
-                          <option value="long">Long</option>
-                          <option value="short">Short</option>
-                        </select>
-                        <select className="authInput" value={tradeForm.marketCondition} onChange={(e) => setTradeForm({ ...tradeForm, marketCondition: e.target.value })}>
-                          <option value="">Market Condition (optional)</option>
-                          <option value="trending">Trending</option>
-                          <option value="ranging">Ranging</option>
-                          <option value="volatile">Volatile</option>
-                          <option value="weak_trend">Weak Trend</option>
-                        </select>
-                        <input className="authInput" placeholder="Result, e.g. +1.5R or -0.5R" value={tradeForm.result} onChange={(e) => { clearScreenshotFieldNote("result"); setTradeForm({ ...tradeForm, result: e.target.value }); }} />
-                        {screenshotFieldNotes.result ? <div style={{ marginTop: -4, fontSize: 11, color: "#fbbf24" }}>{screenshotFieldNotes.result}</div> : null}
-                        <textarea
-                          className="authInput"
-                          placeholder="Notes (optional) — thesis, observations, lessons"
-                          value={tradeForm.notes}
-                          onChange={(e) => setTradeForm({ ...tradeForm, notes: e.target.value })}
-                          rows={3}
-                          style={{ resize: "vertical", minHeight: 64 }}
-                        />
-                        <button type="submit" className="ghostButton" disabled={isSavingTrade || isParsingScreenshot}>
-                          {isSavingTrade ? "Saving..." : "Save Trade"}
-                        </button>
-                      </form>
-                    </div>
-                  )}
-                  {tradeView === "recent" && <RecentTradesCard recentTrades={recentTrades} onDeleteTrade={handleDeleteTrade} />}
-                  {tradeView === "all" && <RecentTradesCard recentTrades={trades} onDeleteTrade={handleDeleteTrade} />}
-                  {tradeView === "holdings" && <HoldingsCard positions={alpacaPositions} />}
+                <div className="liveTradesHistoryActions" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <button type="button" className="ghostButton" onClick={() => refreshBrokerStateAfterOrder({ delayed: false })} disabled={brokerTradeLogLoading || alpacaConnectionLoading}>
+                    {brokerTradeLogLoading ? "Refreshing..." : "Refresh"}
+                  </button>
                 </div>
+                <BrokerTradeLogCard
+                  trades={brokerTradeLog}
+                />
               </div>
             </div>
           </div>
@@ -21491,28 +22523,68 @@ return (
                     })}
                   </div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
-                    Position Intent
+                {isLiveTradesPerformance ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
+                      Position Intent
+                    </div>
+                    <RaylaDropdown
+                      value={performancePositionFilter}
+                      onChange={setPerformancePositionFilter}
+                      options={PERFORMANCE_POSITION_FILTER_OPTIONS}
+                      width={180}
+                      minWidth={180}
+                      size="compact"
+                      ariaLabel="Performance position intent filter"
+                    />
                   </div>
-                  <RaylaDropdown
-                    value={performancePositionFilter}
-                    onChange={setPerformancePositionFilter}
-                    options={PERFORMANCE_POSITION_FILTER_OPTIONS}
-                    width={180}
-                    minWidth={180}
-                    size="compact"
-                    ariaLabel="Performance position intent filter"
-                  />
-                </div>
+                ) : null}
               </div>
               <div style={{ marginTop: -8, textAlign: "center", fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
-                Active trade filters use logged/closed trades. Long-Term Holdings uses open broker positions classified as holdings.
+                {!isLiveTradesPerformance
+                  ? "Live Simulation shows closed simulation trade analytics and strategy review."
+                  : performancePositionFilter === "portfolio"
+                  ? "Portfolio shows your live open positions and investing overview."
+                  : performancePositionFilter === "holdings"
+                    ? "Long-Term Holdings shows open broker positions classified as investments."
+                    : "Active Trades shows your live portfolio chart beside closed-trade analytics."}
               </div>
-              {performancePositionFilter === "holdings" ? (
+                {isLiveTradesPerformance && performancePositionFilter === "portfolio" ? (
+                <PortfolioPerformancePanel
+                  positions={brokerPositionsWithIntent}
+                  alpacaAccount={alpacaAccount}
+                  alpacaConnected={Boolean(alpacaAccount)}
+                  tradePortfolioCharts={tradePortfolioCharts}
+                  tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+                  brokerTradeLog={brokerTradeLog}
+                  portfolioRange={performancePortfolioRange}
+                  setPortfolioRange={setPerformancePortfolioRange}
+                  tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
+                  tradePortfolioNowMs={tradePortfolioNowMs}
+                  equityPoints={strictFilteredEquityPoints}
+                  sourceLabel={selectedEquitySourceLabel}
+                  chartRange={chartRange}
+                  setChartRange={setChartRange}
+                  benchmarkSymbol={equityBenchmarkSymbol}
+                  benchmarkLabel={equityBenchmarkLabel}
+                  onSelectBenchmark={(option) => {
+                    setEquityBenchmarkSymbol(option.symbol);
+                    setEquityBenchmarkType(option.type || "stock");
+                    setEquityBenchmarkLabel(option.label || option.symbol);
+                  }}
+                  benchmarkOptions={equityBenchmarkOptions}
+                  benchmarkPoints={strictBenchmarkPoints}
+                  benchmarkLoading={equityBenchmarkLoading}
+                />
+              ) : isLiveTradesPerformance && performancePositionFilter === "holdings" ? (
                 <HoldingsPerformancePanel
                   positions={longTermBrokerPositions}
                   alpacaConnected={Boolean(alpacaAccount)}
+                  tradePortfolioCharts={tradePortfolioCharts}
+                  tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+                  brokerTradeLog={brokerTradeLog}
+                  portfolioRange={performanceHoldingsRange}
+                  setPortfolioRange={setPerformanceHoldingsRange}
                 />
               ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
@@ -21540,6 +22612,7 @@ return (
                   benchmarkPoints={strictBenchmarkPoints}
                   benchmarkLoading={equityBenchmarkLoading}
                   alpacaConnected={Boolean(alpacaAccount)}
+                  alpacaAccount={alpacaAccount}
                   coachSummary={coachSummaries[performanceAnalysisSource] || null}
                   showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
                   onRunAnalysis={() => runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource)}
@@ -21568,6 +22641,8 @@ return (
                   tradePortfolioDisplayedPositions={tradePortfolioDisplayedPositions}
                   tradePortfolioChartsLoading={tradePortfolioChartsLoading}
                   tradePortfolioCharts={tradePortfolioCharts}
+                  performancePortfolioRange={performancePortfolioRange}
+                  setPerformancePortfolioRange={setPerformancePortfolioRange}
                   brokerTradeLog={brokerTradeLog}
                   tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
                   tradePortfolioNowMs={tradePortfolioNowMs}
