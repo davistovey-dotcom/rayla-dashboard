@@ -111,8 +111,8 @@ function validateOrderBody(body: any) {
     }
   }
 
-  if (!["gtc", "ioc", "fok"].includes(timeInForce)) {
-    throw new Error("Time in force must be GTC, IOC, or FOK.");
+  if (!["day", "gtc", "ioc", "fok"].includes(timeInForce)) {
+    throw new Error("Time in force must be DAY, GTC, IOC, or FOK.");
   }
 
   return {
