@@ -4997,7 +4997,14 @@ function PortfolioTrendCard({
           })}
         </div>
         {resolvedStatusLabel ? (
-          <div className="performancePortfolioStatus">
+          <div
+            className="performancePortfolioStatus"
+            style={alpacaAccount?.isPaper ? {
+              background: "rgba(167,139,250,0.1)",
+              borderColor: "rgba(167,139,250,0.22)",
+              color: "#a78bfa",
+            } : undefined}
+          >
             {resolvedStatusLabel}
           </div>
         ) : null}
@@ -5847,8 +5854,9 @@ function PerformanceDashboard({
           ))}
         </div>
       ) : (
-        <div style={{ ...cardBase, padding: "28px", textAlign: "center", color: "#64748b", fontSize: 14 }}>
-          No trades match the current filters.{" "}
+        <div className="emptyState emptyStateCompact">
+          <div className="emptyStateTitle">No trades match these filters</div>
+          <div className="emptyStateCopy">The current dataset is still intact. Clear filters to bring the trades back into view.</div>
           <button type="button" onClick={clearFilters}
             style={{ background: "transparent", border: "none", color: "#7CC4FF", fontSize: 14, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
             Clear filters
@@ -6076,9 +6084,11 @@ function AICoachTab({ trades, onRunAnalysis, showNoNewTrades, coachSummary, hide
 
   if (!report) {
     return (
-      <div className="card" style={{ textAlign: "center", padding: 40 }}>
-        <div style={{ fontSize: 16, color: "#7f8ea3", marginBottom: 8 }}>No strategy trades yet</div>
-        <div style={{ fontSize: 13, color: "#7f8ea3" }}>Log a manual or screenshot trade with an R result to unlock strategy insights.</div>
+      <div className="card">
+        <div className="emptyState">
+          <div className="emptyStateTitle">No strategy trades to coach yet</div>
+          <div className="emptyStateCopy">Log a manual or screenshot trade with a result and Rayla will turn the sample into focused strategy notes.</div>
+        </div>
       </div>
     );
   }
@@ -7520,8 +7530,9 @@ function EquityCurveCard({
         <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
           Rayla analytics value over time based on logged trades
         </div>
-        <div style={{ minHeight: 220, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
-          No closed trades match this source and range yet.
+        <div className="emptyState">
+          <div className="emptyStateTitle">No equity curve for this range yet</div>
+          <div className="emptyStateCopy">Close a trade in this source and Rayla will plot the realized curve against your selected benchmark.</div>
         </div>
         {controlRow}
         <div className="equityFooter"><div className="equityFooterLabel">{sourceLabel}</div></div>
@@ -9270,14 +9281,13 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
         {renderJournalHeader()}
-        <div style={{ textAlign: "center", padding: "80px 24px" }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: "#f3f7fc", marginBottom: 8 }}>
+        <div className="emptyState">
+          <div className="emptyStateTitle">
             {isLiveSimulationJournal ? "No closed simulation trades yet" : "No trades logged yet"}
           </div>
-          <div style={{ fontSize: 14, color: "#64748b", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
+          <div className="emptyStateCopy">
             {isLiveSimulationJournal
-              ? "Closed simulation trades will appear here."
+              ? "Close a simulation trade and it will appear here with P/L, session context, and review details."
               : "Start with a Simulation rep, then log or sync the trade when you are ready. Every completed trade appears here with analytics and reflection tools."}
           </div>
         </div>
@@ -9431,8 +9441,9 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
 
       {/* Trade list */}
       {viewingAllTrades && filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 20px", background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 }}>
-          <div style={{ fontSize: 14, color: "#64748b", marginBottom: 10 }}>No trades match your current filters.</div>
+        <div className="emptyState emptyStateCompact">
+          <div className="emptyStateTitle">No trades match these filters</div>
+          <div className="emptyStateCopy">Clear the filters to return to the full journal sample.</div>
           <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); }}
             style={{ background: "transparent", border: "1px solid rgba(124,196,255,0.3)", borderRadius: 8, padding: "6px 14px", color: "#7CC4FF", fontSize: 12, cursor: "pointer" }}>
             Clear filters
@@ -19443,45 +19454,51 @@ return (
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Account Snapshot
                       </div>
-                      {alpacaAccount ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-                          {[
-                            { label: "Status", value: alpacaAccount.status || "--" },
-                            { label: "Live Buying Power", value: formatCurrency(alpacaAccount.buyingPower), helpTopic: "buyingPower" },
-                            { label: "Live Cash", value: formatCurrency(alpacaAccount.cash) },
-                            { label: "Broker Portfolio", value: formatCurrency(alpacaAccount.portfolioValue) },
-                            { label: "Broker Equity", value: formatCurrency(alpacaAccount.equity) },
-                            {
-                              label: "Day P/L",
-                              value: (() => {
-                                const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
-                                return Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
-                              })(),
-                              color: calculateBrokerDayPnL(alpacaPositions, alpacaAccount) >= 0 ? "#4ade80" : "#f87171",
-                            },
-                            ...(Number(alpacaAccount.raw?.multiplier ?? 1) > 1 ? [{
-                              label: "Margin",
-                              value: `${alpacaAccount.raw?.multiplier}x buying power`,
-                              helpTopic: "leverage",
-                            }] : []),
-                          ].map((item) => (
-                            <div key={item.label}>
-                              <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>{item.label}</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <div style={{ fontSize: 15, fontWeight: 700, color: item.color || "#e2e8f0" }}>{item.value}</div>
-                                {item.helpTopic && showBeginnerGuidance ? (
-                                  <InlineHelpButton topic={item.helpTopic} activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
-                                ) : null}
+                      {alpacaAccount ? (() => {
+                        const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
+                        const dayPnLPos = Number.isFinite(dayPnL) && dayPnL >= 0;
+                        const dayPnLStr = Number.isFinite(dayPnL) ? `${dayPnLPos ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
+                        return (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {/* Primary metrics — live pulse */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                              <div className="accountSnapshotPrimary">
+                                <div className="accountSnapshotLabel">Day P/L</div>
+                                <div className="accountSnapshotValue" style={{ color: Number.isFinite(dayPnL) ? (dayPnLPos ? "#4ade80" : "#f87171") : "#e2e8f0" }}>
+                                  {dayPnLStr}
+                                </div>
                               </div>
-                              {showBeginnerGuidance && item.helpTopic && tradeHelpTopic === item.helpTopic ? (
-                                <InlineHelpCard topic={item.helpTopic} />
-                              ) : null}
+                              <div className="accountSnapshotPrimary">
+                                <div className="accountSnapshotLabel" style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                  Buying Power
+                                  {showBeginnerGuidance && <InlineHelpButton topic="buyingPower" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                                </div>
+                                <div className="accountSnapshotValue" style={{ color: "#e2e8f0" }}>
+                                  {formatCurrency(alpacaAccount.buyingPower)}
+                                </div>
+                                {showBeginnerGuidance && tradeHelpTopic === "buyingPower" ? <InlineHelpCard topic="buyingPower" /> : null}
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
+                            {/* Secondary metrics — reference data */}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 6 }}>
+                              {[
+                                { label: "Status", value: alpacaAccount.status || "--" },
+                                { label: "Cash", value: formatCurrency(alpacaAccount.cash) },
+                                { label: "Portfolio", value: formatCurrency(alpacaAccount.portfolioValue) },
+                                { label: "Equity", value: formatCurrency(alpacaAccount.equity) },
+                                ...(Number(alpacaAccount.raw?.multiplier ?? 1) > 1 ? [{ label: "Margin", value: `${alpacaAccount.raw?.multiplier}x` }] : []),
+                              ].map((item) => (
+                                <div key={item.label} className="accountSnapshotSecondary">
+                                  <div className="accountSnapshotLabel">{item.label}</div>
+                                  <div className="accountSnapshotValue">{item.value}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })() : (
                         <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                          Connect your Alpaca account to load status, buying power, cash, portfolio value, and equity.
+                          Connect your Alpaca account to see buying power, P/L, and account health.
                         </div>
                       )}
                     </div>

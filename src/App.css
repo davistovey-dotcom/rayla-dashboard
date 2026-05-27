@@ -584,7 +584,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 .interactiveLineChartCanvas {
   position: absolute;
-  inset: 46px 14px 18px 12px;
+  inset: 50px 18px 24px 14px;
   min-width: 0;
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -675,11 +675,11 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 .performanceHistoryEngineChart .interactiveLineChartCanvas {
-  inset: 50px 16px 22px 12px;
+  inset: 54px 20px 28px 14px;
 }
 
 .tradePortfolioEngineChart .interactiveLineChartCanvas {
-  inset: 48px 14px 18px 10px;
+  inset: 52px 18px 26px 12px;
 }
 
 .tradePortfolioMiniChart .customChartViewportControls {
@@ -1002,6 +1002,11 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
 .emptyStateCompact::before {
   width: 24px;
+}
+
+.emptyState .ghostButton,
+.emptyState button {
+  margin-top: 4px;
 }
 
 .authPage {
@@ -2392,6 +2397,32 @@ body.raylaTradeFormKeyboardOpen .tradeMobileScope {
   overflow-x: hidden !important;
 }
 
+/* Tablet: collapse 3-col trade grid before columns overflow */
+@media (min-width: 601px) and (max-width: 1110px) {
+  .tradeExecutionGrid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+  .tradePositionsPanel,
+  .tradeOrderTicket {
+    height: auto !important;
+    order: unset !important;
+  }
+  .tradeLiveMarketPanel {
+    order: 1 !important;
+  }
+  .tradeOrderTicket {
+    order: 2 !important;
+  }
+  .tradePositionsPanel {
+    order: 3 !important;
+  }
+  .tradePositionsList {
+    max-height: 360px;
+    overscroll-behavior: contain;
+  }
+}
+
 body.raylaTradeFormKeyboardOpen .tradeOrderTicket,
 body.raylaTradeFormKeyboardOpen .tradeOrderTicket input,
 body.raylaTradeFormKeyboardOpen .tradeOrderTicket textarea,
@@ -2804,6 +2835,7 @@ select.authInput option,
 .performancePortfolioHomeChart {
   min-height: var(--performancePortfolioChartHeight, 340px);
   flex: 0 0 var(--performancePortfolioChartHeight, 340px);
+  min-width: 0;
 }
 
 .performancePortfolioLineChart {
@@ -2830,6 +2862,161 @@ select.authInput option,
 .portfolioEquityCard {
   height: auto;
   margin-top: 18px;
+}
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  .performancePortfolioTrendCard {
+    --performancePortfolioChartHeight: clamp(320px, 38vh, 400px) !important;
+    min-height: auto !important;
+  }
+
+  .performancePortfolioHomeHeader {
+    gap: 14px;
+  }
+
+  .performancePortfolioHomeValue {
+    font-size: 31px;
+  }
+}
+
+@media (max-width: 700px) {
+  .performancePortfolioTrendCard {
+    --performancePortfolioChartHeight: clamp(260px, 42vh, 340px) !important;
+    min-height: auto !important;
+    padding: 14px !important;
+    border-radius: 16px !important;
+  }
+
+  .performancePortfolioHomeHeader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .performancePortfolioHomeTitle {
+    font-size: 22px;
+  }
+
+  .performancePortfolioHomeValue {
+    font-size: 30px;
+  }
+
+  .performancePortfolioHomeMetric {
+    text-align: left;
+    white-space: normal;
+  }
+
+  .performancePortfolioHomeToolbar {
+    align-items: stretch;
+  }
+
+  .performancePortfolioRangeGroup {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .performancePortfolioRangeGroup button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 6px;
+  }
+
+  .performancePortfolioStatus {
+    width: fit-content;
+  }
+}
+
+/* ── Portfolio / Holdings panel — responsive ─────────────────────────── */
+
+@media (max-width: 600px) {
+  :root {
+    --performancePortfolioChartHeight: 210px;
+  }
+  .performancePortfolioHomeHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .performancePortfolioHomeTitle {
+    font-size: 20px;
+  }
+  .performancePortfolioHomeValue {
+    font-size: 26px;
+    margin-top: 4px;
+  }
+  .performancePortfolioHomeMetric {
+    text-align: left;
+    font-size: 13px;
+  }
+  .performancePortfolioHomeMetricMeta {
+    margin-top: 3px;
+  }
+  .performancePortfolioHomeToolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .performancePortfolioRangeGroup {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .performancePortfolioRangeGroup button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 900px) {
+  :root {
+    --performancePortfolioChartHeight: 270px;
+  }
+  .performancePortfolioHomeValue {
+    font-size: 28px;
+  }
+}
+
+/* Account Snapshot — primary metric cells */
+.accountSnapshotPrimary {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.07);
+}
+.accountSnapshotPrimary .accountSnapshotLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.accountSnapshotPrimary .accountSnapshotValue {
+  font-size: 20px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+/* Account Snapshot — secondary metric cells */
+.accountSnapshotSecondary {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.accountSnapshotSecondary .accountSnapshotLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #475569;
+  margin-bottom: 4px;
+}
+.accountSnapshotSecondary .accountSnapshotValue {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
 }
 
 @keyframes interactiveLineChartPulse {
