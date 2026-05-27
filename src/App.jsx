@@ -11886,9 +11886,19 @@ useEffect(() => {
     }
 
     const currentQty = Number(matchingPosition?.qty ?? 0);
+    const isAddToPosition = !isPreparedCloseOrder && action === "buy" && matchingPosition?.side === "long" && currentQty > 0;
+    const currentAvgEntry = isAddToPosition ? Number(matchingPosition.avgEntryPrice) : null;
+    const projectedAvgEntry = (isAddToPosition && Number.isFinite(currentAvgEntry) && currentAvgEntry > 0 && Number.isFinite(estimatedPrice) && estimatedPrice > 0)
+      ? (currentQty * currentAvgEntry + qty * estimatedPrice) / (currentQty + qty)
+      : null;
+
     let insight = `This trade changes your ${symbol} exposure.`;
 
-    if (matchingPosition) {
+    if (isAddToPosition) {
+      insight = projectedAvgEntry
+        ? `Adding ${formatBrokerQuantity(qty)} unit(s) to your existing ${symbol} position. New avg entry ~${formatCurrency(projectedAvgEntry)}.`
+        : `Adding ${formatBrokerQuantity(qty)} unit(s) to your existing ${symbol} position.`;
+    } else if (matchingPosition) {
       if (action === "buy" || action === "buy_to_cover") {
         insight = matchingPosition.side === "short"
           ? `This trade may reduce or close your current ${symbol} position.`
@@ -11917,6 +11927,10 @@ useEffect(() => {
       estimatedPrice: isPreparedCloseOrder && !Number.isFinite(estimatedPrice) ? null : estimatedPrice,
       estimatedValue: isPreparedCloseOrder && !Number.isFinite(estimatedValue) ? null : estimatedValue,
       isCloseOrder: isPreparedCloseOrder,
+      isAddToPosition,
+      currentPositionQty: isAddToPosition ? currentQty : null,
+      currentAvgEntry,
+      projectedAvgEntry,
       planStop: alpacaOrderForm.planStop || null,
       planTarget: alpacaOrderForm.planTarget || null,
       planMode: alpacaOrderPlanMode,
@@ -19224,7 +19238,7 @@ return (
                     style={{ maxWidth: 420, width: "100%" }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="cardHeader"><h2>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Confirm Close" : "Confirm Broker Order"}</h2></div>
+                    <div className="cardHeader"><h2>{pendingAlpacaOrderConfirmation.isCloseOrder ? "Confirm Close" : pendingAlpacaOrderConfirmation.isAddToPosition ? `Add to ${pendingAlpacaOrderConfirmation.symbol}` : "Confirm Broker Order"}</h2></div>
                     <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                         <div>
@@ -19235,13 +19249,35 @@ return (
                           <div style={{ fontSize: 15, fontWeight: 800, color: pendingAlpacaOrderConfirmation.side === "buy" ? "#4ade80" : "#fca5a5" }}>
                             {pendingAlpacaOrderConfirmation.isCloseOrder
                               ? pendingAlpacaOrderConfirmation.closeActionLabel || getAlpacaCloseActionLabel(pendingAlpacaOrderConfirmation.action)
-                              : getAlpacaOrderActionLabel(pendingAlpacaOrderConfirmation.action)}
+                              : pendingAlpacaOrderConfirmation.isAddToPosition
+                                ? "Add to Position"
+                                : getAlpacaOrderActionLabel(pendingAlpacaOrderConfirmation.action)}
                           </div>
                           <div style={{ fontSize: 13, color: "#cbd5e1", marginTop: 4 }}>
                             {formatBrokerQuantity(pendingAlpacaOrderConfirmation.qty)} unit(s)
                           </div>
                         </div>
                       </div>
+                      {pendingAlpacaOrderConfirmation.isAddToPosition && (
+                        <div style={{ padding: 10, borderRadius: 10, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: "#86efac", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.6px" }}>Current Qty</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatBrokerQuantity(pendingAlpacaOrderConfirmation.currentPositionQty)}</div>
+                          </div>
+                          {pendingAlpacaOrderConfirmation.currentAvgEntry > 0 && (
+                            <div>
+                              <div style={{ fontSize: 11, color: "#86efac", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.6px" }}>Avg Entry</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatCurrency(pendingAlpacaOrderConfirmation.currentAvgEntry)}</div>
+                            </div>
+                          )}
+                          {pendingAlpacaOrderConfirmation.projectedAvgEntry > 0 && (
+                            <div>
+                              <div style={{ fontSize: 11, color: "#86efac", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.6px" }}>New Avg Entry</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>~{formatCurrency(pendingAlpacaOrderConfirmation.projectedAvgEntry)}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="tradeConfirmGrid" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
                         <div>
                           <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Order Type</div>
@@ -19393,7 +19429,9 @@ return (
                             ? "Submitting..."
                             : pendingAlpacaOrderConfirmation.isCloseOrder
                               ? "Confirm Close"
-                              : "Submit order"}
+                              : pendingAlpacaOrderConfirmation.isAddToPosition
+                                ? "Confirm Add"
+                                : "Submit order"}
                         </button>
                       </div>
                     </div>
@@ -20809,7 +20847,7 @@ return (
                               color: preparedCloseOrder ? "#fecaca" : "#f8fbff",
                             }}
                           >
-                            {alpacaOrderSubmitting ? "Submitting..." : preparedCloseOrder ? `Review close ${preparedCloseOrder.symbol}` : "Review order"}
+                            {alpacaOrderSubmitting ? "Submitting..." : preparedCloseOrder ? `Review close ${preparedCloseOrder.symbol}` : (alpacaOrderValidation.hasLongPosition && alpacaOrderForm.side === "buy") ? `Add to ${alpacaOrderValidation.symbol || alpacaOrderForm.symbol}` : "Review order"}
                           </button>
                           {alpacaOrderValidation.error ? (
                             <div style={{ fontSize: 12, color: "#fca5a5", lineHeight: 1.5, padding: "9px 10px", borderRadius: 10, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.16)" }}>
