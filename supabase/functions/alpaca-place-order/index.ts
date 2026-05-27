@@ -111,8 +111,15 @@ function validateOrderBody(body: any) {
     }
   }
 
-  if (!["day", "gtc", "ioc", "fok"].includes(timeInForce)) {
-    throw new Error("Time in force must be DAY, GTC, IOC, or FOK.");
+  const isCryptoSymbol = /^[A-Z0-9]{2,10}\/USD$/.test(symbol);
+  if (isCryptoSymbol) {
+    if (!["gtc", "ioc"].includes(timeInForce)) {
+      throw new Error("Crypto orders only support GTC or IOC time in force.");
+    }
+  } else {
+    if (!["day", "gtc", "ioc", "fok"].includes(timeInForce)) {
+      throw new Error("Time in force must be DAY, GTC, IOC, or FOK.");
+    }
   }
 
   return {
