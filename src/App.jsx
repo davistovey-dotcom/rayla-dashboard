@@ -1574,6 +1574,48 @@ function getLeverageMultiplierValue(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+// Returns a 0-100 y-percentage for an entry price overlay on a live chart,
+// or null if the price falls outside the visible range.
+// bars must be an array of { high, low } OHLC objects (same structure as extractVisibleChartBars output).
+function computeEntryOverlayYPct(bars, entryPrice) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  const prices = bars.flatMap((b) => [Number(b.high), Number(b.low)]).filter(Number.isFinite);
+  if (!prices.length) return null;
+  const rawMin = Math.min(...prices);
+  const rawMax = Math.max(...prices);
+  const range = rawMax - rawMin || 1;
+  const pad = range * 0.15; // approximate TradingView auto-fit padding
+  const displayMin = rawMin - pad;
+  const displayMax = rawMax + pad;
+  const yPct = 100 * (1 - (entryPrice - displayMin) / (displayMax - displayMin));
+  if (yPct < 4 || yPct > 94) return null; // outside visible range — skip
+  return yPct;
+}
+
+// Renders the entry price overlay line + label over a TradingViewLiveChart container.
+// Parent container must have position: relative and overflow: hidden.
+function ChartEntryOverlay({ yPct, entryPrice }) {
+  if (yPct == null) return null;
+  return (
+    <div style={{ position: "absolute", left: 0, right: 0, top: `${yPct}%`, pointerEvents: "none", zIndex: 10 }}>
+      <div style={{
+        position: "absolute", left: 0, right: 0, height: 1,
+        background: "repeating-linear-gradient(90deg, rgba(124,196,255,0.55) 0, rgba(124,196,255,0.55) 5px, transparent 5px, transparent 11px)",
+      }} />
+      <div style={{
+        position: "absolute", right: 6, top: -11,
+        padding: "2px 6px", borderRadius: 4,
+        background: "rgba(10,14,20,0.88)", border: "1px solid rgba(124,196,255,0.38)",
+        fontSize: 10, fontWeight: 700, color: "#7CC4FF",
+        whiteSpace: "nowrap", letterSpacing: "0.3px",
+      }}>
+        Avg Entry · {formatCurrency(entryPrice)}
+      </div>
+    </div>
+  );
+}
+
 function getAvailableLeverageOptions(multiplier) {
   const normalizedMax = Math.max(1, Math.floor(Number(multiplier) || 1));
   const values = [1];
@@ -5659,7 +5701,7 @@ function PerformanceDashboard({
 
   const dashboardEquityPoints = useMemo(
     () => normalizeChartSeriesToStrictAscending(
-      filterEquityCurvePointsByRange(buildLoggedEquityCurvePoints(ft), chartRange)
+      addSingleTradeEquityBaseline(filterEquityCurvePointsByRange(buildLoggedEquityCurvePoints(ft), chartRange))
     ),
     [ft, chartRange]
   );
@@ -6591,6 +6633,37 @@ function buildLoggedEquityCurvePoints(trades, startingEquity = 10000) {
       trade: item.trade || null,
     };
   });
+}
+
+function addSingleTradeEquityBaseline(points, startingEquity = 10000) {
+  const normalizedPoints = Array.isArray(points) ? points.filter(Boolean) : [];
+  if (normalizedPoints.length !== 1) return normalizedPoints;
+
+  const point = normalizedPoints[0];
+  const pointTimeMs = Number.isFinite(Number(point?.timeMs))
+    ? Number(point.timeMs)
+    : Date.parse(String(point?.time || ""));
+  if (!Number.isFinite(pointTimeMs)) return normalizedPoints;
+
+  const baselineTimeMs = pointTimeMs - 1000;
+  return [
+    {
+      time: new Date(baselineTimeMs).toISOString(),
+      timeMs: baselineTimeMs,
+      value: Number(startingEquity),
+      equity: Number(startingEquity),
+      changeFromStart: 0,
+      tradeId: null,
+      tradeIds: [],
+      source: "baseline",
+      pnl: 0,
+      timestampField: "baseline",
+      tradeCount: 0,
+      trade: null,
+      isDisplayBaseline: true,
+    },
+    point,
+  ];
 }
 
 function normalizeChartSeriesToStrictAscending(points) {
@@ -12923,12 +12996,31 @@ useEffect(() => {
   const homeMarketSelectedDisplayPrice = homeMarketSelectedItem
     ? (getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price ?? homeMarketSelectedItem.priceValue ?? null)
     : null;
+  const homeMarketSelectedAssetKey = homeMarketSelectedItem
+    ? normalizeAssetId(homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)
+    : "";
+  const homeMarketLiveChartKey = homeMarketSelectedItem
+    ? [
+      "home-live",
+      homeMarketSelectedAssetKey || homeMarketSelectedItem.id,
+      homeMarketSelectedItem.tvSymbol || "",
+      homeMarketSelectedItem.type || "stock",
+      homeMarketChartRange,
+    ].join(":")
+    : "home-live-empty";
   const homeSymbolsKey = marketItems.map(item => item.id).sort().join("|");
   const homeMarketChartSelection = getHomeChartSelectionConfig(homeMarketChartRange);
+  const homeMarketChartSymbolKey = homeMarketChart
+    ? normalizeAssetId(homeMarketChart.symbol, homeMarketSelectedItem?.type, homeMarketSelectedItem?.tvSymbol)
+    : "";
   const homeMarketChartMatchesSelection = Boolean(
     homeMarketChart
     && homeMarketSelectedItem
-    && homeMarketChart.symbol === homeMarketSelectedItem.id
+    && (
+      homeMarketChart.symbol === homeMarketSelectedItem.id
+      || brokerSymbolsMatch(homeMarketChart.symbol, homeMarketSelectedItem.id)
+      || (homeMarketChartSymbolKey && homeMarketChartSymbolKey === homeMarketSelectedAssetKey)
+    )
     && homeMarketChart.selectionValue === homeMarketChartRange
   );
   const homeMarketVisibleBars = useMemo(
@@ -13097,7 +13189,7 @@ useEffect(() => {
       ? setInterval(fetchHomeChart, (isCryptoHomeAsset || isMarketCurrentlyOpen()) ? 10000 : 30000)
       : null;
     return () => { isCancelled = true; if (interval) clearInterval(interval); };
-  }, [homePortfolioViewMode, homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketChartRange, homeMarketAssetExplicitlyUnsupported]);
+  }, [homePortfolioViewMode, homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketSelectedItem?.tvSymbol, homeMarketChartRange, homeMarketAssetExplicitlyUnsupported]);
 
   useEffect(() => {
     if (
@@ -16319,6 +16411,7 @@ function buildSimulationAssetFromPosition(position) {
     if (!nextAsset) return;
     setHomePortfolioViewMode("asset");
     setHomeMarketActiveAsset(nextAsset);
+    setSelectedMarketId(nextAsset.id);
     setHomeMarketSearchResults([]);
     setNewSymbol("");
   }
@@ -19051,12 +19144,21 @@ return (
                           <div>This asset is not currently tradable through your connected broker.</div>
                         </div>
                       ) : homeMarketSelectedItem ? (
-                        <TradingViewLiveChart
-                          asset={homeMarketSelectedItem}
-                          height="100%"
-                          interval={homeMarketChartRange}
-                          chartType="home_live"
-                        />
+                        <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
+                          <TradingViewLiveChart
+                            key={homeMarketLiveChartKey}
+                            asset={homeMarketSelectedItem}
+                            height="100%"
+                            interval={homeMarketChartRange}
+                            chartType="home_live"
+                          />
+                          {(() => {
+                            const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
+                            const entryPrice = Number(homeEntryPos?.avgEntryPrice);
+                            const yPct = computeEntryOverlayYPct(homeMarketVisibleBars, entryPrice);
+                            return <ChartEntryOverlay yPct={yPct} entryPrice={entryPrice} />;
+                          })()}
+                        </div>
                       ) : null}
                     </>
                   ) : (
@@ -20378,42 +20480,10 @@ return (
                                         chartType="trades_live"
                                       />
                                     )}
-                                    {(() => {
-                                      if (!tradeChartMatchingPosition) return null;
-                                      const entryPrice = Number(tradeChartMatchingPosition.avgEntryPrice);
-                                      if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
-                                      const bars = tradeVisibleBars || [];
-                                      if (bars.length < 2) return null;
-                                      const prices = bars.flatMap((b) => [Number(b.high), Number(b.low)]).filter(Number.isFinite);
-                                      if (!prices.length) return null;
-                                      const rawMin = Math.min(...prices);
-                                      const rawMax = Math.max(...prices);
-                                      const range = rawMax - rawMin || 1;
-                                      const pad = range * 0.15;
-                                      const displayMin = rawMin - pad;
-                                      const displayMax = rawMax + pad;
-                                      const yPct = 100 * (1 - (entryPrice - displayMin) / (displayMax - displayMin));
-                                      if (yPct < 4 || yPct > 94) return null;
-                                      return (
-                                        <div
-                                          style={{ position: "absolute", left: 0, right: 0, top: `${yPct}%`, pointerEvents: "none", zIndex: 10 }}
-                                        >
-                                          <div style={{
-                                            position: "absolute", left: 0, right: 0, height: 1,
-                                            background: "repeating-linear-gradient(90deg, rgba(124,196,255,0.55) 0, rgba(124,196,255,0.55) 5px, transparent 5px, transparent 11px)",
-                                          }} />
-                                          <div style={{
-                                            position: "absolute", right: 6, top: -11,
-                                            padding: "2px 6px", borderRadius: 4,
-                                            background: "rgba(10,14,20,0.88)", border: "1px solid rgba(124,196,255,0.38)",
-                                            fontSize: 10, fontWeight: 700, color: "#7CC4FF",
-                                            whiteSpace: "nowrap", letterSpacing: "0.3px",
-                                          }}>
-                                            Avg Entry · {formatCurrency(entryPrice)}
-                                          </div>
-                                        </div>
-                                      );
-                                    })()}
+                                    <ChartEntryOverlay
+                                      yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
+                                      entryPrice={Number(tradeChartMatchingPosition?.avgEntryPrice)}
+                                    />
                                   </div>
                                 </div>
                               )}
