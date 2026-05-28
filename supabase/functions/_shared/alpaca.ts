@@ -125,7 +125,9 @@ export function normalizeAlpacaAccount(account: any, isPaper = false) {
     portfolioValue: Number(account?.portfolio_value ?? 0),
     equity: Number(account?.equity ?? 0),
     lastEquity: Number(account?.last_equity ?? 0),
-    dayPnl: Number(account?.equity ?? 0) - Number(account?.last_equity ?? account?.equity ?? 0),
+    // dayPnl intentionally omitted: equity - last_equity includes deposits/withdrawals
+    // and would misrepresent trading performance. Day P&L is computed client-side
+    // from position-level unrealized_intraday_pl which is deposit-immune.
     isPaper,
     currency: account?.currency || "USD",
     raw: account,
@@ -143,6 +145,10 @@ export function normalizeAlpacaPosition(position: any) {
     avgEntryPrice: Number(position?.avg_entry_price ?? 0),
     unrealizedPl: Number(position?.unrealized_pl ?? 0),
     unrealizedPlpc: Number(position?.unrealized_plpc ?? 0),
+    // Intraday P&L: price movement only since today's open, deposit-immune.
+    // Alpaca sets this to the gain/loss vs. the position's intraday baseline price.
+    unrealizedIntradayPl: Number(position?.unrealized_intraday_pl ?? 0),
+    unrealizedIntradayPlpc: Number(position?.unrealized_intraday_plpc ?? 0),
     currentPrice: Number(position?.current_price ?? 0),
     changeToday: Number(position?.change_today ?? 0),
     exchange: position?.exchange || null,

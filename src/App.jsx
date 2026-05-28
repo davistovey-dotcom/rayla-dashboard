@@ -4934,6 +4934,7 @@ function PortfolioTrendCard({
   emptyMessage = "Portfolio trend will appear once broker and market history are available.",
   statusLabel = null,
   chartHeight = 340,
+  useAccountValue = true,
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -4948,14 +4949,14 @@ function PortfolioTrendCard({
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
   const totalUnrealizedPl = allPositions.reduce((s, p) => s + (Number(p?.unrealizedPl) || 0), 0);
-  const totalCostBasis = allPositions.reduce((s, p) => {
-    const qty = Math.abs(Number(p?.qty));
-    const avg = Number(p?.avgEntryPrice);
-    if (qty > 0 && avg > 0) return s + qty * avg;
-    return s + Math.max(0, (Number(p?.marketValue) || 0) - (Number(p?.unrealizedPl) || 0));
-  }, 0);
+  const totalCostBasis = getOpenPositionCostBasis(allPositions);
   const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
-  const portfolioValue = Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || totalMarketValue || 0;
+  const accountPortfolioValue = useAccountValue
+    ? Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity)
+    : null;
+  const portfolioValue = Number.isFinite(accountPortfolioValue) && accountPortfolioValue > 0
+    ? accountPortfolioValue
+    : totalMarketValue || 0;
   const portfolioBenchmarkChart = useMemo(
     () => buildPortfolioBenchmarkChart(
       tradePortfolioCharts,
@@ -4965,27 +4966,12 @@ function PortfolioTrendCard({
     ),
     [tradePortfolioCharts, allPositions, myRequestedStartMs, nowMs]
   );
-  const portfolioLinePoints = useMemo(() => {
-    const bars = extractChartBars(portfolioBenchmarkChart)
-      .map((bar) => {
-        const timeMs = getChartBarTimeMs(bar);
-        const value = Number(bar?.close);
-        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0
-          ? { timeMs, value }
-          : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.timeMs - b.timeMs);
-    const baseline = Number(bars[0]?.value);
-    if (!Number.isFinite(baseline) || baseline <= 0) return [];
-    return bars.map((point) => ({
-      timeMs: point.timeMs,
-      value: ((point.value - baseline) / baseline) * 100,
-      rawValue: point.value,
-    }));
-  }, [portfolioBenchmarkChart]);
-  const portfolioReturnPct = portfolioLinePoints[portfolioLinePoints.length - 1]?.value ?? unrealizedPct;
-  const portfolioPositive = Number(portfolioReturnPct ?? totalUnrealizedPl) >= 0;
+  const portfolioLinePoints = useMemo(
+    () => buildOpenPositionReturnLinePoints(portfolioBenchmarkChart, totalCostBasis),
+    [portfolioBenchmarkChart, totalCostBasis]
+  );
+  const portfolioReturnPct = unrealizedPct;
+  const portfolioPositive = totalUnrealizedPl >= 0;
   const performancePortfolioLines = [
     portfolioLinePoints.length >= 2
       ? { symbol: "Portfolio", color: "#7CC4FF", points: portfolioLinePoints }
@@ -5113,12 +5099,7 @@ function PortfolioPerformancePanel({
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
   const totalUnrealizedPl = allPositions.reduce((s, p) => s + (Number(p?.unrealizedPl) || 0), 0);
-  const totalCostBasis = allPositions.reduce((s, p) => {
-    const qty = Math.abs(Number(p?.qty));
-    const avg = Number(p?.avgEntryPrice);
-    if (qty > 0 && avg > 0) return s + qty * avg;
-    return s + Math.max(0, (Number(p?.marketValue) || 0) - (Number(p?.unrealizedPl) || 0));
-  }, 0);
+  const totalCostBasis = getOpenPositionCostBasis(allPositions);
   const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
   const dayPnL = calculateBrokerDayPnL(allPositions, alpacaAccount);
   const portfolioValue = Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || totalMarketValue || 0;
@@ -5139,27 +5120,12 @@ function PortfolioPerformancePanel({
     ),
     [tradePortfolioCharts, allPositions, myRequestedStartMs, nowMs]
   );
-  const portfolioLinePoints = useMemo(() => {
-    const bars = extractChartBars(portfolioBenchmarkChart)
-      .map((bar) => {
-        const timeMs = getChartBarTimeMs(bar);
-        const value = Number(bar?.close);
-        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0
-          ? { timeMs, value }
-          : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.timeMs - b.timeMs);
-    const baseline = Number(bars[0]?.value);
-    if (!Number.isFinite(baseline) || baseline <= 0) return [];
-    return bars.map((point) => ({
-      timeMs: point.timeMs,
-      value: ((point.value - baseline) / baseline) * 100,
-      rawValue: point.value,
-    }));
-  }, [portfolioBenchmarkChart]);
-  const portfolioReturnPct = portfolioLinePoints[portfolioLinePoints.length - 1]?.value ?? unrealizedPct;
-  const portfolioPositive = Number(portfolioReturnPct ?? totalUnrealizedPl) >= 0;
+  const portfolioLinePoints = useMemo(
+    () => buildOpenPositionReturnLinePoints(portfolioBenchmarkChart, totalCostBasis),
+    [portfolioBenchmarkChart, totalCostBasis]
+  );
+  const portfolioReturnPct = unrealizedPct;
+  const portfolioPositive = totalUnrealizedPl >= 0;
   const portfolioLineColor = "#7CC4FF";
   const performancePortfolioLines = [
     portfolioLinePoints.length >= 2
@@ -5351,14 +5317,9 @@ function HoldingsPerformancePanel({
   const summary = useMemo(() => {
     const totalValue = holdings.reduce((sum, p) => sum + (Number(p?.marketValue) || 0), 0);
     const totalUnrealizedPl = holdings.reduce((sum, p) => sum + (Number(p?.unrealizedPl) || 0), 0);
-    const totalCostBasis = holdings.reduce((sum, p) => {
-      const qty = Math.abs(Number(p?.qty));
-      const avg = Number(p?.avgEntryPrice);
-      if (qty > 0 && avg > 0) return sum + qty * avg;
-      return sum + Math.max(0, (Number(p?.marketValue) || 0) - (Number(p?.unrealizedPl) || 0));
-    }, 0);
+    const totalCostBasis = getOpenPositionCostBasis(holdings);
     const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
-    return { totalValue, totalUnrealizedPl, unrealizedPct };
+    return { totalValue, totalUnrealizedPl, totalCostBasis, unrealizedPct };
   }, [holdings]);
 
   const sortedHoldings = useMemo(
@@ -5370,22 +5331,13 @@ function HoldingsPerformancePanel({
     () => buildPortfolioBenchmarkChart(tradePortfolioCharts, holdings, myRequestedStartMs, nowMs),
     [tradePortfolioCharts, holdings, myRequestedStartMs, nowMs]
   );
-  const holdingsLinePoints = useMemo(() => {
-    const bars = extractChartBars(holdingsBenchmarkChart)
-      .map((bar) => {
-        const timeMs = getChartBarTimeMs(bar);
-        const value = Number(bar?.close);
-        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0 ? { timeMs, value } : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.timeMs - b.timeMs);
-    const baseline = Number(bars[0]?.value);
-    if (!Number.isFinite(baseline) || baseline <= 0) return [];
-    return bars.map((pt) => ({ timeMs: pt.timeMs, value: ((pt.value - baseline) / baseline) * 100, rawValue: pt.value }));
-  }, [holdingsBenchmarkChart]);
+  const holdingsLinePoints = useMemo(
+    () => buildOpenPositionReturnLinePoints(holdingsBenchmarkChart, summary.totalCostBasis),
+    [holdingsBenchmarkChart, summary.totalCostBasis]
+  );
 
-  const holdingsReturnPct = holdingsLinePoints[holdingsLinePoints.length - 1]?.value ?? summary.unrealizedPct;
-  const holdingsPositive = Number(holdingsReturnPct ?? summary.totalUnrealizedPl) >= 0;
+  const holdingsReturnPct = summary.unrealizedPct;
+  const holdingsPositive = summary.totalUnrealizedPl >= 0;
   const holdingsLineColor = "#7CC4FF";
   const chartLines = holdingsLinePoints.length >= 2
     ? [{ symbol: "Holdings", color: holdingsLineColor, points: holdingsLinePoints }]
@@ -5630,6 +5582,7 @@ function PerformanceDashboard({
   onRunAnalysis,
   onOpenRaylaPopup,
   alpacaPositions,
+  activeBrokerPositions = [],
   performanceLiveAppliedSelection,
   setPerformanceLiveAppliedSelection,
   tradeAppliedSelection,
@@ -5948,16 +5901,17 @@ function PerformanceDashboard({
 
       {!isSimulationSource ? (
         <PortfolioTrendCard
-          positions={alpacaPositions}
+          positions={activeBrokerPositions}
           alpacaAccount={alpacaAccount}
           tradePortfolioCharts={tradePortfolioCharts}
           tradePortfolioChartsLoading={tradePortfolioChartsLoading}
           portfolioRange={performancePortfolioRange}
           setPortfolioRange={setPerformancePortfolioRange}
-          title="Portfolio"
-          subtitle="Live broker portfolio trend beside your active-trade analytics."
-          emptyMessage="Portfolio trend will appear once broker positions and market history are available."
-          statusLabel={alpacaConnected ? "Live" : null}
+          title="Open Active Positions"
+          subtitle="Open active trades only. The equity curve above stays tied to closed logged trades."
+          emptyMessage="Active-position trend will appear once open active trades and market history are available."
+          statusLabel={alpacaConnected ? "Open" : null}
+          useAccountValue={false}
         />
       ) : null}
 
@@ -6883,6 +6837,40 @@ function buildPortfolioBenchmarkChart(positionCharts, positions, visibleStart, v
     rangeMode: "portfolio_benchmark",
     bars,
   };
+}
+
+function getOpenPositionCostBasis(positions) {
+  return (Array.isArray(positions) ? positions : []).reduce((sum, position) => {
+    const qty = Math.abs(Number(position?.qty));
+    const avg = Number(position?.avgEntryPrice);
+    if (Number.isFinite(qty) && Number.isFinite(avg) && qty > 0 && avg > 0) {
+      return sum + qty * avg;
+    }
+
+    const marketValue = Number(position?.marketValue);
+    const unrealized = Number(position?.unrealizedPl);
+    const inferredBasis = marketValue - unrealized;
+    return Number.isFinite(inferredBasis) && inferredBasis > 0 ? sum + inferredBasis : sum;
+  }, 0);
+}
+
+function buildOpenPositionReturnLinePoints(chart, costBasis) {
+  const basis = Number(costBasis);
+  if (!Number.isFinite(basis) || basis <= 0) return [];
+
+  return extractChartBars(chart)
+    .map((bar) => {
+      const timeMs = getChartBarTimeMs(bar);
+      const value = Number(bar?.close);
+      if (!Number.isFinite(timeMs) || !Number.isFinite(value) || value <= 0) return null;
+      return {
+        timeMs,
+        value: ((value - basis) / basis) * 100,
+        rawValue: value,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.timeMs - b.timeMs);
 }
 
 function calculateSeriesDrawdown(points) {
@@ -7836,14 +7824,30 @@ function getCapabilityBadgeStyle(tone = "blue") {
   };
 }
 
-function calculateBrokerDayPnL(positions, account = null) {
-  const brokerEquity = Number(account?.equity ?? account?.portfolioValue ?? account?.raw?.equity ?? account?.raw?.portfolio_value);
-  const brokerLastEquity = Number(account?.lastEquity ?? account?.raw?.last_equity);
-  if (Number.isFinite(brokerEquity) && Number.isFinite(brokerLastEquity)) {
-    return brokerEquity - brokerLastEquity;
+function calculateBrokerDayPnL(positions, _account = null) {
+  // IMPORTANT: We do NOT use (equity - last_equity) here because that formula
+  // includes deposits and withdrawals, which are not trading performance.
+  // A $10k deposit would otherwise appear as $10k profit.
+  //
+  // Instead we use position-level data from Alpaca, which reflects price
+  // movement only and is deposit-immune.
+
+  const positionList = positions || [];
+
+  // Primary: unrealized_intraday_pl — Alpaca's own per-position day P&L,
+  // based on price movement since the position's intraday baseline.
+  const intradayTotal = positionList.reduce((sum, p) => {
+    const pl = Number(p?.unrealizedIntradayPl ?? 0);
+    return sum + (Number.isFinite(pl) ? pl : 0);
+  }, 0);
+  // If any position has a non-zero intraday value, this path is reliable.
+  if (positionList.some((p) => Number(p?.unrealizedIntradayPl ?? 0) !== 0)) {
+    return intradayTotal;
   }
 
-  return (positions || []).reduce((total, position) => {
+  // Fallback: derive from changeToday percentage (also price-based, deposit-safe).
+  // Used when unrealized_intraday_pl is not yet populated (e.g. pre-market, paper).
+  const changeTodayTotal = positionList.reduce((total, position) => {
     const marketValue = Number(position?.marketValue ?? 0);
     const changeToday = Number(position?.changeToday ?? 0);
     if (!Number.isFinite(marketValue) || !Number.isFinite(changeToday) || changeToday <= -1) return total;
@@ -7851,6 +7855,13 @@ function calculateBrokerDayPnL(positions, account = null) {
     if (!Number.isFinite(previousValue)) return total;
     return total + (marketValue - previousValue);
   }, 0);
+  if (positionList.some((p) => Number(p?.changeToday ?? 0) !== 0)) {
+    return changeTodayTotal;
+  }
+
+  // No price-movement data available — return null so callers display "--"
+  // rather than showing a misleading $0 or equity-change figure.
+  return null;
 }
 
 function BrokerTradeLogCard({ trades }) {
@@ -9548,7 +9559,12 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
           { label: "Avg Loss", value: avgLoss > 0 ? formatJournalPnl(-avgLoss) : "—", sub: "avg loser", color: "#f87171" },
           ...(profitFactor !== null ? [{ label: "Profit Factor", value: profitFactor.toFixed(2), sub: ">1.0 profitable", color: profitFactor >= 1 ? "#4ade80" : "#f87171" }] : []),
           ...(bestTrade ? [{ label: "Best Trade", value: formatJournalPnl(journalPnlValue(bestTrade)), sub: (bestTrade.asset || "").toUpperCase(), color: "#4ade80" }] : []),
-          ...(worstTrade ? [{ label: "Worst Trade", value: formatJournalPnl(journalPnlValue(worstTrade)), sub: (worstTrade.asset || "").toUpperCase(), color: "#f87171" }] : []),
+          ...(worstTrade ? [{
+            label: "Worst Trade",
+            value: formatJournalPnl(journalPnlValue(worstTrade)),
+            sub: (worstTrade.asset || "").toUpperCase(),
+            color: journalPnlValue(worstTrade) < 0 ? "#f87171" : journalPnlValue(worstTrade) > 0 ? "#4ade80" : "#94a3b8",
+          }] : []),
         ].map(item => (
           <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px" }}>
             <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
@@ -9941,17 +9957,23 @@ useEffect(() => {
   }
 }, [watchlist]);
 
-  const marketItems = watchlist.map((item) => {
+  const marketItems = watchlist.reduce((items, item) => {
+    const id = normalizeAssetId(item?.id || item?.symbol, item?.type, item?.tvSymbol);
+    if (!id || items.some((existing) => normalizeAssetId(existing.id, existing.type, existing.tvSymbol) === id)) {
+      return items;
+    }
     const fallbackPrice = Number(String(item.fallbackPrice).replace(/,/g, ""));
     const fallbackChange = Number(String(item.fallbackChange).replace("%", ""));
-    return {
+    items.push({
       ...item,
+      id,
       priceValue: fallbackPrice,
       changeValue: fallbackChange,
       priceText: formatCompactPrice(fallbackPrice),
       changeText: formatPctChange(fallbackChange),
-    };
-  });
+    });
+    return items;
+  }, []);
 
   const [homeMarketQuotes, setHomeMarketQuotes] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem("rayla-market-quotes") || "{}"); }
@@ -13057,25 +13079,11 @@ useEffect(() => {
     ),
     [homePortfolioCharts, homePortfolioPositions, homePortfolioRequestedStartMs, homePortfolioNowMs]
   );
-  const homePortfolioLinePoints = useMemo(() => {
-    const bars = extractChartBars(homePortfolioBenchmarkChart)
-      .map((bar) => {
-        const timeMs = getChartBarTimeMs(bar);
-        const value = Number(bar?.close);
-        return Number.isFinite(timeMs) && Number.isFinite(value) && value > 0
-          ? { timeMs, value }
-          : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.timeMs - b.timeMs);
-    const baseline = Number(bars[0]?.value);
-    if (!Number.isFinite(baseline) || baseline <= 0) return [];
-    return bars.map((point) => ({
-      timeMs: point.timeMs,
-      value: ((point.value - baseline) / baseline) * 100,
-      rawValue: point.value,
-    }));
-  }, [homePortfolioBenchmarkChart]);
+  const homePortfolioCostBasis = getOpenPositionCostBasis(homePortfolioPositions);
+  const homePortfolioLinePoints = useMemo(
+    () => buildOpenPositionReturnLinePoints(homePortfolioBenchmarkChart, homePortfolioCostBasis),
+    [homePortfolioBenchmarkChart, homePortfolioCostBasis]
+  );
   const homePortfolioMarketValue = homePortfolioPositions.reduce(
     (sum, position) => sum + (Number(position?.marketValue) || 0),
     0
@@ -20313,7 +20321,7 @@ return (
                                   return {
                                     symbol: pos.symbol,
                                     color: palette[pi % palette.length],
-                                    qty: Number(pos?.qty) || 0,
+                                    qty: Math.abs(Number(pos?.qty) || 0),
                                     rawBars: filteredBars,
                                     points,
                                     entryTimeMs,
@@ -20372,11 +20380,11 @@ return (
                                       totals.push({ timeMs, value: totalValue });
                                     }
                                   });
-                                  const baseline = Number(totals[0]?.value);
-                                  if (!Number.isFinite(baseline) || baseline <= 0) return [];
+                                  const openPositionBasis = getOpenPositionCostBasis(tradePortfolioDisplayedPositions);
+                                  if (!Number.isFinite(openPositionBasis) || openPositionBasis <= 0) return [];
                                   return totals.map((point) => ({
                                     timeMs: point.timeMs,
-                                    value: ((point.value - baseline) / baseline) * 100,
+                                    value: ((point.value - openPositionBasis) / openPositionBasis) * 100,
                                     rawValue: point.value,
                                   }));
                                 })();
@@ -23093,6 +23101,7 @@ return (
                   benchmarkLoading={equityBenchmarkLoading}
                   alpacaConnected={Boolean(alpacaAccount)}
                   alpacaAccount={alpacaAccount}
+                  activeBrokerPositions={activeBrokerPositions}
                   coachSummary={coachSummaries[performanceAnalysisSource] || null}
                   showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
                   onRunAnalysis={() => runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource)}
