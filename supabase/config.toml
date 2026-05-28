@@ -83,6 +83,11 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/stripe-create-portal-session/index.ts"
 
+[functions.redeem-discount-code]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/redeem-discount-code/index.ts"
+
 [functions.stripe-webhook]
 enabled = true
 verify_jwt = false

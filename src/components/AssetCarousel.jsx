@@ -7,61 +7,24 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
   const isLockedRef = useRef(false);
   const lastTimeRef = useRef(null);
   const cardRefs = useRef(new Map());
-  const singleSetWidthRef = useRef(0);
-  const secondCopyFirstRef = useRef(null);
   const isSmoothScrollingRef = useRef(false);
+  const visibleAssets = assets.filter((asset, index, list) => {
+    const id = String(asset?.id || asset?.symbol || "").trim();
+    return id && list.findIndex((candidate) => String(candidate?.id || candidate?.symbol || "").trim() === id) === index;
+  });
 
-  const tripled = assets.length > 0 ? [...assets, ...assets, ...assets] : [];
-
-  // Set initial scroll position to start of middle copy
+  // Reset to the start when the asset list changes.
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !assets.length) return;
+    if (!container || !visibleAssets.length) return;
     const frameId = requestAnimationFrame(() => {
-      const el = secondCopyFirstRef.current;
-      if (el) {
-        singleSetWidthRef.current = el.offsetLeft;
-        container.scrollLeft = el.offsetLeft;
-      }
+      container.scrollLeft = 0;
     });
     return () => cancelAnimationFrame(frameId);
-  }, [assets.length]);
+  }, [visibleAssets.length]);
 
-  // rAF loop: advance scroll + wraparound
+  // Keep the ticker as a plain horizontal list so assets do not duplicate.
   useEffect(() => {
-    const tick = (timestamp) => {
-      const container = containerRef.current;
-      if (!container) {
-        animationFrameRef.current = requestAnimationFrame(tick);
-        return;
-      }
-
-      if (!isHoveredRef.current && !isLockedRef.current && !isSmoothScrollingRef.current) {
-        if (lastTimeRef.current !== null) {
-          const delta = timestamp - lastTimeRef.current;
-          container.scrollLeft += (40 / 1000) * delta;
-        }
-        lastTimeRef.current = timestamp;
-      } else {
-        lastTimeRef.current = null;
-      }
-
-      // Wraparound — skip during smooth scroll to avoid position fights
-      if (!isSmoothScrollingRef.current) {
-        const w = singleSetWidthRef.current;
-        if (w > 0) {
-          if (container.scrollLeft < w * 0.25) {
-            container.scrollLeft += w;
-          } else if (container.scrollLeft > w * 1.75) {
-            container.scrollLeft -= w;
-          }
-        }
-      }
-
-      animationFrameRef.current = requestAnimationFrame(tick);
-    };
-
-    animationFrameRef.current = requestAnimationFrame(tick);
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
@@ -111,7 +74,7 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
   }, 500);
 }, [onSelect]);
 
-  if (!assets.length) return null;
+  if (!visibleAssets.length) return null;
 
   return (
     <div
@@ -136,11 +99,7 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
           WebkitOverflowScrolling: "touch",
         }}
       >
-        {tripled.map((asset, i) => {
-          const copyIndex = Math.floor(i / assets.length);
-          const posInCopy = i % assets.length;
-          const isMiddleCopy = copyIndex === 1;
-          const isFirstOfMiddle = isMiddleCopy && posInCopy === 0;
+        {visibleAssets.map((asset, i) => {
           const isSelected = asset.id === selectedId;
           const change = Number(asset.change);
           const price = Number(asset.price);
@@ -148,10 +107,9 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
 
           return (
             <div
-              key={`${copyIndex}-${asset.id}-${posInCopy}`}
+              key={asset.id}
               ref={(el) => {
-                if (isFirstOfMiddle) secondCopyFirstRef.current = el;
-                if (isMiddleCopy && el) cardRefs.current.set(asset.id, el);
+                if (el) cardRefs.current.set(asset.id, el);
               }}
               onClick={(e) => {
                 e.stopPropagation();

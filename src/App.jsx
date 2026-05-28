@@ -18,7 +18,6 @@ const POSITION_TYPE_DEFINITIONS = [
   { value: "day_trade", label: "Day Trade", category: "trading", defaultTimeHorizon: "intraday" },
   { value: "swing_trade", label: "Swing Trade", category: "trading", defaultTimeHorizon: "days_to_weeks" },
   { value: "investment", label: "Investment", category: "holding", defaultTimeHorizon: "months_to_years" },
-  { value: "crypto_hold", label: "Crypto Hold", category: "holding", defaultTimeHorizon: "long_term" },
 ];
 const POSITION_TYPE_OPTIONS = POSITION_TYPE_DEFINITIONS.map(({ value, label }) => ({ value, label }));
 const PERFORMANCE_POSITION_FILTER_OPTIONS = [
@@ -59,6 +58,7 @@ function resolveTickerAlias(raw) {
 
 function normalizePositionType(value, fallback = DEFAULT_POSITION_TYPE) {
   const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "crypto_hold") return "investment";
   return POSITION_TYPE_DEFINITIONS.some((item) => item.value === normalized)
     ? normalized
     : fallback;
@@ -69,15 +69,49 @@ function getPositionTypeMeta(value) {
     || POSITION_TYPE_DEFINITIONS[0];
 }
 
-function normalizePositionIntentKey(symbol) {
-  const normalizedAsset = normalizePickAssetSymbol(symbol);
-  return String(normalizedAsset || symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
 function getPositionIntentOverride(symbol, overrides = {}) {
-  const canonicalKey = normalizePositionIntentKey(symbol);
+  const canonicalKey = getPositionIntentKey(symbol);
   const legacyKey = String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
   return overrides[canonicalKey] || overrides[legacyKey] || {};
+}
+
+function getPositionIntentMigrationStorageKey(userId) {
+  return userId ? `${POSITION_INTENT_STORAGE_KEY}:synced:${userId}` : `${POSITION_INTENT_STORAGE_KEY}:synced`;
+}
+
+function mapPositionTradeTypeRows(rows = []) {
+  return (rows || []).reduce((acc, row) => {
+    const key = getPositionIntentKey(row?.symbol);
+    if (!key) return acc;
+    const tradeType = normalizePositionType(row?.trade_type || row?.tradeType);
+    const meta = getPositionTypeMeta(tradeType);
+    acc[key] = {
+      symbol: String(row?.symbol || key).trim().toUpperCase(),
+      tradeType,
+      trade_type: tradeType,
+      positionType: tradeType,
+      position_type: tradeType,
+      timeHorizon: meta.defaultTimeHorizon,
+      time_horizon: meta.defaultTimeHorizon,
+    };
+    return acc;
+  }, {});
+}
+
+function readLegacyPositionIntentOverrides() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(POSITION_INTENT_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// Canonical key helper: strips /USD suffix for crypto, strips non-alphanumeric.
+// Used in every write, read, and lookup path so keys always match.
+function getPositionIntentKey(symbol) {
+  const normalizedAsset = normalizePickAssetSymbol(symbol);
+  return String(normalizedAsset || symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 function inferPositionTypeFromSymbol() {
@@ -85,7 +119,7 @@ function inferPositionTypeFromSymbol() {
 }
 
 function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITION_TYPE) {
-  const positionType = normalizePositionType(record.positionType || record.position_type || record.positionIntent?.type, fallbackType);
+  const positionType = normalizePositionType(record.tradeType || record.trade_type || record.positionType || record.position_type || record.positionIntent?.type, fallbackType);
   const meta = getPositionTypeMeta(positionType);
   const entryReason = String(record.entryReason || record.entry_reason || record.positionIntent?.entryReason || "").trim();
   const timeHorizon = String(record.timeHorizon || record.time_horizon || record.positionIntent?.timeHorizon || meta.defaultTimeHorizon || "").trim();
@@ -93,6 +127,8 @@ function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITIO
   return {
     positionType,
     position_type: positionType,
+    tradeType: positionType,
+    trade_type: positionType,
     positionTypeLabel: meta.label,
     positionCategory: meta.category,
     isLongTermHolding: meta.category === "holding",
@@ -119,7 +155,7 @@ function matchesPerformancePositionFilter(record, filterValue = "all") {
     return positionType === "day_trade" || positionType === "swing_trade";
   }
   if (filterValue === "holdings") {
-    return positionType === "investment" || positionType === "crypto_hold";
+    return positionType === "investment";
   }
   return true;
 }
@@ -579,6 +615,7 @@ const MANUAL_TRADE_FORM_DEFAULT = {
   setup: "",
   session: "",
   marketCondition: "",
+  tradeType: DEFAULT_POSITION_TYPE,
   direction: "",
   result: "",
   exitPrice: "",
@@ -1130,6 +1167,8 @@ function normalizeSimulationTradeForPerformance(trade) {
     source_label: trade?.source_label || "Live Simulation",
     positionType: positionIntent.positionType,
     position_type: positionIntent.positionType,
+    tradeType: positionIntent.positionType,
+    trade_type: positionIntent.positionType,
     positionTypeLabel: positionIntent.positionTypeLabel,
     positionCategory: positionIntent.positionCategory,
     positionIntent: positionIntent.positionIntent,
@@ -1289,6 +1328,7 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
         qty: trade.qtyValue,
         price: trade.fillPrice,
         filledAt: trade.filled_at,
+        tradeType: normalizePositionType(trade.trade_type || trade.tradeType),
       });
       lotsBySymbol.set(symbol, existingLots);
       return;
@@ -1303,6 +1343,7 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
     let realizedPnl = 0;
     let matchedQty = 0;
     let matchedCost = 0;
+    let matchedTradeType = null;
     let earliestEntryTime = null;
 
     while (remainingQty > 0 && existingLots.length) {
@@ -1311,6 +1352,7 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
       realizedPnl += (trade.fillPrice - currentLot.price) * matchedLotQty;
       matchedQty += matchedLotQty;
       matchedCost += currentLot.price * matchedLotQty;
+      matchedTradeType ||= currentLot.tradeType;
       if (!earliestEntryTime && currentLot.filledAt) earliestEntryTime = currentLot.filledAt;
       currentLot.qty -= matchedLotQty;
       remainingQty -= matchedLotQty;
@@ -1325,6 +1367,7 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
 
     if (matchedQty > 0 && remainingQty === 0) {
       const avgEntryPrice = matchedCost / matchedQty;
+      const closedTradeType = normalizePositionType(matchedTradeType || trade.trade_type || trade.tradeType || DEFAULT_POSITION_TYPE);
       normalizedClosedTrades.push({
         id: `broker:${trade.broker_provider}:${trade.broker_order_id}`,
         asset: formatBrokerPerformanceAssetSymbol(trade.symbol),
@@ -1338,6 +1381,10 @@ function buildNormalizedBrokerTrades(brokerTradeLog) {
         exit_time: trade.filled_at,
         result_r: null,
         pnl_value: realizedPnl,
+        tradeType: closedTradeType,
+        trade_type: closedTradeType,
+        positionType: closedTradeType,
+        position_type: closedTradeType,
         source: trade.source === "rayla" ? "rayla" : "broker",
         source_label: trade.source === "rayla" ? "Placed in Rayla" : "Imported from Alpaca",
         broker_provider: trade.broker_provider,
@@ -2510,40 +2557,21 @@ function resolveTradePortfolioEntryTime(position, brokerTradeLog) {
 }
 
 function buildBrokerPositionCurveBars({ position, rawBars, entryTimeMs, requestedStartMs, nowMs }) {
-  const normalizedBars = (Array.isArray(rawBars) ? rawBars : [])
-    .map((bar) => {
-      const barTime = new Date(bar?.time || bar?.t || 0).getTime();
-      const close = Number(bar?.close);
-      return Number.isFinite(barTime) && Number.isFinite(close) && close > 0
-        ? { ...bar, barTime, close }
-        : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.barTime - b.barTime);
-  const clippedStartMs = Math.max(
-    Number.isFinite(requestedStartMs) ? requestedStartMs : normalizedBars[0]?.barTime ?? 0,
-    Number.isFinite(entryTimeMs) ? entryTimeMs : Number.isFinite(requestedStartMs) ? requestedStartMs : 0
-  );
-  const filteredBars = normalizedBars.filter((bar) => bar.barTime >= clippedStartMs);
+  // Always snapshot-only: historical market bars compared to today's cost basis produce
+  // artificially large negative returns for long-held positions (e.g. -80% for BTC held since 2022).
+  // Two synthetic points give exactly cost-basis (0%) → current return, matching the header P/L%.
   const avgEntryPrice = Number(position?.avgEntryPrice);
   const currentPrice = Number(position?.currentPrice);
   const currentTimeMs = Number.isFinite(nowMs) ? nowMs : Date.now();
   const pointsByTime = new Map();
 
-  filteredBars.forEach((bar) => {
-    pointsByTime.set(bar.barTime, { ...bar, source: "market_bar" });
-  });
-
-  if (Number.isFinite(entryTimeMs) && Number.isFinite(avgEntryPrice) && avgEntryPrice > 0) {
-    const firstPointTime = Math.min(...[...pointsByTime.keys()].filter(Number.isFinite));
-    if (!Number.isFinite(firstPointTime) || firstPointTime >= entryTimeMs) {
-      pointsByTime.set(entryTimeMs, {
-        time: new Date(entryTimeMs).toISOString(),
-        barTime: entryTimeMs,
-        close: avgEntryPrice,
-        source: "broker_avg_entry",
-      });
-    }
+  if (Number.isFinite(avgEntryPrice) && avgEntryPrice > 0) {
+    pointsByTime.set(currentTimeMs - 1, {
+      time: new Date(currentTimeMs - 1).toISOString(),
+      barTime: currentTimeMs - 1,
+      close: avgEntryPrice,
+      source: "broker_avg_entry_snapshot",
+    });
   }
 
   if (Number.isFinite(currentPrice) && currentPrice > 0) {
@@ -3134,6 +3162,8 @@ function normalizeTradeForRaylaContext(trade, sourceType) {
     sourceType: sourceMeta.sourceType,
     sourceLabel: sourceMeta.sourceLabel,
     positionType: positionIntent.positionType,
+    tradeType: positionIntent.positionType,
+    trade_type: positionIntent.positionType,
     positionTypeLabel: positionIntent.positionTypeLabel,
     positionCategory: positionIntent.positionCategory,
     positionIntent: positionIntent.positionIntent,
@@ -5343,6 +5373,17 @@ function HoldingsPerformancePanel({
     ? [{ symbol: "Holdings", color: holdingsLineColor, points: holdingsLinePoints }]
     : [];
 
+  console.log("[HoldingsPerformancePanel]", {
+    positionCount: holdings.length,
+    includedSymbols: holdings.map((p) => p.symbol),
+    portfolioRange,
+    costBasis: summary.totalCostBasis,
+    marketValue: summary.totalValue,
+    unrealizedPL: summary.totalUnrealizedPl,
+    returnPct: holdingsReturnPct,
+    chartPoints: holdingsLinePoints.length,
+  });
+
   if (!alpacaConnected) {
     return (
       <div className="emptyState">
@@ -5355,7 +5396,7 @@ function HoldingsPerformancePanel({
     return (
       <div className="emptyState">
         <div className="emptyStateTitle">No long-term holdings selected yet</div>
-        <div className="emptyStateCopy">Classify a broker position as Investment or Crypto Hold in Live Trades and Rayla will move it into this view.</div>
+        <div className="emptyStateCopy">Classify a broker position as Investment in Live Trades and Rayla will move it into this view.</div>
       </div>
     );
   }
@@ -5421,14 +5462,19 @@ function HoldingsPerformancePanel({
           {tradePortfolioChartsLoading ? (
             <div className="performancePortfolioHomeEmpty">Loading holdings chart...</div>
           ) : chartLines.length ? (
-            <InteractiveLineChart
-              className="tradePortfolioEngineChart performancePortfolioLineChart"
-              height={420}
-              lines={chartLines}
-              valueFormatter={(v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--"}
-              emptyMessage="Holdings trend will appear once broker and market history are available."
-              showLastPointPulse
-            />
+            <>
+              <InteractiveLineChart
+                className="tradePortfolioEngineChart performancePortfolioLineChart"
+                height={420}
+                lines={chartLines}
+                valueFormatter={(v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--"}
+                emptyMessage="Holdings trend will appear once broker and market history are available."
+                showLastPointPulse
+              />
+              <div style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 6 }}>
+                Live broker snapshot only — history builds as Rayla records more snapshots.
+              </div>
+            </>
           ) : (
             <div className="performancePortfolioHomeEmpty">
               Holdings trend will appear once broker and market history are available.
@@ -5553,6 +5599,251 @@ function HoldingsPerformancePanel({
         title="Long-Term Holdings"
         scopeLabel="holdings"
         positions={sortedHoldings}
+        totalValue={summary.totalValue}
+        totalUnrealizedPl={summary.totalUnrealizedPl}
+        unrealizedPct={summary.unrealizedPct}
+      />
+    </div>
+  );
+}
+
+function ActiveTradesPerformancePanel({
+  positions = [],
+  alpacaConnected = false,
+  tradePortfolioCharts = {},
+  tradePortfolioChartsLoading = false,
+  portfolioRange = "MAX",
+  setPortfolioRange = () => {},
+}) {
+  const trades = Array.isArray(positions) ? positions : [];
+  const rangeOptions = [
+    { value: "1D", label: "1D" },
+    { value: "1W", label: "1W" },
+    { value: "1M", label: "1M" },
+    { value: "3M", label: "3M" },
+    { value: "MAX", label: "ALL" },
+  ];
+  const nowMs = Date.now();
+
+  const summary = useMemo(() => {
+    const totalValue = trades.reduce((sum, p) => sum + (Number(p?.marketValue) || 0), 0);
+    const totalUnrealizedPl = trades.reduce((sum, p) => sum + (Number(p?.unrealizedPl) || 0), 0);
+    const totalCostBasis = getOpenPositionCostBasis(trades);
+    const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
+    return { totalValue, totalUnrealizedPl, totalCostBasis, unrealizedPct };
+  }, [trades]);
+
+  const sortedTrades = useMemo(
+    () => [...trades].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0)),
+    [trades]
+  );
+
+  const benchmarkChart = useMemo(
+    () => buildPortfolioBenchmarkChart(tradePortfolioCharts, trades, null, nowMs),
+    [tradePortfolioCharts, trades, nowMs]
+  );
+  const linePoints = useMemo(
+    () => buildOpenPositionReturnLinePoints(benchmarkChart, summary.totalCostBasis),
+    [benchmarkChart, summary.totalCostBasis]
+  );
+
+  const returnPct = summary.unrealizedPct;
+  const plPos = summary.totalUnrealizedPl >= 0;
+  const lineColor = "#a78bfa";
+  const chartLines = linePoints.length >= 2
+    ? [{ symbol: "Active Trades", color: lineColor, points: linePoints }]
+    : [];
+
+  console.log("[ActiveTradesPerformancePanel]", {
+    positionCount: trades.length,
+    includedSymbols: trades.map((p) => p.symbol),
+    costBasis: summary.totalCostBasis,
+    marketValue: summary.totalValue,
+    unrealizedPL: summary.totalUnrealizedPl,
+    returnPct,
+    chartPoints: linePoints.length,
+    portfolioRange,
+  });
+
+  if (!alpacaConnected) {
+    return (
+      <div className="emptyState">
+        <div className="emptyStateTitle">Connect your broker to view active trades</div>
+        <div className="emptyStateCopy">Open day-trade and swing-trade positions will appear here with unrealized P/L once broker data is available.</div>
+      </div>
+    );
+  }
+  if (!trades.length) {
+    return (
+      <div className="emptyState">
+        <div className="emptyStateTitle">No active trades open</div>
+        <div className="emptyStateCopy">Classify a broker position as Active Trade or Swing Trade in Live Trades and it will appear here.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Hero + Chart ─────────────────────────────────────────── */}
+      <div style={{
+        background: "radial-gradient(ellipse at 18% 0%, rgba(167,139,250,0.08) 0%, transparent 58%), rgba(8,16,26,0.95)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 18,
+        overflow: "hidden",
+        padding: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}>
+        <div className="performancePortfolioHomeHeader">
+          <div>
+            <div className="performancePortfolioHomeTitle">Active Trades</div>
+            <div className="performancePortfolioHomeValue">
+              {summary.totalValue > 0 ? formatCurrency(summary.totalValue) : "--"}
+            </div>
+            <div className="performancePortfolioHomeSubcopy">
+              Open day-trade and swing-trade broker positions.
+            </div>
+          </div>
+          <div className="performancePortfolioHomeMetric" style={{ color: plPos ? "#4ade80" : "#f87171" }}>
+            <div>
+              <span>{plPos ? "+" : ""}{formatCurrency(summary.totalUnrealizedPl)}</span>
+              {Number.isFinite(returnPct) ? (
+                <span style={{ marginLeft: 6 }}>{formatPerformancePercent(returnPct)}</span>
+              ) : null}
+            </div>
+            <div className="performancePortfolioHomeMetricMeta">
+              {rangeOptions.find((o) => o.value === portfolioRange)?.label || "ALL"} · {trades.length} position{trades.length === 1 ? "" : "s"} · {formatCurrency(summary.totalValue)}
+            </div>
+          </div>
+        </div>
+
+        <div className="performancePortfolioHomeToolbar">
+          <div className="performancePortfolioRangeGroup">
+            {rangeOptions.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setPortfolioRange(opt.value)}
+                className={portfolioRange === opt.value ? "active" : ""}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="performancePortfolioStatus" style={{ background: "rgba(167,139,250,0.1)", borderColor: "rgba(167,139,250,0.2)", color: "#a78bfa" }}>
+            Active
+          </div>
+        </div>
+
+        <div className="performancePortfolioHomeChart">
+          {tradePortfolioChartsLoading ? (
+            <div className="performancePortfolioHomeEmpty">Loading chart...</div>
+          ) : chartLines.length ? (
+            <>
+              <InteractiveLineChart
+                className="tradePortfolioEngineChart performancePortfolioLineChart"
+                height={420}
+                lines={chartLines}
+                valueFormatter={(v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--"}
+                emptyMessage="Position trend will appear here."
+                showLastPointPulse
+              />
+              <div style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 6 }}>
+                Live broker snapshot only — history builds as Rayla records more snapshots.
+              </div>
+            </>
+          ) : (
+            <div className="performancePortfolioHomeEmpty">
+              Position trend will appear once broker data is available.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Stats strip ─────────────────────────────────────────── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, 1fr)",
+        background: "rgba(8,16,26,0.7)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}>
+        {[
+          { label: "Position Value", value: formatCurrency(summary.totalValue), color: "#e2e8f0" },
+          {
+            label: "Unrealized P/L",
+            value: `${plPos ? "+" : ""}${formatCurrency(summary.totalUnrealizedPl)}`,
+            color: plPos ? "#4ade80" : "#f87171",
+          },
+          {
+            label: "Unrealized %",
+            value: summary.unrealizedPct == null ? "—" : formatPerformancePercent(summary.unrealizedPct),
+            color: plPos ? "#4ade80" : "#f87171",
+          },
+        ].map((m, idx, arr) => (
+          <div key={m.label} style={{ padding: "13px 18px", borderRight: idx < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#334155", marginBottom: 5 }}>
+              {m.label}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Positions list ───────────────────────────────────────── */}
+      <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+          Positions
+        </div>
+        <div>
+          {sortedTrades.map((pos, idx) => {
+            const pl = Number(pos?.unrealizedPl) || 0;
+            const plpc = Number(pos?.unrealizedPlpc);
+            const isEquity = pos.assetClass && pos.assetClass !== "crypto";
+            return (
+              <div
+                key={pos.symbol}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "12px 0",
+                  borderBottom: idx < sortedTrades.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                }}
+              >
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: "#f0f6ff" }}>{pos.symbol}</span>
+                    <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: isEquity ? "#4a7fa8" : "#7c6aad" }}>
+                      {isEquity ? "EQ" : "CR"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#334155", marginTop: 3 }}>
+                    {formatBrokerQuantity(pos.qty)} × {formatCurrency(pos.avgEntryPrice || 0)} · {formatCurrency(pos.marketValue)}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
+                    {pl >= 0 ? "+" : ""}{formatCurrency(pl)}
+                  </div>
+                  <div style={{ fontSize: 11, color: pl >= 0 ? "#6ee7b7" : "#fca5a5", marginTop: 2, opacity: 0.85 }}>
+                    {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <PositionPerformanceInsights
+        title="Active Trades"
+        scopeLabel="active trades"
+        positions={sortedTrades}
         totalValue={summary.totalValue}
         totalUnrealizedPl={summary.totalUnrealizedPl}
         unrealizedPct={summary.unrealizedPct}
@@ -10042,14 +10333,7 @@ useEffect(() => {
   const [alpacaConnectionLoaded, setAlpacaConnectionLoaded] = useState(false);
   const [alpacaAccount, setAlpacaAccount] = useState(null);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
-  const [positionIntentOverrides, setPositionIntentOverrides] = useState(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(POSITION_INTENT_STORAGE_KEY) || "{}");
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  });
+  const [positionIntentOverrides, setPositionIntentOverrides] = useState({});
   const [brokerTradeLog, setBrokerTradeLog] = useState([]);
   const [brokerTradeLogLoading, setBrokerTradeLogLoading] = useState(false);
   const [alpacaOrderSubmitting, setAlpacaOrderSubmitting] = useState(false);
@@ -10091,15 +10375,9 @@ useEffect(() => {
   const [performancePositionFilter, setPerformancePositionFilter] = useState("all");
   const [performancePortfolioRange, setPerformancePortfolioRange] = useState("MAX");
   const [performanceHoldingsRange, setPerformanceHoldingsRange] = useState("MAX");
+  const [performanceActiveTradesRange, setPerformanceActiveTradesRange] = useState("MAX");
   const [tradePendingSelection, setTradePendingSelection] = useState({ mode: "asset", symbols: [] });
   const [tradeAppliedSelection, setTradeAppliedSelection] = useState({ mode: "asset", symbols: [] });
-  useEffect(() => {
-    try {
-      localStorage.setItem(POSITION_INTENT_STORAGE_KEY, JSON.stringify(positionIntentOverrides));
-    } catch {
-      // Position intent labels are optional UI metadata; broker data remains unaffected.
-    }
-  }, [positionIntentOverrides]);
   useEffect(() => {
     setTradePortfolioViewport({ zoom: 1, offset: 1 });
   }, [tradeChartRange, tradeAppliedSelection.mode, tradeAppliedSelection.symbols.join(","), tradePortfolioChartView]);
@@ -10135,6 +10413,7 @@ useEffect(() => {
     takeProfit: "",
     maxLoss: "",
     buyingPowerPercent: "",
+    tradeType: DEFAULT_POSITION_TYPE,
     leverage: "1x",
     planStop: "",
     planTarget: "",
@@ -10298,6 +10577,115 @@ useEffect(() => {
   const [equityBenchmarkChart, setEquityBenchmarkChart] = useState(null);
   const [equityBenchmarkLoading, setEquityBenchmarkLoading] = useState(false);
   const [session, setSession] = useState(null);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setPositionIntentOverrides({});
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function loadPositionTradeTypes() {
+      const { data, error } = await supabase
+        .from("position_trade_types")
+        .select("symbol, trade_type")
+        .eq("user_id", userId)
+        .eq("broker_provider", "alpaca");
+
+      if (cancelled) return;
+      if (error) {
+        console.warn("Could not load synced trade classifications.", error);
+        setPositionIntentOverrides({});
+        return;
+      }
+
+      const mapped = mapPositionTradeTypeRows(data || []);
+      setPositionIntentOverrides(mapped);
+    }
+
+    loadPositionTradeTypes();
+
+    const channel = supabase
+      .channel(`position-trade-types-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "position_trade_types", filter: `user_id=eq.${userId}` },
+        loadPositionTradeTypes
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const migrationKey = getPositionIntentMigrationStorageKey(userId);
+    try {
+      if (localStorage.getItem(migrationKey) === "true") return;
+    } catch {
+      return;
+    }
+
+    const legacyOverrides = readLegacyPositionIntentOverrides();
+    const payload = Object.entries(legacyOverrides)
+      .map(([key, value]) => {
+        const symbol = getPositionIntentKey(value?.symbol || key);
+        if (!symbol) return null;
+        return {
+          user_id: userId,
+          broker_provider: "alpaca",
+          symbol,
+          trade_type: normalizePositionType(value?.tradeType || value?.trade_type || value?.positionType || value?.position_type),
+        };
+      })
+      .filter(Boolean);
+
+    if (!payload.length) {
+      try { localStorage.setItem(migrationKey, "true"); } catch {}
+      return;
+    }
+
+    supabase
+      .from("position_trade_types")
+      .upsert(payload, { onConflict: "user_id,broker_provider,symbol" })
+      .then(({ error }) => {
+        if (error) {
+          console.warn("Could not sync legacy local trade classifications.", error);
+          return;
+        }
+        setPositionIntentOverrides((prev) => ({ ...prev, ...mapPositionTradeTypeRows(payload) }));
+        try { localStorage.setItem(migrationKey, "true"); } catch {}
+      });
+  }, [session?.user?.id]);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || !alpacaPositions.length) return;
+    const payload = Array.from(new Set(alpacaPositions
+      .map((position) => getPositionIntentKey(position?.symbol))
+      .filter(Boolean)))
+      .map((symbol) => ({
+        user_id: userId,
+        broker_provider: "alpaca",
+        symbol,
+        trade_type: DEFAULT_POSITION_TYPE,
+      }));
+
+    if (!payload.length) return;
+
+    supabase
+      .from("position_trade_types")
+      .upsert(payload, {
+        onConflict: "user_id,broker_provider,symbol",
+        ignoreDuplicates: true,
+      })
+      .then(({ error }) => {
+        if (error) console.warn("Could not ensure default position trade classifications.", error);
+      });
+  }, [session?.user?.id, alpacaPositions.map((position) => position?.symbol || "").join("|")]);
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
   const [raylaMode, setRaylaMode] = useState(() => {
@@ -10419,7 +10807,7 @@ useEffect(() => {
   const brokerPositionsWithIntent = useMemo(() => (
     alpacaPositions.map((position) => {
       const override = getPositionIntentOverride(position?.symbol, positionIntentOverrides);
-      const fallbackType = override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol);
+      const fallbackType = override.tradeType || override.trade_type || override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol);
       return {
         ...position,
         ...buildPositionIntentMetadata({ ...position, ...override }, fallbackType),
@@ -10437,25 +10825,60 @@ useEffect(() => {
     () => brokerPositionsWithIntent.filter((position) => !position.isLongTermHolding),
     [brokerPositionsWithIntent]
   );
-  const updateBrokerPositionIntent = (symbol, updates) => {
-    const key = normalizePositionIntentKey(symbol);
-    if (!key) return;
+  const savePositionTradeType = useCallback(async (symbol, tradeType, { showSavedToast = false } = {}) => {
+    const key = getPositionIntentKey(symbol);
+    const userId = session?.user?.id;
+    if (!key || !userId) return;
+    const nextType = normalizePositionType(tradeType);
+    const nextMeta = getPositionTypeMeta(nextType);
+    const nextRecord = {
+      symbol: key,
+      tradeType: nextType,
+      trade_type: nextType,
+      positionType: nextType,
+      position_type: nextType,
+      timeHorizon: nextMeta.defaultTimeHorizon,
+      time_horizon: nextMeta.defaultTimeHorizon,
+    };
+
+    let previousRecord = null;
     setPositionIntentOverrides((prev) => {
-      const previous = prev[key] || {};
-      const nextType = normalizePositionType(updates?.positionType || updates?.position_type || previous.positionType || inferPositionTypeFromSymbol(symbol));
-      const nextMeta = getPositionTypeMeta(nextType);
+      previousRecord = prev[key] || null;
       return {
         ...prev,
         [key]: {
-          ...previous,
-          ...updates,
-          positionType: nextType,
-          position_type: nextType,
-          timeHorizon: updates?.timeHorizon || updates?.time_horizon || previous.timeHorizon || nextMeta.defaultTimeHorizon,
-          time_horizon: updates?.timeHorizon || updates?.time_horizon || previous.time_horizon || nextMeta.defaultTimeHorizon,
+          ...(prev[key] || {}),
+          ...nextRecord,
         },
       };
     });
+
+    const { error } = await supabase
+      .from("position_trade_types")
+      .upsert([{
+        user_id: userId,
+        broker_provider: "alpaca",
+        symbol: key,
+        trade_type: nextType,
+      }], { onConflict: "user_id,broker_provider,symbol" });
+
+    if (error) {
+      console.error("Could not save synced trade classification.", error);
+      setPositionIntentOverrides((prev) => {
+        if (previousRecord) return { ...prev, [key]: previousRecord };
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      showToast(error.message || "Could not save trade type.", "error");
+      return;
+    }
+    if (showSavedToast) showToast("Trade type synced.", "success");
+  }, [session?.user?.id]);
+  const updateBrokerPositionIntent = (symbol, updates) => {
+    const key = getPositionIntentKey(symbol);
+    if (!key) return;
+    savePositionTradeType(symbol, updates?.tradeType || updates?.trade_type || updates?.positionType || updates?.position_type, { showSavedToast: true });
   };
   const normalizePerformanceLiveSelection = (selection) => {
     const validSymbols = Array.from(new Set((selection?.symbols || []).filter((symbol) => tradePortfolioAllSymbols.includes(symbol))));
@@ -12221,6 +12644,7 @@ useEffect(() => {
     }
 
     const currentQty = Number(matchingPosition?.qty ?? 0);
+    const selectedTradeType = normalizePositionType(alpacaOrderForm.tradeType);
     const isAddToPosition = !isPreparedCloseOrder && action === "buy" && matchingPosition?.side === "long" && currentQty > 0;
     const currentAvgEntry = isAddToPosition ? Number(matchingPosition.avgEntryPrice) : null;
     const projectedAvgEntry = (isAddToPosition && Number.isFinite(currentAvgEntry) && currentAvgEntry > 0 && Number.isFinite(estimatedPrice) && estimatedPrice > 0)
@@ -12262,6 +12686,8 @@ useEffect(() => {
       estimatedPrice: isPreparedCloseOrder && !Number.isFinite(estimatedPrice) ? null : estimatedPrice,
       estimatedValue: isPreparedCloseOrder && !Number.isFinite(estimatedValue) ? null : estimatedValue,
       isCloseOrder: isPreparedCloseOrder,
+      tradeType: selectedTradeType,
+      trade_type: selectedTradeType,
       isAddToPosition,
       currentPositionQty: isAddToPosition ? currentQty : null,
       currentAvgEntry,
@@ -12342,10 +12768,25 @@ useEffect(() => {
         setPreparedCloseOrder(null);
       } else {
         setSubmittedCloseOrder(null);
+        await savePositionTradeType(data.order.symbol || pendingAlpacaOrderConfirmation.symbol, pendingAlpacaOrderConfirmation.tradeType);
       }
       showToast(`Order submitted for ${data.order.symbol}.`, "success");
       setPendingAlpacaOrderConfirmation(null);
       await refreshBrokerStateAfterOrder();
+      if (!pendingAlpacaOrderConfirmation.isCloseOrder && data.order.id) {
+        const syncedTradeType = normalizePositionType(pendingAlpacaOrderConfirmation.tradeType);
+        await supabase
+          .from("broker_trade_logs")
+          .update({ trade_type: syncedTradeType })
+          .eq("user_id", session?.user?.id)
+          .eq("broker_provider", "alpaca")
+          .eq("broker_order_id", data.order.id);
+        setBrokerTradeLog((prev) => prev.map((row) => (
+          row?.broker_order_id === data.order.id
+            ? { ...row, trade_type: syncedTradeType, tradeType: syncedTradeType }
+            : row
+        )));
+      }
     } catch (error) {
       showToast(error?.message || "Could not place Alpaca order.", "error");
     } finally {
@@ -13738,6 +14179,7 @@ useEffect(() => {
     const exitPrice = tradeForm.exitPrice ? normalizeManualTradeNumber(tradeForm.exitPrice) : null;
     const exitTimeMs = tradeForm.exitTime ? Date.parse(tradeForm.exitTime) : null;
     const entryTimeMs = Date.parse(tradeForm.entryTime);
+    const tradeType = normalizePositionType(tradeForm.tradeType);
 
     if (!asset || !tradeForm.entryPrice || !tradeForm.size || !tradeForm.entryTime || !tradeForm.result) {
       showToast("Fill out required fields.", "warning");
@@ -13762,6 +14204,7 @@ useEffect(() => {
     const newTrade = {
       user_id: user.id, asset, entry_price: entryPrice,
       entry_size: entrySize, entry_time: tradeForm.entryTime, setup: tradeForm.setup || "",
+      trade_type: tradeType,
       session: tradeForm.session || "", direction: String(tradeForm.direction || "").trim().toLowerCase(), result_r: resultR,
       exit_price: tradeForm.exitPrice ? exitPrice : null, exit_time: tradeForm.exitTime || null,
       notes: tradeForm.notes?.trim() || null,
@@ -19292,7 +19735,7 @@ return (
                                 </div>
                               </>
                             ) : (
-                              <div className="homeUtilityMuted">Classify a broker position as Investment or Crypto Hold to track it here.</div>
+                              <div className="homeUtilityMuted">Classify a broker position as Investment to track it here.</div>
                             )}
                           </section>
 
@@ -19702,6 +20145,14 @@ return (
                             {pendingAlpacaOrderConfirmation.isCloseOrder ? "Market close" : getAlpacaOrderTypeLabel(pendingAlpacaOrderConfirmation.type)}
                           </div>
                         </div>
+                        {!pendingAlpacaOrderConfirmation.isCloseOrder && (
+                          <div>
+                            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Trade Type</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                              {getPositionTypeMeta(pendingAlpacaOrderConfirmation.tradeType).label}
+                            </div>
+                          </div>
+                        )}
                         {!pendingAlpacaOrderConfirmation.isCloseOrder && (pendingAlpacaOrderConfirmation.type === "limit" || pendingAlpacaOrderConfirmation.type === "stop_limit") && (
                           <div>
                             <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Limit Price</div>
@@ -20908,6 +21359,35 @@ return (
                                   Cover Short
                                 </button>
                               )}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Trade Type</div>
+                            </div>
+                            <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {POSITION_TYPE_OPTIONS.map((item) => {
+                                const active = normalizePositionType(alpacaOrderForm.tradeType) === item.value;
+                                return (
+                                  <button
+                                    key={item.value}
+                                    type="button"
+                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, tradeType: item.value }))}
+                                    style={{
+                                      padding: "8px 12px",
+                                      borderRadius: 8,
+                                      border: `1px solid ${active ? "rgba(124,196,255,0.38)" : "rgba(255,255,255,0.08)"}`,
+                                      background: active ? "rgba(124,196,255,0.14)" : "rgba(255,255,255,0.03)",
+                                      color: active ? "#dbeafe" : "#94a3b8",
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {item.label}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                           <div>
@@ -23035,7 +23515,7 @@ return (
                   ? "Portfolio shows your live open positions and investing overview."
                   : performancePositionFilter === "holdings"
                     ? "Long-Term Holdings shows open broker positions classified as investments."
-                    : "Active Trades shows the closed-trade equity curve with realized trade analytics."}
+                    : "Active Trades shows open day-trade and swing-trade positions with unrealized P/L."}
               </div>
                 {isLiveTradesPerformance && performancePositionFilter === "portfolio" ? (
                 <PortfolioPerformancePanel
@@ -23073,6 +23553,15 @@ return (
                   brokerTradeLog={brokerTradeLog}
                   portfolioRange={performanceHoldingsRange}
                   setPortfolioRange={setPerformanceHoldingsRange}
+                />
+              ) : isLiveTradesPerformance && performancePositionFilter === "all" ? (
+                <ActiveTradesPerformancePanel
+                  positions={activeBrokerPositions}
+                  alpacaConnected={Boolean(alpacaAccount)}
+                  tradePortfolioCharts={tradePortfolioCharts}
+                  tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+                  portfolioRange={performanceActiveTradesRange}
+                  setPortfolioRange={setPerformanceActiveTradesRange}
                 />
               ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>

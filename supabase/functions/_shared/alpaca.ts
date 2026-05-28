@@ -251,7 +251,13 @@ export function normalizeAlpacaNewsItem(article: any) {
   };
 }
 
-export function buildBrokerTradeLogRow(userId: string, provider: string, order: any, source = "alpaca_import", existingSource?: string | null) {
+function normalizeRaylaTradeType(value: any) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "crypto_hold") return "investment";
+  return ["day_trade", "swing_trade", "investment"].includes(normalized) ? normalized : "day_trade";
+}
+
+export function buildBrokerTradeLogRow(userId: string, provider: string, order: any, source = "alpaca_import", existingSource?: string | null, existingTradeType?: string | null) {
   const normalizedOrder = normalizeAlpacaOrder(order);
   return {
     user_id: userId,
@@ -265,6 +271,7 @@ export function buildBrokerTradeLogRow(userId: string, provider: string, order: 
     time_in_force: normalizedOrder.timeInForce,
     status: normalizedOrder.status || "new",
     source: existingSource === "rayla" ? "rayla" : source,
+    trade_type: normalizeRaylaTradeType(existingTradeType || normalizedOrder.raw?.trade_type),
     submitted_at: normalizedOrder.submittedAt,
     filled_at: normalizedOrder.filledAt,
     raw_payload: normalizedOrder.raw || {},
@@ -278,7 +285,7 @@ export async function upsertBrokerTradeLogs(supabase: any, userId: string, provi
   const orderIds = validOrders.map((order) => order.id);
   const { data: existingRows, error: existingError } = await supabase
     .from("broker_trade_logs")
-    .select("broker_order_id, source")
+    .select("broker_order_id, source, trade_type")
     .eq("user_id", userId)
     .eq("broker_provider", provider)
     .in("broker_order_id", orderIds);
@@ -288,7 +295,7 @@ export async function upsertBrokerTradeLogs(supabase: any, userId: string, provi
   }
 
   const existingByOrderId = new Map(
-    (existingRows || []).map((row: any) => [row.broker_order_id, row.source])
+    (existingRows || []).map((row: any) => [row.broker_order_id, row])
   );
 
   const payload = validOrders.map((order) =>
@@ -297,7 +304,8 @@ export async function upsertBrokerTradeLogs(supabase: any, userId: string, provi
       provider,
       order,
       source,
-      existingByOrderId.get(order.id) || null
+      existingByOrderId.get(order.id)?.source || null,
+      existingByOrderId.get(order.id)?.trade_type || null
     )
   );
 

@@ -20,6 +20,11 @@ function getCalmAuthErrorMessage(error, fallback) {
   return message;
 }
 
+function getAuthRedirectUrl() {
+  if (typeof window === "undefined") return undefined;
+  return `${window.location.origin}/`;
+}
+
 const TUTORIAL_SLIDES = [
   { title: "Welcome to Rayla", desc: "Rayla is your AI-powered trading companion. Track your trades, find your edge, and get real-time market intelligence — all in one place." },
   { title: "Log your trades", desc: "Head to the Trades tab to log every entry. Track your asset, setup, session, and result in R. The more you log, the smarter your coach gets." },
@@ -79,8 +84,10 @@ export default function Login({ onLogin }) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
   const [screen, setScreen] = useState("splash");
   const [authMessage, setAuthMessage] = useState(null);
+  const [verificationEmail, setVerificationEmail] = useState("");
 
   async function handleSignUp() {
   if (loading) return;
@@ -100,20 +107,109 @@ export default function Login({ onLogin }) {
     return;
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailRedirectTo = getAuthRedirectUrl();
+
   setLoading(true);
-  const { error } = await supabase.auth.signUp({ email, password });
-  setLoading(false);
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password,
+      options: {
+        emailRedirectTo,
+      },
+    });
 
-  if (error) {
+    console.info("[auth] signup result", {
+      email: normalizedEmail,
+      hasUser: Boolean(data?.user),
+      hasSession: Boolean(data?.session),
+      emailConfirmedAt: data?.user?.email_confirmed_at || null,
+      confirmationSentAt: data?.user?.confirmation_sent_at || null,
+      identitiesCount: Array.isArray(data?.user?.identities) ? data.user.identities.length : null,
+      emailRedirectTo,
+    });
+
+    if (error) {
+      console.error("[auth] signup failed", error);
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not create account.") });
+      return;
+    }
+
+    if (!data?.user) {
+      setAuthMessage({ type: "error", text: "Could not create account. Supabase did not return a user." });
+      return;
+    }
+
+    const identities = Array.isArray(data.user.identities) ? data.user.identities : null;
+    if (identities && identities.length === 0) {
+      setVerificationEmail(normalizedEmail);
+      setAuthMessage({
+        type: "error",
+        text: "That email may already have a Rayla account. Try signing in, or resend the verification email below.",
+      });
+      setPassword("");
+      setConfirmPassword("");
+      return;
+    }
+
+    setVerificationEmail(normalizedEmail);
+    if (data.session) {
+      setAuthMessage({ type: "success", text: "Account created. You are signed in." });
+    } else {
+      setAuthMessage({ type: "success", text: "Verification email sent. Check your inbox and spam folder." });
+    }
+
+    setEmail(normalizedEmail);
+    setIsCreatingAccount(false);
+    setPassword("");
+    setConfirmPassword("");
+  } catch (error) {
+    console.error("[auth] signup threw", error);
     setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not create account.") });
-    return;
+  } finally {
+    setLoading(false);
   }
-
-  setAuthMessage({ type: "success", text: "Account created. Check your email to verify your account." });
-  setIsCreatingAccount(false);
-  setPassword("");
-  setConfirmPassword("");
 }
+
+  async function handleResendVerification() {
+    const targetEmail = (verificationEmail || email).trim().toLowerCase();
+    if (!targetEmail || resendingVerification) return;
+
+    const emailRedirectTo = getAuthRedirectUrl();
+    setResendingVerification(true);
+    setAuthMessage(null);
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: targetEmail,
+        options: {
+          emailRedirectTo,
+        },
+      });
+
+      console.info("[auth] resend signup verification", {
+        email: targetEmail,
+        emailRedirectTo,
+        ok: !error,
+      });
+
+      if (error) {
+        console.error("[auth] resend verification failed", error);
+        setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not resend verification email.") });
+        return;
+      }
+
+      setVerificationEmail(targetEmail);
+      setAuthMessage({ type: "success", text: "Verification email sent. Check your inbox and spam folder." });
+    } catch (error) {
+      console.error("[auth] resend verification threw", error);
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not resend verification email.") });
+    } finally {
+      setResendingVerification(false);
+    }
+  }
 
   async function handleSignIn() {
     if (loading) return;
@@ -197,6 +293,15 @@ export default function Login({ onLogin }) {
             <div className={`authMessage ${authMessage.type === "success" ? "success" : "error"}`}>
               {authMessage.text}
             </div>
+          ) : null}
+          {verificationEmail && !isCreatingAccount ? (
+            <button
+              className="authSecondaryButton"
+              onClick={handleResendVerification}
+              disabled={loading || resendingVerification}
+            >
+              {resendingVerification ? "Sending verification..." : "Resend verification email"}
+            </button>
           ) : null}
         </div>
       </div>
