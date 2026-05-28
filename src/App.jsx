@@ -18307,7 +18307,7 @@ return (
         {activeTab !== "home" && activeTab !== "trades" && activeTab !== "simulation" && (
           <div className="topbar mobilePageHeader">
             <div>
-              <p className="mobilePageTitle" style={{ margin: 0, color: "#f8fbff", fontSize: 20, fontWeight: 900, lineHeight: 1.1, letterSpacing: 0 }}>
+              <p className="raylaPageTitle mobilePageTitle">
                 {activeTab === "profile" ? "Profile & Settings" : NAV_TABS.find((tab) => tab.id === activeTab)?.label || "Rayla"}
               </p>
             </div>
@@ -18376,13 +18376,6 @@ return (
               .homePageTitle {
                 grid-area: title;
                 align-self: center;
-                margin: 0;
-                font-size: 13px;
-                font-weight: 700;
-                letter-spacing: 0.06em;
-                text-transform: uppercase;
-                color: #cbd8e6;
-                line-height: 1.2;
               }
               .homeMarketStatusBar {
                 grid-area: status;
@@ -19014,7 +19007,7 @@ return (
               )}
               {/* RIGHT: Live Market */}
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
-                  <div className="homePageTitle mobilePageTitle">Home</div>
+                  <div className="raylaPageTitle homePageTitle mobilePageTitle">Home</div>
                 {/* Label */}
                 <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   {homePortfolioViewMode === "asset" ? "Live Market" : "Portfolio View"}
@@ -19465,11 +19458,7 @@ return (
                   margin-bottom: 18px;
                 }
                 .tradePageTitle {
-                  color: #f8fbff;
-                  font-size: 20px;
-                  font-weight: 900;
-                  line-height: 1.1;
-                  letter-spacing: 0;
+                  /* typography via .raylaPageTitle */
                 }
                 .tradePageSubtitle {
                   color: #8ea0b6;
@@ -19632,7 +19621,7 @@ return (
             <div className="span12">
               <div className="tradePageHeader mobilePageHeader">
                 <div>
-                  <div className="tradePageTitle mobilePageTitle">Live Trades</div>
+                  <div className="raylaPageTitle tradePageTitle mobilePageTitle">Live Trades</div>
                 </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
@@ -21324,7 +21313,7 @@ return (
           <div className="mainGrid">
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
-                <div className="mobilePageTitle" style={{ color: "#f8fbff", fontSize: 20, fontWeight: 900, lineHeight: 1.1, letterSpacing: 0 }}>Simulation</div>
+                <div className="raylaPageTitle mobilePageTitle">Simulation</div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
                   onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
