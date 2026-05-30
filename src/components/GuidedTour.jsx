@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 const PAD = 10;
 const POPUP_W = 340;
-const POPUP_H_EST = 240; // conservative estimate for positioning math
+const POPUP_H_EST = 240;
 const POPUP_MARGIN = 14;
 
 function getTargetRect(tourId) {
@@ -10,7 +11,6 @@ function getTargetRect(tourId) {
   const el = document.querySelector(`[data-tour-id="${tourId}"]`);
   if (!el) return null;
   const r = el.getBoundingClientRect();
-  // Guard against display:contents or zero-size elements
   if (r.width === 0 && r.height === 0) return null;
   return r;
 }
@@ -29,7 +29,6 @@ export default function GuidedTour({ steps = [], onDone }) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState(null);
 
-  // Stable refs — never trigger effect re-runs
   const timerRef = useRef(null);
   const skipForIndexRef = useRef(-1);
   const onDoneRef = useRef(onDone);
@@ -39,13 +38,12 @@ export default function GuidedTour({ steps = [], onDone }) {
 
   const step = steps[index] || null;
 
-  // Add body class so CSS can lower mobileNav z-index below the tour overlay
+  // Body class so CSS can lower mobileNav below the tour overlay
   useEffect(() => {
     document.body.classList.add("tour-active");
     return () => document.body.classList.remove("tour-active");
   }, []);
 
-  // Cancel any pending auto-skip timer
   const cancelSkip = useCallback(() => {
     skipForIndexRef.current = -1;
     if (timerRef.current) {
@@ -76,8 +74,6 @@ export default function GuidedTour({ steps = [], onDone }) {
     }
   }, [cancelSkip]);
 
-  // Measure target element after each step change, giving scroll time to settle.
-  // If the element isn't found, auto-skip exactly one step.
   useEffect(() => {
     if (!step) return;
     scrollIntoViewIfNeeded(step.tourId);
@@ -110,14 +106,12 @@ export default function GuidedTour({ steps = [], onDone }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, step?.tourId]);
 
-  // Re-measure on resize
   useEffect(() => {
     const handle = () => setRect(getTargetRect(step?.tourId));
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
   }, [step?.tourId]);
 
-  // Escape closes the tour
   useEffect(() => {
     const handle = (e) => { if (e.key === "Escape") onDoneRef.current(); };
     document.addEventListener("keydown", handle);
@@ -131,7 +125,6 @@ export default function GuidedTour({ steps = [], onDone }) {
   const isMobileVp = vw <= 480;
   const popupWidth = Math.min(POPUP_W, vw - 32);
 
-  // Spotlight overlay via box-shadow on the highlight frame
   const highlight = rect ? {
     position: "fixed",
     top: rect.top - PAD,
@@ -141,26 +134,22 @@ export default function GuidedTour({ steps = [], onDone }) {
     borderRadius: 14,
     border: "2px solid rgba(124,196,255,0.65)",
     boxShadow: "0 0 0 9999px rgba(0,0,0,0.72)",
-    zIndex: 9991,
-    pointerEvents: "none",
+    zIndex: 2147483644,
+    pointerEvents: "none", // let clicks pass through the spotlight to the overlay
   } : null;
 
   const dimStyle = !rect ? {
     position: "fixed",
     inset: 0,
     background: "rgba(0,0,0,0.72)",
-    zIndex: 9990,
+    zIndex: 2147483643,
   } : null;
 
-  // Popup positioning strategy:
-  // - Mobile (≤ 480px): always bottom-center so buttons are always reachable
-  // - iPad/desktop: adjacent to target, above/below, with viewport clamping
   const topSafe = POPUP_MARGIN;
   const bottomSafe = POPUP_MARGIN;
 
   let popupTop;
   if (isMobileVp) {
-    // Bottom of viewport with safe margin — overlay covers mobileNav so this is fully visible
     popupTop = clamp(vh - POPUP_H_EST - bottomSafe, topSafe, vh - POPUP_H_EST - bottomSafe);
   } else if (rect) {
     const spaceBelow = vh - (rect.bottom + PAD + POPUP_MARGIN);
@@ -179,27 +168,37 @@ export default function GuidedTour({ steps = [], onDone }) {
 
   const isLast = index === steps.length - 1;
 
-  return (
+  // Render via portal directly at document.body — this guarantees the overlay
+  // and popup are outside any parent stacking context (transform, will-change,
+  // isolation) that could cap their effective z-index below app UI elements.
+  const content = (
     <>
-      {/* Click-outside blocker — clicking the dark area closes the tour */}
+      {/* Full-screen overlay — blocks all pointer events to underlying UI */}
       <div
-        style={{ position: "fixed", inset: 0, zIndex: 9990, cursor: "default", ...(dimStyle || {}) }}
-        onClick={(e) => { e.stopPropagation(); onDoneRef.current(); }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 2147483643,
+          cursor: "default",
+          pointerEvents: "all",
+          ...(dimStyle || {}),
+        }}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
+        onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
       />
 
-      {/* Spotlight frame — box-shadow darkens everything outside the target */}
+      {/* Spotlight frame — visual only, passes pointer events to overlay */}
       {highlight && <div style={highlight} />}
 
-      {/* Popup */}
+      {/* Popup — sits above overlay, captures all pointer events */}
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           position: "fixed",
           top: popupTop,
           left: "50%",
           transform: "translateX(-50%)",
           width: popupWidth,
-          zIndex: 9992,
+          zIndex: 2147483645,
           background: "#0c1526",
           border: "1px solid rgba(124,196,255,0.22)",
           borderRadius: 16,
@@ -207,6 +206,8 @@ export default function GuidedTour({ steps = [], onDone }) {
           boxShadow: "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)",
           pointerEvents: "all",
         }}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+        onTouchEnd={(e) => { e.stopPropagation(); }}
       >
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -215,7 +216,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           </div>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onDoneRef.current(); }}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
             aria-label="Close walkthrough"
             style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "2px 4px", borderRadius: 4 }}
           >
@@ -238,7 +239,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           {index > 0 && (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); goPrev(index); }}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); goPrev(index); }}
               style={{
                 padding: "7px 16px",
                 borderRadius: 8,
@@ -255,7 +256,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           )}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); goNext(index); }}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); goNext(index); }}
             style={{
               padding: "7px 20px",
               borderRadius: 8,
@@ -274,4 +275,6 @@ export default function GuidedTour({ steps = [], onDone }) {
       </div>
     </>
   );
+
+  return createPortal(content, document.body);
 }
