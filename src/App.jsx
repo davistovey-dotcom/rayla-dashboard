@@ -11120,6 +11120,7 @@ useEffect(() => {
     };
 
     const handleNativeMobileNav = (event) => {
+      if (document.body.classList.contains("tour-active")) return;
       const point = event.changedTouches?.[0] || event.touches?.[0] || event;
       const tabId = getMobileNavTabFromPoint(Number(point.clientX), Number(point.clientY))
         || event.target?.closest?.("[data-mobile-nav-tab]")?.dataset?.mobileNavTab;
@@ -19164,6 +19165,7 @@ async function handleDeleteAccount() {
 }
 
 function handleMobileNavSelect(tabId) {
+  console.log(`[nav-click] tab=${tabId}`);
   setActiveTab(tabId);
   window.scrollTo({ top: 0, behavior: "auto" });
 }
@@ -20428,12 +20430,14 @@ return (
               )}
               {/* RIGHT: Live Market */}
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
-                  <div className="raylaPageTitle homePageTitle mobilePageTitle">Home</div>
-                {isBeginnerMode && (
-                  <button type="button" onClick={() => setActiveTour("home")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, margin: "4px 20px 0", display: "inline-block", flexShrink: 0 }}>
-                    Feeling lost? Click here.
-                  </button>
-                )}
+                <div style={{ padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
+                  <div className="raylaPageTitle homePageTitle mobilePageTitle" style={{ padding: 0 }}>Home</div>
+                  {isBeginnerMode && (
+                    <button type="button" onClick={() => setActiveTour("home")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, display: "inline-block", flexShrink: 0 }}>
+                      Feeling lost? Click here.
+                    </button>
+                  )}
+                </div>
                 {/* Label */}
                 <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   {homePortfolioViewMode === "asset" ? "Live Market" : "Portfolio View"}
