@@ -38,10 +38,36 @@ export default function GuidedTour({ steps = [], onDone }) {
 
   const step = steps[index] || null;
 
-  // Body class so CSS can lower mobileNav below the tour overlay
+  // Block ALL pointer/touch/click events on non-tour elements at the document
+  // capture phase — fires before any element's handler, before React's delegation,
+  // before z-index is consulted. Works regardless of position:fixed, stacking
+  // contexts, or CSS pointer-events inheritance quirks on iOS Safari.
   useEffect(() => {
     document.body.classList.add("tour-active");
-    return () => document.body.classList.remove("tour-active");
+
+    const blockNonTour = (e) => {
+      if (e.target?.closest?.("[data-tour-portal]")) return;
+      e.stopImmediatePropagation();
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const opts = { capture: true, passive: false };
+    document.addEventListener("touchstart", blockNonTour, opts);
+    document.addEventListener("touchend", blockNonTour, opts);
+    document.addEventListener("touchmove", blockNonTour, opts);
+    document.addEventListener("pointerdown", blockNonTour, opts);
+    document.addEventListener("pointerup", blockNonTour, opts);
+    document.addEventListener("click", blockNonTour, { capture: true });
+
+    return () => {
+      document.body.classList.remove("tour-active");
+      document.removeEventListener("touchstart", blockNonTour, { capture: true });
+      document.removeEventListener("touchend", blockNonTour, { capture: true });
+      document.removeEventListener("touchmove", blockNonTour, { capture: true });
+      document.removeEventListener("pointerdown", blockNonTour, { capture: true });
+      document.removeEventListener("pointerup", blockNonTour, { capture: true });
+      document.removeEventListener("click", blockNonTour, { capture: true });
+    };
   }, []);
 
   const cancelSkip = useCallback(() => {
@@ -173,9 +199,9 @@ export default function GuidedTour({ steps = [], onDone }) {
   // isolation) that could cap their effective z-index below app UI elements.
   const content = (
     <>
-      {/* Full-screen overlay — pointer-events on #root handles app blocking;
-          this div provides the visual dim and catches any residual events */}
+      {/* Full-screen overlay — data-tour-portal exempts it from the capture blocker */}
       <div
+        data-tour-portal
         style={{
           position: "fixed",
           inset: 0,
@@ -184,16 +210,18 @@ export default function GuidedTour({ steps = [], onDone }) {
           pointerEvents: "all",
           ...(dimStyle || {}),
         }}
-        onTouchStart={(e) => { e.stopPropagation(); e.preventDefault(); }}
         onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
       />
 
-      {/* Spotlight frame — visual only, passes pointer events to overlay */}
-      {highlight && <div style={highlight} />}
+      {/* Spotlight frame — visual only */}
+      {highlight && <div data-tour-portal style={highlight} />}
 
-      {/* Popup — sits above overlay, captures all pointer events exclusively */}
+      {/* Popup — data-tour-portal exempts it from the capture blocker.
+          Container onTouchEnd does NOT call preventDefault — that would suppress
+          the synthetic click for child buttons. Buttons handle their own actions. */}
       <div
+        data-tour-portal
         style={{
           position: "fixed",
           top: popupTop,
@@ -208,8 +236,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           boxShadow: "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)",
           pointerEvents: "all",
         }}
-        onTouchStart={(e) => { e.stopPropagation(); }}
-        onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); }}
+        onTouchEnd={(e) => { e.stopPropagation(); }}
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
       >
         {/* Header row */}
@@ -219,6 +246,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           </div>
           <button
             type="button"
+            onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
             aria-label="Close walkthrough"
             style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "2px 4px", borderRadius: 4 }}
@@ -242,6 +270,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           {index > 0 && (
             <button
               type="button"
+              onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); goPrev(index); }}
               onClick={(e) => { e.stopPropagation(); e.preventDefault(); goPrev(index); }}
               style={{
                 padding: "7px 16px",
@@ -259,6 +288,7 @@ export default function GuidedTour({ steps = [], onDone }) {
           )}
           <button
             type="button"
+            onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); goNext(index); }}
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); goNext(index); }}
             style={{
               padding: "7px 20px",

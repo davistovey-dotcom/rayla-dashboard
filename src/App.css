@@ -1709,9 +1709,11 @@ body.tour-active #root {
   pointer-events: none !important;
 }
 
-/* Keep mobileNav visually below the tour overlay */
+/* Directly block mobileNav — CSS pointer-events inheritance from #root is not
+   reliable for position:fixed children in iOS Safari, so we target it directly. */
 body.tour-active .mobileNav {
   z-index: 9989 !important;
+  pointer-events: none !important;
 }
 
 .mobileNav button {
