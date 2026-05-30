@@ -9,6 +9,8 @@ import EquityComparisonChart from "./EquityComparisonChart";
 import InteractiveLineChart from "./InteractiveLineChart";
 import AssetCarousel from "./components/AssetCarousel";
 import MobileSegmentedPager from "./components/MobileSegmentedPager";
+import GuidedTour from "./components/GuidedTour";
+import { tourSteps } from "./components/tourSteps";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import { Tutorial } from "./Login";
 
@@ -5048,10 +5050,9 @@ function PortfolioTrendCard({
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
-    { value: "1W", label: "1W" },
     { value: "1M", label: "1M" },
-    { value: "3M", label: "3M" },
-    { value: "MAX", label: "ALL" },
+    { value: "1Y", label: "1Y" },
+    { value: "MAX", label: "All" },
   ];
   const rangeMs = getChartSelectionWindowMs(portfolioRange);
   const nowMs = Date.now();
@@ -5070,16 +5071,20 @@ function PortfolioTrendCard({
   const portfolioBenchmarkChart = useMemo(
     () => buildPortfolioChartFromSnapshots(
       portfolioSnapshots,
-      null,
+      myRequestedStartMs,
       nowMs,
       snapshotView,
       title === "Open Day Trade Positions" ? "Performance Day Trades Open Positions" : `Performance ${title}`
     ),
-    [portfolioSnapshots, nowMs, snapshotView]
+    [portfolioSnapshots, myRequestedStartMs, nowMs, snapshotView, title]
   );
   const portfolioLinePoints = useMemo(
     () => buildOpenPositionReturnLinePoints(portfolioBenchmarkChart, totalCostBasis),
     [portfolioBenchmarkChart, totalCostBasis]
+  );
+  const portfolioVisibleTimeRange = useMemo(
+    () => getPortfolioChartVisibleTimeRange(portfolioSnapshots, portfolioLinePoints, portfolioRange, nowMs),
+    [portfolioSnapshots, portfolioLinePoints, portfolioRange, nowMs]
   );
   const periodReturn = useMemo(() => buildPeriodReturnFromChart(portfolioBenchmarkChart), [portfolioBenchmarkChart]);
   const displayPnl = Number.isFinite(periodReturn?.pnl) ? periodReturn.pnl : null;
@@ -5105,51 +5110,69 @@ function PortfolioTrendCard({
   return (
     <div className="performancePortfolioTrendCard" style={{
       "--performancePortfolioChartHeight": `${chartHeight}px`,
-      minHeight: chartHeight + 174,
-      background: "radial-gradient(ellipse at 18% 0%, rgba(124,196,255,0.08) 0%, transparent 58%), rgba(8,16,26,0.95)",
-      border: "1px solid rgba(255,255,255,0.08)",
+      minHeight: chartHeight + 190,
+      background: "linear-gradient(180deg, rgba(12,18,28,0.96), rgba(7,11,18,0.98))",
+      border: "1px solid rgba(148,163,184,0.16)",
       borderRadius: 18,
       overflow: "hidden",
-      padding: 16,
+      padding: "24px 24px 18px",
       display: "flex",
       flexDirection: "column",
-      gap: 12,
+      gap: 8,
     }}>
       <div className="performancePortfolioHomeHeader">
         <div>
           <div className="performancePortfolioHomeTitle">{title}</div>
-          <div className="performancePortfolioHomeValue">
-            {portfolioValue > 0 ? formatCurrency(portfolioValue) : "--"}
+          <div className="performancePortfolioHomeValueRow">
+            <span className="performancePortfolioHomeCurrencyMark">$</span>
+            <span className="performancePortfolioHomeValue">
+              {portfolioValue > 0 ? formatCurrency(portfolioValue).replace("$", "") : "--"}
+            </span>
+            <span
+              className="performancePortfolioHomeInlineChange"
+              style={{ color: Number.isFinite(displayPnl) ? (portfolioPositive ? "#4ade80" : "#f87171") : "#64748b" }}
+            >
+              {Number.isFinite(displayPnl) ? `${portfolioPositive ? "+" : ""}${formatCurrency(displayPnl)}` : "--"}
+              {Number.isFinite(portfolioReturnPct) ? ` ${formatPerformancePercent(portfolioReturnPct)}` : ""}
+            </span>
           </div>
-          <div className="performancePortfolioHomeSubcopy">{subtitle}</div>
+          <div className="performancePortfolioHomeSubcopy">
+            {subtitle}
+          </div>
         </div>
-        <div className="performancePortfolioHomeMetric" style={{ color: Number.isFinite(displayPnl) ? (portfolioPositive ? "#4ade80" : "#f87171") : "#64748b" }}>
-          <div>
-            <span>{Number.isFinite(displayPnl) ? `${portfolioPositive ? "+" : ""}${formatCurrency(displayPnl)}` : "--"}</span>
-            {Number.isFinite(portfolioReturnPct) ? (
-              <span style={{ marginLeft: 6 }}>{formatPerformancePercent(portfolioReturnPct)}</span>
-            ) : null}
+        <div className="performancePortfolioHomeTopControls">
+          <div className="performancePortfolioRangeGroup" aria-label={`${title} chart range`}>
+            {portfolioRanges.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={portfolioRange === option.value ? "active" : ""}
+                onClick={() => setPortfolioRange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
           <div className="performancePortfolioHomeMetricMeta">
-            Snapshot history · {allPositions.length} position{allPositions.length === 1 ? "" : "s"} · {formatCurrency(totalMarketValue)}
+            {allPositions.length} position{allPositions.length === 1 ? "" : "s"} · {formatCurrency(totalMarketValue)}
           </div>
+          {resolvedStatusLabel ? (
+            <div
+              className="performancePortfolioStatus"
+              style={alpacaAccount?.isPaper ? {
+                background: "rgba(167,139,250,0.1)",
+                borderColor: "rgba(167,139,250,0.22)",
+                color: "#a78bfa",
+              } : undefined}
+            >
+              {resolvedStatusLabel}
+            </div>
+          ) : null}
         </div>
       </div>
 
       <div className="performancePortfolioHomeToolbar">
-        <div className="performancePortfolioHistoryNote">Performance history grows automatically as Rayla collects broker snapshots.</div>
-        {resolvedStatusLabel ? (
-          <div
-            className="performancePortfolioStatus"
-            style={alpacaAccount?.isPaper ? {
-              background: "rgba(167,139,250,0.1)",
-              borderColor: "rgba(167,139,250,0.22)",
-              color: "#a78bfa",
-            } : undefined}
-          >
-            {resolvedStatusLabel}
-          </div>
-        ) : null}
+        <div className="performancePortfolioHistoryNote">Scroll to zoom · drag to pan · double-click to fit</div>
       </div>
 
       <div className="performancePortfolioHomeChart">
@@ -5157,9 +5180,11 @@ function PortfolioTrendCard({
           <div className="performancePortfolioHomeEmpty">Loading portfolio chart...</div>
         ) : performancePortfolioLines.length ? (
             <InteractiveLineChart
+              key={`${snapshotView}:${portfolioRange}:${portfolioVisibleTimeRange?.fromMs || "auto"}:${portfolioVisibleTimeRange?.toMs || "auto"}:${portfolioLinePoints.length}:${portfolioLinePoints[0]?.timeMs || "start"}:${portfolioLinePoints[portfolioLinePoints.length - 1]?.timeMs || "end"}`}
               className="tradePortfolioEngineChart performancePortfolioLineChart"
               height={chartHeight}
               lines={performancePortfolioLines}
+              visibleTimeRange={portfolioVisibleTimeRange}
               valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
               emptyMessage={emptyMessage}
             showLastPointPulse
@@ -5198,10 +5223,9 @@ function PortfolioPerformancePanel({
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
-    { value: "1W", label: "1W" },
     { value: "1M", label: "1M" },
-    { value: "3M", label: "3M" },
-    { value: "MAX", label: "ALL" },
+    { value: "1Y", label: "1Y" },
+    { value: "MAX", label: "All" },
   ];
   const rangeMs = getChartSelectionWindowMs(portfolioRange);
   const nowMs = Date.now();
@@ -5225,12 +5249,12 @@ function PortfolioPerformancePanel({
   const portfolioBenchmarkChart = useMemo(
     () => buildPortfolioChartFromSnapshots(
       portfolioSnapshots,
-      null,
+      myRequestedStartMs,
       nowMs,
       "portfolio",
       "Performance Portfolio"
     ),
-    [portfolioSnapshots, nowMs]
+    [portfolioSnapshots, myRequestedStartMs, nowMs]
   );
   const portfolioLinePoints = useMemo(
     () => buildOpenPositionReturnLinePoints(portfolioBenchmarkChart, totalCostBasis),
@@ -5263,23 +5287,25 @@ function PortfolioPerformancePanel({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-      <PortfolioTrendCard
-        positions={allPositions}
-        alpacaAccount={alpacaAccount}
-        tradePortfolioCharts={tradePortfolioCharts}
-        tradePortfolioChartsLoading={tradePortfolioChartsLoading}
-        portfolioSnapshots={portfolioSnapshots}
-        portfolioSnapshotsLoading={portfolioSnapshotsLoading}
-        snapshotView="portfolio"
-        portfolioRange={portfolioRange}
-        setPortfolioRange={setPortfolioRange}
-        title="Investing"
-        subtitle="Live broker positions grouped into one portfolio view."
-        chartHeight={330}
-      />
+      <div data-tour-id="perf-portfolio-chart">
+        <PortfolioTrendCard
+          positions={allPositions}
+          alpacaAccount={alpacaAccount}
+          tradePortfolioCharts={tradePortfolioCharts}
+          tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+          portfolioSnapshots={portfolioSnapshots}
+          portfolioSnapshotsLoading={portfolioSnapshotsLoading}
+          snapshotView="portfolio"
+          portfolioRange={portfolioRange}
+          setPortfolioRange={setPortfolioRange}
+          title="Investing"
+          subtitle="Live broker positions grouped into one portfolio view."
+          chartHeight={330}
+        />
+      </div>
 
       {/* ── Secondary stats strip ────────────────────────────────── */}
-      <div style={{
+      <div data-tour-id="perf-portfolio-stats" style={{
         display: "grid",
         gridTemplateColumns: "repeat(3, 1fr)",
         background: "rgba(8,16,26,0.7)",
@@ -5315,7 +5341,7 @@ function PortfolioPerformancePanel({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
 
         {/* Allocation */}
-        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div data-tour-id="perf-portfolio-allocation" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
             Allocation
           </div>
@@ -5348,7 +5374,7 @@ function PortfolioPerformancePanel({
         </div>
 
         {/* Positions */}
-        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div data-tour-id="perf-portfolio-positions" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
             Positions
           </div>
@@ -5422,10 +5448,9 @@ function HoldingsPerformancePanel({
   const holdings = Array.isArray(positions) ? positions : [];
   const rangeOptions = [
     { value: "1D", label: "1D" },
-    { value: "1W", label: "1W" },
     { value: "1M", label: "1M" },
-    { value: "3M", label: "3M" },
-    { value: "MAX", label: "ALL" },
+    { value: "1Y", label: "1Y" },
+    { value: "MAX", label: "All" },
   ];
   const rangeMs = getChartSelectionWindowMs(portfolioRange);
   const nowMs = Date.now();
@@ -5438,6 +5463,7 @@ function HoldingsPerformancePanel({
     const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
     return { totalValue, totalUnrealizedPl, totalCostBasis, unrealizedPct };
   }, [holdings]);
+  const plPos = summary.totalUnrealizedPl >= 0;
 
   const sortedHoldings = useMemo(
     () => [...holdings].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0)),
@@ -5447,12 +5473,12 @@ function HoldingsPerformancePanel({
   const holdingsBenchmarkChart = useMemo(
     () => buildPortfolioChartFromSnapshots(
       portfolioSnapshots,
-      null,
+      myRequestedStartMs,
       nowMs,
       "holdings",
       "Performance Long-Term Holdings"
     ),
-    [portfolioSnapshots, nowMs]
+    [portfolioSnapshots, myRequestedStartMs, nowMs]
   );
   const holdingsLinePoints = useMemo(
     () => buildOpenPositionReturnLinePoints(holdingsBenchmarkChart, summary.totalCostBasis),
@@ -5498,74 +5524,28 @@ function HoldingsPerformancePanel({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-      {/* ── Hero + Chart ─────────────────────────────────────────── */}
-      <div style={{
-        background: "radial-gradient(ellipse at 18% 0%, rgba(124,196,255,0.08) 0%, transparent 58%), rgba(8,16,26,0.95)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 18,
-        overflow: "hidden",
-        padding: 16,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}>
-        <div className="performancePortfolioHomeHeader">
-          <div>
-            <div className="performancePortfolioHomeTitle">Long-Term Holdings</div>
-            <div className="performancePortfolioHomeValue">
-              {summary.totalValue > 0 ? formatCurrency(summary.totalValue) : "--"}
-            </div>
-            <div className="performancePortfolioHomeSubcopy">
-              Broker positions classified as investments or long-term holds.
-            </div>
-          </div>
-          <div className="performancePortfolioHomeMetric" style={{ color: Number.isFinite(holdingsDisplayPnl) ? (holdingsPositive ? "#4ade80" : "#f87171") : "#64748b" }}>
-            <div>
-              <span>{Number.isFinite(holdingsDisplayPnl) ? `${holdingsPositive ? "+" : ""}${formatCurrency(holdingsDisplayPnl)}` : "--"}</span>
-              {Number.isFinite(holdingsReturnPct) ? (
-                <span style={{ marginLeft: 6 }}>{formatPerformancePercent(holdingsReturnPct)}</span>
-              ) : null}
-            </div>
-            <div className="performancePortfolioHomeMetricMeta">
-              Snapshot history · {holdings.length} holding{holdings.length === 1 ? "" : "s"} · {formatCurrency(summary.totalValue)}
-            </div>
-          </div>
-        </div>
-
-        <div className="performancePortfolioHomeToolbar">
-          <div className="performancePortfolioHistoryNote">Performance history grows automatically as Rayla collects broker snapshots.</div>
-          <div className="performancePortfolioStatus" style={{ background: "rgba(74,222,128,0.1)", borderColor: "rgba(74,222,128,0.2)", color: "#4ade80" }}>
-            Holdings
-          </div>
-        </div>
-
-        <div className="performancePortfolioHomeChart">
-          {portfolioSnapshotsLoading ? (
-            <div className="performancePortfolioHomeEmpty">Loading holdings chart...</div>
-          ) : chartLines.length ? (
-            <>
-              <InteractiveLineChart
-                className="tradePortfolioEngineChart performancePortfolioLineChart"
-                height={420}
-                lines={chartLines}
-                valueFormatter={(v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--"}
-                emptyMessage="Performance history grows automatically as Rayla collects broker snapshots."
-                showLastPointPulse
-              />
-              <div style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 6 }}>
-                Performance history grows automatically as Rayla collects broker snapshots.
-              </div>
-            </>
-          ) : (
-            <div className="performancePortfolioHomeEmpty">
-              Performance history grows automatically as Rayla collects broker snapshots.
-            </div>
-          )}
-        </div>
+      <div data-tour-id="perf-holdings-hero">
+        <PortfolioTrendCard
+          positions={holdings}
+          alpacaAccount={null}
+          tradePortfolioCharts={tradePortfolioCharts}
+          tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+          portfolioSnapshots={portfolioSnapshots}
+          portfolioSnapshotsLoading={portfolioSnapshotsLoading}
+          snapshotView="holdings"
+          portfolioRange={portfolioRange}
+          setPortfolioRange={setPortfolioRange}
+          title="Long-Term Holdings"
+          subtitle="Broker positions classified as investments or long-term holds."
+          emptyMessage="Performance history grows automatically as Rayla collects broker snapshots."
+          statusLabel="Holdings"
+          chartHeight={420}
+          useAccountValue={false}
+        />
       </div>
 
       {/* ── Stats strip ─────────────────────────────────────────── */}
-      <div style={{
+      <div data-tour-id="perf-holdings-stats" style={{
         display: "grid",
         gridTemplateColumns: "repeat(3, 1fr)",
         background: "rgba(8,16,26,0.7)",
@@ -5598,7 +5578,7 @@ function HoldingsPerformancePanel({
       {/* ── Allocation + Holdings list ───────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
 
-        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div data-tour-id="perf-holdings-allocation" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
             Allocation
           </div>
@@ -5628,7 +5608,7 @@ function HoldingsPerformancePanel({
           </div>
         </div>
 
-        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div data-tour-id="perf-holdings-list" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
             Holdings
           </div>
@@ -5748,12 +5728,12 @@ function ActiveTradesPerformancePanel({
   const benchmarkChart = useMemo(
     () => buildPortfolioChartFromSnapshots(
       portfolioSnapshots,
-      null,
+      myRequestedStartMs,
       nowMs,
       "active",
       "Performance Day Trades"
     ),
-    [portfolioSnapshots, nowMs]
+    [portfolioSnapshots, myRequestedStartMs, nowMs]
   );
   const linePoints = useMemo(() => {
     const pts = buildOpenPositionReturnLinePoints(benchmarkChart, summary.totalCostBasis);
@@ -5816,82 +5796,44 @@ function ActiveTradesPerformancePanel({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-      {/* ── Hero + Chart ─────────────────────────────────────────── */}
-      <div style={{
-        background: "radial-gradient(ellipse at 18% 0%, rgba(167,139,250,0.08) 0%, transparent 58%), rgba(8,16,26,0.95)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 18,
-        overflow: "hidden",
-        padding: 16,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}>
-        <div className="performancePortfolioHomeHeader">
-          <div>
+      <div data-tour-id="perf-daytrades-hero">
+        {hasOpenTrades ? (
+          <PortfolioTrendCard
+            positions={trades}
+            alpacaAccount={null}
+            tradePortfolioCharts={tradePortfolioCharts}
+            tradePortfolioChartsLoading={tradePortfolioChartsLoading}
+            portfolioSnapshots={portfolioSnapshots}
+            portfolioSnapshotsLoading={portfolioSnapshotsLoading}
+            snapshotView="active"
+            portfolioRange={portfolioRange}
+            setPortfolioRange={setPortfolioRange}
+            title="Day Trades"
+            subtitle="Open day/swing positions only. Closed trade performance remains in the equity curve below."
+            emptyMessage="Performance history grows automatically as Rayla collects broker snapshots."
+            statusLabel="Day Trades"
+            chartHeight={420}
+            useAccountValue={false}
+          />
+        ) : hasClosedTrades ? (
+          <div className="performancePortfolioTrendCard" style={{
+            minHeight: 0,
+            background: "linear-gradient(180deg, rgba(12,18,28,0.96), rgba(7,11,18,0.98))",
+            border: "1px solid rgba(148,163,184,0.16)",
+            borderRadius: 18,
+            padding: "22px 24px",
+          }}>
             <div className="performancePortfolioHomeTitle">Day Trades</div>
-            <div className="performancePortfolioHomeValue">
-              {hasOpenTrades && summary.totalValue > 0
-                ? formatCurrency(summary.totalValue)
-                : closedStats
-                  ? `${closedStats.totalRealizedPl >= 0 ? "+" : ""}${formatCurrency(closedStats.totalRealizedPl)}`
-                  : "--"}
+            <div className="performancePortfolioHomeValueRow">
+              <span
+                className="performancePortfolioHomeInlineChange"
+                style={{ color: closedStats.totalRealizedPl >= 0 ? "#4ade80" : "#f87171" }}
+              >
+                {closedStats.totalRealizedPl >= 0 ? "+" : ""}{formatCurrency(closedStats.totalRealizedPl)}
+              </span>
             </div>
             <div className="performancePortfolioHomeSubcopy">
-              Day-trade and swing-trade strategy performance.
-            </div>
-          </div>
-          <div className="performancePortfolioHomeMetric" style={{ color: Number.isFinite(activeDisplayPnl) ? (plPos ? "#4ade80" : "#f87171") : "#64748b" }}>
-            <div>
-              <span>{Number.isFinite(activeDisplayPnl) ? `${plPos ? "+" : ""}${formatCurrency(activeDisplayPnl)}` : "--"}</span>
-              {Number.isFinite(returnPct) ? (
-                <span style={{ marginLeft: 6 }}>{formatPerformancePercent(returnPct)}</span>
-              ) : null}
-            </div>
-            <div className="performancePortfolioHomeMetricMeta">
-              Snapshot history · {trades.length} open · {closedActiveTrades.length} closed
-            </div>
-          </div>
-        </div>
-
-        {hasOpenTrades ? (
-          <>
-            <div className="performancePortfolioHomeToolbar">
-              <div className="performancePortfolioHistoryNote">Performance history grows automatically as Rayla collects broker snapshots.</div>
-              <div className="performancePortfolioStatus" style={{ background: "rgba(167,139,250,0.1)", borderColor: "rgba(167,139,250,0.2)", color: "#a78bfa" }}>
-                Day Trades
-              </div>
-            </div>
-
-            <div className="performancePortfolioHomeChart">
-              {portfolioSnapshotsLoading ? (
-                <div className="performancePortfolioHomeEmpty">Loading chart...</div>
-              ) : chartLines.length ? (
-                <>
-                  <InteractiveLineChart
-                    className="tradePortfolioEngineChart performancePortfolioLineChart"
-                    height={420}
-                    lines={chartLines}
-                    valueFormatter={(v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--"}
-                    emptyMessage="Performance history grows automatically as Rayla collects broker snapshots."
-                    showLastPointPulse
-                  />
-                  <div style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 6 }}>
-                    Performance history grows automatically as Rayla collects broker snapshots.
-                  </div>
-                </>
-              ) : (
-                <div className="performancePortfolioHomeEmpty">
-                  Performance history grows automatically as Rayla collects broker snapshots.
-                </div>
-              )}
-            </div>
-          </>
-        ) : hasClosedTrades ? (
-          <div className="performancePortfolioHomeToolbar">
-            <div className="performancePortfolioHistoryNote">Showing closed day/swing trade performance. Open day trades will appear here when active.</div>
-            <div className="performancePortfolioStatus" style={{ background: "rgba(167,139,250,0.1)", borderColor: "rgba(167,139,250,0.2)", color: "#a78bfa" }}>
-              Closed History
+              Showing closed day/swing trade performance. Open day trades will appear here when active.
             </div>
           </div>
         ) : null}
@@ -5913,24 +5855,26 @@ function ActiveTradesPerformancePanel({
       )}
 
       {hasClosedTrades && (
-        <EquityCurveCard
-          equityPoints={closedEquityPoints}
-          sourceLabel={sourceLabel}
-          chartRange={chartRange}
-          setChartRange={setChartRange}
-          benchmarkSymbol={benchmarkSymbol}
-          benchmarkLabel={benchmarkLabel}
-          onSelectBenchmark={onSelectBenchmark}
-          benchmarkOptions={benchmarkOptions}
-          benchmarkPoints={benchmarkPoints}
-          benchmarkLoading={benchmarkLoading}
-          alpacaConnected={alpacaConnected}
-        />
+        <div data-tour-id="perf-daytrades-equity">
+          <EquityCurveCard
+            equityPoints={closedEquityPoints}
+            sourceLabel={sourceLabel}
+            chartRange={chartRange}
+            setChartRange={setChartRange}
+            benchmarkSymbol={benchmarkSymbol}
+            benchmarkLabel={benchmarkLabel}
+            onSelectBenchmark={onSelectBenchmark}
+            benchmarkOptions={benchmarkOptions}
+            benchmarkPoints={benchmarkPoints}
+            benchmarkLoading={benchmarkLoading}
+            alpacaConnected={alpacaConnected}
+          />
+        </div>
       )}
 
       {/* ── Open positions stats strip ────────────────────────────── */}
       {hasOpenTrades && (
-        <div style={{
+        <div data-tour-id="perf-daytrades-open-stats" style={{
           display: "grid",
           gridTemplateColumns: "repeat(3, 1fr)",
           background: "rgba(8,16,26,0.7)",
@@ -5963,7 +5907,7 @@ function ActiveTradesPerformancePanel({
 
       {/* ── Realized P/L stats strip ──────────────────────────────── */}
       {closedStats && (
-        <div style={{
+        <div data-tour-id="perf-daytrades-closed-stats" style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
           background: "rgba(8,16,26,0.7)",
@@ -5997,7 +5941,7 @@ function ActiveTradesPerformancePanel({
 
       {/* ── Open positions list ───────────────────────────────────── */}
       {hasOpenTrades && (
-        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div data-tour-id="perf-daytrades-open-positions" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
             Positions
           </div>
@@ -6046,7 +5990,7 @@ function ActiveTradesPerformancePanel({
 
       {/* ── Closed trade history ──────────────────────────────────── */}
       {closedActiveTrades.length > 0 && (
-        <div style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
+        <div data-tour-id="perf-daytrades-history" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
             Closed Day Trades
           </div>
@@ -6103,7 +6047,7 @@ function ActiveTradesPerformancePanel({
       )}
 
       {hasClosedTrades && (
-        <div style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 }}>
+        <div data-tour-id="perf-daytrades-ai" style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 }}>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla's Day Trade Analysis</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -6420,7 +6364,7 @@ function PerformanceDashboard({
 
       {/* Stats grid */}
       {report ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+        <div data-tour-id="perf-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
           {[
             { label: "Trades", value: report.trades, sub: `${winCount}W · ${lossCount}L`, color: "#f3f7fc" },
             { label: "Win Rate", value: hasMixedResultUnits ? "Blended" : `${report.winRate.toFixed(1)}%`, sub: hasMixedResultUnits ? "strategy + broker history" : "% of winners", color: hasMixedResultUnits ? "#94a3b8" : report.winRate >= 50 ? "#4ade80" : "#f87171", tip: hasMixedResultUnits ? null : "winrate" },
@@ -6468,19 +6412,21 @@ function PerformanceDashboard({
       )}
 
       {!isSimulationSource ? (
-        <EquityCurveCard
-          equityPoints={dashboardEquityPoints}
-          sourceLabel={sourceLabel}
-          chartRange={chartRange}
-          setChartRange={setChartRange}
-          benchmarkSymbol={benchmarkSymbol}
-          benchmarkLabel={benchmarkLabel}
-          onSelectBenchmark={onSelectBenchmark}
-          benchmarkOptions={benchmarkOptions}
-          benchmarkPoints={benchmarkPoints}
-          benchmarkLoading={benchmarkLoading}
-          alpacaConnected={alpacaConnected}
-        />
+        <div data-tour-id="perf-equity" style={{ display: "contents" }}>
+          <EquityCurveCard
+            equityPoints={dashboardEquityPoints}
+            sourceLabel={sourceLabel}
+            chartRange={chartRange}
+            setChartRange={setChartRange}
+            benchmarkSymbol={benchmarkSymbol}
+            benchmarkLabel={benchmarkLabel}
+            onSelectBenchmark={onSelectBenchmark}
+            benchmarkOptions={benchmarkOptions}
+            benchmarkPoints={benchmarkPoints}
+            benchmarkLoading={benchmarkLoading}
+            alpacaConnected={alpacaConnected}
+          />
+        </div>
       ) : null}
 
       {!isSimulationSource ? (
@@ -6537,7 +6483,7 @@ function PerformanceDashboard({
 
       {/* Trade outcome overview */}
       {report && totalCount > 0 && (
-        <div style={{ ...cardBase, padding: "16px 20px" }}>
+        <div data-tour-id="perf-trade-outcomes" style={{ ...cardBase, padding: "16px 20px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 14 }}>Trade Outcomes</div>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             {[
@@ -6578,7 +6524,7 @@ function PerformanceDashboard({
 
       {/* Breakdown tables: Setup | Asset | Session */}
       {report && (report.setupStats.length > 0 || report.assetStats.length > 0 || sessionStats.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, alignItems: "start" }}>
+        <div data-tour-id="perf-breakdown" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, alignItems: "start" }}>
           <PerfBreakdownTable
             title="By Setup"
             rows={report.setupStats.map(s => ({ name: s.setup, trades: s.trades, winRate: s.winRate, avgR: s.avgR, totalR: s.totalR }))}
@@ -6626,7 +6572,7 @@ function PerformanceDashboard({
 
       {/* Rayla Diagnosis */}
       {trades.length > 0 && (
-        <div style={cardBase}>
+        <div data-tour-id="perf-ai" style={cardBase}>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla's Diagnosis</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -7542,6 +7488,25 @@ function normalizePortfolioSnapshotRows(rows = []) {
     })
     .filter(Boolean)
     .sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+function getPortfolioChartVisibleTimeRange(snapshots, points, range, nowMs = Date.now()) {
+  const endMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const rangeMs = getChartSelectionWindowMs(range);
+  if (Number.isFinite(rangeMs) && rangeMs > 0) {
+    return { fromMs: endMs - rangeMs, toMs: endMs };
+  }
+
+  const snapshotTimes = normalizePortfolioSnapshotRows(snapshots)
+    .map((snapshot) => snapshot.timestampMs)
+    .filter((timestampMs) => Number.isFinite(timestampMs));
+  const pointTimes = (Array.isArray(points) ? points : [])
+    .map((point) => Number(point?.timeMs))
+    .filter((timestampMs) => Number.isFinite(timestampMs));
+  const firstMs = Math.min(...snapshotTimes, ...pointTimes);
+  if (!Number.isFinite(firstMs) || firstMs >= endMs) return null;
+  const minimumAllWindowMs = 45 * 24 * 60 * 60 * 1000;
+  return { fromMs: Math.min(firstMs, endMs - minimumAllWindowMs), toMs: endMs };
 }
 
 function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requestedEndMs, view = "portfolio", debugLabel = view) {
@@ -9371,6 +9336,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   const displayChange = Number.isFinite(liveChange)
     ? `${liveChange >= 0 ? "+" : ""}${liveChange.toFixed(2)}%`
     : (item.change || "N/A");
+  console.log(`[intel-card] ${item.symbol}: liveChange=${liveChange} item.change=${item.change} displayChange=${displayChange}`);
   const changePos = !String(displayChange).startsWith("-");
   const article = (item.rawArticles || [])[0];
   const drivers = item.breakdown
@@ -10296,7 +10262,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade })
 
 const JOURNAL_MISTAKE_TAGS = ["FOMO", "Oversized", "Rule break", "Chased entry", "Early exit", "Missed target", "Emotional"];
 
-function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade }) {
+function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade, isBeginnerMode = false, onStartTour }) {
   const [journalSource, setJournalSource] = useState("live_trades");
   const [search, setSearch] = useState("");
   const [filterDir, setFilterDir] = useState("all");
@@ -10455,7 +10421,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
 
   function renderJournalHeader() {
     return (
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 16, flexWrap: "wrap", position: "relative", minHeight: 46 }}>
+      <div data-tour-id="journal-source" style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 16, flexWrap: "wrap", position: "relative", minHeight: 46 }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
           <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
             Source
@@ -10488,6 +10454,13 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
             })}
           </div>
         </div>
+        {isBeginnerMode && (
+          <div style={{ textAlign: "center" }}>
+            <button type="button" onClick={onStartTour} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
+              Feeling lost? Click here.
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -10515,7 +10488,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
       {renderJournalHeader()}
 
       {/* Summary stats grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+      <div data-tour-id="journal-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
         {[
           { label: "Total Trades", value: journalAnalyticsTrades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
           { label: "Win Rate", value: `${wr.toFixed(1)}%`, sub: `${wins.length} winners`, color: wr >= 50 ? "#4ade80" : "#f87171" },
@@ -10542,7 +10515,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
 
       {/* Breakdown tables */}
       {(setupBreakdown.length > 0 || sessionBreakdown.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+        <div data-tour-id="journal-breakdown" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
           {setupBreakdown.length > 0 && (
             <div style={breakdownTableStyle}>
               <div style={breakdownHeaderStyle}>By Strategy</div>
@@ -10610,7 +10583,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
         </div>
       )}
       {viewingAllTrades && (
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <div data-tour-id="journal-filters" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           type="text"
           value={search}
@@ -10672,7 +10645,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
       ) : viewingAllTrades && viewMode === "table" ? (
         <JournalTradeTable trades={filtered} rCol={rCol} tradeDuration={tradeDuration} onDeleteManualTrade={onDeleteManualTrade} />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div data-tour-id="journal-trades" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {/* Collapse button — top of expanded list */}
           {viewingAllTrades && selectedJournalTrades.length > 5 && (
             <button
@@ -10953,6 +10926,7 @@ useEffect(() => {
   const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
   const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
   const [homePortfolioViewMode, setHomePortfolioViewMode] = useState("portfolio");
+  const [homePortfolioChartRange, setHomePortfolioChartRange] = useState("1D");
   const [homePortfolioCharts, setHomePortfolioCharts] = useState({});
   const [homePortfolioChartsLoading, setHomePortfolioChartsLoading] = useState(false);
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
@@ -11400,6 +11374,11 @@ useEffect(() => {
   }, [raylaMode]);
   const isBeginnerMode = raylaMode === "beginner";
   const showBeginnerGuidance = isBeginnerMode;
+  const [activeTour, setActiveTour] = useState(null);
+  // Close tour whenever the user navigates to a different main tab
+  useEffect(() => { setActiveTour(null); }, [activeTab]);
+  // Close tour when performance subview changes (different set of DOM targets)
+  useEffect(() => { setActiveTour(null); }, [performancePositionFilter]);
     const [showBeginnerTutorial, setShowBeginnerTutorial] = useState(false);
   const [beginnerTutorialView, setBeginnerTutorialView] = useState("menu");
     const [beginnerTutorialStep, setBeginnerTutorialStep] = useState(0);
@@ -14384,9 +14363,15 @@ useEffect(() => {
   );
   const homePortfolioNowMs = Date.now();
   const homePortfolioRequestedStartMs = (() => {
-    const windowMs = getTradeRangeWindowMs(homeMarketChartRange);
+    const windowMs = getTradeRangeWindowMs(homePortfolioChartRange);
     return windowMs ? homePortfolioNowMs - windowMs : null;
   })();
+  const homePortfolioRangeOptions = [
+    { value: "1D", label: "1D" },
+    { value: "1M", label: "1M" },
+    { value: "1Y", label: "1Y" },
+    { value: "MAX", label: "All" },
+  ];
   const homePortfolioChartLabel = homePortfolioViewMode === "active"
     ? "Day Trades"
     : homePortfolioViewMode === "holdings"
@@ -14400,17 +14385,26 @@ useEffect(() => {
   const homePortfolioBenchmarkChart = useMemo(
     () => buildPortfolioChartFromSnapshots(
       portfolioSnapshots,
-      null,
+      homePortfolioRequestedStartMs,
       homePortfolioNowMs,
       homePortfolioSnapshotView,
       `Home ${homePortfolioChartLabel}`
     ),
-    [portfolioSnapshots, homePortfolioNowMs, homePortfolioSnapshotView]
+    [portfolioSnapshots, homePortfolioRequestedStartMs, homePortfolioNowMs, homePortfolioSnapshotView]
   );
   const homePortfolioCostBasis = getOpenPositionCostBasis(homePortfolioPositions);
   const homePortfolioLinePoints = useMemo(
     () => buildOpenPositionReturnLinePoints(homePortfolioBenchmarkChart, homePortfolioCostBasis),
     [homePortfolioBenchmarkChart, homePortfolioCostBasis]
+  );
+  const homePortfolioVisibleTimeRange = useMemo(
+    () => getPortfolioChartVisibleTimeRange(
+      portfolioSnapshots,
+      homePortfolioLinePoints,
+      homePortfolioChartRange,
+      homePortfolioNowMs
+    ),
+    [portfolioSnapshots, homePortfolioLinePoints, homePortfolioChartRange, homePortfolioNowMs]
   );
   const homePortfolioMarketValue = homePortfolioPositions.reduce(
     (sum, position) => sum + (Number(position?.marketValue) || 0),
@@ -14420,6 +14414,9 @@ useEffect(() => {
     (sum, position) => sum + (Number(position?.unrealizedPl) || 0),
     0
   );
+  const homePortfolioReturnPct = homePortfolioCostBasis > 0
+    ? (homePortfolioUnrealizedPl / homePortfolioCostBasis) * 100
+    : null;
   const holdingsSnapshot = useMemo(() => {
     const positions = longTermBrokerPositions;
     const holdingsValue = positions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
@@ -19182,6 +19179,10 @@ return (
         </div>
       )}
 
+                  {isBeginnerMode && activeTour && (tourSteps[activeTour] || []).length > 0 && (
+                    <GuidedTour steps={tourSteps[activeTour]} onDone={() => setActiveTour(null)} />
+                  )}
+
                   {showBeginnerGuidance && showBeginnerTutorial && (
                 <div
                   style={{
@@ -19793,55 +19794,137 @@ return (
                 min-height: 0 !important;
                 height: 100%;
                 padding: 0 !important;
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 12px;
+                border: 1px solid rgba(148,163,184,0.18);
+                border-radius: 18px;
                 overflow: hidden;
-                background: rgba(5,11,19,0.72);
-                box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+                background: linear-gradient(180deg, rgba(12,18,28,0.96), rgba(7,11,18,0.98));
+                box-shadow:
+                  0 18px 50px rgba(0,0,0,0.22),
+                  inset 0 1px 0 rgba(255,255,255,0.03);
               }
               .homePortfolioChartShell {
                 height: 100%;
                 min-height: 0;
                 display: flex;
                 flex-direction: column;
-                padding: 16px;
-                gap: 12px;
+                padding: 24px 26px 18px;
+                gap: 8px;
               }
               .homePortfolioChartHeader {
                 display: flex;
                 justify-content: space-between;
                 align-items: flex-start;
-                gap: 14px;
+                gap: 22px;
                 flex-shrink: 0;
               }
               .homePortfolioChartTitle {
                 color: #f8fbff;
-                font-size: 16px;
-                font-weight: 800;
+                font-size: 17px;
+                font-weight: 850;
                 line-height: 1.15;
               }
+              .homePortfolioChartValueLine {
+                display: flex;
+                align-items: baseline;
+                flex-wrap: wrap;
+                gap: 7px;
+                margin-top: 24px;
+              }
+              .homePortfolioChartCurrencyMark {
+                color: #8d98aa;
+                font-size: 21px;
+                font-weight: 850;
+                line-height: 1;
+              }
+              .homePortfolioChartValue {
+                color: #f8fbff;
+                font-size: 29px;
+                font-weight: 850;
+                line-height: 1;
+                font-variant-numeric: tabular-nums;
+              }
+              .homePortfolioChartInlineChange {
+                font-size: 17px;
+                font-weight: 850;
+                line-height: 1;
+                font-variant-numeric: tabular-nums;
+              }
               .homePortfolioChartSubcopy {
-                color: #7f8ea3;
-                font-size: 11px;
+                color: #8d98aa;
+                font-size: 13px;
+                font-weight: 650;
                 line-height: 1.45;
-                margin-top: 4px;
+                margin-top: 12px;
               }
               .homePortfolioChartMetric {
-                color: #4ade80;
-                font-size: 14px;
-                font-weight: 800;
+                color: #8793a5;
+                font-size: 11px;
+                font-weight: 750;
                 text-align: right;
                 white-space: nowrap;
+              }
+              .homePortfolioChartControls {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 8px;
+                min-width: 0;
+              }
+              .homePortfolioRangePills {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 2px;
+                border-radius: 10px;
+                background: rgba(255,255,255,0.025);
+              }
+              .homePortfolioRangePill {
+                min-width: 34px;
+                min-height: 30px;
+                padding: 6px 9px;
+                border: 0;
+                border-radius: 8px;
+                background: transparent;
+                color: #8d98aa;
+                font-family: var(--font-sans);
+                font-size: 12px;
+                font-weight: 850;
+                cursor: pointer;
+              }
+              .homePortfolioRangePill:hover {
+                color: #d7efff;
+                background: rgba(124,196,255,0.08);
+              }
+              .homePortfolioRangePill.active {
+                color: #d7efff;
+                background: rgba(124,196,255,0.16);
+              }
+              .homePortfolioZoomHint {
+                color: #64748b;
+                font-size: 10px;
+                font-weight: 750;
+                margin-top: 8px;
+                text-align: right;
               }
               .homePortfolioChartBody {
                 min-height: 0;
                 flex: 1;
+                margin-top: 20px;
               }
               .homePortfolioChartBody .interactiveLineChart {
                 height: 100% !important;
                 min-height: 260px;
-                background: rgba(13,17,23,0.54);
-                border: 1px solid rgba(255,255,255,0.06);
+                background: transparent;
+                border: 0;
+                border-radius: 12px;
+                box-shadow: none;
+              }
+              .homePortfolioChartBody .interactiveLineChartLegend,
+              .homePortfolioChartBody .interactiveLineChartFit {
+                display: none;
+              }
+              .homePortfolioChartBody .interactiveLineChartCanvas {
+                inset: 10px 22px 20px 14px;
               }
               .homeUtilityRail {
                 grid-area: rail;
@@ -20038,6 +20121,13 @@ return (
                   min-height: 620px !important;
                   height: min(68vh, 760px);
                 }
+                .homePortfolioChartHeader {
+                  align-items: flex-start;
+                }
+                .homePortfolioChartControls {
+                  flex-direction: column;
+                  align-items: flex-end;
+                }
               }
               @media (max-width: 767px) {
                 .homeLayout {
@@ -20106,6 +20196,21 @@ return (
                 .homeChartStage {
                   order: 8;
                 }
+                .homePortfolioChartHeader,
+                .homePortfolioChartControls {
+                  align-items: flex-start;
+                  flex-direction: column;
+                }
+                .homePortfolioRangePills {
+                  width: 100%;
+                  justify-content: space-between;
+                }
+                .homePortfolioRangePill {
+                  flex: 1 1 0;
+                }
+                .homePortfolioZoomHint {
+                  text-align: left;
+                }
                 .homeChartExplainRow {
                   order: 9;
                 }
@@ -20133,12 +20238,10 @@ return (
                 }
                 .homeMarketCarouselSection .asset-carousel {
                   padding-bottom: 2px !important;
-                  scroll-snap-type: x mandatory;
                 }
                 .homeMarketCarouselSection .asset-carousel > div {
                   min-width: 92px !important;
                   padding: 8px 10px !important;
-                  scroll-snap-align: start;
                 }
                 .homeMarketControls {
                   gap: 8px !important;
@@ -20207,7 +20310,7 @@ return (
             <div className="homeLayout">
               {/* LEFT: Ask Rayla */}
               {false && !isHomeLiveChartFullscreen && isMobileView && (
-              <div className="homeLeft">
+              <div className="homeLeft" data-tour-id="home-ask-rayla">
                 {/* Header */}
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(122,168,216,0.12)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <img src="/badger.png" alt="" style={{ width: 32, height: 32, objectFit: "contain", animation: "badgerPulse 3s ease-in-out infinite" }} />
@@ -20326,6 +20429,11 @@ return (
               {/* RIGHT: Live Market */}
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
                   <div className="raylaPageTitle homePageTitle mobilePageTitle">Home</div>
+                {isBeginnerMode && (
+                  <button type="button" onClick={() => setActiveTour("home")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, margin: "4px 20px 0", display: "inline-block", flexShrink: 0 }}>
+                    Feeling lost? Click here.
+                  </button>
+                )}
                 {/* Label */}
                 <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
                   {homePortfolioViewMode === "asset" ? "Live Market" : "Portfolio View"}
@@ -20392,16 +20500,38 @@ return (
                   )}
                 </div>
                 {/* Asset carousel */}
-                <div className="homeMarketCarouselSection" style={{ padding: "0 20px 12px", flexShrink: 0 }}>
+                <div className="homeMarketCarouselSection" data-tour-id="home-carousel" style={{ padding: "0 20px 12px", flexShrink: 0 }}>
                   <AssetCarousel
-                    assets={[...marketItems].sort((a, b) => a.id.localeCompare(b.id)).map((item) => ({
-                      id: item.id,
-                      symbol: item.id,
-                      name: item.description || item.name || item.id,
-                      type: item.type || "stock",
-                      price: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.price ?? item.priceValue,
-                      change: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.change ?? item.changeValue,
-                    }))}
+                    assets={(() => {
+                      // Open broker positions first (live price + change from Alpaca)
+                      const positionAssets = (alpacaPositions || []).map((pos) => {
+                        const raw = String(pos.symbol || "").toUpperCase();
+                        const cryptoMatch = raw.match(/^([A-Z0-9]{2,8})USD$/);
+                        const displaySymbol = cryptoMatch && CRYPTO_SYMBOL_SET.has(cryptoMatch[1]) ? cryptoMatch[1] : raw;
+                        return {
+                          id: displaySymbol,
+                          symbol: displaySymbol,
+                          name: displaySymbol,
+                          type: pos.assetClass === "crypto" ? "crypto" : "stock",
+                          price: Number(pos.currentPrice) || null,
+                          change: Number.isFinite(Number(pos.changeToday)) ? Number(pos.changeToday) * 100 : null,
+                        };
+                      });
+                      // Fill remaining slots with watchlist defaults (deduped)
+                      const positionIds = new Set(positionAssets.map((a) => a.id));
+                      const fillAssets = [...marketItems]
+                        .filter((item) => !positionIds.has(item.id))
+                        .sort((a, b) => a.id.localeCompare(b.id))
+                        .map((item) => ({
+                          id: item.id,
+                          symbol: item.id,
+                          name: item.description || item.name || item.id,
+                          type: item.type || "stock",
+                          price: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.price ?? item.priceValue,
+                          change: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.change ?? item.changeValue,
+                        }));
+                      return [...positionAssets, ...fillAssets];
+                    })()}
                     selectedId={selectedMarketId}
                     onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); setHomePortfolioViewMode("asset"); }}
                   />
@@ -20447,7 +20577,7 @@ return (
                     </div>
                   )}
                 </div>
-                <div className="homeChartStage" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
+                <div className="homeChartStage" data-tour-id="home-chart" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
                   {homePortfolioViewMode === "asset" ? (
                     <>
                       {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
@@ -20476,9 +20606,24 @@ return (
                     </>
                   ) : (
                     <div className="homePortfolioChartShell">
-                      <div className="homePortfolioChartHeader">
+                      <div className="homePortfolioChartHeader" data-tour-id="home-portfolio-value">
                         <div>
-                          <div className="homePortfolioChartTitle">{homePortfolioChartLabel}</div>
+                          <div className="homePortfolioChartTitle">
+                            {homePortfolioViewMode === "portfolio" ? "Your portfolio" : homePortfolioChartLabel}
+                          </div>
+                          <div className="homePortfolioChartValueLine">
+                            <span className="homePortfolioChartCurrencyMark">$</span>
+                            <span className="homePortfolioChartValue">
+                              {homePortfolioPositions.length ? formatCurrency(homePortfolioMarketValue).replace("$", "") : "--"}
+                            </span>
+                            <span
+                              className="homePortfolioChartInlineChange"
+                              style={{ color: homePortfolioUnrealizedPl < 0 ? "#f87171" : "#4ade80" }}
+                            >
+                              {homePortfolioPositions.length ? `${homePortfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(homePortfolioUnrealizedPl)}` : "--"}
+                              {Number.isFinite(homePortfolioReturnPct) ? ` ${formatPerformancePercent(homePortfolioReturnPct)}` : ""}
+                            </span>
+                          </div>
                           <div className="homePortfolioChartSubcopy">
                             {homePortfolioViewMode === "holdings"
                               ? "Long-term positions classified as investments or crypto holds."
@@ -20487,22 +20632,36 @@ return (
                                 : "Open broker positions grouped into one portfolio view."}
                           </div>
                         </div>
-                        <div className="homePortfolioChartMetric" style={{ color: homePortfolioUnrealizedPl < 0 ? "#f87171" : "#4ade80" }}>
-                          {homePortfolioPositions.length ? `${homePortfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(homePortfolioUnrealizedPl)}` : "--"}
-                          <div style={{ color: "#64748b", fontSize: 10, fontWeight: 700, marginTop: 3 }}>
+                        <div className="homePortfolioChartControls" data-tour-id="home-chart-range">
+                          <div className="homePortfolioRangePills" aria-label="Portfolio chart range">
+                            {homePortfolioRangeOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`homePortfolioRangePill ${homePortfolioChartRange === option.value ? "active" : ""}`}
+                                onClick={() => setHomePortfolioChartRange(option.value)}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="homePortfolioChartMetric">
                             {homePortfolioPositions.length ? `${homePortfolioPositions.length} position${homePortfolioPositions.length === 1 ? "" : "s"} · ${formatCurrency(homePortfolioMarketValue)}` : "No positions"}
                           </div>
+                          <div className="homePortfolioZoomHint">Scroll to zoom · drag to pan</div>
                         </div>
                       </div>
                       <div className="homePortfolioChartBody">
                         <InteractiveLineChart
-                          className="tradePortfolioEngineChart"
+                          key={`${homePortfolioSnapshotView}:${homePortfolioChartRange}:${homePortfolioVisibleTimeRange?.fromMs || "auto"}:${homePortfolioVisibleTimeRange?.toMs || "auto"}:${homePortfolioLinePoints.length}:${homePortfolioLinePoints[0]?.timeMs || "start"}:${homePortfolioLinePoints[homePortfolioLinePoints.length - 1]?.timeMs || "end"}`}
+                          className="homePortfolioEngineChart tradePortfolioEngineChart"
                           height="100%"
                           lines={homePortfolioLinePoints.length >= 2 ? [{
                             symbol: homePortfolioChartLabel,
                             color: "#7CC4FF",
                             points: homePortfolioLinePoints,
                           }] : []}
+                          visibleTimeRange={homePortfolioVisibleTimeRange}
                           valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
                           emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Performance history grows automatically as Rayla collects broker snapshots." : "Open positions will appear here once broker data is synced."}
                         />
@@ -20511,7 +20670,7 @@ return (
                   )}
                 </div>
                 {!isHomeLiveChartFullscreen && (
-                  <aside className="homeUtilityRail">
+                  <aside className="homeUtilityRail" data-tour-id="home-stats">
                     <div className="homeUtilityTabs" aria-label="Home market overview">
                       {[
                         ["overview", "Overview"],
@@ -20538,7 +20697,7 @@ return (
                               </div>
                             )}
                             {showBeginnerGuidance && tradeHelpTopic === "homeOverview" ? <InlineHelpCard topic="homeOverview" /> : null}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
+                            <div data-tour-id="home-pnl" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
                               <div>
                                 <div className="homeUtilityBig" style={{ color: homeTotalDollarPnl == null ? "#94a3b8" : homeTotalDollarPnl < 0 ? "#f87171" : "#4ade80" }}>{homeTotalPnlDisplay}</div>
                                 <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Total P/L</div>
@@ -20550,7 +20709,7 @@ return (
                             </div>
                           </section>
 
-                          <section className="homeUtilitySection">
+                          <section className="homeUtilitySection" data-tour-id="home-holdings">
                             <div className="homeUtilityKicker">Holdings Snapshot</div>
                             {holdingsSnapshot.count ? (
                               <>
@@ -20608,7 +20767,7 @@ return (
                             )}
                           </section>
 
-                          <section className="homeUtilitySection">
+                          <section className="homeUtilitySection" data-tour-id="home-recent">
                             <div className="homeUtilityKicker">Recent Trades</div>
                             <div className="homeUtilityRows">
                               {combinedTrades.slice(0, 4).length ? combinedTrades.slice(0, 4).map((trade, index) => {
@@ -20942,6 +21101,11 @@ return (
               <div className="tradePageHeader mobilePageHeader">
                 <div>
                   <div className="raylaPageTitle tradePageTitle mobilePageTitle">Live Trades</div>
+                  {isBeginnerMode && (
+                    <button type="button" onClick={() => setActiveTour("trades")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 4, display: "inline-block" }}>
+                      Feeling lost? Click here.
+                    </button>
+                  )}
                 </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
@@ -21299,7 +21463,7 @@ return (
 
                   {alpacaAccount && (
                     <div className="tradeExecutionGrid" style={{ display: "grid", gridTemplateColumns: "minmax(560px, 1.75fr) minmax(305px, 0.95fr) minmax(245px, 0.85fr)", gap: 14, alignItems: "stretch" }}>
-                      <div className="tradePositionsPanel" style={{ order: isMobileView ? 2 : 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+                      <div className="tradePositionsPanel" data-tour-id="trades-open" style={{ order: isMobileView ? 2 : 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
@@ -21776,6 +21940,7 @@ return (
                                     style={{ height: 300, borderRadius: 12, background: "rgba(13,17,23,0.8)", border: "1px solid rgba(255,255,255,0.08)", padding: "34px 14px 16px", position: "relative" }}
                                   >
                                     <InteractiveLineChart
+                                      key={`live-trades-portfolio:${tradeChartRange}:${viewport.startMs}:${viewport.endMs}:${displayedLines.map((line) => line.points?.length || 0).join("|")}`}
                                       className="tradePortfolioEngineChart"
                                       height={250}
                                       lines={displayedLines.map((line) => ({
@@ -21783,6 +21948,7 @@ return (
                                         color: line.color,
                                         points: line.points,
                                       }))}
+                                      visibleTimeRange={{ fromMs: viewport.startMs, toMs: viewport.endMs }}
                                       valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
                                       emptyMessage={tradePortfolioChartsLoading ? "Loading portfolio chart..." : "Not enough historical data yet."}
                                     />
@@ -21867,7 +22033,7 @@ return (
                         );
                       })()}
 
-                      <div ref={orderTicketRef} className="tradeOrderTicket" style={{ order: isMobileView ? 3 : 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
+                      <div ref={orderTicketRef} className="tradeOrderTicket" data-tour-id="trades-ticket" style={{ order: isMobileView ? 3 : 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
@@ -22058,7 +22224,7 @@ return (
                           );
                         })()}
                         <form className="tradeOrderForm" onSubmit={handleSubmitAlpacaOrder} style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                          <div style={{ position: "relative" }}>
+                          <div data-tour-id="trades-asset-search" style={{ position: "relative" }}>
                             {(() => {
                               const selectedOrderQuote = getKnownStockQuoteData(alpacaOrderForm.symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                               const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && brokerSymbolsMatch(alpacaOrderForm.symbol, tradePanelSymbol)
@@ -22168,7 +22334,7 @@ return (
                               );
                             })()}
                           </div>
-                          <div>
+                          <div data-tour-id="trades-direction">
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
                               {showBeginnerGuidance && <InlineHelpButton topic="direction" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
@@ -22238,7 +22404,7 @@ return (
                               )}
                             </div>
                           </div>
-                          <div>
+                          <div data-tour-id="trades-type">
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Trade Type</div>
                             </div>
@@ -22267,7 +22433,7 @@ return (
                               })}
                             </div>
                           </div>
-                          <div>
+                          <div data-tour-id="trades-position-size">
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Position Size</div>
                               {showBeginnerGuidance && <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
@@ -22489,7 +22655,7 @@ return (
                               </div>
                             ) : null;
                           })()}
-                          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
+                          <div data-tour-id="trades-exit-plan" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
                               <button
                                 type="button"
@@ -22652,7 +22818,7 @@ return (
                 </div>
               </div>
 
-              <div className="liveTradesHistoryGrid" style={{ marginBottom: 16 }}>
+              <div className="liveTradesHistoryGrid" data-tour-id="trades-history" style={{ marginBottom: 16 }}>
                 <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Broker Trade History</div>
@@ -22678,13 +22844,20 @@ return (
           <div className="mainGrid">
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
-                <div className="raylaPageTitle mobilePageTitle">Simulation</div>
+                <div>
+                  <div className="raylaPageTitle mobilePageTitle">Simulation</div>
+                  {isBeginnerMode && (
+                    <button type="button" onClick={() => setActiveTour("simulation")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 4, display: "inline-block" }}>
+                      Feeling lost? Click here.
+                    </button>
+                  )}
+                </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
                   onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
                 />
               </div>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+              <div data-tour-id="sim-mode" style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
                     Mode
@@ -23011,7 +23184,7 @@ return (
                   )}
                   <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(300px, 340px) minmax(0, 1fr)" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "start" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div className="simulationControlsPanel" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: useScenarioDesktopLayout ? "1" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined })}>
+                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: useScenarioDesktopLayout ? "1" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         Trade Controls
@@ -23463,7 +23636,7 @@ return (
                   </div>
                   )}
                   {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
-                  <div className="simulationChartPanel" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: useScenarioDesktopLayout ? "2" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined }}>
+                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: useScenarioDesktopLayout ? "2" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -23860,7 +24033,7 @@ return (
                   </div>
 
                   {visibleSimulationPositions.length > 0 && (
-                    <div ref={setSimulationSectionRef("open-position")} style={getSimulationSectionStyle("open-position", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
+                    <div ref={setSimulationSectionRef("open-position")} data-tour-id="sim-open-position" style={getSimulationSectionStyle("open-position", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Open Trades
@@ -24078,7 +24251,7 @@ return (
                   )}
 
                   {visibleSimulationClosedTrade && (
-                    <div ref={setSimulationSectionRef("summary")} style={getSimulationSectionStyle("summary", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14 })}>
+                    <div ref={setSimulationSectionRef("summary")} data-tour-id="sim-summary" style={getSimulationSectionStyle("summary", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14 })}>
                       {showBeginnerGuidance && isActiveGuidedTradeClosed && (
                         <div style={{ ...simulationBriefingPanelStyle, marginBottom: 14, padding: 14, borderRadius: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -24223,7 +24396,7 @@ return (
                   </div>
                 )}
 
-                    <div ref={setSimulationSectionRef("history")} style={getSimulationSectionStyle("history", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
+                    <div ref={setSimulationSectionRef("history")} data-tour-id="sim-history" style={getSimulationSectionStyle("history", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade History
@@ -24335,7 +24508,21 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
+              {isBeginnerMode && (
+                <div style={{ textAlign: "center" }}>
+                  <button type="button" onClick={() => {
+                    const key = performancePositionFilter === "holdings"
+                      ? "performanceHoldings"
+                      : performancePositionFilter === "all"
+                        ? "performanceDayTrades"
+                        : "performancePortfolio";
+                    setActiveTour(key);
+                  }} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
+                    Feeling lost? Click here.
+                  </button>
+                </div>
+              )}
+              <div data-tour-id="perf-filters" style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
                     Source
@@ -24394,6 +24581,7 @@ return (
                     ? "Long-Term Holdings shows open broker positions classified as investments."
                     : "Day Trades shows day-trade and swing-trade strategy performance, including open positions and closed trade history."}
               </div>
+              <div data-tour-id="perf-panel">
                 {isLiveTradesPerformance && performancePositionFilter === "portfolio" ? (
                 <PortfolioPerformancePanel
                   positions={brokerPositionsWithIntent}
@@ -24532,6 +24720,7 @@ return (
                 />
               </PerformanceRenderBoundary>
               )}
+              </div>
             </div>
           </div>
         )}
@@ -24545,6 +24734,8 @@ return (
                 liveSimulationTrades={liveSimulationJournalTrades}
                 onOpenRaylaPopup={openGlobalRaylaPopup}
                 onDeleteManualTrade={handleDeleteTrade}
+                isBeginnerMode={isBeginnerMode}
+                onStartTour={() => setActiveTour("journal")}
               />
             </div>
           </div>
@@ -24983,8 +25174,14 @@ return (
                       <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 6 }}>
                         Pick a hot or cold asset, then try the idea in Simulation before risking real capital.
                       </div>
+                      {isBeginnerMode && (
+                        <button type="button" onClick={() => setActiveTour("intel")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 8, display: "inline-block" }}>
+                          Feeling lost? Click here.
+                        </button>
+                      )}
                     </div>
                   </div>
+                  <div data-tour-id="intel-ask-rayla">
                   <BrokerDisclosureNote
                     action={(
                       <button
@@ -25010,13 +25207,14 @@ return (
                   >
                     Market Intel may include assets unavailable through your connected broker. For deeper analysis and broker-aware opportunities, ask Rayla.
                   </BrokerDisclosureNote>
+                  </div>
                 {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
                   <MobileSegmentedPager segments={[
                     {
                       label: "Picks",
                       content: (
-                        <div style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
+                        <div data-tour-id="intel-picks" style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
                           <div style={{ fontSize: 18, fontWeight: 700, color: "#f3f7fc", marginBottom: 6 }}>
                             Rayla&apos;s Picks for You
                           </div>
@@ -25072,7 +25270,7 @@ return (
                         return (
                           <>
                             {/* ── Desktop layout: one column per sentiment ─────────────────── */}
-                            <div className="intelDesktopGrid">
+                            <div className="intelDesktopGrid" data-tour-id="intel-hot-cold">
                               {[
                                 { stockLabel: "Hottest Stocks / ETFs", stockColor: "#ef4444", stockItems: hotColdReport.stockHot, cryptoLabel: "Hottest Crypto", cryptoColor: "#ef4444", cryptoItem: hotCrypto },
                                 { stockLabel: "Coldest Stocks / ETFs", stockColor: "#7CC4FF", stockItems: hotColdReport.stockCold, cryptoLabel: "Coldest Crypto", cryptoColor: "#7CC4FF", cryptoItem: coldCrypto },
@@ -25080,7 +25278,7 @@ return (
                                 const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
                                 return (
                                   <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
-                                    <div className="intelMarketPanel intelMarketPanelStocks" style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                    <div className="intelMarketPanel intelMarketPanelStocks" data-tour-id={stockLabel.includes("Hottest") ? "intel-hot-stocks" : "intel-cold-stocks"} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
                                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
@@ -25089,7 +25287,7 @@ return (
                                         <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
                                       )) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible assets in this bucket yet.</div>}
                                     </div>
-                                    <div className="intelMarketPanel intelMarketPanelCrypto" style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                    <div className="intelMarketPanel intelMarketPanelCrypto" data-tour-id={cryptoLabel.includes("Hottest") ? "intel-hot-crypto" : "intel-cold-crypto"} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
                                         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
