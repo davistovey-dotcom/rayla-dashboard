@@ -5,18 +5,12 @@ function getCalmAuthErrorMessage(error, fallback) {
   const message = String(error?.message || "").trim();
   const normalized = message.toLowerCase();
   if (!message) return fallback;
-  if (normalized.includes("invalid login credentials")) {
-    return "Email or password is incorrect.";
-  }
-  if (normalized.includes("email not confirmed")) {
-    return "Confirm your email, then sign in again.";
-  }
-  if (normalized.includes("already registered") || normalized.includes("already been registered")) {
-    return "That email already has a Rayla account. Sign in instead.";
-  }
-  if (normalized.includes("rate limit") || normalized.includes("too many")) {
-    return "Too many attempts. Wait a moment, then try again.";
-  }
+  if (normalized.includes("invalid login credentials")) return "Email or password is incorrect.";
+  if (normalized.includes("email not confirmed")) return "Confirm your email, then sign in again.";
+  if (normalized.includes("already registered") || normalized.includes("already been registered")) return "That email already has a Rayla account. Sign in instead.";
+  if (normalized.includes("rate limit") || normalized.includes("too many")) return "Too many attempts. Wait a moment, then try again.";
+  if (normalized.includes("token") && normalized.includes("expired")) return "That code has expired. Use Resend to get a new one.";
+  if (normalized.includes("otp") || normalized.includes("token is invalid")) return "That code is incorrect or has expired. Check your email or use Resend.";
   return message;
 }
 
@@ -78,136 +72,294 @@ function SplashScreen({ onEnter }) {
   );
 }
 
+const RESEND_COOLDOWN_SECONDS = 60;
+
+function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, authMessage }) {
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [codeError, setCodeError] = useState(null);
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(RESEND_COOLDOWN_SECONDS);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  async function handleVerify() {
+    const trimmed = code.replace(/\s/g, "");
+    if (!trimmed) {
+      setCodeError("Enter the code from your email.");
+      return;
+    }
+    if (verifying) return;
+    setVerifying(true);
+    setCodeError(null);
+    const result = await onVerify(trimmed);
+    setVerifying(false);
+    if (result?.error) {
+      setCodeError(result.error);
+      setCode("");
+    }
+    // On success the parent session fires via onAuthStateChange — app transitions automatically
+  }
+
+  async function handleResend() {
+    if (cooldown > 0 || resending) return;
+    setResending(true);
+    setCodeError(null);
+    setCode("");
+    await onResend();
+    setResending(false);
+    setCooldown(RESEND_COOLDOWN_SECONDS);
+  }
+
+  function handleCodeInput(e) {
+    // Allow digits and letters, strip spaces, cap at 8 chars
+    const val = e.target.value.replace(/[^0-9a-zA-Z]/g, "").slice(0, 8);
+    setCode(val);
+    setCodeError(null);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") handleVerify();
+  }
+
+  const canResend = cooldown === 0 && !resending;
+
+  return (
+    <div className="authPage">
+      <div className="authCard">
+        <div className="authIdentity">
+          <img className="authBadge" src="/badger.png" alt="" />
+          <img className="authLogo" src="/rayla-logo.png" alt="Rayla" />
+        </div>
+        <h1 className="authTitle">Verify your email</h1>
+        <div className="authForm">
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <div style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6, marginBottom: 6 }}>
+              We sent a verification code to:
+            </div>
+            <div style={{ color: "#ffffff", fontSize: 15, fontWeight: 600, wordBreak: "break-all" }}>
+              {email}
+            </div>
+          </div>
+
+          <label className="authLabel">Verification Code</label>
+          <input
+            className="authInput"
+            type="text"
+            inputMode="numeric"
+            placeholder="Enter the code from your email"
+            value={code}
+            onChange={handleCodeInput}
+            onKeyDown={handleKeyDown}
+            maxLength={8}
+            autoComplete="one-time-code"
+            autoFocus
+            style={{ letterSpacing: "0.2em", fontSize: 20, textAlign: "center" }}
+          />
+
+          {codeError ? (
+            <div className="authMessage error">{codeError}</div>
+          ) : authMessage ? (
+            <div className={`authMessage ${authMessage.type === "success" ? "success" : "error"}`}>
+              {authMessage.text}
+            </div>
+          ) : null}
+
+          <button
+            className="authPrimaryButton"
+            onClick={handleVerify}
+            disabled={verifying || !code.trim()}
+          >
+            {verifying ? "Verifying..." : "Verify Account"}
+          </button>
+
+          <div style={{ background: "rgba(124,196,255,0.07)", border: "1px solid rgba(124,196,255,0.15)", borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.7 }}>
+              Check your <strong style={{ color: "#cbd5e1" }}>spam or junk folder</strong> if the code doesn&rsquo;t arrive. Clicking the link in the email also works if you prefer.
+            </div>
+          </div>
+
+          <button
+            className="authSecondaryButton"
+            onClick={handleResend}
+            disabled={!canResend}
+            style={{ opacity: canResend ? 1 : 0.55 }}
+          >
+            {resending ? "Sending new code..." : cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
+          </button>
+
+          <button
+            className="authSecondaryButton"
+            onClick={onChangeEmail}
+          >
+            Use a different email address
+          </button>
+
+          <div style={{ color: "#475569", fontSize: 12, lineHeight: 1.5, marginTop: 4, textAlign: "center" }}>
+            Codes may take a few minutes to arrive.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [resendingVerification, setResendingVerification] = useState(false);
-  const [screen, setScreen] = useState("splash");
+  const [screen, setScreen] = useState("splash"); // "splash" | "login" | "verify"
   const [authMessage, setAuthMessage] = useState(null);
   const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationType, setVerificationType] = useState("signup");
 
   async function handleSignUp() {
-  if (loading) return;
-  setAuthMessage(null);
-  if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
-    setAuthMessage({ type: "error", text: "Enter your email and password first." });
-    return;
-  }
-
-  if (password.length < 6) {
-    setAuthMessage({ type: "error", text: "Use at least 6 characters for your password." });
-    return;
-  }
-
-  if (password !== confirmPassword) {
-    setAuthMessage({ type: "error", text: "Passwords do not match." });
-    return;
-  }
-
-  const normalizedEmail = email.trim().toLowerCase();
-  const emailRedirectTo = getAuthRedirectUrl();
-
-  setLoading(true);
-  try {
-    const { data, error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password,
-      options: {
-        emailRedirectTo,
-      },
-    });
-
-    console.info("[auth] signup result", {
-      email: normalizedEmail,
-      hasUser: Boolean(data?.user),
-      hasSession: Boolean(data?.session),
-      emailConfirmedAt: data?.user?.email_confirmed_at || null,
-      confirmationSentAt: data?.user?.confirmation_sent_at || null,
-      identitiesCount: Array.isArray(data?.user?.identities) ? data.user.identities.length : null,
-      emailRedirectTo,
-    });
-
-    if (error) {
-      console.error("[auth] signup failed", error);
-      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not create account.") });
-      return;
-    }
-
-    if (!data?.user) {
-      setAuthMessage({ type: "error", text: "Could not create account. Supabase did not return a user." });
-      return;
-    }
-
-    const identities = Array.isArray(data.user.identities) ? data.user.identities : null;
-    if (identities && identities.length === 0) {
-      setVerificationEmail(normalizedEmail);
-      setAuthMessage({
-        type: "error",
-        text: "That email may already have a Rayla account. Try signing in, or resend the verification email below.",
-      });
-      setPassword("");
-      setConfirmPassword("");
-      return;
-    }
-
-    setVerificationEmail(normalizedEmail);
-    if (data.session) {
-      setAuthMessage({ type: "success", text: "Account created. You are signed in." });
-    } else {
-      setAuthMessage({ type: "success", text: "Verification email sent. Check your inbox and spam folder." });
-    }
-
-    setEmail(normalizedEmail);
-    setIsCreatingAccount(false);
-    setPassword("");
-    setConfirmPassword("");
-  } catch (error) {
-    console.error("[auth] signup threw", error);
-    setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not create account.") });
-  } finally {
-    setLoading(false);
-  }
-}
-
-  async function handleResendVerification() {
-    const targetEmail = (verificationEmail || email).trim().toLowerCase();
-    if (!targetEmail || resendingVerification) return;
-
-    const emailRedirectTo = getAuthRedirectUrl();
-    setResendingVerification(true);
+    if (loading) return;
     setAuthMessage(null);
+    if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
+      setAuthMessage({ type: "error", text: "Enter your email and password first." });
+      return;
+    }
+    if (password.length < 6) {
+      setAuthMessage({ type: "error", text: "Use at least 6 characters for your password." });
+      return;
+    }
+    if (password !== confirmPassword) {
+      setAuthMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    setLoading(true);
     try {
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email: targetEmail,
+      // Create the user through Supabase's signup flow so the Confirmation email
+      // template can send {{ .Token }} for desktop code entry.
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
         options: {
-          emailRedirectTo,
+          emailRedirectTo: getAuthRedirectUrl(),
         },
       });
 
-      console.info("[auth] resend signup verification", {
-        email: targetEmail,
-        emailRedirectTo,
+      console.info("[auth] signup verification requested", {
+        email: normalizedEmail,
         ok: !error,
+        userId: data?.user?.id || null,
+        hasSession: Boolean(data?.session),
+        emailConfirmedAt: data?.user?.email_confirmed_at || null,
+        error: error?.message || null,
       });
 
       if (error) {
-        console.error("[auth] resend verification failed", error);
-        setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not resend verification email.") });
+        console.error("[auth] signup verification error", { message: error.message, status: error.status });
+        setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not send verification email.") });
         return;
       }
 
-      setVerificationEmail(targetEmail);
+      if (data?.session) {
+        onLogin?.(data);
+        return;
+      }
+
+      setVerificationEmail(normalizedEmail);
+      setVerificationType("signup");
+      setPassword("");
+      setConfirmPassword("");
       setAuthMessage({ type: "success", text: "Verification email sent. Check your inbox and spam folder." });
-    } catch (error) {
-      console.error("[auth] resend verification threw", error);
-      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not resend verification email.") });
+      setScreen("verify");
+    } catch (err) {
+      console.error("[auth] signup verification threw", err);
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(err, "Could not send verification email.") });
     } finally {
-      setResendingVerification(false);
+      setLoading(false);
+    }
+  }
+
+  // Called by VerifyEmailScreen with the code the user typed
+  async function handleVerifyCode(code) {
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        email: verificationEmail,
+        token: code,
+        type: verificationType,
+      });
+
+      console.info("[auth] verify OTP", {
+        email: verificationEmail,
+        type: verificationType,
+        ok: !verifyError,
+        hasSession: Boolean(data?.session),
+        userId: data?.user?.id || null,
+        error: verifyError?.message || null,
+      });
+
+      if (verifyError) {
+        console.error("[auth] verify OTP failed", verifyError);
+        return { error: getCalmAuthErrorMessage(verifyError, "That code is incorrect or has expired. Use Resend to get a new one.") };
+      }
+
+      setAuthMessage(null);
+
+      if (!data?.session) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) {
+          return { error: "Email verified. Sign in with your password to continue." };
+        }
+      }
+
+      // onAuthStateChange fires SIGNED_IN → App session is set → Login unmounts
+      return { error: null };
+    } catch (err) {
+      console.error("[auth] verify OTP threw", err);
+      return { error: getCalmAuthErrorMessage(err, "Verification failed. Please try again.") };
+    }
+  }
+
+  // Called by VerifyEmailScreen resend button — sends a fresh OTP code
+  async function handleResendCode() {
+    const targetEmail = (verificationEmail || email).trim().toLowerCase();
+    if (!targetEmail) return;
+    try {
+      let error = null;
+      if (verificationType === "signup") {
+        ({ error } = await supabase.auth.resend({
+          type: "signup",
+          email: targetEmail,
+          options: {
+            emailRedirectTo: getAuthRedirectUrl(),
+          },
+        }));
+      } else {
+        ({ error } = await supabase.auth.signInWithOtp({
+          email: targetEmail,
+          options: {
+            shouldCreateUser: true,
+            emailRedirectTo: getAuthRedirectUrl(),
+          },
+        }));
+      }
+
+      console.info("[auth] resend verification", { email: targetEmail, type: verificationType, ok: !error, error: error?.message || null });
+
+      if (error) {
+        console.error("[auth] resend verification failed", error);
+        setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not resend code.") });
+        return;
+      }
+
+      setAuthMessage({ type: "success", text: "New code sent. Check your inbox and spam folder." });
+    } catch (err) {
+      console.error("[auth] resend OTP threw", err);
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(err, "Could not resend code.") });
     }
   }
 
@@ -219,18 +371,53 @@ export default function Login({ onLogin }) {
       return;
     }
     setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not sign in.") });
-      return;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      console.info("[auth] signin", {
+        email: email.trim().toLowerCase(),
+        ok: !error,
+        hasSession: Boolean(data?.session),
+        error: error?.message || null,
+      });
+      if (error) {
+        setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not sign in.") });
+        return;
+      }
+      onLogin?.(data);
+    } catch (err) {
+      console.error("[auth] signin threw", err);
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(err, "Could not sign in.") });
+    } finally {
+      setLoading(false);
     }
-    onLogin?.(data);
   }
 
   if (screen === "splash") return <SplashScreen onEnter={() => setScreen("login")} />;
 
-  
+  if (screen === "verify") {
+    return (
+      <VerifyEmailScreen
+        email={verificationEmail}
+        onVerify={handleVerifyCode}
+        onResend={handleResendCode}
+        onChangeEmail={() => {
+          setScreen("login");
+          setIsCreatingAccount(true);
+          setEmail("");
+          setPassword("");
+          setConfirmPassword("");
+          setVerificationEmail("");
+          setVerificationType("signup");
+          setAuthMessage(null);
+        }}
+        authMessage={authMessage}
+      />
+    );
+  }
+
   return (
     <div className="authPage">
       <div className="authCard">
@@ -241,67 +428,65 @@ export default function Login({ onLogin }) {
         <h1 className="authTitle">{isCreatingAccount ? "Create your workspace" : "Welcome back"}</h1>
         <div className="authForm">
           <label className="authLabel">Email</label>
-          <input className="authInput" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            className="authInput"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
           <label className="authLabel">Password</label>
-<input
-  className="authInput"
-  type="password"
-  placeholder="Minimum 6 characters"
-  value={password}
-  onChange={(e) => setPassword(e.target.value)}
-/>
-
-{isCreatingAccount && (
-  <>
-    <label className="authLabel">Confirm Password</label>
-    <input
-      className="authInput"
-      type="password"
-      placeholder="Retype your password"
-      value={confirmPassword}
-      onChange={(e) => setConfirmPassword(e.target.value)}
-    />
-  </>
-)}
+          <input
+            className="authInput"
+            type="password"
+            placeholder="Minimum 6 characters"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {isCreatingAccount && (
+            <>
+              <label className="authLabel">Confirm Password</label>
+              <input
+                className="authInput"
+                type="password"
+                placeholder="Retype your password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </>
+          )}
           <button
-  className="authPrimaryButton"
-  onClick={isCreatingAccount ? handleSignUp : handleSignIn}
-  disabled={loading}
->
-  {loading ? (isCreatingAccount ? "Creating account..." : "Signing in...") : isCreatingAccount ? "Create account" : "Sign in"}
-</button>
+            className="authPrimaryButton"
+            onClick={isCreatingAccount ? handleSignUp : handleSignIn}
+            disabled={loading}
+          >
+            {loading
+              ? (isCreatingAccount ? "Sending code..." : "Signing in...")
+              : isCreatingAccount ? "Create account" : "Sign in"}
+          </button>
           <button
-  className="authSecondaryButton"
-  onClick={() => {
-    setAuthMessage(null);
-    if (isCreatingAccount) {
-      setIsCreatingAccount(false);
-      setPassword("");
-      setConfirmPassword("");
-    } else {
-      setIsCreatingAccount(true);
-      setEmail("");
-      setPassword("");
-      setConfirmPassword("");
-    }
-  }}
-  disabled={loading}
->
-  {isCreatingAccount ? "Back to sign in" : "Create account"}
-</button>
+            className="authSecondaryButton"
+            onClick={() => {
+              setAuthMessage(null);
+              if (isCreatingAccount) {
+                setIsCreatingAccount(false);
+                setPassword("");
+                setConfirmPassword("");
+              } else {
+                setIsCreatingAccount(true);
+                setEmail("");
+                setPassword("");
+                setConfirmPassword("");
+              }
+            }}
+            disabled={loading}
+          >
+            {isCreatingAccount ? "Back to sign in" : "Create account"}
+          </button>
           {authMessage ? (
             <div className={`authMessage ${authMessage.type === "success" ? "success" : "error"}`}>
               {authMessage.text}
             </div>
-          ) : null}
-          {verificationEmail && !isCreatingAccount ? (
-            <button
-              className="authSecondaryButton"
-              onClick={handleResendVerification}
-              disabled={loading || resendingVerification}
-            >
-              {resendingVerification ? "Sending verification..." : "Resend verification email"}
-            </button>
           ) : null}
         </div>
       </div>

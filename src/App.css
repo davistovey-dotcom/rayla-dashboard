@@ -3262,6 +3262,13 @@ select.authInput option,
   flex-wrap: wrap;
 }
 
+.performancePortfolioHistoryNote {
+  color: #7f8ea3;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
 .performancePortfolioRangeGroup {
   display: inline-flex;
   align-items: center;
