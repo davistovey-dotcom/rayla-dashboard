@@ -1702,7 +1702,14 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   contain: layout paint;
 }
 
-/* Lower mobileNav below the guided tour overlay while a tour is active */
+/* While a tour is active, disable all pointer events on the app root.
+   The tour portal renders as a sibling of #root (createPortal → document.body),
+   so it is completely unaffected by this rule. */
+body.tour-active #root {
+  pointer-events: none !important;
+}
+
+/* Keep mobileNav visually below the tour overlay */
 body.tour-active .mobileNav {
   z-index: 9989 !important;
 }
@@ -3453,9 +3460,9 @@ select.authInput option,
 
 @media (max-width: 700px) {
   .performancePortfolioTrendCard {
-    --performancePortfolioChartHeight: clamp(260px, 42vh, 340px) !important;
+    --performancePortfolioChartHeight: clamp(320px, 48vh, 430px) !important;
     min-height: auto !important;
-    padding: 14px !important;
+    padding: 14px 12px 16px !important;
     border-radius: 16px !important;
   }
 
@@ -3482,6 +3489,10 @@ select.authInput option,
     align-items: stretch;
   }
 
+  .performancePortfolioHomeChart {
+    margin-top: 10px;
+  }
+
   .performancePortfolioRangeGroup {
     width: 100%;
     justify-content: space-between;
@@ -3499,7 +3510,14 @@ select.authInput option,
 
   .tradePortfolioEngineChart .interactiveLineChartCanvas,
   .performancePortfolioLineChart .interactiveLineChartCanvas {
-    inset: 62px 16px 30px 14px;
+    inset: 48px 10px 34px 4px;
+  }
+
+  .performancePortfolioLineChart .interactiveLineChartFit {
+    top: 4px;
+    right: 4px;
+    min-height: 28px;
+    padding: 5px 9px;
   }
 }
 
@@ -3507,7 +3525,7 @@ select.authInput option,
 
 @media (max-width: 600px) {
   :root {
-    --performancePortfolioChartHeight: 210px;
+    --performancePortfolioChartHeight: 320px;
   }
   .performancePortfolioHomeHeader {
     flex-direction: column;
@@ -3536,7 +3554,7 @@ select.authInput option,
 
   .tradePortfolioEngineChart .interactiveLineChartCanvas,
   .performancePortfolioLineChart .interactiveLineChartCanvas {
-    inset: 60px 14px 28px 12px;
+    inset: 48px 10px 34px 4px;
   }
 
   .performancePortfolioLineChart {

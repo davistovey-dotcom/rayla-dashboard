@@ -173,7 +173,8 @@ export default function GuidedTour({ steps = [], onDone }) {
   // isolation) that could cap their effective z-index below app UI elements.
   const content = (
     <>
-      {/* Full-screen overlay — blocks all pointer events to underlying UI */}
+      {/* Full-screen overlay — pointer-events on #root handles app blocking;
+          this div provides the visual dim and catches any residual events */}
       <div
         style={{
           position: "fixed",
@@ -183,14 +184,15 @@ export default function GuidedTour({ steps = [], onDone }) {
           pointerEvents: "all",
           ...(dimStyle || {}),
         }}
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
+        onTouchStart={(e) => { e.stopPropagation(); e.preventDefault(); }}
         onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
       />
 
       {/* Spotlight frame — visual only, passes pointer events to overlay */}
       {highlight && <div style={highlight} />}
 
-      {/* Popup — sits above overlay, captures all pointer events */}
+      {/* Popup — sits above overlay, captures all pointer events exclusively */}
       <div
         style={{
           position: "fixed",
@@ -206,8 +208,9 @@ export default function GuidedTour({ steps = [], onDone }) {
           boxShadow: "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)",
           pointerEvents: "all",
         }}
+        onTouchStart={(e) => { e.stopPropagation(); }}
+        onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); }}
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-        onTouchEnd={(e) => { e.stopPropagation(); }}
       >
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
