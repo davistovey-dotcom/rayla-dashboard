@@ -186,15 +186,17 @@ export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType
   if (assetType === "crypto") {
     const latestTradePrice = Number(snapshot?.latestTrade?.p ?? 0);
     const prevClose = Number(snapshot?.dailyBar?.o ?? snapshot?.prevDailyBar?.c ?? 0);
-    const change = prevClose > 0 ? ((latestTradePrice - prevClose) / prevClose) * 100 : 0;
+    const change = prevClose > 0 ? ((latestTradePrice - prevClose) / prevClose) * 100 : null;
     const updatedAt = snapshot?.latestTrade?.t || snapshot?.minuteBar?.t || snapshot?.dailyBar?.t || null;
+
+    console.log(`[alpaca] crypto snapshot ${symbol}: latestTrade.p=${snapshot?.latestTrade?.p} dailyBar.o=${snapshot?.dailyBar?.o} prevDailyBar.c=${snapshot?.prevDailyBar?.c} prevClose=${prevClose} change=${change}`);
 
     if (!Number.isFinite(latestTradePrice) || latestTradePrice <= 0) return null;
 
     return {
       symbol,
       price: latestTradePrice,
-      change: Number(change.toFixed(2)),
+      change: change !== null ? Number(change.toFixed(2)) : null,
       previousClose: prevClose || null,
       updatedAt,
       bid: normalizedBid,

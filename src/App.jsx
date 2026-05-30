@@ -3633,6 +3633,105 @@ function normalizeConversationSlice(messages, maxTurns = 6) {
     .map((m) => ({ role: m.role, content: String(m.content) }));
 }
 
+function buildInvestorContextPacket(positions, alpacaAccount, scope = "portfolio") {
+  const holdings = Array.isArray(positions) ? positions : [];
+  const totalValue = holdings.reduce((sum, p) => sum + (Number(p?.marketValue) || 0), 0);
+  const totalUnrealizedPl = holdings.reduce((sum, p) => sum + (Number(p?.unrealizedPl) || 0), 0);
+  const totalCostBasis = holdings.reduce((sum, p) => sum + (Number(p?.qty) || 0) * (Number(p?.avgEntryPrice) || 0), 0);
+  const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
+  const cash = alpacaAccount ? (Number(alpacaAccount.cash) || null) : null;
+  const equity = alpacaAccount
+    ? (Number(alpacaAccount.equity || alpacaAccount.portfolioValue || alpacaAccount.portfolio_value) || null)
+    : null;
+  const sorted = [...holdings].sort((a, b) => (Number(b?.marketValue) || 0) - (Number(a?.marketValue) || 0));
+  const top = sorted[0] || null;
+  const topPct = totalValue > 0 && top ? ((Number(top.marketValue) || 0) / totalValue) * 100 : null;
+  const top3Pct = totalValue > 0
+    ? (sorted.slice(0, 3).reduce((s, p) => s + (Number(p?.marketValue) || 0), 0) / totalValue) * 100
+    : null;
+  return {
+    scope,
+    totalValue,
+    totalUnrealizedPl,
+    unrealizedPct,
+    cash,
+    equity,
+    count: holdings.length,
+    topSymbol: top?.symbol || null,
+    topPct,
+    top3Pct,
+    concentrationLabel:
+      topPct == null ? null
+      : topPct >= 50 ? "highly concentrated"
+      : topPct >= 30 ? "moderately concentrated"
+      : "diversified",
+    positions: sorted.map((p) => {
+      const mv = Number(p?.marketValue) || 0;
+      return {
+        symbol: p.symbol,
+        marketValue: mv,
+        weight: totalValue > 0 ? (mv / totalValue) * 100 : 0,
+        qty: Number(p?.qty) || 0,
+        currentPrice: Number(p?.currentPrice) || 0,
+        unrealizedPl: Number(p?.unrealizedPl) || 0,
+        positionType: p.positionType || "investment",
+      };
+    }),
+  };
+}
+
+function formatInvestorContextForAI(packet) {
+  const label = packet.scope === "holdings" ? "Long-Term Holdings" : "Portfolio";
+  const pctStr = packet.unrealizedPct != null
+    ? ` (${packet.unrealizedPct >= 0 ? "+" : ""}${packet.unrealizedPct.toFixed(2)}%)`
+    : "";
+  const lines = [
+    `[Portfolio Context — ${label}]`,
+    `Total Value: ${formatCurrency(packet.totalValue)}`,
+    `Unrealized P/L: ${packet.totalUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(packet.totalUnrealizedPl)}${pctStr}`,
+  ];
+  if (packet.cash != null) lines.push(`Available Cash: ${formatCurrency(packet.cash)}`);
+  if (packet.equity != null) lines.push(`Account Equity: ${formatCurrency(packet.equity)}`);
+  lines.push(`Positions: ${packet.count}`);
+  if (packet.concentrationLabel && packet.topSymbol) {
+    const top3Str = packet.top3Pct != null ? `, top 3 = ${packet.top3Pct.toFixed(1)}%` : "";
+    lines.push(`Concentration: ${packet.concentrationLabel} (${packet.topSymbol} = ${packet.topPct?.toFixed(1)}%${top3Str})`);
+  }
+  lines.push(`\nBreakdown:`);
+  for (const p of packet.positions) {
+    lines.push(`  ${p.symbol}: ${formatCurrency(p.marketValue)} (${p.weight.toFixed(1)}% | ${p.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(p.unrealizedPl)} unrealized | ${p.qty} @ ${formatCurrency(p.currentPrice)})`);
+  }
+  return lines.join("\n");
+}
+
+function InvestorCtaBand({ actions }) {
+  if (!Array.isArray(actions) || !actions.length) return null;
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "4px 0 8px" }}>
+      {actions.map(({ label, onClick }) => (
+        <button
+          key={label}
+          type="button"
+          onClick={onClick}
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#7CC4FF",
+            background: "rgba(124,196,255,0.08)",
+            border: "1px solid rgba(124,196,255,0.18)",
+            borderRadius: 6,
+            padding: "6px 12px",
+            cursor: "pointer",
+            letterSpacing: "0.02em",
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
@@ -5047,6 +5146,7 @@ function PortfolioTrendCard({
   statusLabel = null,
   chartHeight = 340,
   useAccountValue = true,
+  timeZone = null,
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -5185,6 +5285,8 @@ function PortfolioTrendCard({
               height={chartHeight}
               lines={performancePortfolioLines}
               visibleTimeRange={portfolioVisibleTimeRange}
+              timeZone={timeZone}
+              debugLabel={`Performance ${title} ${portfolioRange}`}
               valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
               emptyMessage={emptyMessage}
             showLastPointPulse
@@ -5220,6 +5322,7 @@ function PortfolioPerformancePanel({
   benchmarkOptions = [],
   benchmarkPoints = [],
   benchmarkLoading = false,
+  timeZone = null,
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -5301,6 +5404,7 @@ function PortfolioPerformancePanel({
           title="Investing"
           subtitle="Live broker positions grouped into one portfolio view."
           chartHeight={330}
+          timeZone={timeZone}
         />
       </div>
 
@@ -5444,6 +5548,8 @@ function HoldingsPerformancePanel({
   brokerTradeLog = [],
   portfolioRange = "MAX",
   setPortfolioRange = () => {},
+  timeZone = null,
+  onAskRayla = null,
 }) {
   const holdings = Array.isArray(positions) ? positions : [];
   const rangeOptions = [
@@ -5541,6 +5647,7 @@ function HoldingsPerformancePanel({
           statusLabel="Holdings"
           chartHeight={420}
           useAccountValue={false}
+          timeZone={timeZone}
         />
       </div>
 
@@ -5647,6 +5754,15 @@ function HoldingsPerformancePanel({
                     <div style={{ fontSize: 11, color: pl >= 0 ? "#6ee7b7" : "#fca5a5", marginTop: 2, opacity: 0.85 }}>
                       {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
                     </div>
+                    {onAskRayla && (
+                      <button
+                        type="button"
+                        onClick={() => onAskRayla(pos.symbol)}
+                        style={{ fontSize: 10, fontWeight: 600, color: "#7CC4FF", background: "none", border: "none", cursor: "pointer", padding: "4px 0 0 0", display: "block", marginLeft: "auto" }}
+                      >
+                        Ask Rayla →
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -5691,6 +5807,7 @@ function ActiveTradesPerformancePanel({
   coachSummary = null,
   showNoNewTrades = false,
   onRunAnalysis = null,
+  timeZone = null,
 }) {
   const trades = Array.isArray(positions) ? positions : [];
   const nowMs = Date.now();
@@ -5814,6 +5931,7 @@ function ActiveTradesPerformancePanel({
             statusLabel="Day Trades"
             chartHeight={420}
             useAccountValue={false}
+            timeZone={timeZone}
           />
         ) : hasClosedTrades ? (
           <div className="performancePortfolioTrendCard" style={{
@@ -5868,6 +5986,7 @@ function ActiveTradesPerformancePanel({
             benchmarkPoints={benchmarkPoints}
             benchmarkLoading={benchmarkLoading}
             alpacaConnected={alpacaConnected}
+            timeZone={timeZone}
           />
         </div>
       )}
@@ -6136,6 +6255,7 @@ function PerformanceDashboard({
   portfolioSnapshotsLoading = false,
   performancePortfolioRange = "MAX",
   setPerformancePortfolioRange = () => {},
+  timeZone = null,
   brokerTradeLog,
   tradePortfolioRequestedStartMs,
   tradePortfolioNowMs,
@@ -6425,6 +6545,7 @@ function PerformanceDashboard({
             benchmarkPoints={benchmarkPoints}
             benchmarkLoading={benchmarkLoading}
             alpacaConnected={alpacaConnected}
+            timeZone={timeZone}
           />
         </div>
       ) : null}
@@ -6445,6 +6566,7 @@ function PerformanceDashboard({
           emptyMessage="Performance history grows automatically as Rayla collects broker snapshots."
           statusLabel={alpacaConnected ? "Open" : null}
           useAccountValue={false}
+          timeZone={timeZone}
         />
       ) : null}
 
@@ -7504,9 +7626,14 @@ function getPortfolioChartVisibleTimeRange(snapshots, points, range, nowMs = Dat
     .map((point) => Number(point?.timeMs))
     .filter((timestampMs) => Number.isFinite(timestampMs));
   const firstMs = Math.min(...snapshotTimes, ...pointTimes);
-  if (!Number.isFinite(firstMs) || firstMs >= endMs) return null;
-  const minimumAllWindowMs = 45 * 24 * 60 * 60 * 1000;
-  return { fromMs: Math.min(firstMs, endMs - minimumAllWindowMs), toMs: endMs };
+  const lastMs = Math.max(...snapshotTimes, ...pointTimes);
+  if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs)) return null;
+  if (firstMs === lastMs) {
+    const padMs = 12 * 60 * 60 * 1000;
+    return { fromMs: firstMs - padMs, toMs: lastMs + padMs };
+  }
+  const padMs = Math.max((lastMs - firstMs) * 0.03, 60 * 60 * 1000);
+  return { fromMs: firstMs - padMs, toMs: lastMs + padMs };
 }
 
 function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requestedEndMs, view = "portfolio", debugLabel = view) {
@@ -8244,6 +8371,7 @@ function EquityCurveCard({
   benchmarkPoints,
   benchmarkLoading,
   alpacaConnected,
+  timeZone = null,
 }) {
   const [benchmarkQuery, setBenchmarkQuery] = useState("");
   const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
@@ -8439,6 +8567,7 @@ function EquityCurveCard({
           benchmarkLabel={resolvedBenchmarkLabel}
           chartRange={chartRange}
           benchmarkLoading={benchmarkLoading}
+          timeZone={timeZone}
         />
       </div>
       <div className="equityFooter"><div className="equityFooterLabel">{sourceLabel}</div></div>
@@ -11232,6 +11361,7 @@ useEffect(() => {
   const [equityBenchmarkChart, setEquityBenchmarkChart] = useState(null);
   const [equityBenchmarkLoading, setEquityBenchmarkLoading] = useState(false);
   const [session, setSession] = useState(null);
+  const raylaChartTimeZone = session?.user?.user_metadata?.timezone || null;
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -19165,7 +19295,6 @@ async function handleDeleteAccount() {
 }
 
 function handleMobileNavSelect(tabId) {
-  console.log(`[nav-click] tab=${tabId}`);
   setActiveTab(tabId);
   window.scrollTo({ top: 0, behavior: "auto" });
 }
@@ -20666,6 +20795,8 @@ return (
                             points: homePortfolioLinePoints,
                           }] : []}
                           visibleTimeRange={homePortfolioVisibleTimeRange}
+                          timeZone={raylaChartTimeZone}
+                          debugLabel={`Home ${homePortfolioChartLabel} ${homePortfolioChartRange}`}
                           valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
                           emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Performance history grows automatically as Rayla collects broker snapshots." : "Open positions will appear here once broker data is synced."}
                         />
@@ -20770,6 +20901,29 @@ return (
                               <div className="homeUtilityMuted">Classify a broker position as Investment to track it here.</div>
                             )}
                           </section>
+
+                          {holdingsSnapshot.count > 0 && alpacaAccount && (
+                            <InvestorCtaBand
+                              actions={[
+                                {
+                                  label: "Analyze my portfolio",
+                                  onClick: () => {
+                                    const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                                    setAiInput(`Analyze my investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`);
+                                    setActiveTab("ai");
+                                  },
+                                },
+                                {
+                                  label: "What should I add?",
+                                  onClick: () => {
+                                    const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                                    setAiInput(`Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`);
+                                    setActiveTab("ai");
+                                  },
+                                },
+                              ]}
+                            />
+                          )}
 
                           <section className="homeUtilitySection" data-tour-id="home-recent">
                             <div className="homeUtilityKicker">Recent Trades</div>
@@ -21953,6 +22107,8 @@ return (
                                         points: line.points,
                                       }))}
                                       visibleTimeRange={{ fromMs: viewport.startMs, toMs: viewport.endMs }}
+                                      timeZone={raylaChartTimeZone}
+                                      debugLabel={`Live Trades Portfolio ${tradeChartRange}`}
                                       valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
                                       emptyMessage={tradePortfolioChartsLoading ? "Loading portfolio chart..." : "Not enough historical data yet."}
                                     />
@@ -24587,6 +24743,7 @@ return (
               </div>
               <div data-tour-id="perf-panel">
                 {isLiveTradesPerformance && performancePositionFilter === "portfolio" ? (
+                <>
                 <PortfolioPerformancePanel
                   positions={brokerPositionsWithIntent}
                   alpacaAccount={alpacaAccount}
@@ -24614,8 +24771,33 @@ return (
                   benchmarkOptions={equityBenchmarkOptions}
                   benchmarkPoints={strictBenchmarkPoints}
                   benchmarkLoading={equityBenchmarkLoading}
+                  timeZone={raylaChartTimeZone}
                 />
+                {brokerPositionsWithIntent.length > 0 && alpacaAccount && (
+                  <InvestorCtaBand
+                    actions={[
+                      {
+                        label: "Analyze my portfolio",
+                        onClick: () => {
+                          const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
+                          setAiInput(`Analyze my investment portfolio and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`);
+                          setActiveTab("ai");
+                        },
+                      },
+                      {
+                        label: "What should I add?",
+                        onClick: () => {
+                          const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
+                          setAiInput(`Based on my current portfolio, what should I consider adding for better diversification or growth potential?\n\n${formatInvestorContextForAI(p)}`);
+                          setActiveTab("ai");
+                        },
+                      },
+                    ]}
+                  />
+                )}
+                </>
               ) : isLiveTradesPerformance && performancePositionFilter === "holdings" ? (
+                <>
                 <HoldingsPerformancePanel
                   positions={longTermBrokerPositions}
                   alpacaConnected={Boolean(alpacaAccount)}
@@ -24626,7 +24808,36 @@ return (
                   brokerTradeLog={brokerTradeLog}
                   portfolioRange={performanceHoldingsRange}
                   setPortfolioRange={setPerformanceHoldingsRange}
+                  timeZone={raylaChartTimeZone}
+                  onAskRayla={(symbol) => {
+                    const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                    setAiInput(`Tell me about my ${symbol} holding. How is it performing and what should I be thinking about?\n\n${formatInvestorContextForAI(p)}`);
+                    setActiveTab("ai");
+                  }}
                 />
+                {longTermBrokerPositions.length > 0 && alpacaAccount && (
+                  <InvestorCtaBand
+                    actions={[
+                      {
+                        label: "Analyze my holdings",
+                        onClick: () => {
+                          const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                          setAiInput(`Analyze my long-term investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`);
+                          setActiveTab("ai");
+                        },
+                      },
+                      {
+                        label: "What should I add?",
+                        onClick: () => {
+                          const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                          setAiInput(`Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`);
+                          setActiveTab("ai");
+                        },
+                      },
+                    ]}
+                  />
+                )}
+                </>
               ) : isLiveTradesPerformance && performancePositionFilter === "all" ? (
                 <ActiveTradesPerformancePanel
                   positions={activeBrokerPositions}
@@ -24655,6 +24866,7 @@ return (
                   coachSummary={coachSummaries[performanceAnalysisSource] || null}
                   showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
                   onRunAnalysis={() => runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource)}
+                  timeZone={raylaChartTimeZone}
                 />
               ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
@@ -24716,6 +24928,7 @@ return (
                   portfolioSnapshotsLoading={portfolioSnapshotsLoading}
                   performancePortfolioRange={performancePortfolioRange}
                   setPerformancePortfolioRange={setPerformancePortfolioRange}
+                  timeZone={raylaChartTimeZone}
                   brokerTradeLog={brokerTradeLog}
                   tradePortfolioRequestedStartMs={tradePortfolioRequestedStartMs}
                   tradePortfolioNowMs={tradePortfolioNowMs}

@@ -236,6 +236,7 @@ export default function Login({ onLogin }) {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     setLoading(true);
     try {
       // Create the user through Supabase's signup flow so the Confirmation email
@@ -245,6 +246,9 @@ export default function Login({ onLogin }) {
         password,
         options: {
           emailRedirectTo: getAuthRedirectUrl(),
+          data: {
+            timezone: browserTimeZone,
+          },
         },
       });
 
@@ -254,6 +258,7 @@ export default function Login({ onLogin }) {
         userId: data?.user?.id || null,
         hasSession: Boolean(data?.session),
         emailConfirmedAt: data?.user?.email_confirmed_at || null,
+        timezone: browserTimeZone,
         error: error?.message || null,
       });
 

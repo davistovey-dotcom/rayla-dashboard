@@ -87,11 +87,12 @@ export default function TradingViewLiveChart({
     script.type = "text/javascript";
     script.src = TRADINGVIEW_WIDGET_SCRIPT;
     script.async = true;
+    const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Etc/UTC";
     script.innerHTML = JSON.stringify({
       autosize: true,
       symbol: widgetSymbol,
       interval: widgetInterval,
-      timezone: "America/Denver",
+      timezone: browserTimeZone,
       theme: "dark",
       style: "1",
       locale: "en",

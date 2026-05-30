@@ -51,7 +51,7 @@ type NormalizedArticle = {
 type QuoteData = {
   symbol: string;
   name: string;
-  dayChangePct: number;
+  dayChangePct: number | null;
   price: number | null;
 };
 
@@ -1325,7 +1325,7 @@ Context: ${signalContext}`;
 
     const cryptoAvgChange =
       cryptoQuotes.length > 0
-        ? cryptoQuotes.reduce((sum, item) => sum + item.dayChangePct, 0) / cryptoQuotes.length
+        ? cryptoQuotes.reduce((sum, item) => sum + (item.dayChangePct ?? 0), 0) / cryptoQuotes.length
         : 0;
 
     const stockCandidates = stockQuotes.length >= 10
@@ -1358,7 +1358,7 @@ const scoredStocksRaw = await mapWithConcurrency(topCandidates, 6, async (candid
               ? news.slice(0, 1)
               : [buildFallbackArticle(candidate, `${candidate.name} stock`)];
 
-          const scored = scoreStockAsset(candidate.name, candidate.dayChangePct, articles);
+          const scored = scoreStockAsset(candidate.name, candidate.dayChangePct ?? 0, articles);
 
           return {
             ...scored,
@@ -1418,14 +1418,14 @@ const scoredCryptoRaw = await mapWithConcurrency(CRYPTO_UNIVERSE, 6, async (coin
       ? news.slice(0, 1)
       : [buildFallbackArticle(coin, `${coin.name} crypto`)];
 
-  const scored = scoreCryptoAsset(coin.name, quote.dayChangePct, cryptoAvgChange, articles);
+  const scored = scoreCryptoAsset(coin.name, quote.dayChangePct ?? 0, cryptoAvgChange, articles);
 
   return {
     ...scored,
     symbol: coin.symbol,
     rawArticles: articles.slice(0, 1),
-    // show "N/A" instead of "+0.00%" when no real price data was fetched
-    change: foundQuote ? scored.change : "N/A",
+    // show "N/A" when no real price data, or when price was found but prevClose was unavailable
+    change: (foundQuote && foundQuote.dayChangePct !== null) ? scored.change : "N/A",
   };
 });
 

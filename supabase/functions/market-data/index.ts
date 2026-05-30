@@ -45,45 +45,6 @@ function isStaleCryptoQuote(quote: any) {
   return Date.now() - updatedAtMs > 60_000;
 }
 
-function getEasternParts(date: Date) {
-  return Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-      timeZoneName: "shortOffset",
-    })
-      .formatToParts(date)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value])
-  );
-}
-
-function buildEasternDate(parts: Record<string, string>, hour: string, minute: string, second = "00") {
-  const timeZoneName = String(parts.timeZoneName || "GMT-05:00").replace("GMT", "");
-  const offset = timeZoneName.startsWith("+") || timeZoneName.startsWith("-")
-    ? timeZoneName
-    : "-05:00";
-  return new Date(`${parts.year}-${parts.month}-${parts.day}T${hour}:${minute}:${second}${offset}`);
-}
-
-function isStockMarketOpen(now: Date) {
-  const parts = getEasternParts(now);
-  const weekday = parts.weekday;
-  if (weekday === "Sat" || weekday === "Sun") return false;
-  const open = buildEasternDate(parts, "09", "30");
-  const close = buildEasternDate(parts, "16", "00");
-  return now.getTime() >= open.getTime() && now.getTime() <= close.getTime();
-}
-
-
-
 function getChartConfig(range = "1D", assetType = "stock") {
   const now = new Date();
   const end = now.toISOString();
@@ -96,9 +57,58 @@ function getChartConfig(range = "1D", assetType = "stock") {
   return { stockTimeframe: "15Min", cryptoTimeframe: "15Min", start: new Date(now.getTime() - 24*60*60*1000).toISOString(), end, limit: 500 };
 }
 
+async function fetchCryptoChangeFromBars(symbol: string, knownPrice: number | null): Promise<{ price: number; change: number; source: string } | null> {
+  try {
+    const pair = buildCryptoPair(symbol);
+    const data = await alpacaMarketDataRequest(
+      `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(pair)}&timeframe=1Day&limit=2&sort=asc`
+    );
+    const bars: any[] = data?.bars?.[pair] || [];
+    if (bars.length >= 2) {
+      const prevClose = Number(bars[bars.length - 2]?.c ?? 0);
+      const latestClose = Number(bars[bars.length - 1]?.c ?? 0);
+      const price = knownPrice && knownPrice > 0 ? knownPrice : latestClose;
+      if (price > 0 && prevClose > 0) {
+        const change = ((price - prevClose) / prevClose) * 100;
+        console.log(`[market-data] bars-fallback ${symbol}: price=${price} prevClose=${prevClose} change=${change.toFixed(2)} bars=${bars.length}`);
+        return { price, change: Number(change.toFixed(2)), source: "alpaca-bars" };
+      }
+      console.log(`[market-data] bars-fallback ${symbol}: insufficient data prevClose=${prevClose} latestClose=${latestClose}`);
+    } else {
+      console.log(`[market-data] bars-fallback ${symbol}: only ${bars.length} bar(s) returned`);
+    }
+  } catch (e) {
+    console.error(`[market-data] bars-fallback failed for ${symbol}:`, e);
+  }
+  return null;
+}
+
+async function fetchCryptoChangeFromFinnhub(symbol: string, knownPrice: number | null): Promise<{ price: number; change: number; source: string } | null> {
+  const finnhubKey = Deno.env.get("FINNHUB_API_KEY");
+  if (!finnhubKey) return null;
+  try {
+    const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${symbol}USDT&token=${finnhubKey}`);
+    if (!res.ok) {
+      console.log(`[market-data] finnhub-fallback ${symbol}: HTTP ${res.status}`);
+      return null;
+    }
+    const fData = await res.json();
+    const price = knownPrice && knownPrice > 0 ? knownPrice : Number(fData?.c ?? 0);
+    const prevClose = Number(fData?.pc ?? 0);
+    console.log(`[market-data] finnhub-fallback ${symbol}: c=${fData?.c} pc=${fData?.pc} price=${price} prevClose=${prevClose}`);
+    if (price > 0 && prevClose > 0) {
+      const change = ((price - prevClose) / prevClose) * 100;
+      return { price, change: Number(change.toFixed(2)), source: "finnhub" };
+    }
+  } catch (e) {
+    console.error(`[market-data] finnhub-fallback failed for ${symbol}:`, e);
+  }
+  return null;
+}
+
 async function fetchSnapshots(items: any[]) {
   const { stockFeed } = getAlpacaMarketDataEnv();
-  const quotes: Record<string, { price: number; change: number; updatedAt?: string | null; bid?: number | null; ask?: number | null; lastTradePrice?: number | null }> = {};
+  const quotes: Record<string, any> = {};
   const stockSymbols = items.filter((item) => item.assetType === "stock").map((item) => item.symbol);
   const cryptoSymbols = items.filter((item) => item.assetType === "crypto").map((item) => item.symbol);
 
@@ -120,10 +130,12 @@ async function fetchSnapshots(items: any[]) {
   }
 
   if (cryptoSymbols.length) {
+    // Step 1: Alpaca snapshot
     const cryptoPairs = cryptoSymbols.map(buildCryptoPair);
     const data = await alpacaMarketDataRequest(`/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(cryptoPairs.join(","))}`);
     cryptoSymbols.forEach((symbol) => {
       const normalized = normalizeAlpacaSnapshot(symbol, data?.snapshots?.[buildCryptoPair(symbol)], "crypto");
+      console.log(`[market-data] crypto snapshot ${symbol}: price=${normalized?.price} change=${normalized?.change}`);
       if (normalized) {
         quotes[symbol] = {
           price: normalized.price,
@@ -135,6 +147,55 @@ async function fetchSnapshots(items: any[]) {
         };
       }
     });
+
+    // Steps 2 & 3: fallback chain for any crypto symbol still missing a valid change
+    const needsFallback = cryptoSymbols.filter((sym) => quotes[sym]?.change == null);
+    if (needsFallback.length) {
+      console.log(`[market-data] crypto change missing for: ${needsFallback.join(", ")} — trying bars fallback`);
+
+      // Step 2: Alpaca daily bars (batch)
+      const stillNeedsFallback: string[] = [];
+      const fallbackPairs = needsFallback.map(buildCryptoPair);
+      try {
+        const barsData = await alpacaMarketDataRequest(
+          `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(fallbackPairs.join(","))}&timeframe=1Day&limit=2&sort=asc`
+        );
+        for (const symbol of needsFallback) {
+          const bars: any[] = barsData?.bars?.[buildCryptoPair(symbol)] || [];
+          if (bars.length >= 2) {
+            const prevClose = Number(bars[bars.length - 2]?.c ?? 0);
+            const latestClose = Number(bars[bars.length - 1]?.c ?? 0);
+            const knownPrice = quotes[symbol]?.price;
+            const price = knownPrice && knownPrice > 0 ? knownPrice : latestClose;
+            if (price > 0 && prevClose > 0) {
+              const change = ((price - prevClose) / prevClose) * 100;
+              console.log(`[market-data] bars-fallback OK ${symbol}: price=${price} prevClose=${prevClose} change=${change.toFixed(2)}`);
+              quotes[symbol] = { ...(quotes[symbol] || {}), price, change: Number(change.toFixed(2)) };
+              continue;
+            }
+          }
+          console.log(`[market-data] bars-fallback insufficient for ${symbol}, bars=${bars.length}`);
+          stillNeedsFallback.push(symbol);
+        }
+      } catch (e) {
+        console.error("[market-data] Alpaca bars batch fallback failed:", e);
+        stillNeedsFallback.push(...needsFallback);
+      }
+
+      // Step 3: Finnhub per-symbol
+      if (stillNeedsFallback.length) {
+        console.log(`[market-data] trying finnhub fallback for: ${stillNeedsFallback.join(", ")}`);
+        for (const symbol of stillNeedsFallback) {
+          const result = await fetchCryptoChangeFromFinnhub(symbol, quotes[symbol]?.price ?? null);
+          if (result) {
+            quotes[symbol] = { ...(quotes[symbol] || {}), price: result.price, change: result.change };
+            console.log(`[market-data] finnhub-fallback OK ${symbol}: change=${result.change}`);
+          } else {
+            console.error(`[market-data] all fallbacks exhausted for ${symbol} — change will be null`);
+          }
+        }
+      }
+    }
   }
 
   return quotes;
@@ -178,7 +239,8 @@ async function fetchFallbackSnapshots(items: any[]) {
       const price = Number(data?.c ?? 0);
       const prevClose = Number(data?.pc ?? 0);
       if (!Number.isFinite(price) || price <= 0) continue;
-      const change = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+      if (prevClose <= 0) continue;
+      const change = ((price - prevClose) / prevClose) * 100;
       quotes[symbol] = {
         price,
         change: Number(change.toFixed(2)),
@@ -195,15 +257,6 @@ async function fetchFallbackSnapshots(items: any[]) {
 
 async function fetchChart(symbol: string, assetType: string, range = "1D", timeframeOverride: string | null = null) {
   if (!symbol) return { symbol, range, bars: [] };
-
-  if (assetType === "stock" && range === "1D" && !isStockMarketOpen(new Date())) {
-    logChartDebug("market-data fetchChart stock 1D unavailable while market closed", {
-      symbol,
-      assetType,
-      range,
-    });
-    return { symbol, range, bars: [], rangeMode: "market_closed" };
-  }
 
   const config = getChartConfig(range, assetType);
   const timeframe = timeframeOverride || (assetType === "crypto" ? config.cryptoTimeframe : config.stockTimeframe);
