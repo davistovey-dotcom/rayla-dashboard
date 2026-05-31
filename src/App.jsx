@@ -3898,18 +3898,18 @@ function loadPicksCacheForContext() {
 
 function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade }) {
   if (activeTab === "home") return "Home";
-  if (activeTab === "performance") {
+  if (activeTab === "ai") {
     if (performancePositionFilter === "holdings") return "Holdings";
     return "Portfolio";
   }
   if (activeTab === "picks") return "PersonalPicks";
-  if (activeTab === "ai") return "MarketIntel";
+  if (activeTab === "intel") return "MarketIntel";
   if (activeTab === "journal") {
     if (raylaActiveReviewedTrade) return "TradeReview";
     return "Journal";
   }
   if (activeTab === "simulation") return "Simulation";
-  if (activeTab === "trade") return "LiveTrades";
+  if (activeTab === "trades") return "LiveTrades";
   return "General";
 }
 
@@ -4047,6 +4047,8 @@ function buildUniversalScreenContext({
         if (trade.setup) lines.push(`Setup: ${fmt(trade.setup)}`);
         if (trade.result_r != null) lines.push(`Result: ${fmt(trade.result_r)}R`);
         if (trade.entry_time) lines.push(`Entry: ${fmt(trade.entry_time)}`);
+        const tradeEntryReason = trade.entryReason || trade.entry_reason || "";
+        if (tradeEntryReason) lines.push(`Entry reason: ${String(tradeEntryReason).slice(0, 200)}`);
         if (trade.notes) lines.push(`Notes: ${String(trade.notes).slice(0, 120)}`);
       }
       contextText = lines.join("\n");
@@ -12210,6 +12212,7 @@ useEffect(() => {
   const [simulationScenarioYears, setSimulationScenarioYears] = useState("");
   const [simulationDirection, setSimulationDirection] = useState("long");
   const [simulationSetupType, setSimulationSetupType] = useState("");
+  const [simulationEntryReason, setSimulationEntryReason] = useState("");
   const [simulationAmount, setSimulationAmount] = useState("");
   const [simulationAmountMode, setSimulationAmountMode] = useState("dollars");
   const [simulationLeverage, setSimulationLeverage] = useState("1x");
@@ -17934,6 +17937,7 @@ useEffect(() => {
       setupType,
       sessionSlot,
       session: sessionSlot,
+      entryReason: simulationEntryReason.trim() || null,
     };
 
     setSimulationClosedTrade(null);
@@ -17944,6 +17948,7 @@ useEffect(() => {
     }
     setSimulationPositions((prev) => [...prev, newPosition]);
     setSelectedSimulationPositionId(newPosition.id);
+    setSimulationEntryReason("");
     if (!normalizedOptions?.skipCoachPopup) {
       openSimulationRaylaHelper(newPosition);
     }
@@ -23977,6 +23982,19 @@ return (
                             );
                           })}
                         </div>
+                      </div>
+
+                      <div style={{ ...simulationSecondaryPanelStyle, padding: "10px 12px", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>
+                          Why are you entering this? <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
+                        </div>
+                        <textarea
+                          value={simulationEntryReason}
+                          onChange={(e) => setSimulationEntryReason(e.target.value)}
+                          placeholder="EMA pullback, breakout, momentum continuation, earnings, long-term thesis…"
+                          rows={2}
+                          style={{ width: "100%", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 11px", color: "#e2e8f0", fontSize: 12, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.55 }}
+                        />
                       </div>
 
                       <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
