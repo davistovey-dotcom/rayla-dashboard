@@ -11,7 +11,8 @@ import AssetCarousel from "./components/AssetCarousel";
 import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import GuidedTour from "./components/GuidedTour";
 import { tourSteps } from "./components/tourSteps";
-import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
+import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen, Sparkles } from "lucide-react";
+import PersonalPicksTab from "./components/PersonalPicksTab";
 import { Tutorial } from "./Login";
 
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
@@ -713,6 +714,7 @@ const NAV_TABS = [
   { id: "trades", icon: <PlusSquare size={18} />, label: "Live Trades" },
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
   { id: "ai", icon: <Target size={18} />, label: "Performance" },
+  { id: "picks", icon: <Sparkles size={18} />, label: "Picks" },
   { id: "journal", icon: <BookOpen size={18} />, label: "Journal" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
@@ -7615,24 +7617,32 @@ function normalizePortfolioSnapshotRows(rows = []) {
 function getPortfolioChartVisibleTimeRange(snapshots, points, range, nowMs = Date.now()) {
   const endMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
   const rangeMs = getChartSelectionWindowMs(range);
-  if (Number.isFinite(rangeMs) && rangeMs > 0) {
-    return { fromMs: endMs - rangeMs, toMs: endMs };
-  }
-
-  const snapshotTimes = normalizePortfolioSnapshotRows(snapshots)
-    .map((snapshot) => snapshot.timestampMs)
-    .filter((timestampMs) => Number.isFinite(timestampMs));
   const pointTimes = (Array.isArray(points) ? points : [])
     .map((point) => Number(point?.timeMs))
     .filter((timestampMs) => Number.isFinite(timestampMs));
-  const firstMs = Math.min(...snapshotTimes, ...pointTimes);
-  const lastMs = Math.max(...snapshotTimes, ...pointTimes);
+  const requestedStartMs = Number.isFinite(rangeMs) && rangeMs > 0 ? endMs - rangeMs : null;
+  const selectedPointTimes = requestedStartMs == null
+    ? pointTimes
+    : pointTimes.filter((timestampMs) => timestampMs >= requestedStartMs && timestampMs <= endMs);
+  const domainTimes = selectedPointTimes.length ? selectedPointTimes : pointTimes;
+
+  let firstMs = Math.min(...domainTimes);
+  let lastMs = Math.max(...domainTimes);
+  if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs)) {
+    const snapshotTimes = normalizePortfolioSnapshotRows(snapshots)
+      .map((snapshot) => snapshot.timestampMs)
+      .filter((timestampMs) => Number.isFinite(timestampMs));
+    firstMs = Math.min(...snapshotTimes);
+    lastMs = Math.max(...snapshotTimes);
+  }
   if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs)) return null;
   if (firstMs === lastMs) {
     const padMs = 12 * 60 * 60 * 1000;
     return { fromMs: firstMs - padMs, toMs: lastMs + padMs };
   }
-  const padMs = Math.max((lastMs - firstMs) * 0.03, 60 * 60 * 1000);
+  const dataSpanMs = lastMs - firstMs;
+  const minPadMs = Number.isFinite(rangeMs) && rangeMs <= DAY_MS ? 15 * 60 * 1000 : 60 * 60 * 1000;
+  const padMs = Math.max(dataSpanMs * 0.05, minPadMs);
   return { fromMs: firstMs - padMs, toMs: lastMs + padMs };
 }
 
@@ -24949,6 +24959,24 @@ return (
           </div>
         )}
 
+
+        {activeTab === "picks" && (
+          <div className="mainGrid">
+            <div className="span12">
+              <PersonalPicksTab
+                askRaylaUrl={ASK_RAYLA_URL}
+                supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
+                onAskRayla={(title, question) => {
+                  openGlobalRaylaPopup(title);
+                  handleChartExplainPopupQuestion(question, null, { resetThread: true });
+                }}
+                brokerPositions={brokerPositionsWithIntent}
+                alpacaAccount={alpacaAccount}
+                tradeCount={trades.length}
+              />
+            </div>
+          </div>
+        )}
 
         {activeTab === "journal" && (
           <div className="mainGrid">

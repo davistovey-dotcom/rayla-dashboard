@@ -3793,3 +3793,13 @@ select.authInput option,
   z-index: 5;
   animation: interactiveLineChartPulse 1.35s ease-in-out infinite;
 }
+
+/* Personal Picks skeleton loader */
+@keyframes picksPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.2; }
+}
+.picksSkeleton {
+  background: rgba(255,255,255,0.07);
+  animation: picksPulse 1.5s ease-in-out infinite;
+}
