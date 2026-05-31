@@ -3749,7 +3749,7 @@ function InvestorCtaBand({ actions }) {
   );
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null, financialGoalsContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
@@ -3777,6 +3777,7 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
     picksProfileContext: picksProfileContext || null,
+    financialGoalsContext: financialGoalsContext || null,
     screenContext: screenContext || null,
     brokerPositionContext: Array.isArray(brokerPositions) && brokerPositions.length
       ? brokerPositions.map((position) => {
@@ -3895,6 +3896,56 @@ function augmentQuestionWithPicksProfile(question) {
 
 // ─── End Personal Picks profile context ──────────────────────────────────────
 
+// ─── Financial Goals Layer ────────────────────────────────────────────────────
+
+const FINANCIAL_GOALS_STORAGE_KEY = "rayla-financial-goals-v1";
+
+const FINANCIAL_GOAL_OBJECTIVE_LABELS = {
+  longTermWealth: "Long-Term Wealth",
+  retirement: "Retirement",
+  passiveIncome: "Passive Income",
+  housePurchase: "House Purchase",
+  financialFreedom: "Financial Freedom",
+  capitalPreservation: "Capital Preservation",
+  tradingGrowth: "Trading Growth",
+  custom: "Custom",
+};
+
+function loadFinancialGoals() {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(FINANCIAL_GOALS_STORAGE_KEY) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch { return null; }
+}
+
+function saveFinancialGoals(goals) {
+  try {
+    if (typeof window !== "undefined") window.localStorage.setItem(FINANCIAL_GOALS_STORAGE_KEY, JSON.stringify(goals));
+  } catch {}
+}
+
+function buildFinancialGoalsContext(goals) {
+  if (!goals) return null;
+  const { targetAmount, targetDate, primaryObjective, customObjective } = goals;
+  if (!targetAmount && !targetDate && !primaryObjective) return null;
+  const lines = ["[Financial Goal]"];
+  if (primaryObjective) {
+    const label = FINANCIAL_GOAL_OBJECTIVE_LABELS[primaryObjective] || primaryObjective;
+    lines.push(`Primary Objective: ${primaryObjective === "custom" && customObjective ? customObjective : label}`);
+  }
+  if (targetAmount) {
+    const n = Number(String(targetAmount).replace(/[^0-9.]/g, ""));
+    lines.push(`Target Amount: ${Number.isFinite(n) && n > 0 ? `$${n.toLocaleString("en-US")}` : String(targetAmount)}`);
+  }
+  if (targetDate) lines.push(`Target Date: ${targetDate}`);
+  lines.push("Evaluate all recommendations relative to this goal — risk level, time horizon, position sizing, and pick selection should support it.");
+  return lines.join("\n");
+}
+
+// ─── End Financial Goals Layer ────────────────────────────────────────────────
+
 // ─── Structured Response Template Engine ─────────────────────────────────────
 
 const RESPONSE_TEMPLATES = {
@@ -3921,7 +3972,7 @@ For each pick:
 - Key risk: [one specific, concrete risk — not generic market risk]
 - Entry approach: [general condition or zone, not a price prediction]
 
-Limit to 3 picks unless the user asks for more. If the Picks Profile is incomplete, say so and ask them to complete it for personalized picks.`,
+Limit to 3 picks unless the user asks for more. If the Picks Profile is incomplete, say so and ask them to complete it for personalized picks. If a Financial Goal is in context, prioritize picks that align with that objective and timeline.`,
   },
 
   CashDeployment: {
@@ -3951,7 +4002,7 @@ Allocation options:
 
 Caution: [One specific risk or timing consideration to flag]
 
-If no financial goal is stated in context, ask what they're optimizing for (growth, income, capital preservation) before making specific suggestions.`,
+If a Financial Goal is in context, align the deployment plan directly to that goal — reference the target amount, target date, and objective. If no Financial Goal is in context, ask what they're optimizing for before making specific suggestions.`,
   },
 
   PortfolioReview: {
@@ -3985,7 +4036,9 @@ Priority actions:
 1. [Most important thing to do or watch — be specific]
 2. [Second priority]
 
-What to monitor: [concrete catalyst, level, or event worth watching]`,
+What to monitor: [concrete catalyst, level, or event worth watching]
+
+If a Financial Goal is in context: assess whether the portfolio's current risk level, concentration, and composition are on track for the stated objective and target date.`,
   },
 
   RiskAssessment: {
@@ -4020,7 +4073,9 @@ Flags:
 ⚠ [Specific concern — over-concentration, correlated names, no thesis on large position]
 ✓ [What looks appropriately sized or healthy]
 
-Bottom line: [One clear sentence — what to do or what to leave alone]`,
+Bottom line: [One clear sentence — what to do or what to leave alone]
+
+If a Financial Goal is in context: factor in the target date and objective when assessing appropriate concentration, position size, and overall risk level.`,
   },
 
   TradeReview: {
@@ -4093,7 +4148,8 @@ Action: [One specific thing to consider based on current conditions — or "no a
     ],
     instruction: `Use the Ongoing reasoning format for each relevant holding.
 If the user asks about a specific symbol, focus there. If broadly, cover all holdings that have a Holding Thesis.
-For any holding with no Holding Thesis: "I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning."`,
+For any holding with no Holding Thesis: "I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning."
+If a Financial Goal is in context: assess whether this holding and its thesis support the user's stated objective and target date.`,
   },
 
   Educational: {
@@ -4285,6 +4341,7 @@ function buildUniversalScreenContext({
     const n = Number(v);
     return Number.isFinite(n) ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
   };
+  const goalsCtx = buildFinancialGoalsContext(loadFinancialGoals());
 
   switch (source) {
     case "Home": {
@@ -4307,6 +4364,7 @@ function buildUniversalScreenContext({
       }
       const homeRiskCtx = buildPortfolioRiskContext({ positions: brokerPositionsWithIntent, account: alpacaAccount });
       if (homeRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(homeRiskCtx); }
+      if (goalsCtx) { objectsIncluded.push("financial_goals"); lines.push(""); lines.push(goalsCtx); }
       contextText = lines.join("\n");
       break;
     }
@@ -4330,6 +4388,7 @@ function buildUniversalScreenContext({
       }
       const portfolioRiskCtx = buildPortfolioRiskContext({ positions, account: alpacaAccount });
       if (portfolioRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(portfolioRiskCtx); }
+      if (goalsCtx) { objectsIncluded.push("financial_goals"); lines.push(""); lines.push(goalsCtx); }
       contextText = lines.join("\n");
       break;
     }
@@ -4388,6 +4447,7 @@ function buildUniversalScreenContext({
       }
       const holdingsRiskCtx = buildPortfolioRiskContext({ positions, account: alpacaAccount });
       if (holdingsRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(holdingsRiskCtx); }
+      if (goalsCtx) { objectsIncluded.push("financial_goals"); lines.push(""); lines.push(goalsCtx); }
       contextText = lines.join("\n");
       break;
     }
@@ -4409,6 +4469,7 @@ function buildUniversalScreenContext({
           if (pk.reasoning) lines.push(`     Reason: ${String(pk.reasoning).slice(0, 120)}`);
         });
       }
+      if (goalsCtx) { objectsIncluded.push("financial_goals"); lines.push(""); lines.push(goalsCtx); }
       contextText = lines.join("\n");
       break;
     }
@@ -16448,6 +16509,7 @@ useEffect(() => {
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
         picksProfileContext: buildPicksProfileContext(picksProfile),
+        financialGoalsContext: buildFinancialGoalsContext(loadFinancialGoals()),
         screenContext: screenCtx,
       }),
     };
