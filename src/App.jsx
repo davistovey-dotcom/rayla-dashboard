@@ -3734,7 +3734,7 @@ function InvestorCtaBand({ actions }) {
   );
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
@@ -3761,6 +3761,7 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
     marketIntelContext: marketIntelContext || null,
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
+    picksProfileContext: picksProfileContext || null,
     brokerPositionContext: Array.isArray(brokerPositions) && brokerPositions.length
       ? brokerPositions.map((position) => {
         const intent = buildPositionIntentMetadata(position, inferPositionTypeFromSymbol(position?.symbol));
@@ -3793,6 +3794,90 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
     })),
   };
 }
+
+// ─── Personal Picks profile context ─────────────────────────────────────────
+
+const PICKS_PROFILE_STORAGE_KEY = "rayla-picks-profile-v1";
+
+function loadPicksProfile() {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(PICKS_PROFILE_STORAGE_KEY) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.completed ? parsed : null;
+  } catch { return null; }
+}
+
+const PICKS_PROFILE_LABELS = {
+  marketApproach: { trader: "Active Trader", investor: "Long-Term Investor", both: "Active Trader + Long-Term Investor" },
+  riskComfort: {
+    tight: "Low risk — prefers to cut losses early (under 5%)",
+    moderate: "Moderate — comfortable with 10–15% drawdowns",
+    aggressive: "Aggressive — comfortable with large swings for bigger upside",
+  },
+  setup: {
+    momentum: "Momentum trading (riding strong trends)",
+    breakout: "Breakout trading (catching moves at key levels)",
+    reversal: "Reversal / mean-revert trading (fading extremes)",
+    range: "Range trading (support and resistance)",
+    growth: "Growth investing (fast-growing companies)",
+    value: "Value investing (undervalued with upside)",
+    dividends: "Dividend / income investing (yield and stability)",
+    thematic: "Thematic investing (AI, clean energy, biotech, etc.)",
+  },
+  goal: {
+    income: "Extra income — supplementing salary",
+    wealth: "Long-term wealth building",
+    learning: "Learning to trade well — building skill and confidence",
+    alpha: "Beat the market — consistent edge and alpha",
+  },
+};
+
+function buildPicksProfileContext(profile) {
+  if (!profile) {
+    return "[Rayla Personal Picks Profile: Not yet completed. If the user asks what to buy, what fits their style, what their next pick should be, or how to deploy cash — tell them: \"For best results, complete your Personal Picks Questionnaire in the Picks tab. It takes 2 minutes and gives me everything I need to personalize your picks to your actual trading style.\"]";
+  }
+  const lines = ["[Rayla Personal Picks Profile — reference this when answering questions about what to buy, trade, or invest in]"];
+  if (profile.marketApproach) lines.push(`Trading style: ${PICKS_PROFILE_LABELS.marketApproach[profile.marketApproach] || profile.marketApproach}`);
+  if (profile.riskComfort) lines.push(`Risk tolerance: ${PICKS_PROFILE_LABELS.riskComfort[profile.riskComfort] || profile.riskComfort}`);
+  if (profile.setup) lines.push(`Preferred setup / approach: ${PICKS_PROFILE_LABELS.setup[profile.setup] || profile.setup}`);
+  if (Array.isArray(profile.sectors) && profile.sectors.length) lines.push(`Sectors of interest: ${profile.sectors.join(", ")}`);
+  if (profile.goal) lines.push(`Goal: ${PICKS_PROFILE_LABELS.goal[profile.goal] || profile.goal}`);
+  lines.push("Profile status: Complete");
+  return lines.join("\n");
+}
+
+// Patterns that signal the user is asking for pick/buy/deploy recommendations
+const PICKS_INTENT_PATTERNS = [
+  /what should i (buy|trade|get|pick|invest|add)/i,
+  /what('?s| is) my next (pick|trade|move|buy)/i,
+  /what fits my style/i,
+  /\$\s*\d[\d,.]+\s*(to (invest|deploy|trade|put|allocate)|dollar)/i,
+  /(i have|i'?ve got)\s*\$?\s*\d[\d,.]+/i,
+  /deploy (capital|cash|money|funds)/i,
+  /(personal|my|best|top) pick/i,
+  /give me (a )?(pick|recommendation|idea)/i,
+  /what (stocks?|assets?|tickers?) (should i|would you|do you)/i,
+  /next best (pick|move|trade)/i,
+  /what to (buy|trade|invest in)/i,
+  /where (should i|to) (put|invest|deploy)/i,
+];
+
+function isPicksIntent(question) {
+  return PICKS_INTENT_PATTERNS.some((p) => p.test(String(question || "")));
+}
+
+// Augments the question string with profile context for picks-intent queries.
+// This injects into the actual prompt text, so the edge function sees it today
+// without any backend changes needed.
+function augmentQuestionWithPicksProfile(question) {
+  if (!isPicksIntent(question)) return question;
+  const profile = loadPicksProfile();
+  const profileBlock = buildPicksProfileContext(profile);
+  return `${profileBlock}\n\n${question}`;
+}
+
+// ─── End Personal Picks profile context ──────────────────────────────────────
 
 function buildBehavioralPatternSummary(simTrades) {
   const trades = Array.isArray(simTrades) ? simTrades : [];
@@ -7667,7 +7752,7 @@ function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requested
   const bars = rows.map((snapshot) => {
     const filteredPositions = (Array.isArray(snapshot.positions) ? snapshot.positions : [])
       .filter((position) => snapshotPositionMatchesView(position, view));
-    if (!filteredPositions.length) {
+    if (view !== "portfolio" && !filteredPositions.length) {
       addDiscard(view === "portfolio" ? "snapshot_has_no_positions" : `snapshot_has_no_${view}_positions`);
       return null;
     }
@@ -7691,6 +7776,25 @@ function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requested
       if (Number.isFinite(positionBasis) && positionBasis > 0) costBasis += positionBasis;
       if (symbol) symbols.push(symbol);
     });
+
+    if (view === "portfolio") {
+      const snapshotEquity = Number(snapshot.equity);
+      const snapshotMarketValue = Number(snapshot.totalMarketValue);
+      const snapshotCash = Number(snapshot.cash);
+      const accountValue = Number.isFinite(snapshotEquity) && snapshotEquity > 0
+        ? snapshotEquity
+        : Number.isFinite(snapshotMarketValue) && Number.isFinite(snapshotCash) && (snapshotMarketValue + snapshotCash) > 0
+          ? snapshotMarketValue + snapshotCash
+          : Number.isFinite(snapshotMarketValue) && snapshotMarketValue > 0
+            ? snapshotMarketValue
+            : close;
+      if (Number.isFinite(accountValue) && accountValue > 0) {
+        close = accountValue;
+      }
+      if (!Number.isFinite(costBasis) || costBasis <= 0) {
+        costBasis = close;
+      }
+    }
 
     if (!Number.isFinite(close) || close <= 0) {
       addDiscard("invalid_market_value");
@@ -7742,19 +7846,26 @@ function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requested
   return {
     symbol: "Portfolio Snapshot History",
     rangeMode: "portfolio_snapshots",
+    returnMode: view === "portfolio" ? "account_equity" : "position_cost_basis",
     bars,
   };
 }
 
 function buildOpenPositionReturnLinePoints(chart, costBasis) {
   const fallback = Number(costBasis);
+  const bars = extractChartBars(chart);
+  const firstAccountValue = chart?.returnMode === "account_equity"
+    ? Number(bars.find((bar) => Number.isFinite(Number(bar?.close)) && Number(bar?.close) > 0)?.close)
+    : null;
 
-  return extractChartBars(chart)
+  return bars
     .map((bar) => {
       const timeMs = getChartBarTimeMs(bar);
       const value = Number(bar?.close);
       const barBasis = Number(bar?.costBasis);
-      const basis = Number.isFinite(barBasis) && barBasis > 0 ? barBasis : fallback;
+      const basis = Number.isFinite(firstAccountValue) && firstAccountValue > 0
+        ? firstAccountValue
+        : Number.isFinite(barBasis) && barBasis > 0 ? barBasis : fallback;
       if (!Number.isFinite(timeMs) || !Number.isFinite(value) || value <= 0) return null;
       if (!Number.isFinite(basis) || basis <= 0) return null;
       return {
@@ -11371,7 +11482,14 @@ useEffect(() => {
   const [equityBenchmarkChart, setEquityBenchmarkChart] = useState(null);
   const [equityBenchmarkLoading, setEquityBenchmarkLoading] = useState(false);
   const [session, setSession] = useState(null);
-  const raylaChartTimeZone = session?.user?.user_metadata?.timezone || null;
+  const browserChartTimeZone = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const raylaChartTimeZone = browserChartTimeZone || session?.user?.user_metadata?.timezone || null;
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -14555,9 +14673,19 @@ useEffect(() => {
     (sum, position) => sum + (Number(position?.unrealizedPl) || 0),
     0
   );
+  const homePortfolioPeriodReturn = useMemo(
+    () => buildPeriodReturnFromChart(homePortfolioBenchmarkChart),
+    [homePortfolioBenchmarkChart]
+  );
+  const homePortfolioDisplayPl = Number.isFinite(homePortfolioPeriodReturn?.pnl)
+    ? homePortfolioPeriodReturn.pnl
+    : homePortfolioUnrealizedPl;
   const homePortfolioReturnPct = homePortfolioCostBasis > 0
     ? (homePortfolioUnrealizedPl / homePortfolioCostBasis) * 100
     : null;
+  const homePortfolioDisplayReturnPct = Number.isFinite(homePortfolioPeriodReturn?.returnPct)
+    ? homePortfolioPeriodReturn.returnPct
+    : homePortfolioReturnPct;
   const holdingsSnapshot = useMemo(() => {
     const positions = longTermBrokerPositions;
     const holdingsValue = positions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
@@ -15610,8 +15738,9 @@ useEffect(() => {
 
     setCapitalGuideResult(null);
 
+    const picksProfile = loadPicksProfile();
     const askRaylaRequestPayload = {
-      question: trimmedQuestion,
+      question: augmentQuestionWithPicksProfile(trimmedQuestion),
       context: buildAskRaylaContext({
         trades,
         simulationTradeHistory: visibleSimulationTradeHistoryAll,
@@ -15630,6 +15759,7 @@ useEffect(() => {
         marketIntelContext: hotColdReport || null,
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
+        picksProfileContext: buildPicksProfileContext(picksProfile),
       }),
     };
 
@@ -20761,10 +20891,10 @@ return (
                             </span>
                             <span
                               className="homePortfolioChartInlineChange"
-                              style={{ color: homePortfolioUnrealizedPl < 0 ? "#f87171" : "#4ade80" }}
+                              style={{ color: homePortfolioDisplayPl < 0 ? "#f87171" : "#4ade80" }}
                             >
-                              {homePortfolioPositions.length ? `${homePortfolioUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(homePortfolioUnrealizedPl)}` : "--"}
-                              {Number.isFinite(homePortfolioReturnPct) ? ` ${formatPerformancePercent(homePortfolioReturnPct)}` : ""}
+                              {homePortfolioPositions.length ? `${homePortfolioDisplayPl >= 0 ? "+" : ""}${formatCurrency(homePortfolioDisplayPl)}` : "--"}
+                              {Number.isFinite(homePortfolioDisplayReturnPct) ? ` ${formatPerformancePercent(homePortfolioDisplayReturnPct)}` : ""}
                             </span>
                           </div>
                           <div className="homePortfolioChartSubcopy">
