@@ -5873,7 +5873,7 @@ function ActiveTradesPerformancePanel({
   const returnPct = Number.isFinite(activePeriodReturn?.returnPct) ? activePeriodReturn.returnPct : null;
   const plPos = Number.isFinite(activeDisplayPnl) ? activeDisplayPnl >= 0 : true;
   const currentPlPos = summary.totalUnrealizedPl >= 0;
-  const lineColor = "#a78bfa";
+  const lineColor = "#7CC4FF";
   const chartLines = linePoints.length >= 2
     ? [{ symbol: "Day Trades", color: lineColor, points: linePoints }]
     : [];
@@ -20909,16 +20909,18 @@ return (
                                   label: "Analyze my portfolio",
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                                    setAiInput(`Analyze my investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`);
-                                    setActiveTab("ai");
+                                    const q = `Analyze my investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                                    openGlobalRaylaPopup("Analyze my portfolio");
+                                    handleChartExplainPopupQuestion(q, null, { resetThread: true });
                                   },
                                 },
                                 {
                                   label: "What should I add?",
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                                    setAiInput(`Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`);
-                                    setActiveTab("ai");
+                                    const q = `Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`;
+                                    openGlobalRaylaPopup("What should I add?");
+                                    handleChartExplainPopupQuestion(q, null, { resetThread: true });
                                   },
                                 },
                               ]}
@@ -24780,16 +24782,18 @@ return (
                         label: "Analyze my portfolio",
                         onClick: () => {
                           const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
-                          setAiInput(`Analyze my investment portfolio and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`);
-                          setActiveTab("ai");
+                          const q = `Analyze my investment portfolio and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                          openGlobalRaylaPopup("Analyze my portfolio");
+                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
                         },
                       },
                       {
                         label: "What should I add?",
                         onClick: () => {
                           const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
-                          setAiInput(`Based on my current portfolio, what should I consider adding for better diversification or growth potential?\n\n${formatInvestorContextForAI(p)}`);
-                          setActiveTab("ai");
+                          const q = `Based on my current portfolio, what should I consider adding for better diversification or growth potential?\n\n${formatInvestorContextForAI(p)}`;
+                          openGlobalRaylaPopup("What should I add?");
+                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
                         },
                       },
                     ]}
@@ -24811,8 +24815,9 @@ return (
                   timeZone={raylaChartTimeZone}
                   onAskRayla={(symbol) => {
                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                    setAiInput(`Tell me about my ${symbol} holding. How is it performing and what should I be thinking about?\n\n${formatInvestorContextForAI(p)}`);
-                    setActiveTab("ai");
+                    const q = `Tell me about my ${symbol} holding. How is it performing and what should I be thinking about?\n\n${formatInvestorContextForAI(p)}`;
+                    openGlobalRaylaPopup(`About ${symbol}`);
+                    handleChartExplainPopupQuestion(q, null, { resetThread: true });
                   }}
                 />
                 {longTermBrokerPositions.length > 0 && alpacaAccount && (
@@ -24822,16 +24827,18 @@ return (
                         label: "Analyze my holdings",
                         onClick: () => {
                           const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                          setAiInput(`Analyze my long-term investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`);
-                          setActiveTab("ai");
+                          const q = `Analyze my long-term investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                          openGlobalRaylaPopup("Analyze my holdings");
+                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
                         },
                       },
                       {
                         label: "What should I add?",
                         onClick: () => {
                           const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                          setAiInput(`Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`);
-                          setActiveTab("ai");
+                          const q = `Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`;
+                          openGlobalRaylaPopup("What should I add?");
+                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
                         },
                       },
                     ]}
