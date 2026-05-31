@@ -4195,6 +4195,75 @@ function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveR
   return "General";
 }
 
+// ─── Portfolio Risk Engine ────────────────────────────────────────────────────
+
+function buildPortfolioRiskContext({ positions, account }) {
+  if (!Array.isArray(positions) || !positions.length) return null;
+  const equity = Number(account?.equity ?? account?.portfolioValue ?? 0);
+  if (!equity || equity <= 0) return null;
+
+  const fmtM = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—";
+  };
+
+  const withConc = positions
+    .map((p) => ({
+      symbol: String(p.symbol || ""),
+      mv: Number(p.market_value ?? p.marketValue ?? 0),
+      thesis: p.thesis || "",
+      assetClass: p.assetClass || p.asset_class || "",
+    }))
+    .filter((p) => p.symbol && Number.isFinite(p.mv) && p.mv > 0)
+    .map((p) => ({ ...p, conc: (p.mv / equity) * 100 }))
+    .sort((a, b) => b.conc - a.conc);
+
+  if (!withConc.length) return null;
+
+  const n = withConc.length;
+  const totalInvested = withConc.reduce((s, p) => s + p.mv, 0);
+  const cashPct = Math.max(0, ((equity - totalInvested) / equity) * 100);
+  const maxPct = n <= 3 ? 25 : n <= 5 ? 20 : n <= 10 ? 15 : 10;
+  const maxDollar = (equity * maxPct) / 100;
+
+  const lines = ["[Portfolio Risk Engine]"];
+  lines.push(`Positions: ${n} | Cash: ${cashPct.toFixed(1)}% | Total equity: ${fmtM(equity)}`);
+
+  lines.push("Concentration:");
+  withConc.forEach((p) => {
+    const flag = p.conc >= 30 ? " ⚠ HIGH" : p.conc >= 20 ? " △ WATCH" : "";
+    lines.push(`  ${p.symbol}: ${p.conc.toFixed(1)}%${flag}`);
+  });
+
+  const flags = [];
+  withConc.forEach((p) => {
+    if (p.conc >= 30) flags.push(`⚠ ${p.symbol} at ${p.conc.toFixed(1)}% — overconcentrated (suggested max: 25%)`);
+    else if (p.conc >= 20) flags.push(`△ ${p.symbol} at ${p.conc.toFixed(1)}% — approaching concentration limit`);
+  });
+  if (n === 1) flags.push("⚠ Single-position portfolio — no diversification");
+  else if (n <= 3) flags.push(`△ ${n}-position portfolio — highly concentrated`);
+  if (n > 15) flags.push(`△ ${n} positions — verify each is a high-conviction holding`);
+  if (cashPct > 40) flags.push(`△ ${cashPct.toFixed(0)}% cash — large uninvested balance`);
+  const unthesised = withConc.filter((p) => p.conc >= 10 && !p.thesis);
+  if (unthesised.length) {
+    flags.push(`△ Large positions without a Holding Thesis: ${unthesised.map((p) => p.symbol).join(", ")}`);
+  }
+
+  if (flags.length) {
+    lines.push("Risk flags:");
+    flags.forEach((f) => lines.push(`  ${f}`));
+  } else {
+    lines.push("Risk flags: None — concentration within reasonable bounds");
+  }
+
+  lines.push(`Sizing guidance: Max recommended per new position — ${maxPct}% (${fmtM(maxDollar)}) given ${n} existing positions`);
+
+  const classes = [...new Set(withConc.map((p) => p.assetClass).filter(Boolean))];
+  if (classes.length > 1) lines.push(`Asset classes held: ${classes.join(", ")}`);
+
+  return lines.join("\n");
+}
+
 function buildUniversalScreenContext({
   activeTab,
   performancePositionFilter,
@@ -4236,6 +4305,8 @@ function buildUniversalScreenContext({
         objectsIncluded.push("trade_count");
         lines.push(`Journal trades logged: ${tradeCount}`);
       }
+      const homeRiskCtx = buildPortfolioRiskContext({ positions: brokerPositionsWithIntent, account: alpacaAccount });
+      if (homeRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(homeRiskCtx); }
       contextText = lines.join("\n");
       break;
     }
@@ -4257,6 +4328,8 @@ function buildUniversalScreenContext({
           lines.push(`  ${fmt(p.symbol)}: ${fmtMoney(p.market_value ?? p.marketValue)} | ${fmt(p.positionTypeLabel || p.positionType)}${plStr}`);
         });
       }
+      const portfolioRiskCtx = buildPortfolioRiskContext({ positions, account: alpacaAccount });
+      if (portfolioRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(portfolioRiskCtx); }
       contextText = lines.join("\n");
       break;
     }
@@ -4313,6 +4386,8 @@ function buildUniversalScreenContext({
         lines.push("- If data is insufficient for a judgment, say exactly that and name what data would change your answer.");
         lines.push("- For any holding in this list with no Holding Thesis, respond: \"I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning.\"");
       }
+      const holdingsRiskCtx = buildPortfolioRiskContext({ positions, account: alpacaAccount });
+      if (holdingsRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(holdingsRiskCtx); }
       contextText = lines.join("\n");
       break;
     }
