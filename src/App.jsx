@@ -7,6 +7,7 @@ import KLineTradeChart from "./KLineTradeChart";
 import TradingViewLiveChart from "./TradingViewLiveChart";
 import EquityComparisonChart from "./EquityComparisonChart";
 import InteractiveLineChart from "./InteractiveLineChart";
+import PortfolioHistoryChart from "./PortfolioHistoryChart";
 import AssetCarousel from "./components/AssetCarousel";
 import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import GuidedTour from "./components/GuidedTour";
@@ -4261,6 +4262,34 @@ What this means for your portfolio:
 Action: [One specific thing to consider based on current conditions — or "no action needed" if nothing is actionable]`,
   },
 
+  MarketSnapshot: {
+    label: "Market Conditions",
+    screenBoost: ["Portfolio", "Holdings", "Home", "PersonalPicks", "MarketIntel"],
+    patterns: [
+      /is (now |this )?(a )?(good|bad|right) time to (buy|invest|deploy|enter)/i,
+      /should i (wait|hold off|pause|delay) (investing|buying|deploying|trading)/i,
+      /what (market |)environment (are we in|is this|do we have)/i,
+      /is the market (risky|overbought|oversold|expensive|cheap|high|stretched)/i,
+      /should i be (defensive|aggressive|cautious|patient) (right now|now|today)/i,
+      /market (timing|conditions today|risk right now|direction)/i,
+      /what'?s? (the market doing|happening in the market|going on in the market)/i,
+      /risk.on|risk.off|risk off|risk on/i,
+      /\b(bull|bear) (market|run|mode)\b/i,
+      /how (risky|dangerous|safe) is (the market|investing right now)/i,
+    ],
+    instruction: `Market Conditions Assessment
+
+Market Environment: [Risk-On / Neutral / Risk-Off — pull directly from Market Snapshot context block if available. If unavailable, state "market data unavailable for this session" and reason from their portfolio context alone.]
+
+Key Signals: [Reference SPY/QQQ direction, VIX level, and leading/lagging sector from the Market Snapshot block. If no snapshot, skip this section.]
+
+Implications for your portfolio: [Directly reference 1-2 of the user's specific positions and whether they align with or are exposed to the current regime. Be concrete — not generic commentary.]
+
+Timing guidance: Deploy Now / Hold / Wait — with one sentence of reasoning tied to the market data and their Financial Goal (if in context).
+
+What to watch next: [One specific indicator, level, or event that would change this assessment — e.g. "SPY holding above 200-day MA", "VIX above 25 would signal exit pressure"]`,
+  },
+
   ThesisReview: {
     label: "Holding Thesis Review",
     screenBoost: ["Holdings"],
@@ -4315,6 +4344,7 @@ How to use it: [one actionable takeaway]`,
 // Priority order: more specific templates checked before more general ones
 const TEMPLATE_PRIORITY = [
   "CashDeployment",
+  "MarketSnapshot",
   "RiskAssessment",
   "ThesisReview",
   "TradeReview",
@@ -4448,6 +4478,85 @@ function buildPortfolioRiskContext({ positions, account }) {
   return lines.join("\n");
 }
 
+// ─── Market Snapshot Layer ────────────────────────────────────────────────────
+
+const MARKET_SNAPSHOT_STORAGE_KEY = "rayla-market-snapshot-v1";
+const MARKET_SNAPSHOT_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const MARKET_SNAPSHOT_SYMBOLS = ["SPY", "QQQ", "VIX", "XLK", "XLF", "XLE", "XLV", "XLI"];
+
+function classifyMarketRegime(quotes) {
+  if (!quotes) return null;
+  const spyChg = quotes.SPY?.change ?? null;
+  const qqqChg = quotes.QQQ?.change ?? null;
+  const vixPx  = quotes.VIX?.price  ?? null;
+  const xlkChg = quotes.XLK?.change ?? null;
+  const xleChg = quotes.XLE?.change ?? null;
+
+  let riskOn = 0;
+  let riskOff = 0;
+
+  if (spyChg !== null) { if (spyChg >  0.5) riskOn++; else if (spyChg < -0.5) riskOff++; }
+  if (qqqChg !== null) { if (qqqChg >  0.5) riskOn++; else if (qqqChg < -0.5) riskOff++; }
+  if (vixPx  !== null) { if (vixPx  < 17)   riskOn++; else if (vixPx > 25) riskOff++; else if (vixPx > 20) riskOff += 0.5; }
+  // Tech leading energy = risk-on; energy leading tech = rotation/risk-off signal
+  if (xlkChg !== null && xleChg !== null) {
+    if (xlkChg > xleChg + 0.5) riskOn++;
+    else if (xleChg > xlkChg + 0.5) riskOff += 0.5;
+  }
+
+  if (riskOn >= 2 && riskOff === 0) return "Risk-On";
+  if (riskOff >= 2) return "Risk-Off";
+  if (riskOn === 0 && riskOff === 0) return null; // not enough data
+  return "Neutral";
+}
+
+function buildMarketSnapshotContext(snapshot) {
+  if (!snapshot?.quotes || !snapshot.fetchedAt) return null;
+
+  const q = snapshot.quotes;
+  const regime = classifyMarketRegime(q);
+  const ageMs = Date.now() - new Date(snapshot.fetchedAt).getTime();
+  const ageMin = Math.round(ageMs / 60000);
+  const timeLabel = new Date(snapshot.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  const fmtChg = (chg) => chg != null ? ` (${chg >= 0 ? "+" : ""}${Number(chg).toFixed(2)}%)` : "";
+  const fmtPx  = (px)  => px  != null ? `$${Number(px).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null;
+
+  const lines = [`[Market Snapshot — as of ${timeLabel}, ${ageMin}m ago]`];
+  if (regime) lines.push(`Market regime: ${regime}`);
+
+  // Major indices
+  const indices = [];
+  if (q.SPY?.price) indices.push(`SPY: ${fmtPx(q.SPY.price)}${fmtChg(q.SPY.change)}`);
+  if (q.QQQ?.price) indices.push(`QQQ: ${fmtPx(q.QQQ.price)}${fmtChg(q.QQQ.change)}`);
+  if (q.VIX?.price) indices.push(`VIX: ${Number(q.VIX.price).toFixed(2)}${fmtChg(q.VIX.change)}`);
+  else              indices.push("VIX: unavailable");
+  if (indices.length) lines.push(`Indices: ${indices.join(" | ")}`);
+
+  // Sector ETFs
+  const sectorSymbols = ["XLK", "XLF", "XLE", "XLV", "XLI"];
+  const sectorLines = sectorSymbols
+    .filter(s => q[s]?.price)
+    .map(s => `${s}${fmtChg(q[s].change)}`);
+  if (sectorLines.length) lines.push(`Sectors: ${sectorLines.join(" | ")}`);
+
+  // Leading / lagging sectors
+  const sectorChanges = sectorSymbols
+    .filter(s => q[s]?.change != null)
+    .map(s => ({ symbol: s, change: q[s].change }))
+    .sort((a, b) => b.change - a.change);
+  if (sectorChanges.length >= 2) {
+    const best  = sectorChanges[0];
+    const worst = sectorChanges[sectorChanges.length - 1];
+    lines.push(`Leading sector today: ${best.symbol} (${best.change >= 0 ? "+" : ""}${best.change.toFixed(2)}%)`);
+    lines.push(`Lagging sector today: ${worst.symbol} (${worst.change >= 0 ? "+" : ""}${worst.change.toFixed(2)}%)`);
+  }
+
+  return lines.join("\n");
+}
+
+// ─── End Market Snapshot Layer ────────────────────────────────────────────────
+
 function buildUniversalScreenContext({
   activeTab,
   performancePositionFilter,
@@ -4458,6 +4567,7 @@ function buildUniversalScreenContext({
   simulationMode,
   selectedSimulationOpenPosition,
   hotColdReport,
+  marketSnapshot,
   trades,
 }) {
   const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade });
@@ -4686,6 +4796,20 @@ function buildUniversalScreenContext({
     default: {
       contextText = `[Screen: ${fmt(activeTab || "General")}]`;
       break;
+    }
+  }
+
+  // Append market snapshot to all screens where it adds value
+  const MARKET_SNAPSHOT_SCREENS = ["Home", "Portfolio", "Holdings", "PersonalPicks", "MarketIntel", "LiveTrades"];
+  if (MARKET_SNAPSHOT_SCREENS.includes(source)) {
+    const snapshotCtx = buildMarketSnapshotContext(marketSnapshot);
+    if (snapshotCtx) {
+      objectsIncluded.push("market_snapshot");
+      contextText = contextText ? `${contextText}\n\n${snapshotCtx}` : snapshotCtx;
+    } else {
+      contextText = contextText
+        ? `${contextText}\n\n[Market Snapshot — unavailable this session]`
+        : "[Market Snapshot — unavailable this session]";
     }
   }
 
@@ -6050,156 +6174,31 @@ function PortfolioTrendCard({
   useAccountValue = true,
   timeZone = null,
 }) {
-  const portfolioRanges = [
-    { value: "1D", label: "1D" },
-    { value: "1M", label: "1M" },
-    { value: "1Y", label: "1Y" },
-    { value: "MAX", label: "All" },
-  ];
-  const rangeMs = getChartSelectionWindowMs(portfolioRange);
-  const nowMs = Date.now();
-  const myRequestedStartMs = rangeMs ? nowMs - rangeMs : null;
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
-  const totalUnrealizedPl = allPositions.reduce((s, p) => s + (Number(p?.unrealizedPl) || 0), 0);
-  const totalCostBasis = getOpenPositionCostBasis(allPositions);
-  const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
   const accountPortfolioValue = useAccountValue
     ? Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity)
     : null;
   const portfolioValue = Number.isFinite(accountPortfolioValue) && accountPortfolioValue > 0
     ? accountPortfolioValue
     : totalMarketValue || 0;
-  const portfolioBenchmarkChart = useMemo(
-    () => buildPortfolioChartFromSnapshots(
-      portfolioSnapshots,
-      myRequestedStartMs,
-      nowMs,
-      snapshotView,
-      title === "Open Day Trade Positions" ? "Performance Day Trades Open Positions" : `Performance ${title}`
-    ),
-    [portfolioSnapshots, myRequestedStartMs, nowMs, snapshotView, title]
-  );
-  const portfolioLinePoints = useMemo(
-    () => buildOpenPositionReturnLinePoints(portfolioBenchmarkChart, totalCostBasis),
-    [portfolioBenchmarkChart, totalCostBasis]
-  );
-  const portfolioVisibleTimeRange = useMemo(
-    () => getPortfolioChartVisibleTimeRange(portfolioSnapshots, portfolioLinePoints, portfolioRange, nowMs),
-    [portfolioSnapshots, portfolioLinePoints, portfolioRange, nowMs]
-  );
-  const periodReturn = useMemo(() => buildPeriodReturnFromChart(portfolioBenchmarkChart), [portfolioBenchmarkChart]);
-  const displayPnl = Number.isFinite(periodReturn?.pnl) ? periodReturn.pnl : null;
-  const portfolioReturnPct = Number.isFinite(periodReturn?.returnPct) ? periodReturn.returnPct : null;
-  const portfolioPositive = Number.isFinite(displayPnl) ? displayPnl >= 0 : true;
-  console.log("[PortfolioTrendCard period return]", {
-    timeframe: portfolioRange,
-    firstPortfolioValue: periodReturn?.firstValue ?? null,
-    lastPortfolioValue: periodReturn?.lastValue ?? null,
-    periodPnL: periodReturn?.pnl ?? null,
-    periodReturnPct: periodReturn?.returnPct ?? null,
-    includedSymbols: allPositions.map((p) => p.symbol),
-    includedSnapshotsCount: periodReturn?.barsCount ?? 0,
-    chartSource: "portfolio_snapshots",
-  });
-  const performancePortfolioLines = [
-    portfolioLinePoints.length >= 2
-      ? { symbol: "Portfolio", color: "#7CC4FF", points: portfolioLinePoints }
-      : null,
-  ].filter(Boolean);
   const resolvedStatusLabel = statusLabel ?? (alpacaAccount?.isPaper != null ? (alpacaAccount.isPaper ? "Paper" : "Live") : null);
 
   return (
-    <div className="performancePortfolioTrendCard" style={{
-      "--performancePortfolioChartHeight": `${chartHeight}px`,
-      minHeight: chartHeight + 190,
-      background: "linear-gradient(180deg, rgba(12,18,28,0.96), rgba(7,11,18,0.98))",
-      border: "1px solid rgba(148,163,184,0.16)",
-      borderRadius: 18,
-      overflow: "hidden",
-      padding: "24px 24px 18px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 8,
-    }}>
-      <div className="performancePortfolioHomeHeader">
-        <div>
-          <div className="performancePortfolioHomeTitle">{title}</div>
-          <div className="performancePortfolioHomeValueRow">
-            <span className="performancePortfolioHomeCurrencyMark">$</span>
-            <span className="performancePortfolioHomeValue">
-              {portfolioValue > 0 ? formatCurrency(portfolioValue).replace("$", "") : "--"}
-            </span>
-            <span
-              className="performancePortfolioHomeInlineChange"
-              style={{ color: Number.isFinite(displayPnl) ? (portfolioPositive ? "#4ade80" : "#f87171") : "#64748b" }}
-            >
-              {Number.isFinite(displayPnl) ? `${portfolioPositive ? "+" : ""}${formatCurrency(displayPnl)}` : "--"}
-              {Number.isFinite(portfolioReturnPct) ? ` ${formatPerformancePercent(portfolioReturnPct)}` : ""}
-            </span>
-          </div>
-          <div className="performancePortfolioHomeSubcopy">
-            {subtitle}
-          </div>
-        </div>
-        <div className="performancePortfolioHomeTopControls">
-          <div className="performancePortfolioRangeGroup" aria-label={`${title} chart range`}>
-            {portfolioRanges.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={portfolioRange === option.value ? "active" : ""}
-                onClick={() => setPortfolioRange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="performancePortfolioHomeMetricMeta">
-            {allPositions.length} position{allPositions.length === 1 ? "" : "s"} · {formatCurrency(totalMarketValue)}
-          </div>
-          {resolvedStatusLabel ? (
-            <div
-              className="performancePortfolioStatus"
-              style={alpacaAccount?.isPaper ? {
-                background: "rgba(167,139,250,0.1)",
-                borderColor: "rgba(167,139,250,0.22)",
-                color: "#a78bfa",
-              } : undefined}
-            >
-              {resolvedStatusLabel}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="performancePortfolioHomeToolbar">
-        <div className="performancePortfolioHistoryNote">Scroll to zoom · drag to pan · double-click to fit</div>
-      </div>
-
-      <div className="performancePortfolioHomeChart">
-        {portfolioSnapshotsLoading ? (
-          <div className="performancePortfolioHomeEmpty">Loading portfolio chart...</div>
-        ) : performancePortfolioLines.length ? (
-            <InteractiveLineChart
-              key={`${snapshotView}:${portfolioRange}:${portfolioVisibleTimeRange?.fromMs || "auto"}:${portfolioVisibleTimeRange?.toMs || "auto"}:${portfolioLinePoints.length}:${portfolioLinePoints[0]?.timeMs || "start"}:${portfolioLinePoints[portfolioLinePoints.length - 1]?.timeMs || "end"}`}
-              className="tradePortfolioEngineChart performancePortfolioLineChart"
-              height={chartHeight}
-              lines={performancePortfolioLines}
-              visibleTimeRange={portfolioVisibleTimeRange}
-              timeZone={timeZone}
-              debugLabel={`Performance ${title} ${portfolioRange}`}
-              valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
-              emptyMessage={emptyMessage}
-            showLastPointPulse
-          />
-        ) : (
-          <div className="performancePortfolioHomeEmpty">
-            {emptyMessage}
-          </div>
-        )}
-      </div>
-    </div>
+    <PortfolioHistoryChart
+      title={title}
+      subtitle={subtitle}
+      currentValue={portfolioValue}
+      positionsCount={allPositions.length}
+      positionsValue={totalMarketValue}
+      statusLabel={resolvedStatusLabel}
+      range={portfolioRange}
+      onRangeChange={setPortfolioRange}
+      height={chartHeight}
+      timeZone={timeZone}
+      emptyMessage={emptyMessage}
+      className={`portfolioHistoryChart-${snapshotView}`}
+    />
   );
 }
 
@@ -12023,6 +12022,13 @@ useEffect(() => {
 	      return null;
 	    }
 	  });
+  const [marketSnapshot, setMarketSnapshot] = useState(() => {
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(MARKET_SNAPSHOT_STORAGE_KEY) || "null");
+      if (cached?.fetchedAt && Date.now() - new Date(cached.fetchedAt).getTime() < MARKET_SNAPSHOT_TTL_MS) return cached;
+    } catch { /* ignore */ }
+    return null;
+  });
   const [intelLiveQuotes, setIntelLiveQuotes] = useState({});
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
@@ -15332,6 +15338,27 @@ useEffect(() => {
       });
   }, []);
 
+  // Market Snapshot — fetch on mount, cache 15 min in sessionStorage
+  useEffect(() => {
+    if (marketSnapshot !== null) return; // still valid from sessionStorage init
+    supabase.functions.invoke("market-data", {
+      body: { symbols: MARKET_SNAPSHOT_SYMBOLS.map(s => ({ symbol: s, type: "stock" })) },
+    }).then(({ data, error }) => {
+      if (error || !data?.ok || !data?.quotes) {
+        if (import.meta.env.DEV) console.warn("[Market Snapshot] fetch failed:", error || data?.error);
+        setMarketSnapshot({ quotes: {}, fetchedAt: new Date().toISOString(), failed: true });
+        return;
+      }
+      const snap = { quotes: data.quotes, fetchedAt: new Date().toISOString() };
+      try { sessionStorage.setItem(MARKET_SNAPSHOT_STORAGE_KEY, JSON.stringify(snap)); } catch { /* ignore */ }
+      setMarketSnapshot(snap);
+      if (import.meta.env.DEV) console.debug("[Market Snapshot] loaded", snap);
+    }).catch((err) => {
+      if (import.meta.env.DEV) console.warn("[Market Snapshot] error:", err);
+      setMarketSnapshot({ quotes: {}, fetchedAt: new Date().toISOString(), failed: true });
+    });
+  }, []);
+
   useEffect(() => {
     const sessionRaw = (() => { try { return JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null"); } catch { return null; } })();
     const raw = hotColdReport?.stockCold || [];
@@ -16590,6 +16617,7 @@ useEffect(() => {
       simulationMode,
       selectedSimulationOpenPosition,
       hotColdReport,
+      marketSnapshot,
       trades,
     });
 
@@ -21774,69 +21802,25 @@ return (
                       ) : null}
                     </>
                   ) : (
-                    <div className="homePortfolioChartShell">
-                      <div className="homePortfolioChartHeader" data-tour-id="home-portfolio-value">
-                        <div>
-                          <div className="homePortfolioChartTitle">
-                            {homePortfolioViewMode === "portfolio" ? "Your portfolio" : homePortfolioChartLabel}
-                          </div>
-                          <div className="homePortfolioChartValueLine">
-                            <span className="homePortfolioChartCurrencyMark">$</span>
-                            <span className="homePortfolioChartValue">
-                              {homePortfolioPositions.length ? formatCurrency(homePortfolioMarketValue).replace("$", "") : "--"}
-                            </span>
-                            <span
-                              className="homePortfolioChartInlineChange"
-                              style={{ color: homePortfolioDisplayPl < 0 ? "#f87171" : "#4ade80" }}
-                            >
-                              {homePortfolioPositions.length ? `${homePortfolioDisplayPl >= 0 ? "+" : ""}${formatCurrency(homePortfolioDisplayPl)}` : "--"}
-                              {Number.isFinite(homePortfolioDisplayReturnPct) ? ` ${formatPerformancePercent(homePortfolioDisplayReturnPct)}` : ""}
-                            </span>
-                          </div>
-                          <div className="homePortfolioChartSubcopy">
-                            {homePortfolioViewMode === "holdings"
-                              ? "Long-term positions classified as investments or crypto holds."
-                              : homePortfolioViewMode === "active"
-                                ? "Open broker positions classified as day or swing trades."
-                                : "Open broker positions grouped into one portfolio view."}
-                          </div>
-                        </div>
-                        <div className="homePortfolioChartControls" data-tour-id="home-chart-range">
-                          <div className="homePortfolioRangePills" aria-label="Portfolio chart range">
-                            {homePortfolioRangeOptions.map((option) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                className={`homePortfolioRangePill ${homePortfolioChartRange === option.value ? "active" : ""}`}
-                                onClick={() => setHomePortfolioChartRange(option.value)}
-                              >
-                                {option.label}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="homePortfolioChartMetric">
-                            {homePortfolioPositions.length ? `${homePortfolioPositions.length} position${homePortfolioPositions.length === 1 ? "" : "s"} · ${formatCurrency(homePortfolioMarketValue)}` : "No positions"}
-                          </div>
-                          <div className="homePortfolioZoomHint">Scroll to zoom · drag to pan</div>
-                        </div>
-                      </div>
-                      <div className="homePortfolioChartBody">
-                        <InteractiveLineChart
-                          key={`${homePortfolioSnapshotView}:${homePortfolioChartRange}:${homePortfolioVisibleTimeRange?.fromMs || "auto"}:${homePortfolioVisibleTimeRange?.toMs || "auto"}:${homePortfolioLinePoints.length}:${homePortfolioLinePoints[0]?.timeMs || "start"}:${homePortfolioLinePoints[homePortfolioLinePoints.length - 1]?.timeMs || "end"}`}
-                          className="homePortfolioEngineChart tradePortfolioEngineChart"
-                          height="100%"
-                          lines={homePortfolioLinePoints.length >= 2 ? [{
-                            symbol: homePortfolioChartLabel,
-                            color: "#7CC4FF",
-                            points: homePortfolioLinePoints,
-                          }] : []}
-                          visibleTimeRange={homePortfolioVisibleTimeRange}
-                          timeZone={raylaChartTimeZone}
-                          debugLabel={`Home ${homePortfolioChartLabel} ${homePortfolioChartRange}`}
-                          valueFormatter={(value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "--"}
-                          emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Performance history grows automatically as Rayla collects broker snapshots." : "Open positions will appear here once broker data is synced."}
-                        />
-                      </div>
+                    <div data-tour-id="home-portfolio-value">
+                      <PortfolioHistoryChart
+                        title={homePortfolioViewMode === "portfolio" ? "Your portfolio" : homePortfolioChartLabel}
+                        subtitle={homePortfolioViewMode === "holdings"
+                          ? "Long-term positions classified as investments or crypto holds."
+                          : homePortfolioViewMode === "active"
+                            ? "Open broker positions classified as day or swing trades."
+                            : "Open broker positions grouped into one portfolio view."}
+                        currentValue={Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue}
+                        positionsCount={homePortfolioPositions.length}
+                        positionsValue={homePortfolioMarketValue}
+                        statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
+                        range={homePortfolioChartRange}
+                        onRangeChange={setHomePortfolioChartRange}
+                        height={360}
+                        timeZone={raylaChartTimeZone}
+                        emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Portfolio history will appear as Alpaca returns account history." : "Open positions will appear here once broker data is synced."}
+                        className="homePortfolioHistoryChart"
+                      />
                     </div>
                   )}
                 </div>
