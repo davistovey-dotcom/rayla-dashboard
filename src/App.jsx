@@ -3895,6 +3895,273 @@ function augmentQuestionWithPicksProfile(question) {
 
 // ─── End Personal Picks profile context ──────────────────────────────────────
 
+// ─── Structured Response Template Engine ─────────────────────────────────────
+
+const RESPONSE_TEMPLATES = {
+  PersonalPicks: {
+    label: "Personal Picks",
+    screenBoost: ["PersonalPicks"],
+    patterns: [
+      /what should i (buy|add|pick|invest|get)/i,
+      /what (fits|matches) my (style|profile|approach)/i,
+      /what'?s? my next (pick|trade|buy|move)/i,
+      /\$[\d,]+\s+to (invest|deploy|buy|allocate)/i,
+      /top (picks?|stocks?|ideas?)/i,
+      /give me (a |some )?(picks?|ideas?|stocks?)/i,
+      /what would you (buy|pick|recommend)/i,
+      /recommend(ation)?s? (for me|based on my|that fit)/i,
+    ],
+    instruction: `Response format (Personal Picks):
+• [Symbol] — [Why it matches the user's stated style, setup preference, or sector interest]
+• [Symbol] — [Why]
+• [Symbol] — [Why]
+
+For each pick:
+- Why it fits: [specific match to the user's picks profile — setup type, risk comfort, sector, goal]
+- Key risk: [one specific, concrete risk — not generic market risk]
+- Entry approach: [general condition or zone, not a price prediction]
+
+Limit to 3 picks unless the user asks for more. If the Picks Profile is incomplete, say so and ask them to complete it for personalized picks.`,
+  },
+
+  CashDeployment: {
+    label: "Cash Deployment",
+    screenBoost: [],
+    patterns: [
+      /i have \$[\d,]+/i,
+      /\$[\d,.]+k?\s*(in cash|to invest|to deploy|to put to work)/i,
+      /deploy(ing)? (my |this |some )?cash/i,
+      /put(ting)? (money|cash|funds?) (to work|in(to)?)/i,
+      /lump.?sum/i,
+      /dollar.?cost.?averag/i,
+      /\bdca\b/i,
+      /how (should|do) i invest \$[\d,]+/i,
+    ],
+    instruction: `Response format (Cash Deployment):
+Cash Deployment Plan
+
+- Amount: [from the user's question]
+- Timeframe: [recommend lump sum vs. staged — with specific reasoning]
+- Max per position: [sizing guidance given the amount and portfolio context]
+
+Allocation options:
+1. [First priority — tied to their profile, existing holdings, or high-conviction area]
+2. [Second option — diversification or alternative approach]
+3. [If market conditions create uncertainty — what to do with a reserve]
+
+Caution: [One specific risk or timing consideration to flag]
+
+If no financial goal is stated in context, ask what they're optimizing for (growth, income, capital preservation) before making specific suggestions.`,
+  },
+
+  PortfolioReview: {
+    label: "Portfolio Review",
+    screenBoost: ["Portfolio", "Holdings", "Home"],
+    patterns: [
+      /analyze (my )?(portfolio|holdings|positions|book)/i,
+      /review (my )?(portfolio|holdings|positions)/i,
+      /how (am i|is my portfolio|are my) (positioned|doing|performing|looking)/i,
+      /portfolio (health|check|overview|summary|snapshot)/i,
+      /how do (i|my (holdings|positions)) (look|stand)/i,
+      /overall (view|picture|assessment|breakdown)/i,
+      /what'?s? (wrong|right) with my portfolio/i,
+      /assess (my |the )?portfolio/i,
+    ],
+    instruction: `Response format (Portfolio Review):
+Portfolio Snapshot
+
+Strengths:
+• [Specific strength from the data — P&L performance, thesis alignment, healthy diversification]
+• [Second strength]
+
+Risks:
+• [Specific risk — over-concentration, correlated names, underwater position, no thesis]
+• [Second risk if present]
+
+Position status:
+[For each holding: symbol — one-line status (Intact / Watch / Concern) with brief reason]
+
+Priority actions:
+1. [Most important thing to do or watch — be specific]
+2. [Second priority]
+
+What to monitor: [concrete catalyst, level, or event worth watching]`,
+  },
+
+  RiskAssessment: {
+    label: "Risk Assessment",
+    screenBoost: [],
+    patterns: [
+      /how much should i (buy|invest|risk|put|allocate)/i,
+      /position.?siz(e|ing)/i,
+      /am i (too )?(concentrated|exposed|heavy|overweight)/i,
+      /what'?s? my (risk|exposure|max loss|downside)/i,
+      /\bsizing\b/i,
+      /max (loss|drawdown|risk|position size)/i,
+      /how (many|much) (shares?|contracts?|units?)/i,
+      /too (much|heavy) (risk|exposure|concentration)/i,
+      /risk.?reward/i,
+      /\bkelly\b/i,
+    ],
+    instruction: `Response format (Risk Assessment):
+Risk Assessment
+
+Current exposure:
+• Largest position: [symbol at X% of portfolio — flag if over 25%]
+• Sector concentration: [if applicable]
+• Correlated positions: [if applicable]
+
+Sizing guidance:
+• Account context: [equity if available in context]
+• Suggested max per position: [% and dollar equivalent]
+• Suggested max risk per trade: [% of account if trading context]
+
+Flags:
+⚠ [Specific concern — over-concentration, correlated names, no thesis on large position]
+✓ [What looks appropriately sized or healthy]
+
+Bottom line: [One clear sentence — what to do or what to leave alone]`,
+  },
+
+  TradeReview: {
+    label: "Trade Review",
+    screenBoost: ["TradeReview", "Journal"],
+    patterns: [
+      /review (my |this |that |the |last )?trade/i,
+      /how did i do (on|with|in)/i,
+      /what (could|should) i have done (better|differently)/i,
+      /what went wrong (with|on|in)/i,
+      /analyze (my |this |that )?trade/i,
+      /trade (review|analysis|breakdown|recap)/i,
+      /what did i (do right|mess up|do wrong|miss)/i,
+      /was (that|this|my) (trade|entry|exit) (good|right|wrong|a mistake)/i,
+    ],
+    instruction: `Response format (Trade Review):
+Trade Review: [Asset]
+
+What happened:
+- Setup: [from context]
+- Direction: [from context]
+- Result: [R value or win/loss]
+
+Execution:
+✓ What worked: [specific — not "good discipline" but what exactly was done right]
+⚠ What to improve: [specific — not "be patient" but what exact behavior to change]
+
+Key lesson:
+[One concrete, actionable takeaway — specific enough that the trader can apply it on the next trade]
+
+Next time: [One behavior to keep or one thing to do differently]`,
+  },
+
+  MarketIntel: {
+    label: "Market Intel",
+    screenBoost: ["MarketIntel"],
+    patterns: [
+      /what'?s? (hot|moving|trending|working|strong|weak)( right now| today| this week)?/i,
+      /market (conditions|overview|pulse|sentiment|environment|today)/i,
+      /sector (rotation|performance|strength|weakness|momentum)/i,
+      /what'?s? (the market|everything|stocks?) doing/i,
+      /what'?s? (leading|lagging|running|selling off)/i,
+      /\bmarket intel\b/i,
+    ],
+    instruction: `Response format (Market Intel):
+Market Pulse
+
+Strong now: [from available market data — specific names or sectors]
+Weak now: [from available market data]
+
+What this means for your portfolio:
+• [Direct connection to the user's specific positions — not generic commentary]
+• [Any holding in a hot or cold sector — flag it]
+
+Action: [One specific thing to consider based on current conditions — or "no action needed" if nothing is actionable]`,
+  },
+
+  ThesisReview: {
+    label: "Holding Thesis Review",
+    screenBoost: ["Holdings"],
+    patterns: [
+      /review (my )?(thesis|conviction|investment|holding)/i,
+      /is (my |the )?(thesis|investment|holding|case) (still )?(valid|intact|holding up|broken)/i,
+      /should i (hold|sell|reduce|exit|trim|keep) [A-Z]{1,5}/i,
+      /thesis (still )?(valid|intact|broken|holding)/i,
+      /ongoing reasoning/i,
+      /(broken|invalidated|changed) (thesis|case|story)/i,
+      /is [A-Z]{1,5} still (worth holding|a good hold|worth it)/i,
+      /still believe in [A-Z]{1,5}/i,
+    ],
+    instruction: `Use the Ongoing reasoning format for each relevant holding.
+If the user asks about a specific symbol, focus there. If broadly, cover all holdings that have a Holding Thesis.
+For any holding with no Holding Thesis: "I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning."`,
+  },
+
+  Educational: {
+    label: "Educational Explanation",
+    screenBoost: [],
+    patterns: [
+      /^what (is|are) (a |an |the )?[a-z ]{2,40}\??$/i,
+      /^explain (the |a |an )?[a-z ]{2,40}$/i,
+      /how does .{3,50} work/i,
+      /what does .{3,50} mean/i,
+      /\bteach me\b/i,
+      /i don'?t (understand|know what)/i,
+      /can you explain/i,
+      /difference between .{2,30} and .{2,30}/i,
+      /what'?s? (the )?difference between/i,
+    ],
+    instruction: `Response format (Educational):
+[Concept name]
+
+Simple version: [1-2 sentences — zero jargon, assume no prior knowledge]
+
+How it works:
+• [Key point 1]
+• [Key point 2]
+• [Key point 3]
+
+Real example: [concrete example using the user's actual positions or context if possible — otherwise use a universally familiar example]
+
+Common mistake: [the one specific thing people consistently get wrong about this]
+
+How to use it: [one actionable takeaway]`,
+  },
+};
+
+// Priority order: more specific templates checked before more general ones
+const TEMPLATE_PRIORITY = [
+  "CashDeployment",
+  "RiskAssessment",
+  "ThesisReview",
+  "TradeReview",
+  "PortfolioReview",
+  "MarketIntel",
+  "PersonalPicks",
+  "Educational",
+];
+
+function classifyQuestion(question, screenSource) {
+  if (!question || question.length < 4) return null;
+  let bestKey = null;
+  let bestScore = 0;
+  for (const key of TEMPLATE_PRIORITY) {
+    const tmpl = RESPONSE_TEMPLATES[key];
+    let score = 0;
+    for (const pattern of tmpl.patterns) {
+      if (pattern.test(question)) { score += 2; break; }
+    }
+    if (tmpl.screenBoost.includes(screenSource)) score += 1;
+    if (score > bestScore) { bestScore = score; bestKey = key; }
+  }
+  return bestScore >= 2 ? bestKey : null;
+}
+
+function getResponseTemplate(templateType) {
+  if (!templateType || !RESPONSE_TEMPLATES[templateType]) return null;
+  const tmpl = RESPONSE_TEMPLATES[templateType];
+  return `[Rayla response format — ${tmpl.label}]\n${tmpl.instruction}`;
+}
+
 // ─── Universal Screen Context ─────────────────────────────────────────────────
 
 const PICKS_CACHE_STORAGE_KEY = "rayla-picks-cache-v1";
@@ -16075,8 +16342,18 @@ useEffect(() => {
       ? `${screenCtx.contextText}\n\n${trimmedQuestion}`
       : trimmedQuestion;
 
+    const templateType = classifyQuestion(trimmedQuestion, screenCtx.source);
+    const templateInstruction = getResponseTemplate(templateType);
+    const questionWithTemplate = templateInstruction
+      ? `${questionWithScreen}\n\n${templateInstruction}`
+      : questionWithScreen;
+
+    if (import.meta.env.DEV && templateType) {
+      console.debug("[Rayla Template Engine]", { template: templateType, question: trimmedQuestion.slice(0, 100) });
+    }
+
     const askRaylaRequestPayload = {
-      question: augmentQuestionWithPicksProfile(questionWithScreen),
+      question: augmentQuestionWithPicksProfile(questionWithTemplate),
       context: buildAskRaylaContext({
         trades,
         simulationTradeHistory: visibleSimulationTradeHistoryAll,
