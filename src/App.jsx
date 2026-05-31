@@ -640,6 +640,21 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
 const DEFAULT_LIVE_TRADE_SYMBOL = "BTC";
+const HOLDING_THESIS_STORAGE_KEY = "rayla-holding-thesis-v1";
+
+function loadHoldingTheses() {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(HOLDING_THESIS_STORAGE_KEY) : null;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch { return {}; }
+}
+function persistHoldingTheses(theses) {
+  try {
+    if (typeof window !== "undefined") window.localStorage.setItem(HOLDING_THESIS_STORAGE_KEY, JSON.stringify(theses));
+  } catch {}
+}
 
 function isPopulatedIntelReport(report) {
   if (!report || typeof report !== "object") return false;
@@ -3993,6 +4008,8 @@ function buildUniversalScreenContext({
           const pl = Number(p.unrealized_pl ?? p.unrealizedPl);
           const plStr = Number.isFinite(pl) ? ` | P&L: ${pl >= 0 ? "+" : ""}${fmtMoney(pl)}` : "";
           lines.push(`  ${fmt(p.symbol)}: ${fmtMoney(p.market_value ?? p.marketValue)}${plStr}`);
+          const holdingThesis = p.thesis || "";
+          if (holdingThesis) lines.push(`    Thesis: ${String(holdingThesis).slice(0, 200)}`);
         });
       } else {
         lines.push("No long-term holdings classified yet.");
@@ -5872,6 +5889,7 @@ function HoldingsPerformancePanel({
   setPortfolioRange = () => {},
   timeZone = null,
   onAskRayla = null,
+  onSaveThesis = null,
 }) {
   const holdings = Array.isArray(positions) ? positions : [];
   const rangeOptions = [
@@ -6050,42 +6068,54 @@ function HoldingsPerformancePanel({
                 <div
                   key={pos.symbol}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
                     padding: "12px 0",
                     borderBottom: idx < sortedHoldings.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
                   }}
                 >
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: "#f0f6ff" }}>{pos.symbol}</span>
-                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: isEquity ? "#4a7fa8" : "#7c6aad" }}>
-                        {isEquity ? "EQ" : "CR"}
-                      </span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: "#f0f6ff" }}>{pos.symbol}</span>
+                        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: isEquity ? "#4a7fa8" : "#7c6aad" }}>
+                          {isEquity ? "EQ" : "CR"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#334155", marginTop: 3 }}>
+                        {formatBrokerQuantity(pos.qty)} × {formatCurrency(pos.avgEntryPrice || 0)} · {formatCurrency(pos.marketValue)}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: "#334155", marginTop: 3 }}>
-                      {formatBrokerQuantity(pos.qty)} × {formatCurrency(pos.avgEntryPrice || 0)} · {formatCurrency(pos.marketValue)}
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
+                        {pl >= 0 ? "+" : ""}{formatCurrency(pl)}
+                      </div>
+                      <div style={{ fontSize: 11, color: pl >= 0 ? "#6ee7b7" : "#fca5a5", marginTop: 2, opacity: 0.85 }}>
+                        {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
+                      </div>
+                      {onAskRayla && (
+                        <button
+                          type="button"
+                          onClick={() => onAskRayla(pos.symbol)}
+                          style={{ fontSize: 10, fontWeight: 600, color: "#7CC4FF", background: "none", border: "none", cursor: "pointer", padding: "4px 0 0 0", display: "block", marginLeft: "auto" }}
+                        >
+                          Ask Rayla →
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: pl >= 0 ? "#4ade80" : "#f87171" }}>
-                      {pl >= 0 ? "+" : ""}{formatCurrency(pl)}
+                  {onSaveThesis && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontWeight: 500, letterSpacing: "0.03em" }}>
+                        Why do you own this? <span style={{ color: "#334155", fontWeight: 400 }}>optional · used by Rayla</span>
+                      </div>
+                      <textarea
+                        defaultValue={pos.thesis || ""}
+                        onBlur={(e) => onSaveThesis(pos.symbol, e.target.value)}
+                        placeholder="AI infrastructure growth, cloud expansion, dividend income, undervalued business, long-term compounder, 5+ year hold…"
+                        rows={2}
+                        style={{ width: "100%", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, padding: "7px 10px", color: "#cbd5e1", fontSize: 11, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.55 }}
+                      />
                     </div>
-                    <div style={{ fontSize: 11, color: pl >= 0 ? "#6ee7b7" : "#fca5a5", marginTop: 2, opacity: 0.85 }}>
-                      {Number.isFinite(plpc) ? formatPerformancePercent(plpc * 100) : "—"}
-                    </div>
-                    {onAskRayla && (
-                      <button
-                        type="button"
-                        onClick={() => onAskRayla(pos.symbol)}
-                        style={{ fontSize: 10, fontWeight: 600, color: "#7CC4FF", background: "none", border: "none", cursor: "pointer", padding: "4px 0 0 0", display: "block", marginLeft: "auto" }}
-                      >
-                        Ask Rayla →
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               );
             })}
@@ -11470,6 +11500,7 @@ useEffect(() => {
   const [brokerDisconnecting, setBrokerDisconnecting] = useState(false);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
   const [positionIntentOverrides, setPositionIntentOverrides] = useState({});
+  const [holdingTheses, setHoldingTheses] = useState(() => loadHoldingTheses());
   const [positionTradeTypesLoaded, setPositionTradeTypesLoaded] = useState(false);
   const [portfolioSnapshots, setPortfolioSnapshots] = useState([]);
   const [portfolioSnapshotsLoading, setPortfolioSnapshotsLoading] = useState(false);
@@ -11965,12 +11996,13 @@ useEffect(() => {
     alpacaPositions.map((position) => {
       const override = getPositionIntentOverride(position?.symbol, positionIntentOverrides);
       const fallbackType = override.tradeType || override.trade_type || override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol);
+      const storedThesis = holdingTheses[getPositionIntentKey(position?.symbol)] || "";
       return {
         ...position,
-        ...buildPositionIntentMetadata({ ...position, ...override }, fallbackType),
+        ...buildPositionIntentMetadata({ ...position, ...override, thesis: storedThesis || override.thesis || "" }, fallbackType),
       };
     })
-  ), [alpacaPositions, positionIntentOverrides]);
+  ), [alpacaPositions, positionIntentOverrides, holdingTheses]);
   const sortedBrokerPositionsWithIntent = useMemo(() => (
     [...brokerPositionsWithIntent].sort((a, b) => Number(a.isLongTermHolding) - Number(b.isLongTermHolding))
   ), [brokerPositionsWithIntent]);
@@ -12032,6 +12064,15 @@ useEffect(() => {
     }
     if (showSavedToast) showToast("Trade type synced.", "success");
   }, [session?.user?.id]);
+  const saveHoldingThesis = useCallback((symbol, thesis) => {
+    const key = getPositionIntentKey(symbol);
+    if (!key) return;
+    setHoldingTheses((prev) => {
+      const next = { ...prev, [key]: thesis };
+      persistHoldingTheses(next);
+      return next;
+    });
+  }, []);
   const updateBrokerPositionIntent = (symbol, updates) => {
     const key = getPositionIntentKey(symbol);
     if (!key) return;
@@ -25232,6 +25273,7 @@ return (
                   portfolioRange={performanceHoldingsRange}
                   setPortfolioRange={setPerformanceHoldingsRange}
                   timeZone={raylaChartTimeZone}
+                  onSaveThesis={saveHoldingThesis}
                   onAskRayla={(symbol) => {
                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                     const q = `Tell me about my ${symbol} holding. How is it performing and what should I be thinking about?\n\n${formatInvestorContextForAI(p)}`;
