@@ -3997,22 +3997,54 @@ function buildUniversalScreenContext({
     case "Holdings": {
       const positions = Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : [];
       const lines = ["[Screen: Holdings — Long-Term Investments]"];
+      const totalEquity = Number(alpacaAccount?.equity ?? alpacaAccount?.portfolioValue ?? 0);
       if (alpacaAccount) {
         objectsIncluded.push("account");
-        lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
+        lines.push(`Account equity: ${fmtMoney(totalEquity)}`);
       }
+      let anyThesis = false;
       if (positions.length) {
         objectsIncluded.push("holdings_positions");
         lines.push(`Holdings (${positions.length}):`);
         positions.forEach((p) => {
+          const mv = Number(p.market_value ?? p.marketValue);
           const pl = Number(p.unrealized_pl ?? p.unrealizedPl);
-          const plStr = Number.isFinite(pl) ? ` | P&L: ${pl >= 0 ? "+" : ""}${fmtMoney(pl)}` : "";
-          lines.push(`  ${fmt(p.symbol)}: ${fmtMoney(p.market_value ?? p.marketValue)}${plStr}`);
+          const plPct = Number(p.unrealizedPlpc);
+          const avgEntry = Number(p.avg_entry_price ?? p.avgEntryPrice);
+          const concentration = totalEquity > 0 && Number.isFinite(mv) && mv > 0 ? (mv / totalEquity * 100).toFixed(1) : null;
+          let posLine = `  ${fmt(p.symbol)}: ${fmtMoney(mv)}`;
+          if (Number.isFinite(pl)) posLine += ` | P&L: ${pl >= 0 ? "+" : ""}${fmtMoney(pl)}`;
+          if (Number.isFinite(plPct) && plPct !== 0) posLine += ` (${(plPct * 100) >= 0 ? "+" : ""}${(plPct * 100).toFixed(1)}%)`;
+          if (concentration) posLine += ` | ${concentration}% of portfolio`;
+          if (Number.isFinite(avgEntry) && avgEntry > 0) posLine += ` | Avg entry: ${fmtMoney(avgEntry)}`;
+          lines.push(posLine);
           const holdingThesis = p.thesis || "";
-          if (holdingThesis) lines.push(`    Thesis: ${String(holdingThesis).slice(0, 200)}`);
+          if (holdingThesis) {
+            lines.push(`    Holding Thesis: ${String(holdingThesis).slice(0, 200)}`);
+            anyThesis = true;
+          }
         });
       } else {
         lines.push("No long-term holdings classified yet.");
+      }
+      if (anyThesis) {
+        objectsIncluded.push("thesis_review_enabled");
+        lines.push("");
+        lines.push("[Ongoing reasoning — one or more holdings have a Holding Thesis]");
+        lines.push("When the user asks about any of these holdings or requests a portfolio/holdings review, respond using this structure for each holding that has a Holding Thesis:");
+        lines.push("");
+        lines.push("Ongoing reasoning: [SYMBOL]");
+        lines.push("- Holding Thesis: [repeat the user's stated Holding Thesis from above]");
+        lines.push("- Status: Intact / Needs Review / Broken / Not enough data");
+        lines.push("- Why: [your reasoning — base this on P&L%, concentration, avg entry vs current market value, time horizon]");
+        lines.push("- What changed: [observable shifts in the data above — P&L direction, concentration drift, price vs entry]");
+        lines.push("- What to watch next: [concrete, specific criteria — a price level, a concentration threshold, a time horizon checkpoint]");
+        lines.push("- Decision framing: Hold / Review / Reduce / Exit consideration");
+        lines.push("");
+        lines.push("Rules for ongoing reasoning:");
+        lines.push("- Use only data in this context. Do not invent fundamentals, news, earnings, or macro events.");
+        lines.push("- If data is insufficient for a judgment, say exactly that and name what data would change your answer.");
+        lines.push("- For any holding in this list with no Holding Thesis, respond: \"I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning.\"");
       }
       contextText = lines.join("\n");
       break;
@@ -4065,7 +4097,7 @@ function buildUniversalScreenContext({
         if (trade.result_r != null) lines.push(`Result: ${fmt(trade.result_r)}R`);
         if (trade.entry_time) lines.push(`Entry: ${fmt(trade.entry_time)}`);
         const tradeEntryReason = trade.entryReason || trade.entry_reason || "";
-        if (tradeEntryReason) lines.push(`Entry reason: ${String(tradeEntryReason).slice(0, 200)}`);
+        if (tradeEntryReason) lines.push(`Trade Thesis: ${String(tradeEntryReason).slice(0, 200)}`);
         if (trade.notes) lines.push(`Notes: ${String(trade.notes).slice(0, 120)}`);
       }
       contextText = lines.join("\n");
@@ -6105,7 +6137,7 @@ function HoldingsPerformancePanel({
                   {onSaveThesis && (
                     <div style={{ marginTop: 8 }}>
                       <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontWeight: 500, letterSpacing: "0.03em" }}>
-                        Why do you own this? <span style={{ color: "#334155", fontWeight: 400 }}>optional · used by Rayla</span>
+                        Holding Thesis <span style={{ color: "#334155", fontWeight: 400 }}>optional · used by Rayla</span>
                       </div>
                       <textarea
                         defaultValue={pos.thesis || ""}
@@ -24027,7 +24059,7 @@ return (
 
                       <div style={{ ...simulationSecondaryPanelStyle, padding: "10px 12px", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>
-                          Why are you entering this? <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
+                          Trade Thesis <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
                         </div>
                         <textarea
                           value={simulationEntryReason}
