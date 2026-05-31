@@ -3946,6 +3946,133 @@ function buildFinancialGoalsContext(goals) {
 
 // ─── End Financial Goals Layer ────────────────────────────────────────────────
 
+// ─── Cash Deployment Engine ───────────────────────────────────────────────────
+
+function extractCashAmount(question) {
+  if (!question) return null;
+  // "$10k", "$10,000", "$5000", "10000 dollars", "10k dollars"
+  const patterns = [
+    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*k\b/i,   // $10k
+    /\$\s*([\d,]+(?:\.\d{1,2})?)/,            // $10,000
+    /([\d,]+(?:\.\d{1,2})?)\s*k\s*(?:dollars?|to invest|to deploy|in cash)/i, // 10k dollars
+    /([\d,]+)\s*(?:dollars?|bucks?)/i,         // 10000 dollars
+  ];
+  for (const p of patterns) {
+    const m = question.match(p);
+    if (m) {
+      const raw = String(m[1]).replace(/,/g, "");
+      let n = Number(raw);
+      if (p.source.includes("\\sk\\b") || (m[0].toLowerCase().includes("k") && !m[0].toLowerCase().includes("k ") === false)) {
+        // already handled by pattern[0]
+      }
+      if (p === patterns[0]) n *= 1000; // $10k → 10000
+      if (Number.isFinite(n) && n > 0 && n < 100_000_000) return n;
+    }
+  }
+  return null;
+}
+
+function buildCashDeploymentContext({ account, positions, goals, picksProfile, amount }) {
+  const fmtM = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : null;
+  };
+
+  const equity = Number(account?.equity ?? account?.portfolioValue ?? 0);
+  const cash = Number(account?.cash ?? 0);
+  const buyingPower = Number(account?.buyingPower ?? 0);
+  const cashPct = equity > 0 ? (cash / equity * 100) : 0;
+  const deployAmount = (Number.isFinite(amount) && amount > 0) ? amount : (cash > 0 ? cash : null);
+
+  const lines = ["[Cash Deployment Engine]"];
+
+  // Amount and account state
+  if (deployAmount) lines.push(`Deployment amount: ${fmtM(deployAmount)}`);
+  if (equity > 0) lines.push(`Portfolio equity: ${fmtM(equity)}`);
+  if (cash > 0) lines.push(`Cash in account: ${fmtM(cash)} (${cashPct.toFixed(1)}%)`);
+  if (buyingPower > 0 && buyingPower !== cash) lines.push(`Buying power: ${fmtM(buyingPower)}`);
+
+  // Current portfolio state
+  const posArray = Array.isArray(positions) ? positions.filter((p) => {
+    const mv = Number(p.market_value ?? p.marketValue ?? 0);
+    return mv > 0;
+  }) : [];
+  const n = posArray.length;
+  lines.push(`Current positions: ${n === 0 ? "0 — starting fresh" : String(n)}`);
+
+  if (n > 0 && equity > 0) {
+    const sorted = [...posArray].sort((a, b) =>
+      Number(b.market_value ?? b.marketValue ?? 0) - Number(a.market_value ?? a.marketValue ?? 0)
+    );
+    const top = sorted[0];
+    const topMv = Number(top.market_value ?? top.marketValue ?? 0);
+    lines.push(`Largest position: ${top.symbol} at ${(topMv / equity * 100).toFixed(1)}%`);
+  }
+
+  // Position sizing for new money
+  const maxPct = n <= 3 ? 25 : n <= 5 ? 20 : n <= 10 ? 15 : 10;
+  const maxFromPortfolio = equity > 0 ? equity * maxPct / 100 : null;
+  const maxFromDeploy = deployAmount ? deployAmount * 0.5 : null;
+  const suggestedMax = (maxFromPortfolio && maxFromDeploy)
+    ? Math.min(maxFromPortfolio, maxFromDeploy)
+    : (maxFromPortfolio || maxFromDeploy);
+  if (suggestedMax) lines.push(`Max per position: ${fmtM(Math.round(suggestedMax))} (${maxPct}% portfolio rule, 50% of deployment cap)`);
+
+  // Concentration impact of full deployment into one position
+  if (equity > 0 && deployAmount) {
+    const newEquity = equity + deployAmount;
+    const singleConc = (deployAmount / newEquity * 100).toFixed(1);
+    lines.push(`If deployed into one position: ${singleConc}% of updated portfolio`);
+  }
+
+  // Deployment stance
+  let stance, stanceReason;
+  if (n === 0) {
+    stance = "Deploy Gradually";
+    stanceReason = "starting fresh — build positions in stages over 2-4 weeks to reduce entry timing risk";
+  } else if (cashPct > 50) {
+    stance = "Deploy Gradually";
+    stanceReason = "large cash position — stage entry to average cost and reduce timing risk";
+  } else if (cashPct < 8 && !amount) {
+    stance = "Hold Cash";
+    stanceReason = "already near fully invested — maintain dry powder for opportunities";
+  } else if (goals?.primaryObjective === "capitalPreservation") {
+    stance = "Deploy Gradually";
+    stanceReason = "capital preservation goal — slow staged entry protects downside";
+  } else if (goals?.primaryObjective === "tradingGrowth" || goals?.primaryObjective === "financialFreedom") {
+    stance = "Deploy Now";
+    stanceReason = "growth-oriented goal — idle cash has meaningful opportunity cost";
+  } else {
+    stance = "Deploy Gradually";
+    stanceReason = "balanced approach — 2-3 tranches over 2-4 weeks";
+  }
+  lines.push(`Recommended stance: ${stance} — ${stanceReason}`);
+
+  // Suggested splits
+  if (deployAmount && suggestedMax) {
+    const splits = Math.max(1, Math.ceil(deployAmount / suggestedMax));
+    const perSplit = Math.round(deployAmount / splits);
+    lines.push(`Suggested splits: ${splits} position${splits === 1 ? "" : "s"} at ~${fmtM(perSplit)} each`);
+  }
+
+  // Goal alignment
+  if (goals) {
+    const objLabel = FINANCIAL_GOAL_OBJECTIVE_LABELS[goals.primaryObjective] || goals.primaryObjective || "";
+    const parts = [objLabel, goals.targetAmount ? `Target: ${fmtM(Number(String(goals.targetAmount).replace(/[^0-9.]/g, "")))}` : null, goals.targetDate ? `By: ${goals.targetDate}` : null].filter(Boolean);
+    if (parts.length) lines.push(`Financial goal: ${parts.join(" | ")}`);
+  }
+
+  // Risk profile
+  if (picksProfile?.riskComfort) {
+    const rl = { tight: "Low risk", moderate: "Moderate risk", aggressive: "Aggressive risk" }[picksProfile.riskComfort];
+    if (rl) lines.push(`Risk profile: ${rl}`);
+  }
+
+  return lines.join("\n");
+}
+
+// ─── End Cash Deployment Engine ───────────────────────────────────────────────
+
 // ─── Structured Response Template Engine ─────────────────────────────────────
 
 const RESPONSE_TEMPLATES = {
@@ -3988,21 +4115,22 @@ Limit to 3 picks unless the user asks for more. If the Picks Profile is incomple
       /\bdca\b/i,
       /how (should|do) i invest \$[\d,]+/i,
     ],
-    instruction: `Response format (Cash Deployment):
-Cash Deployment Plan
+    instruction: `Cash Deployment Plan
 
-- Amount: [from the user's question]
-- Timeframe: [recommend lump sum vs. staged — with specific reasoning]
-- Max per position: [sizing guidance given the amount and portfolio context]
+Current Situation: [Summarize deployment amount, current portfolio size, cash %, and key concentration risk if any — pull from Cash Deployment Context block if present]
 
-Allocation options:
-1. [First priority — tied to their profile, existing holdings, or high-conviction area]
-2. [Second option — diversification or alternative approach]
-3. [If market conditions create uncertainty — what to do with a reserve]
+Goal Alignment: [If a Financial Goal is in context, explicitly map this deployment to the target amount, target date, and objective. If no goal is set, note what deployment strategy best fits their apparent objective.]
 
-Caution: [One specific risk or timing consideration to flag]
+Allocation Plan: [Recommend lump sum vs. staged entry with clear reasoning. If staged, give specific splits — e.g. "3 tranches over 3 weeks." If lump sum, explain why timing works.]
 
-If a Financial Goal is in context, align the deployment plan directly to that goal — reference the target amount, target date, and objective. If no Financial Goal is in context, ask what they're optimizing for before making specific suggestions.`,
+Position Sizing: [Exact dollar amounts per position based on the max-per-position guidance from context. Show the math: "$X at max Y% concentration = $Z per position." List 2–3 specific allocation targets tied to their profile or existing holdings.]
+
+Risks: [One or two specific risks for this deployment — timing risk, concentration risk, or goal misalignment. Be concrete, not generic.]
+
+What To Do Next:
+Step 1: [Immediate action — what to buy or do today]
+Step 2: [Second action — follow-up trade, review trigger, or staged entry date]
+Step 3: [Longer-term check — when to reassess this deployment against the goal]`,
   },
 
   PortfolioReview: {
@@ -16479,10 +16607,25 @@ useEffect(() => {
       : trimmedQuestion;
 
     const templateType = classifyQuestion(trimmedQuestion, screenCtx.source);
+
+    const cashDeployCtx = templateType === "CashDeployment"
+      ? buildCashDeploymentContext({
+          account: alpacaAccount,
+          positions: brokerPositionsWithIntent,
+          goals: loadFinancialGoals(),
+          picksProfile: loadPicksProfile(),
+          amount: extractCashAmount(trimmedQuestion),
+        })
+      : null;
+
+    const questionWithCashDeploy = cashDeployCtx
+      ? `${cashDeployCtx}\n\n${questionWithScreen}`
+      : questionWithScreen;
+
     const templateInstruction = getResponseTemplate(templateType);
     const questionWithTemplate = templateInstruction
-      ? `${questionWithScreen}\n\n${templateInstruction}`
-      : questionWithScreen;
+      ? `${questionWithCashDeploy}\n\n${templateInstruction}`
+      : questionWithCashDeploy;
 
     if (import.meta.env.DEV && templateType) {
       console.debug("[Rayla Template Engine]", { template: templateType, question: trimmedQuestion.slice(0, 100) });
