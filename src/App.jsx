@@ -3734,7 +3734,7 @@ function InvestorCtaBand({ actions }) {
   );
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
@@ -3762,6 +3762,7 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
     picksProfileContext: picksProfileContext || null,
+    screenContext: screenContext || null,
     brokerPositionContext: Array.isArray(brokerPositions) && brokerPositions.length
       ? brokerPositions.map((position) => {
         const intent = buildPositionIntentMetadata(position, inferPositionTypeFromSymbol(position?.symbol));
@@ -3878,6 +3879,238 @@ function augmentQuestionWithPicksProfile(question) {
 }
 
 // ─── End Personal Picks profile context ──────────────────────────────────────
+
+// ─── Universal Screen Context ─────────────────────────────────────────────────
+
+const PICKS_CACHE_STORAGE_KEY = "rayla-picks-cache-v1";
+
+function loadPicksCacheForContext() {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(PICKS_CACHE_STORAGE_KEY) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.picks?.length) return null;
+    const ageMs = Date.now() - (parsed.generatedAt || 0);
+    if (ageMs > 4 * 60 * 60 * 1000) return null; // expired
+    return parsed.picks;
+  } catch { return null; }
+}
+
+function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade }) {
+  if (activeTab === "home") return "Home";
+  if (activeTab === "performance") {
+    if (performancePositionFilter === "holdings") return "Holdings";
+    return "Portfolio";
+  }
+  if (activeTab === "picks") return "PersonalPicks";
+  if (activeTab === "ai") return "MarketIntel";
+  if (activeTab === "journal") {
+    if (raylaActiveReviewedTrade) return "TradeReview";
+    return "Journal";
+  }
+  if (activeTab === "simulation") return "Simulation";
+  if (activeTab === "trade") return "LiveTrades";
+  return "General";
+}
+
+function buildUniversalScreenContext({
+  activeTab,
+  performancePositionFilter,
+  raylaActiveReviewedTrade,
+  brokerPositionsWithIntent,
+  longTermBrokerPositions,
+  alpacaAccount,
+  simulationMode,
+  selectedSimulationOpenPosition,
+  hotColdReport,
+  trades,
+}) {
+  const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade });
+  const objectsIncluded = [];
+  let contextText = "";
+
+  const fmt = (v) => (v != null ? String(v) : "—");
+  const fmtMoney = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
+  };
+
+  switch (source) {
+    case "Home": {
+      const lines = ["[Screen: Home Overview]"];
+      if (alpacaAccount) {
+        objectsIncluded.push("account");
+        lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
+        lines.push(`Cash: ${fmtMoney(alpacaAccount.cash)}`);
+        lines.push(`Buying power: ${fmtMoney(alpacaAccount.buyingPower)}`);
+      }
+      const posCount = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent.length : 0;
+      if (posCount > 0) {
+        objectsIncluded.push("positions_summary");
+        lines.push(`Open positions: ${posCount}`);
+      }
+      const tradeCount = Array.isArray(trades) ? trades.length : 0;
+      if (tradeCount > 0) {
+        objectsIncluded.push("trade_count");
+        lines.push(`Journal trades logged: ${tradeCount}`);
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "Portfolio": {
+      const positions = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [];
+      const lines = ["[Screen: Portfolio — All Positions]"];
+      if (alpacaAccount) {
+        objectsIncluded.push("account");
+        lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
+        lines.push(`Cash: ${fmtMoney(alpacaAccount.cash)}`);
+      }
+      if (positions.length) {
+        objectsIncluded.push("all_positions");
+        lines.push(`Positions (${positions.length}):`);
+        positions.forEach((p) => {
+          const pl = Number(p.unrealized_pl ?? p.unrealizedPl);
+          const plStr = Number.isFinite(pl) ? ` | P&L: ${pl >= 0 ? "+" : ""}${fmtMoney(pl)}` : "";
+          lines.push(`  ${fmt(p.symbol)}: ${fmtMoney(p.market_value ?? p.marketValue)} | ${fmt(p.positionTypeLabel || p.positionType)}${plStr}`);
+        });
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "Holdings": {
+      const positions = Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : [];
+      const lines = ["[Screen: Holdings — Long-Term Investments]"];
+      if (alpacaAccount) {
+        objectsIncluded.push("account");
+        lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
+      }
+      if (positions.length) {
+        objectsIncluded.push("holdings_positions");
+        lines.push(`Holdings (${positions.length}):`);
+        positions.forEach((p) => {
+          const pl = Number(p.unrealized_pl ?? p.unrealizedPl);
+          const plStr = Number.isFinite(pl) ? ` | P&L: ${pl >= 0 ? "+" : ""}${fmtMoney(pl)}` : "";
+          lines.push(`  ${fmt(p.symbol)}: ${fmtMoney(p.market_value ?? p.marketValue)}${plStr}`);
+        });
+      } else {
+        lines.push("No long-term holdings classified yet.");
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "PersonalPicks": {
+      const lines = ["[Screen: Personal Picks]"];
+      const cachedPicks = loadPicksCacheForContext();
+      const profile = loadPicksProfile();
+      if (profile) {
+        objectsIncluded.push("picks_profile");
+        lines.push(`User profile: ${PICKS_PROFILE_LABELS.marketApproach?.[profile.marketApproach] || profile.marketApproach || "—"}`);
+        if (profile.goal) lines.push(`Goal: ${PICKS_PROFILE_LABELS.goal?.[profile.goal] || profile.goal}`);
+      }
+      if (cachedPicks?.length) {
+        objectsIncluded.push("picks_cache");
+        lines.push(`Current top picks (${cachedPicks.length}):`);
+        cachedPicks.forEach((pk, i) => {
+          lines.push(`  ${i + 1}. ${fmt(pk.symbol || pk.ticker)} — ${fmt(pk.fitScore ?? pk.fit_score)}% fit — ${fmt(pk.confidence ?? "—")} confidence`);
+          if (pk.reasoning) lines.push(`     Reason: ${String(pk.reasoning).slice(0, 120)}`);
+        });
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "MarketIntel": {
+      const lines = ["[Screen: Market Intelligence]"];
+      if (hotColdReport) {
+        objectsIncluded.push("hot_cold_report");
+        const hot = Array.isArray(hotColdReport.stockHot) ? hotColdReport.stockHot : [];
+        const cold = Array.isArray(hotColdReport.stockCold) ? hotColdReport.stockCold : [];
+        if (hot.length) lines.push(`Hot stocks: ${hot.slice(0, 5).map((s) => s?.symbol || s).join(", ")}`);
+        if (cold.length) lines.push(`Cold stocks: ${cold.slice(0, 5).map((s) => s?.symbol || s).join(", ")}`);
+        if (hotColdReport.cryptoHot?.symbol) lines.push(`Hot crypto: ${hotColdReport.cryptoHot.symbol}`);
+        if (hotColdReport.cryptoCold?.symbol) lines.push(`Cold crypto: ${hotColdReport.cryptoCold.symbol}`);
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "TradeReview": {
+      const trade = raylaActiveReviewedTrade;
+      const lines = ["[Screen: Trade Review]"];
+      if (trade) {
+        objectsIncluded.push("reviewed_trade");
+        lines.push(`Reviewing trade: ${fmt(trade.asset || trade.symbol)}`);
+        if (trade.direction) lines.push(`Direction: ${fmt(trade.direction)}`);
+        if (trade.setup) lines.push(`Setup: ${fmt(trade.setup)}`);
+        if (trade.result_r != null) lines.push(`Result: ${fmt(trade.result_r)}R`);
+        if (trade.entry_time) lines.push(`Entry: ${fmt(trade.entry_time)}`);
+        if (trade.notes) lines.push(`Notes: ${String(trade.notes).slice(0, 120)}`);
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "Journal": {
+      const recentTrades = (Array.isArray(trades) ? trades : []).slice(0, 5);
+      const lines = ["[Screen: Trade Journal]"];
+      if (recentTrades.length) {
+        objectsIncluded.push("recent_trades");
+        lines.push(`Recent trades (last ${recentTrades.length}):`);
+        recentTrades.forEach((t) => {
+          lines.push(`  ${fmt(t.asset)} — ${fmt(t.direction)} — ${fmt(t.setup)} — ${fmt(t.result_r)}R`);
+        });
+      } else {
+        lines.push("No trades logged yet.");
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "Simulation": {
+      const lines = ["[Screen: Trade Simulation]"];
+      objectsIncluded.push("simulation_mode");
+      lines.push(`Simulation mode: ${fmt(simulationMode)}`);
+      if (selectedSimulationOpenPosition) {
+        objectsIncluded.push("sim_open_position");
+        const pos = selectedSimulationOpenPosition;
+        lines.push(`Selected position: ${fmt(pos.asset || pos.symbol)}`);
+        if (pos.direction) lines.push(`Direction: ${fmt(pos.direction)}`);
+        if (pos.entryPrice != null) lines.push(`Entry: ${fmtMoney(pos.entryPrice)}`);
+        if (pos.profitLoss != null) lines.push(`Unrealized P&L: ${fmtMoney(pos.profitLoss)}`);
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    case "LiveTrades": {
+      const positions = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [];
+      const lines = ["[Screen: Live Trade Execution]"];
+      if (alpacaAccount) {
+        objectsIncluded.push("account");
+        lines.push(`Buying power: ${fmtMoney(alpacaAccount.buyingPower)}`);
+        lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
+      }
+      if (positions.length) {
+        objectsIncluded.push("positions_summary");
+        lines.push(`Open positions (${positions.length}): ${positions.map((p) => p.symbol).join(", ")}`);
+      }
+      contextText = lines.join("\n");
+      break;
+    }
+
+    default: {
+      contextText = `[Screen: ${fmt(activeTab || "General")}]`;
+      break;
+    }
+  }
+
+  return { source, contextText, objectsIncluded };
+}
+
+// ─── End Universal Screen Context ────────────────────────────────────────────
 
 function buildBehavioralPatternSummary(simTrades) {
   const trades = Array.isArray(simTrades) ? simTrades : [];
@@ -15739,8 +15972,35 @@ useEffect(() => {
     setCapitalGuideResult(null);
 
     const picksProfile = loadPicksProfile();
+
+    const screenCtx = buildUniversalScreenContext({
+      activeTab,
+      performancePositionFilter,
+      raylaActiveReviewedTrade: extraContext?.activeReviewedTrade || raylaActiveReviewedTrade,
+      brokerPositionsWithIntent,
+      longTermBrokerPositions,
+      alpacaAccount,
+      simulationMode,
+      selectedSimulationOpenPosition,
+      hotColdReport,
+      trades,
+    });
+
+    if (import.meta.env.DEV) {
+      console.debug("[Rayla Universal Context]", {
+        "Context Source": screenCtx.source,
+        "Context Objects Included": screenCtx.objectsIncluded,
+        "Context Size (chars)": screenCtx.contextText.length,
+        "Context Preview": screenCtx.contextText.slice(0, 300),
+      });
+    }
+
+    const questionWithScreen = screenCtx.contextText
+      ? `${screenCtx.contextText}\n\n${trimmedQuestion}`
+      : trimmedQuestion;
+
     const askRaylaRequestPayload = {
-      question: augmentQuestionWithPicksProfile(trimmedQuestion),
+      question: augmentQuestionWithPicksProfile(questionWithScreen),
       context: buildAskRaylaContext({
         trades,
         simulationTradeHistory: visibleSimulationTradeHistoryAll,
@@ -15760,6 +16020,7 @@ useEffect(() => {
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
         picksProfileContext: buildPicksProfileContext(picksProfile),
+        screenContext: screenCtx,
       }),
     };
 
