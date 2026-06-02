@@ -4077,6 +4077,42 @@ function buildCashDeploymentContext({ account, positions, goals, picksProfile, a
 // ─── Structured Response Template Engine ─────────────────────────────────────
 
 const RESPONSE_TEMPLATES = {
+  DocumentIntelligence: {
+    label: "Document Intelligence",
+    screenBoost: ["Portfolio", "Holdings", "Home", "PersonalPicks", "MarketIntel"],
+    patterns: [
+      /what does (this|the) (earnings?|report|document|filing|statement|article|news) (say|show|tell|mean|indicate)/i,
+      /analyze (this|the) (earnings?|report|document|filing|statement|article|balance sheet|income statement|cash flow)/i,
+      /what (are|were) the (results?|numbers?|figures?|highlights?|findings?)/i,
+      /what (should|do) i (take away|make of|think about) (this|the) (report|document|results?|numbers?)/i,
+      /summarize (this|the) (document|report|article|filing|statement)/i,
+      /what (stands? out|is (notable|important|concerning|significant)) (in|from) (this|the) (report|document|results?)/i,
+      /what (are|were) the (key|main|biggest) (takeaways?|findings?|risks?|red flags?|positives?)/i,
+      /how did (they|the company) do (this quarter|last quarter|this year|in the report)?/i,
+      /what (does|did) (the|this) guidance (say|mean|tell us)/i,
+      /is (the|this) (business|company) (getting (stronger|weaker)|improving|deteriorating)/i,
+      /what'?s? (the bull case|the bear case|my concern|the risk) (from|based on) (this|the) (report|document|results?)/i,
+    ],
+    instruction: `Document Intelligence Response
+
+Use the [Document Intelligence] context block as the primary source. Reference specific numbers, quotes, or findings from it — do not generalize.
+
+Document Summary: [2-3 sentences covering what this document is and what it says at the highest level]
+
+Key Findings:
+• [Most important fact from the document — specific number, metric, or statement]
+• [Second most important finding]
+• [Third finding if material]
+
+Risks identified: [Specific concerns from the document — debt level, margin compression, guidance cut, negative catalyst]
+
+Opportunities identified: [Specific positives — strong FCF, raised guidance, improving margins, catalyst]
+
+Thesis impact: [If a Holding Thesis is in context for this company: "Confirms / Challenges / Neutral — because [specific data point]." If no thesis is stored: "Add a Holding Thesis for [SYMBOL] so I can track this against your conviction."]
+
+What to watch next: [One specific metric, event, or data point to monitor based on what the document revealed]`,
+  },
+
   PersonalPicks: {
     label: "Personal Picks",
     screenBoost: ["PersonalPicks"],
@@ -4100,7 +4136,8 @@ For each pick:
 - Key risk: [one specific, concrete risk — not generic market risk]
 - Entry approach: [general condition or zone, not a price prediction]
 
-Limit to 3 picks unless the user asks for more. If the Picks Profile is incomplete, say so and ask them to complete it for personalized picks. If a Financial Goal is in context, prioritize picks that align with that objective and timeline.`,
+Limit to 3 picks unless the user asks for more. If the Picks Profile is incomplete, say so and ask them to complete it for personalized picks. If a Financial Goal is in context, prioritize picks that align with that objective and timeline.
+If [Document Intelligence] is in context with a News Article or Earnings Report: factor the catalyst, sentiment, and thesis impact into the picks recommendation. If the document is about a specific company, consider whether that company belongs in the picks.`,
   },
 
   CashDeployment: {
@@ -4131,7 +4168,9 @@ Risks: [One or two specific risks for this deployment — timing risk, concentra
 What To Do Next:
 Step 1: [Immediate action — what to buy or do today]
 Step 2: [Second action — follow-up trade, review trigger, or staged entry date]
-Step 3: [Longer-term check — when to reassess this deployment against the goal]`,
+Step 3: [Longer-term check — when to reassess this deployment against the goal]
+
+If [Document Intelligence] is in context with an Earnings Report: factor guidance direction (raised/lowered/maintained) and management tone into the deployment stance. A guidance cut is a reason to stage rather than lump sum.`,
   },
 
   PortfolioReview: {
@@ -4167,7 +4206,8 @@ Priority actions:
 
 What to monitor: [concrete catalyst, level, or event worth watching]
 
-If a Financial Goal is in context: assess whether the portfolio's current risk level, concentration, and composition are on track for the stated objective and target date.`,
+If a Financial Goal is in context: assess whether the portfolio's current risk level, concentration, and composition are on track for the stated objective and target date.
+If [Document Intelligence] is in context: reference specific findings from the document that affect the portfolio. If it's an earnings report for a held position, note the result vs. thesis. If it's a balance sheet, flag any debt or liquidity findings that change the risk picture.`,
   },
 
   RiskAssessment: {
@@ -4204,7 +4244,8 @@ Flags:
 
 Bottom line: [One clear sentence — what to do or what to leave alone]
 
-If a Financial Goal is in context: factor in the target date and objective when assessing appropriate concentration, position size, and overall risk level.`,
+If a Financial Goal is in context: factor in the target date and objective when assessing appropriate concentration, position size, and overall risk level.
+If [Document Intelligence] is in context with a Balance Sheet: use debt/equity, current ratio, and financial strength findings directly in the risk assessment. Flag if a held position's financial health changes the risk picture.`,
   },
 
   TradeReview: {
@@ -4306,7 +4347,8 @@ What to watch next: [One specific indicator, level, or event that would change t
     instruction: `Use the Ongoing reasoning format for each relevant holding.
 If the user asks about a specific symbol, focus there. If broadly, cover all holdings that have a Holding Thesis.
 For any holding with no Holding Thesis: "I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning."
-If a Financial Goal is in context: assess whether this holding and its thesis support the user's stated objective and target date.`,
+If a Financial Goal is in context: assess whether this holding and its thesis support the user's stated objective and target date.
+If [Document Intelligence] is in context: use the specific data — earnings results, balance sheet findings, news catalyst — to directly validate or challenge the Holding Thesis. Reference exact figures. State clearly: "This confirms / challenges / is neutral to your thesis because [specific data point from the document]."`,
   },
 
   Educational: {
@@ -4343,6 +4385,7 @@ How to use it: [one actionable takeaway]`,
 
 // Priority order: more specific templates checked before more general ones
 const TEMPLATE_PRIORITY = [
+  "DocumentIntelligence",
   "CashDeployment",
   "MarketSnapshot",
   "RiskAssessment",
@@ -4557,6 +4600,215 @@ function buildMarketSnapshotContext(snapshot) {
 
 // ─── End Market Snapshot Layer ────────────────────────────────────────────────
 
+// ─── Document Intelligence Layer ─────────────────────────────────────────────
+
+const DOCUMENT_INTELLIGENCE_STORAGE_KEY = "rayla-document-intelligence-v1";
+const DOCUMENT_INTELLIGENCE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+const DOCUMENT_TYPES = {
+  EarningsReport: "Earnings Report",
+  BalanceSheet: "Balance Sheet",
+  IncomeStatement: "Income Statement",
+  CashFlow: "Cash Flow Statement",
+  NewsArticle: "News Article",
+  Unknown: "Unknown",
+};
+
+const DOCUMENT_TYPE_PATTERNS = {
+  EarningsReport: [
+    /earnings per share|\bEPS\b/i,
+    /revenue.{0,20}(quarter|year|period)/i,
+    /beat.{0,15}estimate|miss.{0,15}estimate/i,
+    /guidance for.{0,20}(quarter|year|Q[1-4])/i,
+    /adjusted.{0,10}EPS|GAAP.{0,10}EPS|diluted EPS/i,
+    /net income.{0,20}attributable|earnings release/i,
+  ],
+  BalanceSheet: [
+    /total assets|total liabilities/i,
+    /shareholders.{0,5}equity|stockholders.{0,5}equity/i,
+    /current assets|current liabilities/i,
+    /long.term debt|short.term debt/i,
+    /\bgoodwill\b|\bintangible assets\b/i,
+    /balance sheet|financial position/i,
+  ],
+  IncomeStatement: [
+    /gross profit|gross margin/i,
+    /operating income|operating expenses/i,
+    /income from operations|operating profit/i,
+    /selling.{0,10}general.{0,10}administrative|\bSG&A\b/i,
+    /research.{0,10}development.{0,10}expense|\bR&D\b.{0,10}expense/i,
+    /income statement|statement of (operations|earnings)/i,
+  ],
+  CashFlow: [
+    /cash flow from operations|operating activities/i,
+    /capital expenditures|\bcapex\b/i,
+    /free cash flow|\bFCF\b/i,
+    /investing activities|financing activities/i,
+    /depreciation.{0,10}amortization/i,
+    /statement of cash flows/i,
+  ],
+  NewsArticle: [
+    /according to|reported that|announced that/i,
+    /shares (rose|fell|gained|dropped|surged|plunged)/i,
+    /\b(Reuters|Bloomberg|CNBC|WSJ|Financial Times|Barron|MarketWatch)\b/i,
+    /the company (said|announced|reported)/i,
+    /stock (rose|fell|gained|dropped|surged|plunged)/i,
+  ],
+};
+
+function detectDocumentType(rawText) {
+  if (!rawText || rawText.length < 30) return "Unknown";
+  const text = String(rawText);
+  const scores = {};
+  for (const [type, patterns] of Object.entries(DOCUMENT_TYPE_PATTERNS)) {
+    scores[type] = patterns.filter((p) => p.test(text)).length;
+  }
+  const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  return (best && best[1] >= 2) ? best[0] : "Unknown";
+}
+
+// Extraction prompt templates — sent to Claude when a document is uploaded (future upload UI)
+const DOCUMENT_EXTRACTION_PROMPTS = {
+  EarningsReport: `Analyze this earnings report and return ONLY valid JSON with these exact fields:
+{"symbol":null,"company":null,"period":null,"revenue":null,"revenueGrowth":null,"eps":null,"epsBeat":null,"guidance":null,"guidanceDirection":null,"grossMargin":null,"operatingMargin":null,"netMargin":null,"managementTone":null,"keyPositives":[],"keyNegatives":[],"bullCase":null,"bearCase":null,"surprises":null}
+Rules: epsBeat="beat"/"miss"/"in-line"/null. guidanceDirection="raised"/"lowered"/"maintained"/null. managementTone="confident"/"cautious"/"neutral"/"mixed". Use null for any field not found. Source:`,
+
+  BalanceSheet: `Analyze this balance sheet and return ONLY valid JSON with these exact fields:
+{"symbol":null,"company":null,"period":null,"totalCash":null,"totalDebt":null,"netCash":null,"currentRatio":null,"debtToEquity":null,"goodwill":null,"financialStrength":null,"leverageTrend":null,"liquidityRisk":null,"redFlags":[],"keyStrengths":[],"summary":null}
+Rules: financialStrength="strong"/"adequate"/"weak"/"stressed". leverageTrend="improving"/"deteriorating"/"stable"/null. liquidityRisk="low"/"moderate"/"high". Use null for any field not found. Source:`,
+
+  IncomeStatement: `Analyze this income statement and return ONLY valid JSON with these exact fields:
+{"symbol":null,"company":null,"period":null,"revenue":null,"revenueGrowth":null,"grossMargin":null,"grossMarginTrend":null,"operatingMargin":null,"operatingMarginTrend":null,"netMargin":null,"operatingLeverage":null,"ebitda":null,"profitabilityAssessment":null,"keyDrivers":[],"concerns":[],"summary":null}
+Rules: *Trend="expanding"/"contracting"/"stable"/null. operatingLeverage="positive"/"negative"/"neutral". profitabilityAssessment="strong"/"adequate"/"weak"/"improving"/"deteriorating". Use null for any field not found. Source:`,
+
+  CashFlow: `Analyze this cash flow statement and return ONLY valid JSON with these exact fields:
+{"symbol":null,"company":null,"period":null,"operatingCashFlow":null,"capex":null,"freeCashFlow":null,"fcfMargin":null,"fcfToNetIncome":null,"earningsQuality":null,"cashConversion":null,"dividendsPaid":null,"buybacksAmount":null,"debtRepayment":null,"concerns":[],"summary":null}
+Rules: earningsQuality="high"/"adequate"/"low"/"concern". cashConversion="strong"/"adequate"/"weak". Use null for any field not found. Source:`,
+
+  NewsArticle: `Analyze this financial news article and return ONLY valid JSON with these exact fields:
+{"symbol":null,"company":null,"headline":null,"publicationDate":null,"source":null,"catalyst":null,"sentiment":null,"priceImpact":null,"thesisImpact":null,"riskIdentified":null,"opportunityIdentified":null,"isTimeSensitive":false,"affectedSectors":[],"keyFacts":[],"summary":null}
+Rules: sentiment="positive"/"negative"/"neutral"/"mixed". thesisImpact="confirms"/"challenges"/"neutral"/"mixed". Use null for any field not found. Source:`,
+
+  Unknown: `Analyze this financial document and return ONLY valid JSON with these exact fields:
+{"symbol":null,"company":null,"documentDescription":null,"keyFindings":[],"risks":[],"opportunities":[],"summary":null}
+Use null for any field not found. Source:`,
+};
+
+function buildDocumentExtractionPrompt(documentType, rawText) {
+  const template = DOCUMENT_EXTRACTION_PROMPTS[documentType] || DOCUMENT_EXTRACTION_PROMPTS.Unknown;
+  return `${template}\n\n"""\n${String(rawText || "").slice(0, 12000)}\n"""`;
+}
+
+function loadDocumentIntelligence() {
+  try {
+    const raw = sessionStorage.getItem(DOCUMENT_INTELLIGENCE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.analyzedAt && Date.now() - new Date(parsed.analyzedAt).getTime() > DOCUMENT_INTELLIGENCE_TTL_MS) {
+      sessionStorage.removeItem(DOCUMENT_INTELLIGENCE_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch { return null; }
+}
+
+function saveDocumentIntelligence(intel) {
+  if (!intel) return null;
+  const payload = { ...intel, analyzedAt: new Date().toISOString() };
+  try { sessionStorage.setItem(DOCUMENT_INTELLIGENCE_STORAGE_KEY, JSON.stringify(payload)); } catch { /* ignore */ }
+  return payload;
+}
+
+function clearDocumentIntelligence() {
+  try { sessionStorage.removeItem(DOCUMENT_INTELLIGENCE_STORAGE_KEY); } catch { /* ignore */ }
+}
+
+function buildDocumentIntelligenceContext(docIntel) {
+  if (!docIntel?.documentType) return null;
+  const typeName = DOCUMENT_TYPES[docIntel.documentType] || "Document";
+  const lines = [`[Document Intelligence — ${typeName}]`];
+
+  const id = [docIntel.company, docIntel.symbol ? `(${docIntel.symbol})` : null, docIntel.period].filter(Boolean).join(" ");
+  if (id) lines.push(`Source: ${id}`);
+  if (docIntel.summary) lines.push(`Summary: ${docIntel.summary}`);
+
+  if (docIntel.documentType === "EarningsReport") {
+    const rev = [docIntel.revenue, docIntel.revenueGrowth].filter(Boolean).join(" ");
+    if (rev) lines.push(`Revenue: ${rev}`);
+    const eps = [docIntel.eps, docIntel.epsBeat].filter(Boolean).join(" — ");
+    if (eps) lines.push(`EPS: ${eps}`);
+    if (docIntel.grossMargin) lines.push(`Gross margin: ${docIntel.grossMargin}`);
+    if (docIntel.operatingMargin) lines.push(`Operating margin: ${docIntel.operatingMargin}`);
+    if (docIntel.guidance) lines.push(`Guidance: ${String(docIntel.guidance).slice(0, 200)}${docIntel.guidanceDirection ? ` [${docIntel.guidanceDirection}]` : ""}`);
+    if (docIntel.managementTone) lines.push(`Management tone: ${docIntel.managementTone}`);
+    if (docIntel.bullCase) lines.push(`Bull case: ${docIntel.bullCase}`);
+    if (docIntel.bearCase) lines.push(`Bear case: ${docIntel.bearCase}`);
+    if (docIntel.surprises) lines.push(`Surprises: ${docIntel.surprises}`);
+  }
+
+  if (docIntel.documentType === "BalanceSheet") {
+    if (docIntel.totalCash) lines.push(`Cash: ${docIntel.totalCash}`);
+    if (docIntel.totalDebt) lines.push(`Total debt: ${docIntel.totalDebt}`);
+    if (docIntel.netCash) lines.push(`Net cash position: ${docIntel.netCash}`);
+    if (docIntel.currentRatio) lines.push(`Current ratio: ${docIntel.currentRatio}`);
+    if (docIntel.debtToEquity) lines.push(`Debt/equity: ${docIntel.debtToEquity}`);
+    if (docIntel.financialStrength) lines.push(`Financial strength: ${docIntel.financialStrength}`);
+    if (docIntel.liquidityRisk) lines.push(`Liquidity risk: ${docIntel.liquidityRisk}`);
+    if (docIntel.leverageTrend) lines.push(`Leverage trend: ${docIntel.leverageTrend}`);
+  }
+
+  if (docIntel.documentType === "IncomeStatement") {
+    const rev = [docIntel.revenue, docIntel.revenueGrowth].filter(Boolean).join(" ");
+    if (rev) lines.push(`Revenue: ${rev}`);
+    if (docIntel.grossMargin) lines.push(`Gross margin: ${docIntel.grossMargin}${docIntel.grossMarginTrend ? ` [${docIntel.grossMarginTrend}]` : ""}`);
+    if (docIntel.operatingMargin) lines.push(`Operating margin: ${docIntel.operatingMargin}${docIntel.operatingMarginTrend ? ` [${docIntel.operatingMarginTrend}]` : ""}`);
+    if (docIntel.operatingLeverage) lines.push(`Operating leverage: ${docIntel.operatingLeverage}`);
+    if (docIntel.profitabilityAssessment) lines.push(`Profitability: ${docIntel.profitabilityAssessment}`);
+  }
+
+  if (docIntel.documentType === "CashFlow") {
+    if (docIntel.operatingCashFlow) lines.push(`Operating cash flow: ${docIntel.operatingCashFlow}`);
+    if (docIntel.capex) lines.push(`Capex: ${docIntel.capex}`);
+    if (docIntel.freeCashFlow) lines.push(`Free cash flow: ${docIntel.freeCashFlow}`);
+    if (docIntel.fcfMargin) lines.push(`FCF margin: ${docIntel.fcfMargin}`);
+    if (docIntel.fcfToNetIncome) lines.push(`FCF/Net income: ${docIntel.fcfToNetIncome}`);
+    if (docIntel.earningsQuality) lines.push(`Earnings quality: ${docIntel.earningsQuality}`);
+    if (docIntel.cashConversion) lines.push(`Cash conversion: ${docIntel.cashConversion}`);
+    if (docIntel.buybacksAmount) lines.push(`Buybacks: ${docIntel.buybacksAmount}`);
+  }
+
+  if (docIntel.documentType === "NewsArticle") {
+    if (docIntel.headline) lines.push(`Headline: ${String(docIntel.headline).slice(0, 150)}`);
+    if (docIntel.catalyst) lines.push(`Catalyst: ${docIntel.catalyst}`);
+    if (docIntel.sentiment) lines.push(`Sentiment: ${docIntel.sentiment}`);
+    if (docIntel.priceImpact) lines.push(`Price impact: ${docIntel.priceImpact}`);
+    if (docIntel.thesisImpact) lines.push(`Thesis impact: ${docIntel.thesisImpact}`);
+    if (docIntel.riskIdentified) lines.push(`Risk: ${docIntel.riskIdentified}`);
+    if (docIntel.opportunityIdentified) lines.push(`Opportunity: ${docIntel.opportunityIdentified}`);
+  }
+
+  const findings = Array.isArray(docIntel.keyFindings || docIntel.keyPositives || docIntel.keyFacts)
+    ? (docIntel.keyFindings || docIntel.keyPositives || docIntel.keyFacts || []) : [];
+  if (findings.length) lines.push(`Key findings: ${findings.slice(0, 3).join(" | ")}`);
+
+  const risks = Array.isArray(docIntel.risks || docIntel.redFlags || docIntel.concerns || docIntel.keyNegatives)
+    ? (docIntel.risks || docIntel.redFlags || docIntel.concerns || docIntel.keyNegatives || []) : [];
+  if (risks.length) lines.push(`Risks: ${risks.slice(0, 3).join(" | ")}`);
+
+  const opps = Array.isArray(docIntel.opportunities || docIntel.keyStrengths)
+    ? (docIntel.opportunities || docIntel.keyStrengths || []) : [];
+  if (opps.length) lines.push(`Opportunities: ${opps.slice(0, 3).join(" | ")}`);
+
+  if (docIntel.analyzedAt) {
+    const ageMin = Math.round((Date.now() - new Date(docIntel.analyzedAt).getTime()) / 60000);
+    if (ageMin < 240) lines.push(`Analyzed: ${ageMin}m ago this session`);
+  }
+
+  return lines.join("\n");
+}
+
+// ─── End Document Intelligence Layer ─────────────────────────────────────────
+
 function buildUniversalScreenContext({
   activeTab,
   performancePositionFilter,
@@ -4568,6 +4820,7 @@ function buildUniversalScreenContext({
   selectedSimulationOpenPosition,
   hotColdReport,
   marketSnapshot,
+  documentIntelligence,
   trades,
 }) {
   const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade });
@@ -4797,6 +5050,13 @@ function buildUniversalScreenContext({
       contextText = `[Screen: ${fmt(activeTab || "General")}]`;
       break;
     }
+  }
+
+  // Append document intelligence to all screens — always relevant if a document is loaded this session
+  const docIntelCtx = buildDocumentIntelligenceContext(documentIntelligence);
+  if (docIntelCtx) {
+    objectsIncluded.push("document_intelligence");
+    contextText = contextText ? `${contextText}\n\n${docIntelCtx}` : docIntelCtx;
   }
 
   // Append market snapshot to all screens where it adds value
@@ -12029,6 +12289,7 @@ useEffect(() => {
     } catch { /* ignore */ }
     return null;
   });
+  const [documentIntelligence, setDocumentIntelligence] = useState(() => loadDocumentIntelligence());
   const [intelLiveQuotes, setIntelLiveQuotes] = useState({});
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
@@ -16618,6 +16879,7 @@ useEffect(() => {
       selectedSimulationOpenPosition,
       hotColdReport,
       marketSnapshot,
+      documentIntelligence,
       trades,
     });
 
