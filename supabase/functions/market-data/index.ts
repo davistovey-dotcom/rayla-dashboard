@@ -41,6 +41,79 @@ async function fetchFundamentalsFromFinnhub(sym: string): Promise<Record<string,
   } catch { return null; }
 }
 
+function computeEMA(closes: number[], period: number): number | null {
+  if (closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < closes.length; i++) ema = closes[i] * k + ema * (1 - k);
+  return ema;
+}
+
+function computeROC(closes: number[], period: number): number | null {
+  if (closes.length < period + 1) return null;
+  const current = closes[closes.length - 1];
+  const past = closes[closes.length - 1 - period];
+  return past > 0 ? ((current - past) / past) * 100 : null;
+}
+
+async function resolveScanner(rawSymbols: string[]): Promise<Record<string, any>> {
+  if (!rawSymbols?.length) return {};
+  const deduped = [...new Set(rawSymbols.map((s) => String(s).toUpperCase().trim()).filter(Boolean))].slice(0, 20);
+  const allSymbols = [...new Set([...deduped, "SPY"])];
+  const start = new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+  let barsData: Record<string, any[]> = {};
+  try {
+    const { stockFeed } = getAlpacaMarketDataEnv();
+    const data = await alpacaMarketDataRequest(
+      `/v2/stocks/bars?symbols=${encodeURIComponent(allSymbols.join(","))}&timeframe=1Day&start=${start}&limit=70&sort=asc&feed=${stockFeed}`
+    );
+    barsData = data?.bars || {};
+  } catch (e) {
+    console.error("[scanner] bars fetch failed:", e);
+    return {};
+  }
+
+  const spyCloses = (barsData["SPY"] || []).map((b: any) => Number(b.c)).filter(Number.isFinite);
+  const spyROC20 = computeROC(spyCloses, 20);
+
+  const results: Record<string, any> = {};
+  for (const sym of deduped) {
+    const closes = (barsData[sym] || []).map((b: any) => Number(b.c)).filter(Number.isFinite);
+    if (closes.length < 22) { results[sym] = { symbol: sym, insufficient: true }; continue; }
+
+    const roc20 = computeROC(closes, 20);
+    const roc5 = computeROC(closes, 5);
+    const ema50 = computeEMA(closes, 50);
+    const aboveEma50 = ema50 != null ? closes[closes.length - 1] > ema50 : null;
+
+    let rs: number | null = null;
+    if (roc20 != null && spyROC20 != null) {
+      const symFactor = 1 + roc20 / 100;
+      const spyFactor = 1 + spyROC20 / 100;
+      rs = spyFactor > 0 ? Number((symFactor / spyFactor).toFixed(2)) : null;
+    }
+
+    let trend = "Neutral";
+    if (roc5 != null && aboveEma50 != null) {
+      if (roc5 > 1 && aboveEma50) trend = "Bullish";
+      else if (roc5 < -1 && !aboveEma50) trend = "Bearish";
+      else if (roc5 > 0.3) trend = "Rising";
+      else if (roc5 < -0.3) trend = "Declining";
+    }
+
+    results[sym] = {
+      symbol: sym,
+      rs,
+      roc20: roc20 != null ? Number(roc20.toFixed(1)) : null,
+      aboveEma50,
+      trend,
+      scannedAt: new Date().toISOString(),
+    };
+  }
+  return results;
+}
+
 async function resolveFundamentals(rawSymbols: string[]): Promise<Record<string, any>> {
   if (!rawSymbols?.length) return {};
   const symbols = [...new Set(rawSymbols.map((s) => String(s).toUpperCase().trim()).filter(Boolean))].slice(0, 15);
@@ -602,7 +675,7 @@ serve(async (req) => {
   }
 
   try {
-    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType, fundamentalsSymbols } = await req.json();
+    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType, fundamentalsSymbols, scannerSymbols } = await req.json();
     const normalizedItems = Array.isArray(symbols)
       ? symbols.map(normalizeSymbolInput).filter((item) => item.symbol)
       : [];
@@ -649,7 +722,12 @@ serve(async (req) => {
       fundamentals = await resolveFundamentals(fundamentalsSymbols);
     }
 
-    return new Response(JSON.stringify({ ok: true, quotes, chart, news, fundamentals }), {
+    let scannerResults: Record<string, any> = {};
+    if (Array.isArray(scannerSymbols) && scannerSymbols.length) {
+      scannerResults = await resolveScanner(scannerSymbols);
+    }
+
+    return new Response(JSON.stringify({ ok: true, quotes, chart, news, fundamentals, scannerResults }), {
       headers: FALLBACK_CORS_JSON_HEADERS,
       status: 200,
     });

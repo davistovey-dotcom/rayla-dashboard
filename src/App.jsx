@@ -4077,6 +4077,39 @@ function buildCashDeploymentContext({ account, positions, goals, picksProfile, a
 // ─── Structured Response Template Engine ─────────────────────────────────────
 
 const RESPONSE_TEMPLATES = {
+  StrategyScanner: {
+    label: "Strategy Scanner",
+    screenBoost: ["Portfolio", "Holdings", "PersonalPicks"],
+    patterns: [
+      /what('s| is) (showing|has) (the most|the best|most|best) (strength|momentum|performance|relative strength)/i,
+      /which (of my |)(stocks?|positions?|picks?|holdings?) (is|are) (outperforming|showing strength|working|trending|leading)/i,
+      /(where|what) should I (put|add|deploy|move) my money (right now|today|this week)?/i,
+      /what('s| is) (leading|performing best|strongest|the top performer)/i,
+      /which (stocks?|picks?|positions?) (are|is) above (the |their |its )?(50|ema|moving average)/i,
+      /(show me|run|give me) (a |the |)(scanner|scan|momentum scan|strength scan|relative strength)/i,
+      /what('s| is) (working|winning|performing) in my portfolio/i,
+      /rank my (stocks?|picks?|positions?|holdings?) by (performance|strength|momentum|relative strength)/i,
+    ],
+    instruction: `Strategy Scanner Response
+
+Use the [Scanner Results] context block as primary data. Reference specific RS ratios, momentum figures, and EMA positions.
+
+Structure:
+
+Scanner Summary: [One sentence — what the scan shows at a macro level]
+
+Top Performers:
+[Top 2-3 symbols with specific RS ratio and momentum %. Explain what the signal means.]
+
+Watch List:
+[Bottom 1-2 symbols — underperforming SPY or below 50 EMA. Note whether it is a concern or a setup.]
+
+Key Signal:
+[One actionable observation — e.g., "NVDA has 2.3× relative strength and is above its 50 EMA — momentum is intact. Position sizing should reflect this strength versus weaker names."]
+
+What to watch:
+[One specific forward-looking note based on trend signals in the data]`,
+  },
   DocumentIntelligence: {
     label: "Document Intelligence",
     screenBoost: ["Portfolio", "Holdings", "Home", "PersonalPicks", "MarketIntel"],
@@ -4386,6 +4419,7 @@ How to use it: [one actionable takeaway]`,
 // Priority order: more specific templates checked before more general ones
 const TEMPLATE_PRIORITY = [
   "DocumentIntelligence",
+  "StrategyScanner",
   "CashDeployment",
   "MarketSnapshot",
   "RiskAssessment",
@@ -4859,6 +4893,46 @@ function buildFundamentalsContext(symbols, cache) {
 
 // ─── End Fundamentals Feed Layer ─────────────────────────────────────────────
 
+// ─── Strategy Scanner Layer ───────────────────────────────────────────────────
+
+const SCANNER_STORAGE_KEY = "rayla-scanner-results-v1";
+const SCANNER_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+function loadScannerResults() {
+  try {
+    const raw = sessionStorage.getItem(SCANNER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.fetchedAt && Date.now() - new Date(parsed.fetchedAt).getTime() > SCANNER_TTL_MS) {
+      sessionStorage.removeItem(SCANNER_STORAGE_KEY);
+      return null;
+    }
+    return parsed?.results || null;
+  } catch { return null; }
+}
+
+function saveScannerResults(results) {
+  try { sessionStorage.setItem(SCANNER_STORAGE_KEY, JSON.stringify({ results, fetchedAt: new Date().toISOString() })); } catch { /* ignore */ }
+}
+
+function buildScannerContext(results) {
+  if (!results || typeof results !== "object") return null;
+  const entries = Object.values(results).filter((r) => r && !r.insufficient && r.symbol);
+  if (entries.length === 0) return null;
+  entries.sort((a, b) => (b.rs ?? -999) - (a.rs ?? -999));
+  const lines = ["[Scanner Results]"];
+  for (const r of entries.slice(0, 10)) {
+    lines.push(`\n${r.symbol}:`);
+    lines.push(`  Relative Strength: ${r.rs != null ? `${r.rs}× vs SPY` : "unavailable"}`);
+    lines.push(`  Momentum (20d): ${r.roc20 != null ? `${r.roc20 >= 0 ? "+" : ""}${r.roc20}%` : "unavailable"}`);
+    lines.push(`  Above 50 EMA: ${r.aboveEma50 != null ? (r.aboveEma50 ? "Yes" : "No") : "unavailable"}`);
+    lines.push(`  Trend: ${r.trend || "unavailable"}`);
+  }
+  return lines.join("\n");
+}
+
+// ─── End Strategy Scanner Layer ───────────────────────────────────────────────
+
 function buildUniversalScreenContext({
   activeTab,
   performancePositionFilter,
@@ -4872,6 +4946,7 @@ function buildUniversalScreenContext({
   marketSnapshot,
   documentIntelligence,
   fundamentalsCache,
+  scannerResults,
   trades,
 }) {
   const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade });
@@ -5121,6 +5196,16 @@ function buildUniversalScreenContext({
     if (fundCtx) {
       objectsIncluded.push("fundamentals");
       contextText = contextText ? `${contextText}\n\n${fundCtx}` : fundCtx;
+    }
+  }
+
+  // Scanner Results — inject for Portfolio, Holdings, PersonalPicks screens
+  const SCANNER_SCREENS = ["Portfolio", "Holdings", "PersonalPicks"];
+  if (SCANNER_SCREENS.includes(source) && scannerResults) {
+    const scanCtx = buildScannerContext(scannerResults);
+    if (scanCtx) {
+      objectsIncluded.push("scanner_results");
+      contextText = contextText ? `${contextText}\n\n${scanCtx}` : scanCtx;
     }
   }
 
@@ -12363,6 +12448,7 @@ useEffect(() => {
   });
   const [documentIntelligence, setDocumentIntelligence] = useState(() => loadDocumentIntelligence());
   const [fundamentalsCache, setFundamentalsCache] = useState(() => loadFundamentalsCache());
+  const [scannerResults, setScannerResults] = useState(() => loadScannerResults());
   const [docUploadOpen, setDocUploadOpen] = useState(false);
   const [docUploadText, setDocUploadText] = useState("");
   const [docUploadLoading, setDocUploadLoading] = useState(false);
@@ -15718,6 +15804,23 @@ useEffect(() => {
     }).catch(() => { /* fundamentals unavailable — context degrades gracefully */ });
   }, [brokerPositionsWithIntent]);
 
+  // Strategy Scanner — resolve via market-data edge function, 15-min TTL
+  useEffect(() => {
+    const existing = loadScannerResults();
+    if (existing) { setScannerResults(existing); return; }
+    const positions = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [];
+    const posSymbols = [...new Set(positions.map((p) => String(p.symbol || "").toUpperCase()).filter(Boolean))].slice(0, 15);
+    const picks = loadPicksCacheForContext();
+    const pickSymbols = (Array.isArray(picks) ? picks : []).map((p) => String(p.symbol || p.ticker || "").toUpperCase()).filter(Boolean).slice(0, 5);
+    const allSymbols = [...new Set([...posSymbols, ...pickSymbols])];
+    if (allSymbols.length === 0) return;
+    supabase.functions.invoke("market-data", { body: { scannerSymbols: allSymbols } }).then(({ data, error }) => {
+      if (error || !data?.ok || !data?.scannerResults) return;
+      saveScannerResults(data.scannerResults);
+      setScannerResults(data.scannerResults);
+    }).catch(() => { /* scanner unavailable — context degrades gracefully */ });
+  }, [brokerPositionsWithIntent]);
+
   useEffect(() => {
     const sessionRaw = (() => { try { return JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null"); } catch { return null; } })();
     const raw = hotColdReport?.stockCold || [];
@@ -16979,6 +17082,7 @@ useEffect(() => {
       marketSnapshot,
       documentIntelligence,
       fundamentalsCache,
+      scannerResults,
       trades,
     });
 
