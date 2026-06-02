@@ -4173,6 +4173,44 @@ Limit to 3 picks unless the user asks for more. If the Picks Profile is incomple
 If [Document Intelligence] is in context with a News Article or Earnings Report: factor the catalyst, sentiment, and thesis impact into the picks recommendation. If the document is about a specific company, consider whether that company belongs in the picks.`,
   },
 
+  OpportunityRanking: {
+    label: "Opportunity Ranking",
+    screenBoost: ["Portfolio", "Holdings", "PersonalPicks"],
+    patterns: [
+      /what should i (buy|add|get|pick|invest in|purchase)(\?|$| (now|today|next|right now))/i,
+      /where should (my |the )?(next )?(dollar|money|cash|funds?) go/i,
+      /highest conviction (opportunity|pick|trade|idea|buy)/i,
+      /best (opportunity|setup|pick|stock|bet|trade)( right now| today| this week|$)/i,
+      /what('s| is) (the |my )?(top|best|strongest|highest.conviction) (opportunity|pick|idea|buy|add)/i,
+      /what would you (buy|add|pick|get)( right now| today| if you were me)?/i,
+      /what('s| is) worth (buying|adding|getting)( right now| today)?/i,
+      /what (should I|do I) (add|buy) next/i,
+    ],
+    instruction: `Opportunity Ranking Response
+
+Lead with the ranked list. Risk and sizing notes come AFTER — never before.
+
+Use [Opportunity Ranking] context block as primary source. Reference specific RS ratios, momentum %, and trend classifications. If no scanner data is available, reason from portfolio positions, fundamentals, and picks profile. Never refuse to rank — if data is limited, state confidence level and rank anyway.
+
+Ranked Opportunities:
+
+1. [SYMBOL] — Score: X/100 | [High/Medium/Low] Confidence
+   [Key signals — RS, momentum %, trend — use actual numbers from context]
+   [One sentence: why this is the top opportunity right now]
+
+2. [SYMBOL] — Score: X/100 | [High/Medium/Low] Confidence
+   [Key signals]
+   [Why]
+
+3. [SYMBOL] — Score: X/100 | [Medium/Low] Confidence
+   [Key signals]
+   [Why — or note if data is limited]
+
+Market regime: [Bull/Neutral/Bear — one sentence from SPY momentum in context]
+
+Sizing: [Available cash and any concentration flags — one sentence, factual, no leading warnings]`,
+  },
+
   CashDeployment: {
     label: "Cash Deployment",
     screenBoost: [],
@@ -4420,6 +4458,7 @@ How to use it: [one actionable takeaway]`,
 const TEMPLATE_PRIORITY = [
   "DocumentIntelligence",
   "StrategyScanner",
+  "OpportunityRanking",
   "CashDeployment",
   "MarketSnapshot",
   "RiskAssessment",
@@ -4933,6 +4972,140 @@ function buildScannerContext(results) {
 
 // ─── End Strategy Scanner Layer ───────────────────────────────────────────────
 
+// ─── Opportunity Ranking Engine ───────────────────────────────────────────────
+
+function buildOpportunityRanking({ scannerResults, fundamentalsCache, positions, account }) {
+  const results = scannerResults && typeof scannerResults === "object" ? scannerResults : {};
+  const funds = fundamentalsCache && typeof fundamentalsCache === "object" ? fundamentalsCache : {};
+  const heldPositions = Array.isArray(positions) ? positions : [];
+  const totalEquity = Number(account?.equity ?? account?.portfolioValue ?? 0);
+
+  const picks = loadPicksCacheForContext();
+  const pickSymbols = new Set(
+    (Array.isArray(picks) ? picks : []).map((p) => String(p.symbol || p.ticker || "").toUpperCase()).filter(Boolean)
+  );
+
+  // Build concentration map for held positions
+  const heldMap = {};
+  heldPositions.forEach((p) => {
+    const sym = String(p.symbol || "").toUpperCase();
+    const mv = Number(p.market_value ?? p.marketValue);
+    if (sym) heldMap[sym] = totalEquity > 0 && Number.isFinite(mv) && mv > 0 ? (mv / totalEquity) * 100 : null;
+  });
+
+  // Market regime from SPY ROC20
+  const spyROC20 = results["SPY"]?.roc20 ?? null;
+  let regimeLabel = "Neutral";
+  let momentumMult = 1.0;
+  let qualityMult = 1.0;
+  if (spyROC20 != null) {
+    if (spyROC20 > 5)  { regimeLabel = "Bull"; momentumMult = 1.2; qualityMult = 0.9; }
+    else if (spyROC20 < -5) { regimeLabel = "Bear"; momentumMult = 0.8; qualityMult = 1.2; }
+  }
+
+  // Candidate pool: scanner symbols (excl SPY) + picks not yet in scanner
+  const candidateSymbols = new Set(
+    Object.keys(results).filter((s) => s !== "SPY" && !results[s]?.insufficient)
+  );
+  for (const sym of pickSymbols) { if (sym !== "SPY") candidateSymbols.add(sym); }
+
+  const ranked = [];
+  for (const sym of candidateSymbols) {
+    const scan = results[sym] || {};
+    const fund = funds[sym] || {};
+    const rs = scan.rs ?? null;
+    const roc20 = scan.roc20 ?? null;
+    const aboveEma50 = scan.aboveEma50 ?? null;
+    const trend = scan.trend ?? "Neutral";
+
+    // Technical (0–40)
+    let technical = 0;
+    if (rs != null) {
+      if (rs > 1.2) technical += 20;
+      else if (rs > 1.05) technical += 12;
+      else if (rs >= 1.0) technical += 5;
+    }
+    if (trend === "Bullish") technical += 12;
+    else if (trend === "Rising") technical += 7;
+    else if (trend === "Neutral") technical += 3;
+    if (aboveEma50 === true) technical += 8;
+
+    // Momentum (0–25, regime-adjusted)
+    let momentum = 0;
+    if (roc20 != null) {
+      if (roc20 > 15) momentum = 25;
+      else if (roc20 > 8) momentum = 18;
+      else if (roc20 > 3) momentum = 10;
+      else if (roc20 >= 0) momentum = 4;
+    }
+    momentum = Math.min(25, Math.round(momentum * momentumMult));
+
+    // Quality (0–20, regime-adjusted) — graceful zero when fundamentals absent
+    let quality = 0;
+    const hasFund = fund.epsTTM != null || fund.revenueTTM != null || fund.grossMarginTTM != null;
+    if (hasFund) {
+      if ((fund.epsGrowth3Y ?? 0) > 0) quality += 8;
+      if ((fund.revenueGrowth3Y ?? 0) > 0) quality += 7;
+      if ((fund.grossMarginTTM ?? 0) > 40) quality += 5;
+      if ((fund.peTTM ?? 0) > 50) quality -= 5;
+      quality = Math.max(0, Math.min(20, Math.round(quality * qualityMult)));
+    }
+
+    // Alignment (0–15, can go negative for heavy concentration)
+    let alignment = 0;
+    if (pickSymbols.has(sym)) alignment += 10;
+    const conc = heldMap[sym];
+    if (!(sym in heldMap)) alignment += 5; // fresh add
+    else if (conc != null && conc > 25) alignment -= 5; // already heavy
+
+    const score = Math.min(100, Math.max(0, technical + momentum + quality + alignment));
+
+    // Confidence: 3 of 3 signals = High, 2 = Medium, else Low
+    const sigCount = [rs != null && rs > 1.1, aboveEma50 === true, trend === "Bullish" || trend === "Rising"].filter(Boolean).length;
+    const confidence = sigCount >= 3 ? "High" : sigCount === 2 ? "Medium" : "Low";
+
+    // Reason sentence from top signals
+    const reasonParts = [];
+    if (rs != null) reasonParts.push(`RS ${rs}× vs SPY`);
+    if (roc20 != null) reasonParts.push(`momentum ${roc20 >= 0 ? "+" : ""}${roc20}%`);
+    if (trend !== "Neutral") reasonParts.push(`${trend.toLowerCase()} trend`);
+    if (aboveEma50 === true) reasonParts.push("above 50 EMA");
+    else if (aboveEma50 === false) reasonParts.push("below 50 EMA");
+
+    // Risk note — sizing context only, not a gate
+    const riskParts = [];
+    if (conc != null && conc > 20) riskParts.push(`already ${conc.toFixed(0)}% of portfolio`);
+    if (confidence === "Low") riskParts.push("signals mixed — size smaller");
+    if (aboveEma50 === false) riskParts.push("below 50 EMA");
+
+    // Only skip symbols with zero data and not in picks
+    if (rs == null && roc20 == null && aboveEma50 == null && !pickSymbols.has(sym)) continue;
+
+    ranked.push({ symbol: sym, score, confidence, reason: reasonParts.join(", ") || "in picks universe", riskNote: riskParts.join("; ") || null, trend, rs, roc20, aboveEma50 });
+  }
+
+  ranked.sort((a, b) => b.score - a.score);
+  return { ranked: ranked.slice(0, 5), regimeLabel, spyROC20 };
+}
+
+function buildOpportunityRankingContext({ scannerResults, fundamentalsCache, positions, account }) {
+  const { ranked, regimeLabel, spyROC20 } = buildOpportunityRanking({ scannerResults, fundamentalsCache, positions, account });
+  if (ranked.length === 0) return null;
+
+  const lines = ["[Opportunity Ranking]"];
+  ranked.forEach((r, i) => {
+    lines.push(`\n${i + 1}. ${r.symbol} — Score: ${r.score}/100 | ${r.confidence} Confidence`);
+    if (r.reason) lines.push(`   Signals: ${r.reason}`);
+    if (r.riskNote) lines.push(`   Sizing note: ${r.riskNote}`);
+  });
+  lines.push(`\nMarket regime: ${regimeLabel}${spyROC20 != null ? ` (SPY 20d: ${spyROC20 >= 0 ? "+" : ""}${spyROC20}%)` : ""}`);
+  const cash = Number(account?.cash ?? 0);
+  if (Number.isFinite(cash) && cash > 0) lines.push(`Available cash: $${cash.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
+  return lines.join("\n");
+}
+
+// ─── End Opportunity Ranking Engine ──────────────────────────────────────────
+
 function buildUniversalScreenContext({
   activeTab,
   performancePositionFilter,
@@ -5206,6 +5379,18 @@ function buildUniversalScreenContext({
     if (scanCtx) {
       objectsIncluded.push("scanner_results");
       contextText = contextText ? `${contextText}\n\n${scanCtx}` : scanCtx;
+    }
+  }
+
+  // Opportunity Ranking — inject for Portfolio, Holdings, PersonalPicks screens
+  if (SCANNER_SCREENS.includes(source)) {
+    const rankingPositions = source === "Holdings"
+      ? (Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : [])
+      : (Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : []);
+    const rankCtx = buildOpportunityRankingContext({ scannerResults, fundamentalsCache, positions: rankingPositions, account: alpacaAccount });
+    if (rankCtx) {
+      objectsIncluded.push("opportunity_ranking");
+      contextText = contextText ? `${contextText}\n\n${rankCtx}` : rankCtx;
     }
   }
 
