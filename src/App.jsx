@@ -12290,6 +12290,10 @@ useEffect(() => {
     return null;
   });
   const [documentIntelligence, setDocumentIntelligence] = useState(() => loadDocumentIntelligence());
+  const [docUploadOpen, setDocUploadOpen] = useState(false);
+  const [docUploadText, setDocUploadText] = useState("");
+  const [docUploadLoading, setDocUploadLoading] = useState(false);
+  const [docUploadError, setDocUploadError] = useState(null);
   const [intelLiveQuotes, setIntelLiveQuotes] = useState({});
   const [isRaylaLoading, setIsRaylaLoading] = useState(false);
   const [raylaResponse, setRaylaResponse] = useState("");
@@ -17032,6 +17036,56 @@ useEffect(() => {
       throw error;
     } finally {
       setIsRaylaLoading(false);
+    }
+  }
+
+  function handleDocFileInput(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => setDocUploadText(String(e.target?.result || ""));
+    reader.readAsText(file);
+  }
+
+  async function handleDocumentAnalyze() {
+    const rawText = docUploadText.trim();
+    if (!rawText || docUploadLoading) return;
+    setDocUploadLoading(true);
+    setDocUploadError(null);
+    try {
+      const docType = detectDocumentType(rawText);
+      const extractionPrompt = buildDocumentExtractionPrompt(docType, rawText);
+      const response = await fetchWithTimeout(
+        ASK_RAYLA_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+          body: JSON.stringify({ question: extractionPrompt, context: { extractionMode: true } }),
+        },
+        40000
+      );
+      const data = await response.json();
+      if (!response.ok && !data?.answer) throw new Error(data?.error || "Extraction failed");
+      let parsed = {};
+      try {
+        const jsonMatch = String(data?.answer || "").match(/\{[\s\S]*\}/);
+        if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+      } catch { /* use empty object */ }
+      const intel = saveDocumentIntelligence({ documentType: docType, ...parsed });
+      setDocumentIntelligence(intel);
+      setDocUploadOpen(false);
+      setDocUploadText("");
+      const typeName = DOCUMENT_TYPES[docType] || "Document";
+      openGlobalRaylaPopup(`Analyze this ${typeName}`);
+      handleChartExplainPopupQuestion(
+        `Analyze this ${typeName} and tell me the most important findings and what they mean for my portfolio.`,
+        null,
+        { resetThread: true }
+      );
+    } catch (error) {
+      setDocUploadError(error?.message || "Analysis failed. Please try again.");
+    } finally {
+      setDocUploadLoading(false);
     }
   }
 
@@ -27040,29 +27094,69 @@ return (
                       Ask anything about trades, charts, risk, or strategy.
                     </div>
                   )}
+                  {documentIntelligence?.documentType && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#7cc4ff", background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.2)", borderRadius: 6, padding: "2px 8px" }}>
+                        {DOCUMENT_TYPES[documentIntelligence.documentType] || "Document"}
+                        {documentIntelligence.symbol ? ` · ${documentIntelligence.symbol}` : ""}
+                        {documentIntelligence.company && !documentIntelligence.symbol ? ` · ${String(documentIntelligence.company).slice(0, 22)}` : ""}
+                      </div>
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => { clearDocumentIntelligence(); setDocumentIntelligence(null); }}
+                        style={{ fontSize: 10, color: "#64748b", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                      >
+                        clear
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => {
-                    setChartExplainPopupOpen(false);
-                    setChartExplainPopupLoading(false);
-                    chartTapCooldownRef.current = Date.now();
-                  }}
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 999,
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    background: "rgba(255,255,255,0.04)",
-                    color: "#cbd5e1",
-                    cursor: "pointer",
-                    fontSize: 18,
-                    lineHeight: 1,
-                  }}
-                >
-                  ×
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => { setDocUploadOpen(true); setDocUploadError(null); }}
+                    title="Analyze a document"
+                    style={{
+                      height: 34,
+                      paddingInline: 10,
+                      borderRadius: 999,
+                      border: "1px solid rgba(124,196,255,0.2)",
+                      background: documentIntelligence ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
+                      color: documentIntelligence ? "#7cc4ff" : "#94a3b8",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      letterSpacing: "0.1px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Analyze doc
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => {
+                      setChartExplainPopupOpen(false);
+                      setChartExplainPopupLoading(false);
+                      chartTapCooldownRef.current = Date.now();
+                    }}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#cbd5e1",
+                      cursor: "pointer",
+                      fontSize: 18,
+                      lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
 
               <div
@@ -27294,6 +27388,96 @@ return (
                     Send
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {docUploadOpen && (
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 13000, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+            onClick={() => { if (!docUploadLoading) { setDocUploadOpen(false); setDocUploadText(""); setDocUploadError(null); } }}
+          >
+            <div
+              className="card"
+              style={{ width: "min(560px, 100%)", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", border: "1px solid rgba(124,196,255,0.2)", background: "linear-gradient(180deg, rgba(10,16,28,0.99), rgba(7,12,22,0.99))", boxShadow: "0 28px 80px rgba(0,0,0,0.56)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7cc4ff" }}>Document Intelligence</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff", marginTop: 4 }}>Analyze a Document</div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Paste text from an earnings report, balance sheet, income statement, cash flow statement, or news article.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { if (!docUploadLoading) { setDocUploadOpen(false); setDocUploadText(""); setDocUploadError(null); } }}
+                  style={{ width: 34, height: 34, borderRadius: 999, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)", color: "#cbd5e1", cursor: "pointer", fontSize: 18, lineHeight: 1, flexShrink: 0 }}
+                >
+                  ×
+                </button>
+              </div>
+
+              {docUploadText.trim().length >= 30 && (() => {
+                const detected = detectDocumentType(docUploadText);
+                const typeName = DOCUMENT_TYPES[detected] || "Unknown";
+                return (
+                  <div style={{ padding: "8px 18px", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(124,196,255,0.05)", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#7cc4ff", letterSpacing: "0.8px", textTransform: "uppercase" }}>Detected:</span>
+                    <span style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 600 }}>{typeName}</span>
+                  </div>
+                );
+              })()}
+
+              <div style={{ flex: 1, overflow: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+                <textarea
+                  value={docUploadText}
+                  onChange={(e) => setDocUploadText(e.target.value)}
+                  placeholder={"Paste document text here...\n\nSupported: earnings reports, balance sheets, income statements, cash flow statements, news articles.\n\nFor PDFs: open in browser, select all text (Ctrl+A / Cmd+A), and paste here."}
+                  rows={10}
+                  disabled={docUploadLoading}
+                  style={{ width: "100%", resize: "vertical", borderRadius: 12, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)", color: "#e2e8f0", padding: "14px 16px", outline: "none", fontSize: 13, lineHeight: 1.6, minHeight: 180, boxSizing: "border-box" }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <label style={{ fontSize: 12, color: "#94a3b8", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 12px", background: "rgba(255,255,255,0.03)" }}>
+                    Upload .txt file
+                    <input type="file" accept=".txt,.md,.csv,.text" onChange={handleDocFileInput} style={{ display: "none" }} />
+                  </label>
+                  {docUploadText.trim() && !docUploadLoading && (
+                    <button
+                      type="button"
+                      onClick={() => { setDocUploadText(""); setDocUploadError(null); }}
+                      style={{ fontSize: 12, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", padding: "8px 4px" }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {docUploadError && (
+                  <div style={{ fontSize: 13, color: "#f87171", padding: "10px 14px", borderRadius: 10, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)" }}>
+                    {docUploadError}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "14px 18px", display: "flex", gap: 10, alignItems: "center" }}>
+                {documentIntelligence && (
+                  <button
+                    type="button"
+                    onClick={() => { clearDocumentIntelligence(); setDocumentIntelligence(null); setDocUploadOpen(false); setDocUploadText(""); }}
+                    style={{ fontSize: 13, color: "#94a3b8", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "10px 14px", cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    Clear loaded doc
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!docUploadText.trim() || docUploadLoading}
+                  onClick={handleDocumentAnalyze}
+                  style={{ flex: 1, borderRadius: 12, border: "1px solid", borderColor: !docUploadText.trim() || docUploadLoading ? "rgba(255,255,255,0.08)" : "rgba(124,196,255,0.35)", background: !docUploadText.trim() || docUploadLoading ? "rgba(255,255,255,0.06)" : "#7CC4FF", color: !docUploadText.trim() || docUploadLoading ? "#7f8ea3" : "#0b1017", fontSize: 14, fontWeight: 700, padding: "12px 0", cursor: !docUploadText.trim() || docUploadLoading ? "not-allowed" : "pointer" }}
+                >
+                  {docUploadLoading ? "Analyzing..." : "Analyze Document"}
+                </button>
               </div>
             </div>
           </div>
