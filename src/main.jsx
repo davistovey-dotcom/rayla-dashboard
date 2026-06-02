@@ -10,11 +10,11 @@ function RaylaCrashProbe() {
 class RaylaErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, errorMessage: "" };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return { hasError: true, errorMessage: error?.message || "Unknown display error" };
   }
 
   componentDidCatch(error, info) {
@@ -50,6 +50,21 @@ class RaylaErrorBoundary extends React.Component {
             <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6, marginBottom: 18 }}>
               Your data was not changed.
             </div>
+            {import.meta.env.DEV && this.state.errorMessage ? (
+              <div style={{
+                border: "1px solid rgba(248,113,113,0.18)",
+                background: "rgba(248,113,113,0.08)",
+                color: "#fecaca",
+                borderRadius: 10,
+                padding: "9px 10px",
+                fontSize: 12,
+                lineHeight: 1.45,
+                marginBottom: 16,
+                wordBreak: "break-word",
+              }}>
+                {this.state.errorMessage}
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => window.location.reload()}
@@ -82,4 +97,3 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       : <App />}
   </RaylaErrorBoundary>
 );
-

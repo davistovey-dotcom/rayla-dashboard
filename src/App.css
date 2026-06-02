@@ -3393,6 +3393,217 @@ select.authInput option,
     inset 0 1px 0 rgba(255,255,255,0.03) !important;
 }
 
+.portfolioHistoryChart {
+  --portfolioHistoryChartHeight: 340px;
+  min-height: calc(var(--portfolioHistoryChartHeight) + 220px);
+  padding: 24px 24px 34px;
+  border-radius: 18px;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.portfolioHistoryHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.portfolioHistoryTitle {
+  color: #f8fbff;
+  font-size: 17px;
+  font-weight: 850;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.portfolioHistoryValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 24px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.portfolioHistoryCurrencyMark {
+  color: #8b9ab0;
+  font-size: 21px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.portfolioHistoryValue {
+  color: #f8fbff;
+  font-size: 28px;
+  font-weight: 850;
+  line-height: 1.05;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolioHistoryChange {
+  font-size: 17px;
+  font-weight: 850;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolioHistorySubtitle {
+  color: #8d98aa;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+  margin-top: 12px;
+}
+
+.portfolioHistoryControls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.portfolioHistoryRangeGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(124,196,255,0.12);
+  background: rgba(6,12,22,0.68);
+}
+
+.portfolioHistoryRangeGroup button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #8fa0b7;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.portfolioHistoryRangeGroup button.active {
+  color: #07111d;
+  background: linear-gradient(180deg, #9bd4ff, #6bbcff);
+  box-shadow: 0 8px 22px rgba(124,196,255,0.16);
+}
+
+.portfolioHistoryMeta {
+  color: #8793a5;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.portfolioHistoryStatus {
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: rgba(124,196,255,0.1);
+  border: 1px solid rgba(124,196,255,0.18);
+  color: #d7efff;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.portfolioHistoryHint {
+  color: #778399;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  margin-top: 6px;
+}
+
+.portfolioHistoryCoverage {
+  width: fit-content;
+  max-width: 100%;
+  color: #8ebce4;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(124,196,255,0.07);
+  border: 1px solid rgba(124,196,255,0.13);
+}
+
+.portfolioHistoryChartFrame {
+  position: relative;
+  min-width: 0;
+  margin-top: 18px;
+  margin-bottom: 30px;
+}
+
+.portfolioHistoryChartCanvas {
+  position: absolute;
+  inset: 0;
+}
+
+.portfolioHistoryLiveMarker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 999px;
+  background: #8fd0ff;
+  border: 2px solid rgba(8,18,31,0.96);
+  box-shadow:
+    0 0 0 0 rgba(124,196,255,0.4),
+    0 0 18px rgba(124,196,255,0.42);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 4;
+  animation: portfolioHistoryLivePulse 1.45s ease-out infinite;
+}
+
+@keyframes portfolioHistoryLivePulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(124,196,255,0.42),
+      0 0 18px rgba(124,196,255,0.42);
+  }
+  72% {
+    box-shadow:
+      0 0 0 12px rgba(124,196,255,0),
+      0 0 18px rgba(124,196,255,0.28);
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(124,196,255,0),
+      0 0 18px rgba(124,196,255,0.34);
+  }
+}
+
+.portfolioHistoryEmpty {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  border: 1px dashed rgba(124,196,255,0.16);
+  background:
+    linear-gradient(180deg, rgba(124,196,255,0.035), rgba(124,196,255,0.012));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9badc4;
+  font-size: 12px;
+  text-align: center;
+  padding: 0 24px;
+  pointer-events: none;
+}
+
 .performancePortfolioHomeHeader {
   display: flex;
   justify-content: space-between;
@@ -3662,6 +3873,56 @@ select.authInput option,
     right: 4px;
     min-height: 28px;
     padding: 5px 9px;
+  }
+
+  .portfolioHistoryChart {
+    --portfolioHistoryChartHeight: clamp(300px, 48vh, 420px);
+    min-height: calc(var(--portfolioHistoryChartHeight) + 190px);
+    padding: 14px 12px 34px;
+    border-radius: 16px;
+  }
+
+  .portfolioHistoryHeader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .portfolioHistoryTitle {
+    font-size: 22px;
+  }
+
+  .portfolioHistoryValue {
+    font-size: 30px;
+  }
+
+  .portfolioHistoryValueRow {
+    margin-top: 20px;
+  }
+
+  .portfolioHistoryControls {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .portfolioHistoryRangeGroup {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .portfolioHistoryRangeGroup button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 5px;
+  }
+
+  .portfolioHistoryMeta {
+    white-space: normal;
+  }
+
+  .portfolioHistoryChartFrame {
+    margin-top: 12px;
+    margin-bottom: 28px;
   }
 }
 

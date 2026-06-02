@@ -33,6 +33,7 @@ const POSITION_INTENT_STORAGE_KEY = "rayla-position-intents-v1";
 const BROKER_ONBOARDING_SKIP_KEY = "rayla-broker-onboarding-skip-v1";
 const DEBUG_CHARTS = import.meta.env.VITE_DEBUG_CHARTS === "true";
 const CUSTOM_CHART_ZOOM_LEVELS = [1, 2, 5];
+const DAY_MS = 24 * 60 * 60 * 1000;
 function createClientId(prefix = "rayla") {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -6800,6 +6801,8 @@ function PortfolioTrendCard({
       timeZone={timeZone}
       emptyMessage={emptyMessage}
       className={`portfolioHistoryChart-${snapshotView}`}
+      fallbackSnapshots={portfolioSnapshots}
+      snapshotView={snapshotView}
     />
   );
 }
@@ -22520,6 +22523,8 @@ return (
                         timeZone={raylaChartTimeZone}
                         emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Portfolio history will appear as Alpaca returns account history." : "Open positions will appear here once broker data is synced."}
                         className="homePortfolioHistoryChart"
+                        fallbackSnapshots={portfolioSnapshots}
+                        snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                       />
                     </div>
                   )}

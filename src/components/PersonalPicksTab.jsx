@@ -649,13 +649,13 @@ export default function PersonalPicksTab({
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Get personalized picks in 2 minutes</div>
             <div style={{ fontSize: 13, color: "#94a6bb", lineHeight: 1.55 }}>
-              Ask Rayla for the Personal Picks Questionnaire for best results. Picks below are based on general market conditions until your profile is complete.
+              Complete your Picks Profile for best results. Picks below are based on general market conditions until your profile is complete.
             </div>
             <button
               onClick={() => { setStep(0); setPhase("questionnaire"); }}
               style={{ marginTop: 6, background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.3)", borderRadius: 9, color: "#7CC4FF", padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "flex-start" }}
             >
-              Take the Questionnaire →
+              Set up Picks Profile →
             </button>
           </div>
         </div>
