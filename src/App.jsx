@@ -4809,6 +4809,56 @@ function buildDocumentIntelligenceContext(docIntel) {
 
 // ─── End Document Intelligence Layer ─────────────────────────────────────────
 
+// ─── Fundamentals Feed Layer ──────────────────────────────────────────────────
+
+const FUNDAMENTALS_STORAGE_KEY = "rayla-fundamentals-cache-v1";
+const FUNDAMENTALS_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function loadFundamentalsCache() {
+  try {
+    const raw = sessionStorage.getItem(FUNDAMENTALS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) || {}) : {};
+  } catch { return {}; }
+}
+
+function saveFundamentalsCache(cache) {
+  try { sessionStorage.setItem(FUNDAMENTALS_STORAGE_KEY, JSON.stringify(cache)); } catch { /* ignore */ }
+}
+
+function formatFundamentalsMillions(millionsUSD) {
+  const v = Number(millionsUSD);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  if (v >= 1000000) return `$${(v / 1000000).toFixed(2)}T`;
+  if (v >= 1000) return `$${(v / 1000).toFixed(1)}B`;
+  return `$${v.toFixed(0)}M`;
+}
+
+function buildFundamentalsContext(symbols, cache) {
+  if (!cache || !Array.isArray(symbols) || symbols.length === 0) return null;
+  const blocks = [];
+  for (const sym of symbols) {
+    const d = cache[String(sym).toUpperCase()];
+    if (!d?.fetchedAt) continue;
+    const lines = [`[Fundamentals — ${sym}]`];
+    let hasData = false;
+    const rev = formatFundamentalsMillions(d.revenueTTM);
+    if (rev) { lines.push(`Revenue (TTM): ${rev}`); hasData = true; }
+    if (d.revenueGrowth3Y != null) { lines.push(`Revenue Growth (3Y): ${Number(d.revenueGrowth3Y).toFixed(1)}%`); hasData = true; }
+    if (d.epsTTM != null) { lines.push(`EPS (TTM): $${Number(d.epsTTM).toFixed(2)}`); hasData = true; }
+    if (d.epsGrowth3Y != null) { lines.push(`EPS Growth (3Y): ${Number(d.epsGrowth3Y).toFixed(1)}%`); hasData = true; }
+    if (d.grossMarginTTM != null) { lines.push(`Gross Margin: ${Number(d.grossMarginTTM).toFixed(1)}%`); hasData = true; }
+    if (d.operatingMarginTTM != null) { lines.push(`Operating Margin: ${Number(d.operatingMarginTTM).toFixed(1)}%`); hasData = true; }
+    if (d.netMarginTTM != null) { lines.push(`Net Margin: ${Number(d.netMarginTTM).toFixed(1)}%`); hasData = true; }
+    if (d.peTTM != null) { lines.push(`P/E (TTM): ${Number(d.peTTM).toFixed(1)}x`); hasData = true; }
+    const mktCap = formatFundamentalsMillions(d.marketCapitalization);
+    if (mktCap) { lines.push(`Market Cap: ${mktCap}`); hasData = true; }
+    if (hasData) blocks.push(lines.join("\n"));
+  }
+  return blocks.length > 0 ? blocks.join("\n\n") : null;
+}
+
+// ─── End Fundamentals Feed Layer ─────────────────────────────────────────────
+
 function buildUniversalScreenContext({
   activeTab,
   performancePositionFilter,
@@ -4821,6 +4871,7 @@ function buildUniversalScreenContext({
   hotColdReport,
   marketSnapshot,
   documentIntelligence,
+  fundamentalsCache,
   trades,
 }) {
   const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade });
@@ -5049,6 +5100,27 @@ function buildUniversalScreenContext({
     default: {
       contextText = `[Screen: ${fmt(activeTab || "General")}]`;
       break;
+    }
+  }
+
+  // Fundamentals — inject for Portfolio, Holdings, PersonalPicks screens
+  const FUNDAMENTALS_SCREENS = ["Portfolio", "Holdings", "PersonalPicks"];
+  if (FUNDAMENTALS_SCREENS.includes(source) && fundamentalsCache) {
+    let fundSymbols = [];
+    if (source === "Portfolio") fundSymbols = (Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : []).map((p) => p.symbol).filter(Boolean).slice(0, 10);
+    if (source === "Holdings") fundSymbols = (Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : []).map((p) => p.symbol).filter(Boolean).slice(0, 10);
+    if (source === "PersonalPicks") {
+      const picks = loadPicksCacheForContext();
+      fundSymbols = (Array.isArray(picks) ? picks : []).map((p) => p.symbol || p.ticker).filter(Boolean).slice(0, 5);
+    }
+    if (documentIntelligence?.symbol) {
+      const docSym = String(documentIntelligence.symbol).toUpperCase();
+      if (!fundSymbols.includes(docSym)) fundSymbols.push(docSym);
+    }
+    const fundCtx = buildFundamentalsContext(fundSymbols, fundamentalsCache);
+    if (fundCtx) {
+      objectsIncluded.push("fundamentals");
+      contextText = contextText ? `${contextText}\n\n${fundCtx}` : fundCtx;
     }
   }
 
@@ -12290,6 +12362,7 @@ useEffect(() => {
     return null;
   });
   const [documentIntelligence, setDocumentIntelligence] = useState(() => loadDocumentIntelligence());
+  const [fundamentalsCache, setFundamentalsCache] = useState(() => loadFundamentalsCache());
   const [docUploadOpen, setDocUploadOpen] = useState(false);
   const [docUploadText, setDocUploadText] = useState("");
   const [docUploadLoading, setDocUploadLoading] = useState(false);
@@ -15624,6 +15697,27 @@ useEffect(() => {
     });
   }, []);
 
+  // Fundamentals Feed — resolve via market-data edge function (server-side Finnhub + DB cache)
+  useEffect(() => {
+    const positions = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [];
+    const symbols = [...new Set(positions.map((p) => String(p.symbol || "").toUpperCase()).filter(Boolean))].slice(0, 15);
+    if (symbols.length === 0) return;
+    const sessionCache = loadFundamentalsCache();
+    const now = Date.now();
+    const stale = symbols.filter((sym) => {
+      const entry = sessionCache[sym];
+      return !entry?.fetchedAt || now - new Date(entry.fetchedAt).getTime() > FUNDAMENTALS_TTL_MS;
+    });
+    if (stale.length === 0) { setFundamentalsCache(sessionCache); return; }
+    supabase.functions.invoke("market-data", { body: { fundamentalsSymbols: stale } }).then(({ data, error }) => {
+      if (error || !data?.ok) return;
+      const incoming = data.fundamentals || {};
+      const merged = { ...sessionCache, ...incoming };
+      saveFundamentalsCache(merged);
+      setFundamentalsCache(merged);
+    }).catch(() => { /* fundamentals unavailable — context degrades gracefully */ });
+  }, [brokerPositionsWithIntent]);
+
   useEffect(() => {
     const sessionRaw = (() => { try { return JSON.parse(sessionStorage.getItem("rayla-intel-report") || "null"); } catch { return null; } })();
     const raw = hotColdReport?.stockCold || [];
@@ -16884,6 +16978,7 @@ useEffect(() => {
       hotColdReport,
       marketSnapshot,
       documentIntelligence,
+      fundamentalsCache,
       trades,
     });
 

@@ -1,11 +1,87 @@
 // @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   alpacaMarketDataRequest,
   getAlpacaMarketDataEnv,
   normalizeAlpacaBar,
   normalizeAlpacaSnapshot,
 } from "../_shared/alpaca.ts";
+
+const FUNDAMENTALS_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function getSupabaseAdmin() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) throw new Error("Missing Supabase admin credentials");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function fetchFundamentalsFromFinnhub(sym: string): Promise<Record<string, any> | null> {
+  const finnhubKey = Deno.env.get("FINNHUB_API_KEY");
+  if (!finnhubKey) return null;
+  try {
+    const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${finnhubKey}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const m = data?.metric || {};
+    return {
+      symbol: sym,
+      fetchedAt: new Date().toISOString(),
+      revenueTTM: m.revenueTTM ?? null,
+      revenueGrowth3Y: m.revenueGrowth3Y ?? null,
+      epsTTM: m.epsBasicExclExtraItemsTTM ?? m.epsTTM ?? null,
+      epsGrowth3Y: m.epsGrowth3Y ?? null,
+      grossMarginTTM: m.grossMarginTTM ?? null,
+      operatingMarginTTM: m.operatingMarginTTM ?? null,
+      netMarginTTM: m.netMarginTTM ?? null,
+      peTTM: m.peBasicExclExtraTTM ?? m.peTTM ?? null,
+      marketCapitalization: m.marketCapitalization ?? null,
+    };
+  } catch { return null; }
+}
+
+async function resolveFundamentals(rawSymbols: string[]): Promise<Record<string, any>> {
+  if (!rawSymbols?.length) return {};
+  const symbols = [...new Set(rawSymbols.map((s) => String(s).toUpperCase().trim()).filter(Boolean))].slice(0, 15);
+  const result: Record<string, any> = {};
+
+  let db: ReturnType<typeof getSupabaseAdmin> | null = null;
+  try { db = getSupabaseAdmin(); } catch { /* no DB — fall through to Finnhub direct */ }
+
+  const stale: string[] = [];
+  const freshCutoff = new Date(Date.now() - FUNDAMENTALS_TTL_MS).toISOString();
+
+  if (db) {
+    const { data: rows } = await db
+      .from("fundamentals_cache")
+      .select("symbol, data, fetched_at")
+      .in("symbol", symbols)
+      .gte("fetched_at", freshCutoff);
+    for (const row of rows || []) {
+      result[row.symbol] = row.data;
+    }
+  }
+
+  for (const sym of symbols) {
+    if (!result[sym]) stale.push(sym);
+  }
+
+  for (const sym of stale) {
+    const entry = await fetchFundamentalsFromFinnhub(sym);
+    if (entry) {
+      result[sym] = entry;
+      if (db) {
+        await db.from("fundamentals_cache").upsert(
+          { symbol: sym, data: entry, fetched_at: entry.fetchedAt },
+          { onConflict: "symbol" }
+        ).catch(() => { /* cache write failure is non-fatal */ });
+      }
+    }
+  }
+
+  return result;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -526,7 +602,7 @@ serve(async (req) => {
   }
 
   try {
-    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType } = await req.json();
+    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType, fundamentalsSymbols } = await req.json();
     const normalizedItems = Array.isArray(symbols)
       ? symbols.map(normalizeSymbolInput).filter((item) => item.symbol)
       : [];
@@ -568,7 +644,12 @@ serve(async (req) => {
       news = await fetchSymbolNews(normalizedNewsSymbol, normalizedNewsType);
     }
 
-    return new Response(JSON.stringify({ ok: true, quotes, chart, news }), {
+    let fundamentals: Record<string, any> = {};
+    if (Array.isArray(fundamentalsSymbols) && fundamentalsSymbols.length) {
+      fundamentals = await resolveFundamentals(fundamentalsSymbols);
+    }
+
+    return new Response(JSON.stringify({ ok: true, quotes, chart, news, fundamentals }), {
       headers: FALLBACK_CORS_JSON_HEADERS,
       status: 200,
     });
