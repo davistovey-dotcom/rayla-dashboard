@@ -249,6 +249,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   overflow: hidden;
 }
 
+.feelingLostPill {
+  line-height: 1.25;
+}
+
 .cardHeader h2 {
   margin: 0 0 12px 0;
   font-size: 13px;
@@ -415,12 +419,46 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     --chart-height-md: clamp(320px, 36vh, 400px);
   }
 
+  .appShell {
+    width: 100%;
+    max-width: 100vw;
+    padding: 24px;
+  }
+
   .appShellInner {
+    width: auto;
+    max-width: none;
+    margin-left: 200px;
     min-width: 0;
   }
 
+  .topbar {
+    align-items: flex-start;
+    margin-bottom: 20px;
+  }
+
+  .raylaPageTitle {
+    text-align: left;
+  }
+
+  .mainGrid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 16px;
+    width: 100%;
+    max-width: none;
+  }
+
+  .span4 { grid-column: span 6; }
+  .span5 { grid-column: span 6; }
+  .span6 { grid-column: span 6; }
+  .span7 { grid-column: span 12; }
+  .span8 { grid-column: span 12; }
+  .span12 { grid-column: span 12; }
+
   .card {
     border-radius: 17px;
+    width: 100%;
+    max-width: none;
   }
 
   .statsGrid {
@@ -453,6 +491,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     min-width: 0;
     height: 100%;
   }
+
 }
 
 .performanceHistoryGrid {
@@ -2197,19 +2236,23 @@ body.tour-active .mobileNav {
     padding:
       calc(18px + env(safe-area-inset-top))
       14px
-      calc(110px + env(safe-area-inset-bottom));
+      calc(136px + env(safe-area-inset-bottom));
     max-width: 100vw;
     overflow-x: hidden;
   }
 
+  .appShellInner {
+    padding-bottom: calc(26px + env(safe-area-inset-bottom));
+  }
+
   .topbar {
     position: relative;
-    min-height: 38px;
+    min-height: 62px;
     flex-direction: row;
     align-items: center;
     justify-content: center;
     gap: 0;
-    margin-bottom: 14px;
+    margin-bottom: 18px;
   }
 
   .topbar > div:first-child {
@@ -2218,11 +2261,11 @@ body.tour-active .mobileNav {
 
   .mobilePageHeader {
     position: relative !important;
-    min-height: 38px;
+    min-height: 62px;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    margin-bottom: 14px !important;
+    margin-bottom: 18px !important;
   }
 
   .mobilePageTitle {
@@ -2242,17 +2285,16 @@ body.tour-active .mobileNav {
   .mobilePageHeader .mobilePageTitle {
     position: absolute;
     left: 50%;
-    top: 50%;
+    top: 18px;
     width: min(56vw, 220px);
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
     pointer-events: none;
   }
 
   .mobilePageHeader .raylaLaunchButton {
     position: absolute;
-    top: 50%;
+    top: 0;
     right: 0;
-    transform: translateY(-50%);
     z-index: 1;
   }
 

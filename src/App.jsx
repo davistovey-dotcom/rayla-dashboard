@@ -731,7 +731,6 @@ const NAV_TABS = [
   { id: "trades", icon: <PlusSquare size={18} />, label: "Live Trades" },
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
   { id: "ai", icon: <Target size={18} />, label: "Performance" },
-  { id: "picks", icon: <Sparkles size={18} />, label: "Picks" },
   { id: "journal", icon: <BookOpen size={18} />, label: "Journal" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
@@ -21594,6 +21593,22 @@ return (
                 grid-area: title;
                 align-self: center;
               }
+              .homeHeaderRow {
+                grid-area: title;
+                align-self: start;
+                justify-self: start;
+                flex-direction: column;
+                align-items: flex-start !important;
+                justify-content: flex-start !important;
+                padding: 0 !important;
+              }
+              .homeHeaderRow .homePageTitle {
+                grid-area: auto;
+              }
+              .homeHeaderRow .feelingLostPill {
+                margin-top: 0;
+                transform: translateY(-9px);
+              }
               .homeMarketStatusBar {
                 grid-area: status;
                 align-self: center;
@@ -21988,24 +22003,36 @@ return (
                   height: auto;
                   min-height: 100vh;
                   overflow: visible;
+                  margin: -24px;
                 }
                 .homeRight {
                   height: auto;
                   min-height: 100vh;
                   overflow: visible;
-                  grid-template-columns: minmax(0, 1fr);
-                  grid-template-rows: 38px 20px 104px 40px 34px auto minmax(620px, 1fr);
+                  grid-template-columns: minmax(0, 1fr) auto;
+                  grid-template-rows: 62px 20px 104px 40px 34px auto minmax(620px, 1fr);
                   grid-template-areas:
-                    "title"
-                    "status"
-                    "carousel"
-                    "search"
-                    "controls"
-                    "rail"
-                    "chart";
+                    "title actions"
+                    "status status"
+                    "carousel carousel"
+                    "search search"
+                    "controls controls"
+                    "rail rail"
+                    "chart chart";
+                  padding: 24px;
                 }
                 .homeTopActions {
+                  grid-area: actions;
+                  align-self: start;
+                  justify-self: end;
+                }
+                .homeHeaderRow {
                   grid-area: title;
+                  min-width: 0;
+                }
+                .homeHeaderRow .homePageTitle {
+                  width: auto;
+                  text-align: left;
                 }
                 .homeUtilityRail {
                   height: auto;
@@ -22052,6 +22079,7 @@ return (
                     linear-gradient(180deg, #071321 0%, #050b14 100%);
                 }
                 .homeMarketStatusBar,
+                .homeHeaderRow,
                 .homePageTitle,
                 .homeTopActions,
                 .homeMarketSearchBar,
@@ -22064,7 +22092,23 @@ return (
                   padding: 0 72px;
                   text-align: center;
                 }
-                .homePageTitle { order: 1; }
+                .homeHeaderRow {
+                  order: 1;
+                  min-height: 58px;
+                  width: 100%;
+                  align-items: center !important;
+                  justify-content: flex-start !important;
+                  padding: 0 74px 0 74px !important;
+                  text-align: center;
+                }
+                .homeHeaderRow .homePageTitle {
+                  width: 100%;
+                  padding: 0 !important;
+                  text-align: center;
+                }
+                .homeHeaderRow .feelingLostPill {
+                  margin-top: 9px;
+                }
                 .homeTopActions {
                   order: 1;
                   position: absolute;
@@ -22326,10 +22370,10 @@ return (
               )}
               {/* RIGHT: Live Market */}
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
-                <div style={{ padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
+                <div className="homeHeaderRow" style={{ padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
                   <div className="raylaPageTitle homePageTitle mobilePageTitle" style={{ padding: 0 }}>Home</div>
                   {isBeginnerMode && (
-                    <button type="button" onClick={() => setActiveTour("home")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, display: "inline-block", flexShrink: 0 }}>
+                    <button className="feelingLostPill" type="button" onClick={() => setActiveTour("home")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, display: "inline-block", flexShrink: 0 }}>
                       Feeling lost? Click here.
                     </button>
                   )}
