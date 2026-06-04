@@ -4211,6 +4211,58 @@ Market regime: [Bull/Neutral/Bear — one sentence from SPY momentum in context]
 Sizing: [Available cash and any concentration flags — one sentence, factual, no leading warnings]`,
   },
 
+  PortfolioAddition: {
+    label: "Portfolio Addition Analysis",
+    screenBoost: ["Portfolio", "Holdings", "Home"],
+    patterns: [
+      // CTA exact strings (must match before classifyQuestion sees generic patterns)
+      /what should I consider adding/i,
+      /consider adding (for better|to improve|for)/i,
+      // User-typed short questions
+      /what should I add(\?|$|\s*to)/i,
+      /what should I add to (my |the )?(portfolio|holdings)/i,
+      /what('s| is) (missing|lacking|absent) (from |in )?my (portfolio|holdings)/i,
+      /what (would |could )?(improve|diversify|strengthen|balance|round out) my (portfolio|holdings)/i,
+      /where (am i|is my portfolio) (concentrated|lacking|thin|underweight|overexposed)/i,
+      /what (gaps?|blind spots?|holes?) (are |do I have )?(in|with) my (portfolio|holdings)/i,
+      /what (sectors?|themes?|areas?|exposures?) (am i |)(missing|lacking|without|underweight)/i,
+      /what (to add|should be added) (to|in) my (portfolio|holdings)/i,
+      /how (should i|do i) (diversify|balance|round out|improve) my (portfolio|holdings)/i,
+      /what'?s? (not|missing) in my (portfolio|holdings)/i,
+    ],
+    instruction: `Portfolio Addition Analysis
+
+Rules (apply before writing anything):
+— Read [Portfolio Context] and [Holdings Context]. Name every symbol, approximate weight, and theme before recommending. No data = ask one specific question, nothing else.
+— Every recommendation must name the specific holdings it addresses. Generic diversification language is not acceptable.
+— Do not recommend assets solely because a sector is absent — explain what this addition fixes for this specific book.
+— No holding theses, income buffers, ballast language, or retirement framing unless the user asked for them.
+
+Portfolio Assessment:
+[One sentence naming each position with theme — e.g. "MU (AI infrastructure, ~28%), META (AI platform, ~31%), OKLO (nuclear, ~19%), BTC (digital hard money, ~22%)." Follow with one sentence on the dominant risk: concentration, theme overlap, or correlation cluster. Nothing else.]
+
+Biggest Risk:
+[One sentence. Name the symbols creating the risk — e.g. "MU, META, and OKLO are all risk-on growth names that compress together; the book has no position that holds or gains when sentiment reverses." Do not use the word "diversification" unless it is the most precise term.]
+
+Top 3 Additions:
+
+1. [SYMBOL] — [One sentence: what specific weakness in this portfolio it addresses, referencing actual holdings by name. Entry: [zone or condition]. Risk: [specific to this name].]
+
+2. [SYMBOL] — [One sentence. Entry: [zone or condition]. Risk: [specific].]
+
+3. [SYMBOL] — [One sentence. Entry: [zone or condition]. Risk: [specific].]
+
+Quick Scenario Sweep:
+AI Boom → [which addition benefits most and why in ≤8 words]
+Energy Boom → [which addition benefits most]
+Crypto Bull → [which addition benefits most]
+Recession → [which addition holds best]
+
+Confidence: [1–10] — [one sentence: what made this high or low]
+
+[One follow-up question only if confidence ≤ 5. Omit entirely if confidence ≥ 6.]`,
+  },
+
   CashDeployment: {
     label: "Cash Deployment",
     screenBoost: [],
@@ -4458,6 +4510,7 @@ How to use it: [one actionable takeaway]`,
 const TEMPLATE_PRIORITY = [
   "DocumentIntelligence",
   "StrategyScanner",
+  "PortfolioAddition",
   "OpportunityRanking",
   "CashDeployment",
   "MarketSnapshot",
@@ -9754,6 +9807,13 @@ function chartTimeToMs(time) {
 function isCapitalGuideIntent(question) {
   const normalized = String(question || "").trim().toLowerCase();
   if (!normalized) return false;
+
+  // Portfolio-analysis CTAs are not Capital Guide intents — they already carry
+  // holdings context and route to PortfolioAddition. Without this guard,
+  // "investment holdings" substring-matches "invest" and hijacks Capital Guide.
+  if (/^based on my current (portfolio|investment holdings)/i.test(question)) return false;
+  if (/what should I consider adding/i.test(question)) return false;
+  if (/\[portfolio context/i.test(question) || /\[holdings context/i.test(question)) return false;
 
   const directPhrases = [
     "invest",
