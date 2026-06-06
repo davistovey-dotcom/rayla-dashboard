@@ -22095,6 +22095,10 @@ return (
                   overflow: visible;
                 }
                 .homeChartStage {
+                  height: auto;
+                  min-height: 0;
+                }
+                .homeChartStage[data-mode="asset"] {
                   min-height: 760px !important;
                   height: 760px;
                 }
