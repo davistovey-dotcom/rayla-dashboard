@@ -139,18 +139,25 @@ function buildFallbackPointsFromSnapshots(snapshots, range, view) {
   return startMs == null ? rows : rows.filter((point) => point.timeMs >= startMs);
 }
 
-function buildStats(chartData, fallbackValue) {
+function buildStats(chartData, fallbackValue, openPnl = null, openPct = null) {
   const positivePoints = chartData.filter((point) => Number(point?.value) > 0);
   const statPoints = positivePoints.length ? positivePoints : chartData;
-  const latest = statPoints[statPoints.length - 1]?.value;
+  const lastPoint = statPoints[statPoints.length - 1];
+  const latest = lastPoint?.value;
   const first = statPoints[0]?.value;
   const value = Number.isFinite(latest) ? latest : Number(fallbackValue);
-  const pnl = statPoints.length >= 2 && Number.isFinite(first) && Number.isFinite(latest)
+  const propPnl = Number.isFinite(Number(openPnl)) ? Number(openPnl) : null;
+  const propPct = Number.isFinite(Number(openPct)) ? Number(openPct) : null;
+  const alpacaPnl = Number.isFinite(Number(lastPoint?.pnl)) ? Number(lastPoint.pnl) : null;
+  const alpacaPct = Number.isFinite(Number(lastPoint?.returnPct)) ? Number(lastPoint.returnPct) * 100 : null;
+  const fallbackPnl = statPoints.length >= 2 && Number.isFinite(first) && Number.isFinite(latest)
     ? latest - first
     : null;
-  const pct = Number.isFinite(pnl) && Number.isFinite(first) && first > 0
-    ? (pnl / first) * 100
+  const fallbackPct = Number.isFinite(fallbackPnl) && Number.isFinite(first) && first > 0
+    ? (fallbackPnl / first) * 100
     : null;
+  const pnl = propPnl ?? alpacaPnl ?? fallbackPnl;
+  const pct = propPct ?? alpacaPct ?? fallbackPct;
   return {
     value: Number.isFinite(value) ? value : null,
     pnl,
@@ -272,6 +279,8 @@ function PortfolioHistoryChartInner({
   snapshotView = "portfolio",
   rangeOptions = PORTFOLIO_HISTORY_RANGES,
   showRangeHint = true,
+  openPnl = null,
+  openPct = null,
 }) {
   const normalizedRange = normalizeRange(range);
   const resolvedRangeOptions = useMemo(() => {
@@ -363,7 +372,7 @@ function PortfolioHistoryChartInner({
     () => buildXAxisLabels(visibleDomain, normalizedRange, timeZone || undefined),
     [normalizedRange, timeZone, visibleDomain]
   );
-  const stats = useMemo(() => buildStats(chartData, currentValue), [chartData, currentValue]);
+  const stats = useMemo(() => buildStats(chartData, currentValue, openPnl, openPct), [chartData, currentValue, openPnl, openPct]);
 
   const updateEndpointMarker = () => {
     const marker = endpointRef.current;

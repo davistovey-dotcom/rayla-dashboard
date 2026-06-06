@@ -22614,6 +22614,8 @@ return (
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                         showRangeHint={false}
+                        openPnl={homePortfolioUnrealizedPl}
+                        openPct={homePortfolioReturnPct}
                       />
                     </div>
                   )}
