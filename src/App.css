@@ -427,6 +427,68 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   overflow: visible !important;
 }
 
+/* Simulation page — Trade Summary + Trade History stacked full-width */
+.simBottomStack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
+/* Trade History compact table */
+.simHistoryTableWrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  border-radius: 10px;
+}
+
+.simHistoryTable {
+  width: 100%;
+  min-width: 780px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.simHistoryTable th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7f8ea3;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  white-space: nowrap;
+}
+
+.simHistoryTable td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035);
+  font-size: 13px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.simHistoryTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.simHistoryTable tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+@media (max-width: 600px) {
+  .simBottomStack {
+    gap: 14px;
+  }
+
+  .simHistoryTableWrapper {
+    /* ensure no overflow beyond viewport on mobile */
+    max-width: 100vw;
+  }
+}
+
 @media (min-width: 768px) and (max-width: 1180px) {
   :root {
     --space-page: 24px;
