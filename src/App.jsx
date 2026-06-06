@@ -24600,14 +24600,7 @@ return (
           <div className="mainGrid">
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
-                <div className="pageTitleHelpStack">
-                  <div className="raylaPageTitle mobilePageTitle">Simulation</div>
-                  {isBeginnerMode && (
-                    <button type="button" onClick={() => setActiveTour("simulation")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 4, display: "inline-block" }}>
-                      Feeling lost? Click here.
-                    </button>
-                  )}
-                </div>
+                <div className="raylaPageTitle mobilePageTitle">Simulation</div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
                   onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
