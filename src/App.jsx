@@ -23326,8 +23326,9 @@ return (
                     const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
                     const dayPnLPos = Number.isFinite(dayPnL) && dayPnL >= 0;
                     const dayPnLStr = Number.isFinite(dayPnL) ? `${dayPnLPos ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
+                    const isSnapshotMobile = window.innerWidth < 768;
                     return (
-                      <div className="tradeAccountSnapshotRow" style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
+                      <div className="tradeAccountSnapshotRow" style={{ display: "flex", flexDirection: isSnapshotMobile ? "column" : "row", alignItems: isSnapshotMobile ? "flex-start" : "center", gap: isSnapshotMobile ? 10 : 14, padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
                         {/* Compact broker status pill */}
                         <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
                           <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", display: "inline-block", boxShadow: "0 0 6px rgba(74,222,128,0.7)", flexShrink: 0 }} />
@@ -23339,16 +23340,16 @@ return (
                           ) : null}
                         </div>
                         {/* Divider */}
-                        <div className="tradeAccountSnapshotDivider" style={{ width: 1, height: 24, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+                        <div className="tradeAccountSnapshotDivider" style={{ display: isSnapshotMobile ? "none" : "block", width: 1, height: 24, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
                         {/* Compact account metrics row */}
-                        <div className="tradeAccountMetrics">
+                        <div className="tradeAccountMetrics" style={isSnapshotMobile ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px", width: "100%" } : { display: "flex", flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
                         {[
                           { label: "BUYING POWER", value: formatCurrency(alpacaAccount.buyingPower), color: "#e2e8f0" },
                           { label: "CASH", value: formatCurrency(alpacaAccount.cash), color: "#e2e8f0" },
                           { label: "DAY P/L", value: dayPnLStr, color: Number.isFinite(dayPnL) ? (dayPnLPos ? "#4ade80" : "#f87171") : "#e2e8f0", prominent: true },
                           { label: "EQUITY", value: formatCurrency(alpacaAccount.equity), color: "#e2e8f0" },
                         ].map((item) => (
-                          <div key={item.label} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                          <div key={item.label} style={{ display: "flex", flexDirection: isSnapshotMobile ? "column" : "row", alignItems: isSnapshotMobile ? "flex-start" : "baseline", gap: isSnapshotMobile ? 2 : 6 }}>
                             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", color: "#475569", textTransform: "uppercase" }}>{item.label}</span>
                             <span style={{ fontSize: item.prominent ? 16 : 13, fontWeight: item.prominent ? 800 : 700, fontVariantNumeric: "tabular-nums", color: item.color }}>{item.value}</span>
                           </div>
