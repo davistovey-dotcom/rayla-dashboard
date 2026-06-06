@@ -12708,6 +12708,7 @@ useEffect(() => {
   const [chartExplainPopupPosition, setChartExplainPopupPosition] = useState({ x: 24, y: 96 });
   const [chartExplainPopupIsMobile, setChartExplainPopupIsMobile] = useState(() => window.innerWidth < 768);
   const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= 600);
+  const [isTabletView, setIsTabletView] = useState(() => window.innerWidth >= 768 && window.innerWidth <= 1180);
   const [simulationRaylaGuidanceStateByTrade, setSimulationRaylaGuidanceStateByTrade] = useState({});
   const [simulationRaylaPromptTradeId, setSimulationRaylaPromptTradeId] = useState(null);
   const [pendingIntelSimulationLaunch, setPendingIntelSimulationLaunch] = useState(null);
@@ -14063,6 +14064,29 @@ useEffect(() => {
   useEffect(() => {
     writeSimulationStorage(FIRST_TRADE_ONBOARDING_STORAGE_KEYS.autoStarted, hasAttemptedFirstTradeOnboardingAutoStart);
   }, [hasAttemptedFirstTradeOnboardingAutoStart]);
+
+  useEffect(() => {
+    if (activeTab !== 'simulation') return;
+    const timer = setTimeout(() => {
+      const grid = document.querySelector('.simulationWorkspaceGrid');
+      const chartCol = document.querySelector('.simulationChartPanel');
+      const controlsCol = document.querySelector('.simulationControlsPanel');
+      const sidebar = document.querySelector('nav.desktopSidebar');
+      if (!grid || !chartCol || !controlsCol) return;
+      const gridRect = grid.getBoundingClientRect();
+      const controlsRect = controlsCol.getBoundingClientRect();
+      const overflow = controlsRect.right - gridRect.right;
+      console.log('[GRID MEASURE]', {
+        sidebarOffsetWidth: sidebar ? sidebar.offsetWidth : null,
+        gridClientWidth: grid.clientWidth,
+        gridComputedColumns: getComputedStyle(grid).gridTemplateColumns,
+        chartOffsetWidth: chartCol.offsetWidth,
+        controlsOffsetWidth: controlsCol.offsetWidth,
+        controlsOverflow: overflow,
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -16457,6 +16481,7 @@ useEffect(() => {
     function handleResize() {
       setChartExplainPopupIsMobile(window.innerWidth < 768);
       setIsMobileView(window.innerWidth <= 600);
+      setIsTabletView(window.innerWidth >= 768 && window.innerWidth <= 1180);
       if (!chartExplainPopupWindowRef.current) return;
       const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
       const maxX = Math.max(12, window.innerWidth - rect.width - 12);
@@ -20108,7 +20133,7 @@ function buildSimulationAssetFromPosition(position) {
   const simulationChartViewportHeight = isMobileView
     ? "min(420px, 52vh)"
     : simulationMode === "scenario"
-      ? "clamp(500px, 54vh, 620px)"
+      ? "clamp(300px, 36vh, 380px)"
       : 560;
   const useScenarioDesktopLayout = !isMobileView && simulationMode === "scenario";
   const simulationActiveTradeContext = simulationCoachPosition
@@ -21573,13 +21598,13 @@ return (
         <img src="/rayla-logo.png" alt="Rayla" style={{ height: '20px', width: 'auto', objectFit: 'contain', display: 'block' }} />
         {NAV_TABS.map(tab => (
           <button key={tab.id} className={`desktopSidebarBtn ${activeTab === tab.id ? "active" : ""}`} onClick={() => { setActiveTab(tab.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-            {tab.icon}{tab.label}
+            {tab.icon}<span className="desktopSidebarLabel">{tab.label}</span>
           </button>
         ))}
         <div className="desktopSidebarSpacer" />
         <div className="desktopSidebarDivider" />
         <button className={`desktopSidebarBtn ${activeTab === "profile" ? "active" : ""}`} onClick={() => { setActiveTab("profile"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-          <User size={18} />Profile & Settings
+          <User size={18} /><span className="desktopSidebarLabel">Profile & Settings</span>
         </button>
       </nav>
 
@@ -24908,7 +24933,7 @@ return (
                     </div>
                   )}
 
-                  {isMobileView && (
+                  {(isMobileView || isTabletView) && (
                     <div style={{ display: "flex", background: "rgba(255,255,255,0.025)", borderRadius: 14, padding: 4, gap: 2, flexShrink: 0, marginBottom: 10 }}>
                       {[
                         { label: "Setup", index: 0 },
@@ -24921,8 +24946,8 @@ return (
                       ))}
                     </div>
                   )}
-                  <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(0, 1fr) minmax(300px, 340px)" : "minmax(0, 1fr) minmax(280px, 320px)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "stretch" }}>
-                  {(!isMobileView || simMobileTab === 0) && (
+                  <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(0, 1fr) 300px", gap: isMobileView ? 14 : 18, alignItems: "stretch", width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden" }}>
+                  {(!(isMobileView || isTabletView) || simMobileTab === 0) && (
                   <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 560 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
                     {simulationMode === "scenario" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -25100,7 +25125,7 @@ return (
                     <div
                       className="simulationControlCardsGrid"
                       key={`simulation-controls-${simulationAsset?.id || "none"}`}
-                      style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}
+                      style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}
                     >
                       <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Trade direction</div>
@@ -25361,7 +25386,7 @@ return (
                     </div>
                   </div>
                   )}
-                  {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
+                  {(!(isMobileView || isTabletView) || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
                   <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
@@ -25765,7 +25790,7 @@ return (
                         ) : (
                           <TradingViewLiveChart
                             asset={selectedSimulationItem}
-                            height="100%"
+                            height={simulationChartViewportHeight}
                             interval={simulationLiveChartRange}
                             chartType="simulation_live"
                           />
