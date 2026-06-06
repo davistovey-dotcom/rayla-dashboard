@@ -90,6 +90,25 @@ export async function alpacaBrokerRequest(accessToken: string, path: string, isP
   return data;
 }
 
+export async function alpacaBrokerRequestWithHeaders(accessToken: string, path: string, isPaper: boolean, init: RequestInit = {}) {
+  const base = isPaper ? ALPACA_PAPER_API_BASE : ALPACA_LIVE_API_BASE;
+  const response = await fetch(`${base}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || "Alpaca API request failed.");
+  }
+
+  return { data, headers: response.headers };
+}
+
 // Kept for backwards compatibility in place-order (which has its own raw request)
 export async function alpacaPaperRequest(accessToken: string, path: string, init: RequestInit = {}) {
   return alpacaBrokerRequest(accessToken, path, true, init);

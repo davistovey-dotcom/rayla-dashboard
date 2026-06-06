@@ -53,6 +53,11 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/alpaca-account/index.ts"
 
+[functions.alpaca-account-contributions]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/alpaca-account-contributions/index.ts"
+
 [functions.alpaca-positions]
 enabled = true
 verify_jwt = true

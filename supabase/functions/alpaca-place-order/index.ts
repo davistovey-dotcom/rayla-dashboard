@@ -77,6 +77,8 @@ function validateOrderBody(body: any) {
   const limitPrice = body?.limit_price == null || body?.limit_price === "" ? null : Number(body.limit_price);
   const stopPrice = body?.stop_price == null || body?.stop_price === "" ? null : Number(body.stop_price);
   const timeInForce = String(body?.time_in_force || "gtc").toLowerCase();
+  const bracketTakeProfit = body?.take_profit?.limit_price == null || body?.take_profit?.limit_price === "" ? null : Number(body.take_profit.limit_price);
+  const bracketStopLoss = body?.stop_loss?.stop_price == null || body?.stop_loss?.stop_price === "" ? null : Number(body.stop_loss.stop_price);
 
   if (!(/^[A-Z][A-Z0-9.]{0,9}$/.test(symbol) || /^[A-Z0-9]{2,10}\/USD$/.test(symbol))) {
     throw new Error("Enter a valid Alpaca stock or crypto symbol.");
@@ -122,6 +124,14 @@ function validateOrderBody(body: any) {
     }
   }
 
+  const hasBracketTakeProfit = Number.isFinite(bracketTakeProfit) && bracketTakeProfit > 0;
+  const hasBracketStopLoss = Number.isFinite(bracketStopLoss) && bracketStopLoss > 0;
+  const orderClass = hasBracketTakeProfit && hasBracketStopLoss
+    ? "bracket"
+    : hasBracketTakeProfit || hasBracketStopLoss
+      ? "oto"
+      : undefined;
+
   return {
     symbol,
     side,
@@ -131,6 +141,9 @@ function validateOrderBody(body: any) {
     time_in_force: timeInForce,
     ...(type === "limit" || type === "stop_limit" ? { limit_price: limitPrice } : {}),
     ...(type === "stop" || type === "stop_limit" ? { stop_price: stopPrice } : {}),
+    ...(orderClass ? { order_class: orderClass } : {}),
+    ...(hasBracketTakeProfit ? { take_profit: { limit_price: bracketTakeProfit } } : {}),
+    ...(hasBracketStopLoss ? { stop_loss: { stop_price: bracketStopLoss } } : {}),
   };
 }
 

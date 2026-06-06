@@ -10,6 +10,8 @@ const RANGE_CONFIG: Record<string, { period: string; timeframe: string; intraday
   ALL: { period: "all", timeframe: "1D" },
 };
 
+const ZERO_BASELINE_RANGES = new Set(["1M", "ALL"]);
+
 function normalizeRange(value: unknown) {
   const raw = String(value || "1D").trim().toUpperCase();
   if (raw === "MAX") return "ALL";
@@ -27,18 +29,19 @@ function normalizeTimestamp(value: unknown) {
   return numeric > 1_000_000_000_000 ? Math.round(numeric) : Math.round(numeric * 1000);
 }
 
-function normalizePortfolioHistory(raw: any) {
+function normalizePortfolioHistory(raw: any, range: string) {
   const timestamps = Array.isArray(raw?.timestamp) ? raw.timestamp : [];
   const equity = Array.isArray(raw?.equity) ? raw.equity : [];
   const profitLoss = Array.isArray(raw?.profit_loss) ? raw.profit_loss : [];
   const profitLossPct = Array.isArray(raw?.profit_loss_pct) ? raw.profit_loss_pct : [];
   const baseValue = toFiniteNumber(raw?.base_value);
+  const allowZeroEquity = ZERO_BASELINE_RANGES.has(normalizeRange(range));
 
   return timestamps
     .map((timestamp: unknown, index: number) => {
       const timeMs = normalizeTimestamp(timestamp);
       const value = toFiniteNumber(equity[index]);
-      if (!timeMs || value == null || value <= 0) return null;
+      if (!timeMs || value == null || value < 0 || (!allowZeroEquity && value === 0)) return null;
       return {
         timeMs,
         value,
@@ -87,7 +90,7 @@ Deno.serve(async (req) => {
       `/v2/account/portfolio/history?${params.toString()}`,
       isPaper
     );
-    const points = normalizePortfolioHistory(history);
+    const points = normalizePortfolioHistory(history, range);
 
     return jsonResponse({
       ok: true,
