@@ -2710,6 +2710,15 @@ body.tour-active .mobileNav {
   container-type: inline-size;
 }
 
+/* Desktop: account metrics display as a flex row inline with the status pill */
+.tradeAccountMetrics {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
 .brokerAssetDropdown {
   background: rgba(9,14,26,0.97);
   border: 1px solid rgba(124,196,255,0.1);
@@ -3079,6 +3088,24 @@ body.tour-active .mobileNav {
     max-height: 430px;
     overscroll-behavior: contain;
     padding-right: 2px;
+    overflow-x: auto;
+  }
+
+  .tradeAccountSnapshotRow {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+
+  .tradeAccountSnapshotDivider {
+    display: none !important;
+  }
+
+  .tradeAccountMetrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 16px;
+    width: 100%;
   }
 
   .tradePortfolioButton,

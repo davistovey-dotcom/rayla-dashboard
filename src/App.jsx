@@ -23327,7 +23327,7 @@ return (
                     const dayPnLPos = Number.isFinite(dayPnL) && dayPnL >= 0;
                     const dayPnLStr = Number.isFinite(dayPnL) ? `${dayPnLPos ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
                     return (
-                      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
+                      <div className="tradeAccountSnapshotRow" style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
                         {/* Compact broker status pill */}
                         <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
                           <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", display: "inline-block", boxShadow: "0 0 6px rgba(74,222,128,0.7)", flexShrink: 0 }} />
@@ -23339,8 +23339,9 @@ return (
                           ) : null}
                         </div>
                         {/* Divider */}
-                        <div style={{ width: 1, height: 24, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+                        <div className="tradeAccountSnapshotDivider" style={{ width: 1, height: 24, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
                         {/* Compact account metrics row */}
+                        <div className="tradeAccountMetrics">
                         {[
                           { label: "BUYING POWER", value: formatCurrency(alpacaAccount.buyingPower), color: "#e2e8f0" },
                           { label: "CASH", value: formatCurrency(alpacaAccount.cash), color: "#e2e8f0" },
@@ -23352,6 +23353,7 @@ return (
                             <span style={{ fontSize: item.prominent ? 16 : 13, fontWeight: item.prominent ? 800 : 700, fontVariantNumeric: "tabular-nums", color: item.color }}>{item.value}</span>
                           </div>
                         ))}
+                        </div>
                       </div>
                     );
                   })() : (
@@ -24578,9 +24580,6 @@ return (
                 <div className="liveTradesHistoryIntro" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff" }}>Broker Trade History</div>
-                    <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>
-                      Recent broker-synced orders and fills from your connected Alpaca broker workspace.
-                    </div>
                   </div>
                 </div>
                 <div className="liveTradesHistoryActions" style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
