@@ -24655,19 +24655,7 @@ return (
                   )}
                   {showBeginnerGuidance && renderSimulationWalkthroughCard()}
 
-                  <div style={{ padding: isMobileView ? 16 : 10, borderRadius: 14, background: simulationMode === "scenario" ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.04)", border: simulationMode === "scenario" ? "1px solid rgba(124,196,255,0.18)" : "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
-                    {isMobileView && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>Simulation Mode</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, lineHeight: 1.55 }}>
-                          {simulationMode === "live"
-                            ? "Live mode uses current market quotes so you can practice execution on real movement without risking capital."
-                            : "Scenario mode creates structured training conditions so you can rehearse setups, risk, and decision-making faster."}
-                        </div>
-                      </div>
-                    </div>
-                    )}
+                  <div style={{ padding: 10, borderRadius: 14, background: simulationMode === "scenario" ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.04)", border: simulationMode === "scenario" ? "1px solid rgba(124,196,255,0.18)" : "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
                     {showBeginnerGuidance && simulationMode === "scenario" && capitalGuideScenarioIntro && (
                       <div style={{ ...simulationBriefingPanelStyle, fontSize: 12, color: "#dbeafe", lineHeight: 1.6, padding: 12, borderRadius: 12 }}>
                         {capitalGuideScenarioIntro}
@@ -24691,15 +24679,6 @@ return (
                       >
                         {simulationMode === "scenario" ? "Guided simulated scenario trade" : "Guided simulated live trade"}
                       </button>
-                      {isMobileView && showBeginnerGuidance && (
-                        <button
-                          type="button"
-                          className="ghostButton"
-                          onClick={() => setShowSimulationHelp((prev) => !prev)}
-                        >
-                          {showSimulationHelp ? "Hide Beginner Help" : "Show Beginner Help"}
-                        </button>
-                      )}
                     </div>
                   </div>
 
@@ -25586,9 +25565,10 @@ return (
                                 </button>
                               ))}
                             </div>
-                            {/* Separator */}
-                            <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.07)", flexShrink: 0 }} />
+                            {/* Separator — desktop only */}
+                            {!isMobileView && <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.07)", flexShrink: 0 }} />}
                             {/* Drawing tools */}
+                            <div style={isMobileView ? { display: "flex", flexWrap: "wrap", gap: 6, width: "100%", justifyContent: "center" } : { display: "contents" }}>
                             {[
                               ["horizontal", "Line"],
                               ["profit", "Profit Line"],
@@ -25600,14 +25580,15 @@ return (
                                 className="ghostButton"
                                 onClick={() => setSimulationScenarioDrawingMode((prev) => (prev === tool ? "none" : tool))}
                                 style={{
-                                  padding: "4px 8px",
-                                  fontSize: 10,
-                                  borderRadius: 6,
+                                  padding: isMobileView ? "5px 12px" : "4px 8px",
+                                  fontSize: isMobileView ? 11 : 10,
+                                  borderRadius: isMobileView ? 20 : 6,
                                   borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.06)",
                                   background: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.11)" : "transparent",
                                   color: simulationScenarioDrawingMode === tool ? "#d7efff" : "#6f839a",
                                   fontWeight: 700,
                                   letterSpacing: "0.35px",
+                                  ...(isMobileView ? { width: "auto", flex: "0 0 auto" } : {}),
                                 }}
                               >
                                 {label}
@@ -25618,14 +25599,15 @@ return (
                               className="ghostButton"
                               onClick={() => undoStoredChartDrawing(scenarioDrawingStorageKey)}
                               style={{
-                                padding: "4px 8px",
-                                fontSize: 10,
-                                borderRadius: 6,
+                                padding: isMobileView ? "5px 12px" : "4px 8px",
+                                fontSize: isMobileView ? 11 : 10,
+                                borderRadius: isMobileView ? 20 : 6,
                                 borderColor: "rgba(255,255,255,0.06)",
                                 color: "#7f8ea3",
                                 background: "transparent",
                                 fontWeight: 700,
                                 letterSpacing: "0.35px",
+                                ...(isMobileView ? { width: "auto", flex: "0 0 auto" } : {}),
                               }}
                             >
                               Undo
@@ -25635,18 +25617,20 @@ return (
                               className="ghostButton"
                               onClick={clearScenarioDrawings}
                               style={{
-                                padding: "4px 8px",
-                                fontSize: 10,
-                                borderRadius: 6,
+                                padding: isMobileView ? "5px 12px" : "4px 8px",
+                                fontSize: isMobileView ? 11 : 10,
+                                borderRadius: isMobileView ? 20 : 6,
                                 borderColor: "rgba(248,113,113,0.16)",
                                 color: "#d88b8b",
                                 background: "rgba(248,113,113,0.025)",
                                 fontWeight: 700,
                                 letterSpacing: "0.35px",
+                                ...(isMobileView ? { width: "auto", flex: "0 0 auto" } : {}),
                               }}
                             >
                               Clear Chart
                             </button>
+                            </div>
                             {scenarioDrawingStatus ? (
                               <div style={{ fontSize: 11, color: "#aab7c7", lineHeight: 1.35, marginLeft: 4 }}>
                                 {scenarioDrawingStatus}
@@ -25721,11 +25705,6 @@ return (
                                 Return to Live
                               </button>
                             ) : null}
-                            {isMobileView && simulationLiveChartUpdatedLabel && (
-                              <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                                Last updated: {simulationLiveChartUpdatedLabel}
-                              </div>
-                            )}
                           </>
                         )}
                       </div>
