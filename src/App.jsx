@@ -21659,8 +21659,7 @@ return (
                 grid-area: auto;
               }
               .homeHeaderRow .feelingLostPill {
-                margin-top: 0;
-                transform: translateY(-9px);
+                display: none !important;
               }
               .homeMarketStatusBar {
                 grid-area: status;
@@ -22127,7 +22126,7 @@ return (
                   display: flex;
                   flex-direction: column;
                   position: relative;
-                  gap: 14px;
+                  gap: 8px;
                   padding: calc(16px + env(safe-area-inset-top)) 12px 0;
                   overflow-y: visible;
                   background:
@@ -22183,23 +22182,23 @@ return (
                   order: 2;
                   display: flex;
                   flex-direction: column;
-                  gap: 12px;
+                  gap: 8px;
                 }
                 .homeMarketStatusBar {
-                  order: 1;
+                  order: 2;
                   padding: 0 2px !important;
                 }
                 .homeMarketSearchBar {
-                  order: 4;
-                }
-                .homeMarketCarouselSection {
                   order: 3;
                 }
+                .homeMarketCarouselSection {
+                  order: 1;
+                }
                 .homeMarketControls {
-                  order: 5;
+                  order: 4;
                 }
                 .homeChartStage {
-                  order: 2;
+                  order: 5;
                 }
                 .homePortfolioChartHeader,
                 .homePortfolioChartControls {
@@ -22217,13 +22216,12 @@ return (
                   text-align: left;
                 }
                 .homeChartExplainRow {
-                  order: 9;
+                  order: 3;
                 }
                 .homeMarketSearchBar,
                 .homeMarketCarouselSection,
                 .homeMarketControls {
-                  padding-left: 0 !important;
-                  padding-right: 0 !important;
+                  padding: 0 !important;
                 }
                 .homeMarketSearchBar > div:first-child {
                   display: grid !important;
@@ -22249,13 +22247,12 @@ return (
                   padding: 8px 10px !important;
                 }
                 .homeMarketControls {
-                  gap: 8px !important;
-                  align-items: center !important;
-                  display: grid !important;
-                  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                  display: flex !important;
+                  flex-direction: column !important;
+                  align-items: flex-start !important;
+                  gap: 6px !important;
                 }
                 .homeAdaptiveModeSwitch {
-                  grid-column: 1 / -1;
                   display: grid;
                   grid-template-columns: repeat(4, minmax(0, 1fr));
                   width: 100%;
@@ -22269,18 +22266,13 @@ return (
                   max-width: 100%;
                 }
                 .homeMarketControls .raylaDropdown {
-                  justify-self: start;
                   width: 88px !important;
                   min-width: 88px !important;
                 }
                 .homeMarketControls > .ghostButton {
-                  justify-self: end;
-                  width: auto;
-                  min-width: 88px;
+                  display: none !important;
                 }
                 .homeMarketControls > div:last-child {
-                  grid-column: 1 / -1;
-                  justify-self: end;
                   margin-left: 0 !important;
                 }
                 .homeChartStage {
@@ -22301,7 +22293,8 @@ return (
                 }
                 .homeChartExplainRow {
                   display: block !important;
-                  padding: 0 0 16px !important;
+                  padding: 4px 0 8px !important;
+                  margin-top: -8px;
                 }
                 .homeRightFullscreen {
                   height: 100dvh;
@@ -22571,19 +22564,6 @@ return (
                         width={88}
                       />
                     ) : null}
-                    <button
-                      type="button"
-                      className="ghostButton"
-                      onClick={() => setIsHomeLiveChartFullscreen((value) => !value)}
-                      style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
-                    >
-                      {isHomeLiveChartFullscreen ? "Back to normal" : "Full page"}
-                    </button>
-                    {homeMarketChartUpdatedLabel && (isMarketCurrentlyOpen() || String(homeMarketSelectedItem?.type || "").toLowerCase() === "crypto") && (
-                      <div style={{ fontSize: 10, color: "#7f8ea3", marginLeft: "auto" }}>
-                        Last updated: {homeMarketChartUpdatedLabel}
-                      </div>
-                    )}
                   </div>
                   <div className="homeChartStage" data-tour-id="home-chart" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
                   {homePortfolioViewMode === "asset" ? (
@@ -22633,6 +22613,7 @@ return (
                         className="homePortfolioHistoryChart"
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
+                        showRangeHint={false}
                       />
                     </div>
                   )}
@@ -22660,12 +22641,6 @@ return (
                       {homeUtilityTab === "overview" && (
                         <>
                           <section className="homeUtilitySection">
-                            {showBeginnerGuidance && (
-                              <div style={{ display: "flex", justifyContent: "center" }}>
-                                <InlineHelpButton topic="homeOverview" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />
-                              </div>
-                            )}
-                            {showBeginnerGuidance && tradeHelpTopic === "homeOverview" ? <InlineHelpCard topic="homeOverview" /> : null}
                             <div data-tour-id="home-pnl" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
                               <div>
                                 <div className="homeUtilityBig" style={{ color: homeTotalDollarPnl == null ? "#94a3b8" : homeTotalDollarPnl < 0 ? "#f87171" : "#4ade80" }}>{homeTotalPnlDisplay}</div>
