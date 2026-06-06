@@ -22050,9 +22050,6 @@ return (
                 display: block;
                 margin-top: 2px;
               }
-              .homeChartExplainRow {
-                display: none !important;
-              }
               @media (min-width: 768px) and (max-width: 1180px) {
                 .homeLayout {
                   height: auto;
@@ -22182,7 +22179,7 @@ return (
                   order: 2;
                   display: flex;
                   flex-direction: column;
-                  gap: 8px;
+                  gap: 4px;
                 }
                 .homeMarketStatusBar {
                   order: 2;
@@ -22214,9 +22211,6 @@ return (
                 }
                 .homePortfolioZoomHint {
                   text-align: left;
-                }
-                .homeChartExplainRow {
-                  order: 3;
                 }
                 .homeMarketSearchBar,
                 .homeMarketCarouselSection,
@@ -22250,6 +22244,7 @@ return (
                   display: flex !important;
                   flex-direction: column !important;
                   align-items: flex-start !important;
+                  align-self: stretch !important;
                   gap: 6px !important;
                 }
                 .homeAdaptiveModeSwitch {
@@ -22277,10 +22272,14 @@ return (
                 }
                 .homeChartStage {
                   flex: 0 0 auto !important;
-                  min-height: 720px !important;
-                  height: 720px !important;
+                  height: auto !important;
+                  min-height: 0 !important;
                   padding: 0 !important;
                   border-radius: 16px;
+                }
+                .homeChartStage[data-mode="asset"] {
+                  height: 720px !important;
+                  min-height: 720px !important;
                 }
                 .homeUtilityRail {
                   display: flex;
@@ -22290,11 +22289,6 @@ return (
                 }
                 .homeUtilityBody {
                   overflow: visible;
-                }
-                .homeChartExplainRow {
-                  display: block !important;
-                  padding: 4px 0 8px !important;
-                  margin-top: -8px;
                 }
                 .homeRightFullscreen {
                   height: 100dvh;
@@ -22565,7 +22559,7 @@ return (
                       />
                     ) : null}
                   </div>
-                  <div className="homeChartStage" data-tour-id="home-chart" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
+                  <div className="homeChartStage" data-tour-id="home-chart" data-mode={homePortfolioViewMode} style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
                   {homePortfolioViewMode === "asset" ? (
                     <>
                       {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
@@ -22875,41 +22869,6 @@ return (
                       )}
                     </div>
                   </aside>
-                )}
-                {/* Ask Rayla → Explain chart */}
-                {(homePortfolioViewMode !== "asset" || homeMarketSelectedItem) && (
-                  <div className="homeChartExplainRow" style={{ padding: "0 20px 16px", flexShrink: 0 }}>
-                    <button className="raylaAskTypography" type="button"
-                      onClick={() => {
-                        const context = homePortfolioViewMode === "asset"
-                          ? buildChartExplainContext({
-                              symbol: homeMarketSelectedItem.id,
-                              assetName: homeMarketSelectedItem.description || homeMarketSelectedItem.name || homeMarketSelectedItem.id,
-                              assetType: homeMarketSelectedItem.type || "stock",
-                              range: homeMarketChartRange,
-                              bars: homeMarketVisibleBars,
-                              currentPrice: getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.price,
-                            })
-                          : {
-                              symbol: homePortfolioChartLabel,
-                              assetName: homePortfolioChartLabel,
-                              assetType: "portfolio",
-                              range: homeMarketChartRange,
-                              bars: homePortfolioLinePoints.map((point) => ({
-                                time: new Date(point.timeMs).toISOString(),
-                                close: point.rawValue,
-                                pctChange: point.value,
-                              })),
-                              currentPrice: homePortfolioMarketValue,
-                              viewMode: homePortfolioViewMode,
-                              focusedSymbols: homePortfolioPositions.map((position) => position.symbol).filter(Boolean),
-                              positionIntent: homePortfolioViewMode,
-                            };
-                        openChartExplainPopup(context, "Explain this chart");
-                      }}
-                      style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid rgba(124,196,255,0.28)", background: "rgba(124,196,255,0.08)", color: "#d7efff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                    >Ask Rayla → Explain this chart</button>
-                  </div>
                 )}
               </div>
             </div>
