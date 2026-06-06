@@ -6031,7 +6031,7 @@ const MY_TRADES_HELP = {
   },
   exits: {
     title: "Exit Plan",
-    body: "Plan Only means Rayla records your stop/target idea, but does not send those levels to Alpaca yet.",
+    body: "In Price mode, stop and target are submitted to Alpaca as bracket order legs alongside your entry. In P&L mode, the dollar amounts are for planning only and are not sent to the broker.",
   },
   riskReward: {
     title: "R/R Ratio",
@@ -12820,6 +12820,7 @@ useEffect(() => {
     leverage: "1x",
     planStop: "",
     planTarget: "",
+    extendedHours: false,
   });
   const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(true);
   const [alpacaOrderPlanMode, setAlpacaOrderPlanMode] = useState("price");
@@ -15307,6 +15308,7 @@ useEffect(() => {
       planMode: alpacaOrderPlanMode,
       sizeMode: alpacaOrderSizeMode,
       sizeInput: alpacaOrderSizeInput || null,
+      extendedHours: alpacaOrderForm.type === "limit" && alpacaOrderForm.extendedHours === true,
       insight,
       realityCheck: buildOrderRealityCheck({
         symbol,
@@ -15343,6 +15345,12 @@ useEffect(() => {
         }
       }
 
+      const bracketTargetPrice = !pendingAlpacaOrderConfirmation.isCloseOrder && pendingAlpacaOrderConfirmation.planMode === "price"
+        ? (Number.isFinite(Number(pendingAlpacaOrderConfirmation.planTarget)) && Number(pendingAlpacaOrderConfirmation.planTarget) > 0 ? Number(pendingAlpacaOrderConfirmation.planTarget) : null)
+        : null;
+      const bracketStopPrice = !pendingAlpacaOrderConfirmation.isCloseOrder && pendingAlpacaOrderConfirmation.planMode === "price"
+        ? (Number.isFinite(Number(pendingAlpacaOrderConfirmation.planStop)) && Number(pendingAlpacaOrderConfirmation.planStop) > 0 ? Number(pendingAlpacaOrderConfirmation.planStop) : null)
+        : null;
       const payload = {
         symbol: pendingAlpacaOrderConfirmation.symbol,
         side: pendingAlpacaOrderConfirmation.side,
@@ -15356,6 +15364,9 @@ useEffect(() => {
         ...(pendingAlpacaOrderConfirmation.type === "stop" || pendingAlpacaOrderConfirmation.type === "stop_limit"
           ? { stop_price: pendingAlpacaOrderConfirmation.stopPrice }
           : {}),
+        ...(pendingAlpacaOrderConfirmation.extendedHours ? { extended_hours: true } : {}),
+        ...(bracketTargetPrice != null ? { take_profit: { limit_price: bracketTargetPrice } } : {}),
+        ...(bracketStopPrice != null ? { stop_loss: { stop_price: bracketStopPrice } } : {}),
       };
 
       const { data, error } = await supabase.functions.invoke("alpaca-place-order", {
@@ -23073,11 +23084,6 @@ return (
               <div className="tradePageHeader mobilePageHeader">
                 <div className="pageTitleHelpStack">
                   <div className="raylaPageTitle tradePageTitle mobilePageTitle">Live Trades</div>
-                  {isBeginnerMode && (
-                    <button type="button" onClick={() => setActiveTour("trades")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 4, display: "inline-block" }}>
-                      Feeling lost? Click here.
-                    </button>
-                  )}
                 </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
@@ -23217,14 +23223,16 @@ return (
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80" }}>
-                              Exit Plan · Plan Only
+                              Exit Plan
                             </div>
                             <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>
-                              {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "P&L mode" : "Price mode"}
+                              {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "P&L mode · planning only" : "Price mode · bracket order"}
                             </div>
                           </div>
                           <div style={{ fontSize: 11, color: "#86efac", lineHeight: 1.5 }}>
-                            These levels are for reference only and are NOT submitted to the broker.
+                            {pendingAlpacaOrderConfirmation.planMode === "price"
+                              ? "Stop and target will be submitted as live bracket order legs."
+                              : "P&L levels are for reference only and are NOT submitted to the broker."}
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
                             {pendingAlpacaOrderConfirmation.planStop && (
@@ -23314,118 +23322,88 @@ return (
 
               <div className="tradeWorkspaceShell" style={{ marginBottom: 16, overflow: "visible" }}>
                 <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div className="tradeWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
-                    <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                          Broker Connection
+                  {alpacaAccount ? (() => {
+                    const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
+                    const dayPnLPos = Number.isFinite(dayPnL) && dayPnL >= 0;
+                    const dayPnLStr = Number.isFinite(dayPnL) ? `${dayPnLPos ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
+                        {/* Compact broker status pill */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", display: "inline-block", boxShadow: "0 0 6px rgba(74,222,128,0.7)", flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#4ade80", whiteSpace: "nowrap" }}>
+                            {alpacaAccount.isPaper ? "Connected · Paper Account" : "Connected · Live Account"}
+                          </span>
+                          {alpacaAccount.accountNumber ? (
+                            <span style={{ fontSize: 11, color: "#64748b", whiteSpace: "nowrap" }}>· {alpacaAccount.accountNumber}</span>
+                          ) : null}
                         </div>
-                        {alpacaAccount && (
-                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 6, background: alpacaAccount.isPaper ? "rgba(167,139,250,0.12)" : "rgba(74,222,128,0.12)", border: `1px solid ${alpacaAccount.isPaper ? "rgba(167,139,250,0.28)" : "rgba(74,222,128,0.28)"}`, color: alpacaAccount.isPaper ? "#a78bfa" : "#4ade80" }}>
-                            {alpacaAccount.isPaper ? "Paper" : "Live"}
+                        {/* Divider */}
+                        <div style={{ width: 1, height: 24, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+                        {/* Compact account metrics row */}
+                        {[
+                          { label: "BUYING POWER", value: formatCurrency(alpacaAccount.buyingPower), color: "#e2e8f0" },
+                          { label: "CASH", value: formatCurrency(alpacaAccount.cash), color: "#e2e8f0" },
+                          { label: "DAY P/L", value: dayPnLStr, color: Number.isFinite(dayPnL) ? (dayPnLPos ? "#4ade80" : "#f87171") : "#e2e8f0", prominent: true },
+                          { label: "EQUITY", value: formatCurrency(alpacaAccount.equity), color: "#e2e8f0" },
+                        ].map((item) => (
+                          <div key={item.label} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", color: "#475569", textTransform: "uppercase" }}>{item.label}</span>
+                            <span style={{ fontSize: item.prominent ? 16 : 13, fontWeight: item.prominent ? 800 : 700, fontVariantNumeric: "tabular-nums", color: item.color }}>{item.value}</span>
                           </div>
-                        )}
+                        ))}
                       </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: alpacaAccount ? "#4ade80" : "#e2e8f0" }}>
-                        {alpacaAccount
-                          ? alpacaAccount.isPaper ? "Connected · Paper Account" : "Connected · Live Account"
-                          : "Broker not connected"}
-                      </div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                        Rayla submits broker orders only after your confirmation. Broker data stays synced to your workspace.
-                      </div>
-                      {alpacaAccount?.accountNumber ? (
-                        <div style={{ fontSize: 11, color: "#7f8ea3" }}>
-                          Alpaca · Account {alpacaAccount.accountNumber}
+                    );
+                  })() : (
+                    <div className="tradeWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.1fr) minmax(420px, 2fr)", gap: 14 }}>
+                      <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "linear-gradient(180deg, rgba(124,196,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(124,196,255,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                            Broker Connection
+                          </div>
                         </div>
-                      ) : null}
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          className="ghostButton"
-                          onClick={() => handleConnectAlpaca(false)}
-                          style={{
-                            background: alpacaAccount?.isPaper === false ? "rgba(74,222,128,0.12)" : "rgba(124,196,255,0.12)",
-                            borderColor: alpacaAccount?.isPaper === false ? "rgba(74,222,128,0.28)" : "rgba(124,196,255,0.28)",
-                          }}
-                        >
-                          {alpacaAccount?.isPaper === false ? "Reconnect Live Alpaca" : "Connect Live Alpaca"}
-                        </button>
-                        {alpacaAccount?.isPaper !== false ? (
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>
+                          Broker not connected
+                        </div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                          Rayla submits broker orders only after your confirmation. Broker data stays synced to your workspace.
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            onClick={() => handleConnectAlpaca(false)}
+                            style={{
+                              background: "rgba(124,196,255,0.12)",
+                              borderColor: "rgba(124,196,255,0.28)",
+                            }}
+                          >
+                            Connect Live Alpaca
+                          </button>
                           <button
                             type="button"
                             className="ghostButton"
                             onClick={() => handleConnectAlpaca(true)}
                             style={{
-                              background: alpacaAccount?.isPaper === true ? "rgba(167,139,250,0.12)" : "rgba(255,255,255,0.025)",
-                              borderColor: alpacaAccount?.isPaper === true ? "rgba(167,139,250,0.28)" : "rgba(255,255,255,0.1)",
-                              color: alpacaAccount?.isPaper === true ? "#c4b5fd" : "#cbd5e1",
+                              background: "rgba(255,255,255,0.025)",
+                              borderColor: "rgba(255,255,255,0.1)",
+                              color: "#cbd5e1",
                             }}
                           >
-                            {alpacaAccount?.isPaper === true ? "Reconnect Paper" : "Connect Paper Alpaca"}
+                            Connect Paper Alpaca
                           </button>
-                        ) : null}
-                        {alpacaAccount ? (
-                          <button type="button" className="ghostButton" onClick={() => fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" })}>
-                            Refresh Broker Data
-                          </button>
-                        ) : null}
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                        Account Snapshot
-                      </div>
-                      {alpacaAccount ? (() => {
-                        const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
-                        const dayPnLPos = Number.isFinite(dayPnL) && dayPnL >= 0;
-                        const dayPnLStr = Number.isFinite(dayPnL) ? `${dayPnLPos ? "+" : ""}${formatCurrency(dayPnL)}` : "--";
-                        return (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                            {/* Primary metrics — live pulse */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                              <div className="accountSnapshotPrimary">
-                                <div className="accountSnapshotLabel">Day P/L</div>
-                                <div className="accountSnapshotValue" style={{ color: Number.isFinite(dayPnL) ? (dayPnLPos ? "#4ade80" : "#f87171") : "#e2e8f0" }}>
-                                  {dayPnLStr}
-                                </div>
-                              </div>
-                              <div className="accountSnapshotPrimary">
-                                <div className="accountSnapshotLabel" style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                                  Buying Power
-                                  {showBeginnerGuidance && <InlineHelpButton topic="buyingPower" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
-                                </div>
-                                <div className="accountSnapshotValue" style={{ color: "#e2e8f0" }}>
-                                  {formatCurrency(alpacaAccount.buyingPower)}
-                                </div>
-                                {showBeginnerGuidance && tradeHelpTopic === "buyingPower" ? <InlineHelpCard topic="buyingPower" /> : null}
-                              </div>
-                            </div>
-                            {/* Secondary metrics — reference data */}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 6 }}>
-                              {[
-                                { label: "Status", value: alpacaAccount.status || "--" },
-                                { label: "Cash", value: formatCurrency(alpacaAccount.cash) },
-                                { label: "Portfolio", value: formatCurrency(alpacaAccount.portfolioValue) },
-                                { label: "Equity", value: formatCurrency(alpacaAccount.equity) },
-                                ...(Number(alpacaAccount.raw?.multiplier ?? 1) > 1 ? [{ label: "Margin", value: `${alpacaAccount.raw?.multiplier}x` }] : []),
-                              ].map((item) => (
-                                <div key={item.label} className="accountSnapshotSecondary">
-                                  <div className="accountSnapshotLabel">{item.label}</div>
-                                  <div className="accountSnapshotValue">{item.value}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })() : (
+                      <div className="tradeWorkspaceCard" style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                          Account Snapshot
+                        </div>
                         <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
                           Connect your Alpaca account to see buying power, P/L, and account health.
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {alpacaConnectionLoading && (
                     <div style={{ fontSize: 13, color: "#94a3b8" }}>
@@ -23441,7 +23419,6 @@ return (
                             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                               Open Positions & Holdings
                             </div>
-                            {showBeginnerGuidance && <InlineHelpButton topic="brokerPortfolio" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                           </div>
                           {alpacaPositions.length > 0 ? (
                             <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>
@@ -23449,12 +23426,6 @@ return (
                             </div>
                           ) : null}
                         </div>
-                        {alpacaPositions.length > 0 && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ fontSize: 11, color: "#7f8ea3", letterSpacing: "0.2px", lineHeight: 1.45 }}>Select for chart focus.</div>
-                          </div>
-                        )}
-                        {showBeginnerGuidance && tradeHelpTopic === "brokerPortfolio" ? <InlineHelpCard topic="brokerPortfolio" /> : null}
                         {brokerPositionsWithIntent.length ? (
                           <div className="tradePositionsList" style={{ overflowY: "auto", minHeight: 0 }}>
                             {(() => {
@@ -23468,8 +23439,11 @@ return (
                                   ? getBrokerOrderStatusPresentation(failedCloseOrder)
                                   : null;
                                 const isPositionSelected = brokerSelectionIncludesSymbol(tradeAppliedSelection.symbols, position.symbol) && tradeAppliedSelection.mode === "asset";
+                                const currentPrice = brokerSymbolsMatch(tradePanelSymbol, position.symbol) && Number.isFinite(tradePanelCurrentPrice)
+                                  ? tradePanelCurrentPrice
+                                  : position.currentPrice;
                                 return (
-                                  <div
+                                  <tr
                                     key={position.symbol}
                                     role="button"
                                     tabIndex={0}
@@ -23481,133 +23455,134 @@ return (
                                     }}
                                     className="tradePositionRow"
                                     style={{
-                                      padding: isMobileView ? 9 : 12,
-                                      borderRadius: 12,
                                       background: pendingCloseOrder
                                         ? "rgba(251,146,60,0.055)"
                                         : isPositionSelected
                                           ? "rgba(124,196,255,0.08)"
-                                          : "rgba(255,255,255,0.03)",
-                                      border: `1px solid ${pendingCloseOrder ? "rgba(251,146,60,0.24)" : isPositionSelected ? "rgba(124,196,255,0.45)" : "rgba(255,255,255,0.06)"}`,
-                                      boxShadow: isPositionSelected ? "0 0 0 1px rgba(124,196,255,0.15), 0 0 18px rgba(124,196,255,0.08)" : "none",
+                                          : "transparent",
+                                      outline: isPositionSelected ? "1px solid rgba(124,196,255,0.45)" : "none",
                                       cursor: "pointer",
-                                      textAlign: "left",
-                                      width: "100%",
-                                      transition: "border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
+                                      transition: "background 160ms ease",
                                     }}
                                     onMouseEnter={(e) => {
                                       if (!isPositionSelected && !pendingCloseOrder) {
-                                        e.currentTarget.style.borderColor = "rgba(124,196,255,0.18)";
                                         e.currentTarget.style.background = "rgba(124,196,255,0.05)";
                                       }
                                     }}
                                     onMouseLeave={(e) => {
                                       if (!isPositionSelected && !pendingCloseOrder) {
-                                        e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                                        e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                                        e.currentTarget.style.background = "transparent";
                                       }
                                     }}
                                   >
-                                    <div className="tradePositionRowHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobileView ? 8 : 12 }}>
-                                      <div className="tradePositionRowIdentity" style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap" }}>
-                                        <div style={{ fontSize: isMobileView ? 14 : 15, fontWeight: 700, color: "#e2e8f0" }}>{position.symbol}</div>
-                                        <div
-                                          className="tradePositionIntentControl"
-                                          onClick={(event) => event.stopPropagation()}
-                                          onMouseDown={(event) => event.stopPropagation()}
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                        >
-                                          <RaylaDropdown
-                                            value={position.positionType}
-                                            onChange={(value) => updateBrokerPositionIntent(position.symbol, { positionType: value })}
-                                            options={POSITION_TYPE_OPTIONS}
-                                            width={isMobileView ? 112 : 126}
-                                            size="compact"
-                                            ariaLabel="Position type"
-                                            menuWidth={isMobileView ? 180 : 190}
-                                          />
-                                        </div>
-                                        {pendingCloseOrder ? (
-                                          <div style={{ padding: "3px 8px", borderRadius: 999, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, color: pendingCloseStatus.color, fontSize: 10, fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-                                            Close pending
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                      <div className="tradePositionRowActions" style={{ display: "flex", alignItems: "center", gap: isMobileView ? 6 : 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                        <div className="tradePositionPnl" style={{ fontSize: 12, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
-                                          {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
-                                        </div>
+                                    {/* Symbol */}
+                                    <td style={{ padding: "7px 10px 7px 0", fontWeight: 700, fontSize: 13, color: "#e2e8f0", whiteSpace: "nowrap" }}>
+                                      {position.symbol}
+                                    </td>
+                                    {/* Intent badge */}
+                                    <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onPointerDown={(e) => e.stopPropagation()}
+                                    >
+                                      <RaylaDropdown
+                                        value={position.positionType}
+                                        onChange={(value) => updateBrokerPositionIntent(position.symbol, { positionType: value })}
+                                        options={POSITION_TYPE_OPTIONS}
+                                        width={118}
+                                        size="compact"
+                                        ariaLabel="Position type"
+                                        menuWidth={190}
+                                      />
+                                    </td>
+                                    {/* Qty */}
+                                    <td style={{ padding: "7px 8px", fontSize: 12, color: "#cbd5e1", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                                      {formatBrokerQuantity(position.qty)}
+                                    </td>
+                                    {/* Avg Entry */}
+                                    <td style={{ padding: "7px 8px", fontSize: 12, color: "#94a3b8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                                      {formatCurrency(position.avgEntryPrice)}
+                                    </td>
+                                    {/* Current Price */}
+                                    <td style={{ padding: "7px 8px", fontSize: 12, color: "#e2e8f0", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                                      {formatCurrency(currentPrice)}
+                                    </td>
+                                    {/* P&L */}
+                                    <td style={{ padding: "7px 8px", fontSize: 12, fontWeight: 700, color: position.unrealizedPl >= 0 ? "#4ade80" : "#f87171", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                                      {`${position.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(position.unrealizedPl)}`}
+                                    </td>
+                                    {/* Close button */}
+                                    <td style={{ padding: "7px 0 7px 8px", whiteSpace: "nowrap" }}>
+                                      {pendingCloseOrder ? (
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: pendingCloseStatus.color, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, borderRadius: 6, padding: "3px 7px", display: "inline-block" }}>
+                                          Pending
+                                        </span>
+                                      ) : failedCloseOrder ? (
                                         <button
                                           className="tradeCloseButton"
                                           type="button"
-                                          disabled={Boolean(pendingCloseOrder)}
-                                          onClick={(e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            if (pendingCloseOrder) return;
-                                            prepareCloseAlpacaPosition(position);
-                                          }}
-                                          style={{
-                                            padding: isMobileView ? "5px 8px" : "7px 10px",
-                                            minHeight: isMobileView ? 28 : undefined,
-                                            borderRadius: isMobileView ? 7 : 8,
-                                            border: pendingCloseOrder ? "1px solid rgba(251,146,60,0.18)" : "1px solid rgba(248,113,113,0.2)",
-                                            background: pendingCloseOrder ? "rgba(251,146,60,0.055)" : "rgba(248,113,113,0.045)",
-                                            color: pendingCloseOrder ? "#fbbf24" : "#fecaca",
-                                            fontSize: isMobileView ? 10 : 11,
-                                            fontWeight: 800,
-                                            cursor: pendingCloseOrder ? "not-allowed" : "pointer",
-                                            whiteSpace: "nowrap",
-                                            opacity: pendingCloseOrder ? 0.78 : 1,
-                                          }}
+                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); prepareCloseAlpacaPosition(position); }}
+                                          style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid rgba(248,113,113,0.28)", background: "rgba(248,113,113,0.08)", color: "#fca5a5", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
                                         >
-                                          {pendingCloseOrder ? "Awaiting fill" : "Close"}
+                                          Retry
                                         </button>
-                                      </div>
-                                    </div>
-                                    <div className="tradePositionRowMeta" style={{ marginTop: isMobileView ? 4 : 6, fontSize: isMobileView ? 11 : 12, color: "#94a3b8", lineHeight: isMobileView ? 1.35 : 1.6 }}>
-                                      Qty {formatBrokerQuantity(position.qty)} • Avg {formatCurrency(position.avgEntryPrice)} • Current {formatCurrency(brokerSymbolsMatch(tradePanelSymbol, position.symbol) && Number.isFinite(tradePanelCurrentPrice) ? tradePanelCurrentPrice : position.currentPrice)} • Value {formatCurrency(position.marketValue)}
-                                    </div>
-                                    {pendingCloseOrder ? (
-                                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(251,146,60,0.07)", border: "1px solid rgba(251,146,60,0.16)", color: "#fed7aa", fontSize: 11, lineHeight: 1.45 }}>
-                                        {pendingCloseStatus.label}
-                                      </div>
-                                    ) : failedCloseOrder ? (
-                                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.14)", color: "#fecaca", fontSize: 11, lineHeight: 1.45 }}>
-                                        Last close attempt: {failedCloseStatus.label}
-                                      </div>
-                                    ) : null}
-                                  </div>
+                                      ) : (
+                                        <button
+                                          className="tradeCloseButton"
+                                          type="button"
+                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); prepareCloseAlpacaPosition(position); }}
+                                          style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid rgba(248,113,113,0.2)", background: "rgba(248,113,113,0.045)", color: "#fecaca", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
+                                        >
+                                          Close
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
                                 );
                               };
                               const sections = [
                                 {
                                   id: "active",
-                                  title: "Day Trades",
+                                  title: "DAY TRADES",
                                   empty: "No day trade positions.",
                                   positions: activeBrokerPositions,
                                 },
                                 {
                                   id: "holdings",
-                                  title: "Long-Term Holdings",
+                                  title: "LONG-TERM HOLDINGS",
                                   empty: "No long-term holdings classified yet.",
                                   positions: longTermBrokerPositions,
                                 },
                               ];
                               return (
-                                <div className="tradePositionsSplit">
+                                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                                   {sections.map((section) => (
-                                    <section className="tradePositionsColumn" key={section.id}>
-                                      <div className="tradePositionsColumnHeader">
-                                        <div className="tradePositionsColumnTitle">{section.title}</div>
-                                        <div className="tradePositionsColumnCount">{section.positions.length}</div>
+                                    <div key={section.id}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "1.1px", textTransform: "uppercase", color: "#475569" }}>{section.title}</div>
+                                        <div style={{ fontSize: 10, fontWeight: 700, color: "#334155" }}>{section.positions.length}</div>
                                       </div>
                                       {section.positions.length ? (
-                                        section.positions.map(renderPositionRow)
+                                        <div style={{ overflowX: "auto" }}>
+                                          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
+                                            <thead>
+                                              <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                                                {["Symbol", "Intent", "Qty", "Avg Entry", "Price", "P&L", ""].map((h) => (
+                                                  <th key={h} style={{ padding: "4px 8px 6px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#475569", letterSpacing: "0.6px", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                                                    {h}
+                                                  </th>
+                                                ))}
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {section.positions.map(renderPositionRow)}
+                                            </tbody>
+                                          </table>
+                                        </div>
                                       ) : (
-                                        <div className="tradePositionsColumnEmpty">{section.empty}</div>
+                                        <div style={{ fontSize: 12, color: "#475569", paddingLeft: 2 }}>{section.empty}</div>
                                       )}
-                                    </section>
+                                    </div>
                                   ))}
                                 </div>
                               );
@@ -23655,16 +23630,30 @@ return (
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                                   <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-                                      <ChartTimeframeDropdown
-                                        value={tradeChartRange}
-                                        onChange={setTradeChartRange}
-                                        options={LIVE_WIDGET_INTERVAL_OPTIONS}
-                                        width={88}
-                                      />
-                                      {showBeginnerGuidance && <InlineHelpButton topic="timeframe" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
+                                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 3, borderRadius: 999, border: "1px solid rgba(124,196,255,0.12)", background: "rgba(6,12,22,0.68)" }}>
+                                      {[{ value: "1m", label: "1m" }, { value: "5m", label: "5m" }, { value: "15m", label: "15m" }, { value: "1h", label: "1H" }, { value: "1D", label: "1D" }].map((opt) => (
+                                        <button
+                                          key={opt.value}
+                                          type="button"
+                                          onClick={() => setTradeChartRange(opt.value)}
+                                          style={{
+                                            minHeight: 28,
+                                            border: 0,
+                                            borderRadius: 999,
+                                            background: tradeChartRange === opt.value ? "linear-gradient(180deg, #9bd4ff, #6bbcff)" : "transparent",
+                                            color: tradeChartRange === opt.value ? "#07111d" : "#8fa0b7",
+                                            font: "inherit",
+                                            fontSize: 11,
+                                            fontWeight: 850,
+                                            padding: "5px 10px",
+                                            cursor: "pointer",
+                                            boxShadow: tradeChartRange === opt.value ? "0 8px 22px rgba(124,196,255,0.16)" : "none",
+                                          }}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
                                     </div>
-                                    {showBeginnerGuidance && tradeHelpTopic === "timeframe" ? <InlineHelpCard topic="timeframe" /> : null}
                                     {tradeIsComparisonMode ? (
                                       <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                                         {[["line", "Line"]].map(([mode, label]) => (
@@ -23691,52 +23680,7 @@ return (
                                       </div>
                                     ) : null}
                                   </div>
-                                {tradeChartUpdatedLabel && (
-                                  <div style={{ fontSize: 10, color: "#7f8ea3" }}>
-                                    Last updated: {tradeChartUpdatedLabel}
-                                  </div>
-                                )}
                               </div>
-                              {tradeChartSymbol && !tradeIsComparisonMode && (
-                                <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                                  <button
-                                    className="raylaAskTypography"
-                                    type="button"
-                                    onClick={() => {
-                                      const chartContext = buildChartExplainContext({
-                                        symbol: tradeChartSymbol,
-                                        assetName: tradeChartAsset?.description || tradeChartAsset?.name || tradeChartSymbol,
-                                        assetType: tradeChartAsset?.type || "stock",
-                                        range: tradeChartRange,
-                                        bars: tradeVisibleBars,
-                                        currentPrice: tradeChartCurrentPrice,
-                                        positionSummary: tradeChartMatchingPosition
-                                          ? {
-                                              qty: tradeChartMatchingPosition.qty,
-                                              avgEntryPrice: tradeChartMatchingPosition.avgEntryPrice,
-                                              marketValue: tradeChartMatchingPosition.marketValue,
-                                              unrealizedPl: tradeChartMatchingPosition.unrealizedPl,
-                                              unrealizedPlpc: tradeChartMatchingPosition.unrealizedPlpc,
-                                            }
-                                          : null,
-                                      });
-                                      openChartExplainPopup(chartContext, "Explain this chart");
-                                    }}
-                                    style={{
-                                      padding: "7px 12px",
-                                      borderRadius: 999,
-                                      border: "1px solid rgba(124,196,255,0.28)",
-                                      background: "rgba(124,196,255,0.08)",
-                                      color: "#d7efff",
-                                      fontSize: 12,
-                                      fontWeight: 700,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Ask Rayla → Explain this chart
-                                  </button>
-                                </div>
-                              )}
                               {tradeIsComparisonMode ? (() => {
                                 const palette = ["#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa", "#fb923c"];
                                 const xL = 34, xR = 184, yT = 14, yB = 98;
@@ -24011,9 +23955,6 @@ return (
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
-                        <BrokerDisclosureNote compact>
-                          Asset availability, margin/leverage, and short selling depend on your connected broker, account permissions, and current borrow availability.
-                        </BrokerDisclosureNote>
                         {preparedCloseOrder ? (
                           <div style={{ padding: 12, borderRadius: 12, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.22)", display: "flex", flexDirection: "column", gap: 6 }}>
                             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.9px", textTransform: "uppercase", color: "#fecaca" }}>
@@ -24050,150 +23991,18 @@ return (
                         {(() => {
                           const selectedSymbol = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
                           if (!selectedSymbol) return null;
-
-                          const matchingPosition = findBrokerPositionBySymbol(alpacaPositions, selectedSymbol);
-                          const selectedOrderQuote = getKnownStockQuoteData(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
                           const selectedOrderAssetPrice = Number.isFinite(tradePanelCurrentPrice) && brokerSymbolsMatch(selectedSymbol, tradePanelSymbol)
                             ? tradePanelCurrentPrice
                             : getKnownStockQuotePrice(selectedSymbol, simulationQuotes, marketItems, alpacaAssetQuotes);
-                          const selectedOrderBid = Number(selectedOrderQuote?.bid);
-                          const selectedOrderAsk = Number(selectedOrderQuote?.ask);
-                          const selectedOrderLastTradePrice = Number(selectedOrderQuote?.lastTradePrice ?? selectedOrderQuote?.price);
-                          const selectedOrderSpread = getQuoteSpread(selectedOrderQuote);
-                          const orderQuoteIsFresh = isQuoteFresh(selectedOrderQuote);
                           const currentPositionPrice = Number.isFinite(selectedOrderAssetPrice)
                             ? selectedOrderAssetPrice
-                            : matchingPosition?.currentPrice;
-                          const unrealizedPl = matchingPosition?.unrealizedPl ?? null;
-                          const unrealizedPlpc = matchingPosition?.unrealizedPlpc ?? null;
-                          const selectedBrokerAsset = alpacaAssetSearchResults.find((asset) => brokerSymbolsMatch(asset.symbol, selectedSymbol))
-                            || (brokerSymbolsMatch(tradeSelectedBrokerAsset?.symbol, selectedSymbol) ? tradeSelectedBrokerAsset : null);
-                          const selectedBrokerAssetLabel = selectedBrokerAsset?.assetClass === "crypto" ? "Crypto" : selectedBrokerAsset?.exchange || "";
-                          const accountMultiplier = Math.max(1, Number(alpacaAccount?.raw?.multiplier ?? 1) || 1);
-                          const leverageAvailable = accountMultiplier > 1 && selectedBrokerAsset?.marginable;
-                          const capabilityBadges = getBrokerCapabilityBadges({
-                            tradable: selectedBrokerAsset?.tradable ?? true,
-                            marginable: selectedBrokerAsset?.marginable ?? false,
-                            shortable: selectedBrokerAsset?.shortable ?? false,
-                            easyToBorrow: selectedBrokerAsset?.easyToBorrow ?? false,
-                            assetClass: selectedBrokerAsset?.assetClass || matchingPosition?.assetClass || tradePanelAsset?.type || "us_equity",
-                          });
-
+                            : findBrokerPositionBySymbol(alpacaPositions, selectedSymbol)?.currentPrice;
                           return (
-                            <div className="tradeSelectedAssetCard" style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
-                              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                                <div>
-                                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 6 }}>
-                                    Selected Asset
-                                  </div>
-                                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{selectedSymbol}</div>
-                                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                                    {selectedBrokerAsset?.name || tradePanelAsset?.description || (matchingPosition ? "Connected broker position" : "Searching broker asset details")}
-                                    {selectedBrokerAssetLabel ? ` · ${selectedBrokerAssetLabel}` : ""}
-                                  </div>
-                                </div>
-                                {Number.isFinite(currentPositionPrice) ? (
-                                  <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
-                                    {formatCurrency(currentPositionPrice)}
-                                  </div>
-                                ) : null}
-                              </div>
-                              {capabilityBadges.length ? (
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                  {capabilityBadges.map((badge) => (
-                                    <div
-                                      key={badge.label}
-                                      style={{
-                                        padding: "4px 8px",
-                                        borderRadius: 999,
-                                        fontSize: 10,
-                                        fontWeight: 700,
-                                        letterSpacing: "0.5px",
-                                        ...getCapabilityBadgeStyle(badge.tone),
-                                      }}
-                                    >
-                                      {badge.label}
-                                    </div>
-                                  ))}
-                                </div>
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "4px 2px 2px" }}>
+                              <div style={{ fontSize: 22, fontWeight: 800, color: "#e2e8f0", letterSpacing: "-0.3px" }}>{selectedSymbol}</div>
+                              {Number.isFinite(currentPositionPrice) ? (
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff" }}>{formatCurrency(currentPositionPrice)}</div>
                               ) : null}
-                              {matchingPosition ? (
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-                                  <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Units</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatBrokerQuantity(matchingPosition.qty)}</div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Avg Price</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{formatCurrency(matchingPosition.avgEntryPrice)}</div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Current Price</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>
-                                      {Number.isFinite(currentPositionPrice) ? formatCurrency(currentPositionPrice) : "--"}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
-                                      <div style={{ fontSize: 12, color: "#7f8ea3" }}>Live Unrealized P/L</div>
-                                      {showBeginnerGuidance && <InlineHelpButton topic="unrealizedPnL" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
-                                    </div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: unrealizedPl >= 0 ? "#4ade80" : "#f87171" }}>
-                                      {Number.isFinite(unrealizedPl)
-                                        ? `${unrealizedPl >= 0 ? "+" : ""}${formatCurrency(unrealizedPl)}${Number.isFinite(unrealizedPlpc) ? ` (${unrealizedPlpc >= 0 ? "+" : ""}${(unrealizedPlpc * 100).toFixed(1)}%)` : ""}`
-                                        : "--"}
-                                    </div>
-                                    {showBeginnerGuidance && tradeHelpTopic === "unrealizedPnL" ? <InlineHelpCard topic="unrealizedPnL" /> : null}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                                  {`No current position in ${selectedSymbol}.`}
-                                </div>
-                              )}
-                              <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 6 }}>
-                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                                    Margin / Leverage
-                                  </div>
-                                  {showBeginnerGuidance && <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
-                                </div>
-                                <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                                  {leverageAvailable
-                                    ? `${selectedSymbol} is marginable on this account. Max buying power: ${accountMultiplier}x.`
-                                    : "Margin/leverage availability depends on your broker account permissions."}
-                                </div>
-                                {showBeginnerGuidance && tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
-                              </div>
-                              <div style={{ paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 8 }}>
-                                <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.5 }}>
-                                  Chart is for visual reference. Rayla orders use Alpaca live market data.
-                                </div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: "#f8fbff" }}>
-                                  Current Alpaca price: {Number.isFinite(selectedOrderAssetPrice) ? formatCurrency(selectedOrderAssetPrice) : "--"}
-                                </div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
-                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                                    Bid: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderBid) ? formatCurrency(selectedOrderBid) : "--"}</span>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                                    Ask: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderAsk) ? formatCurrency(selectedOrderAsk) : "--"}</span>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                                    Last trade: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderLastTradePrice) ? formatCurrency(selectedOrderLastTradePrice) : "--"}</span>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                                    Spread: <span style={{ color: "#e2e8f0" }}>{Number.isFinite(selectedOrderSpread) ? formatCurrency(selectedOrderSpread) : "--"}</span>
-                                  </div>
-                                </div>
-                                <div style={{ fontSize: 11, color: orderQuoteIsFresh ? "#7f8ea3" : "#fca5a5", lineHeight: 1.5 }}>
-                                  {preparedCloseOrder
-                                    ? "Market close orders use your broker position quantity and do not require a fresh Rayla quote."
-                                    : orderQuoteIsFresh
-                                    ? `Last Alpaca update ${formatQuoteUpdatedAt(selectedOrderQuote?.updatedAt)}`
-                                    : "Waiting for fresh Alpaca market data before placing order."}
-                                </div>
-                              </div>
                             </div>
                           );
                         })()}
@@ -24311,9 +24120,7 @@ return (
                           <div data-tour-id="trades-direction">
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Direction</div>
-                              {showBeginnerGuidance && <InlineHelpButton topic="direction" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                             </div>
-                            {showBeginnerGuidance && tradeHelpTopic === "direction" ? <InlineHelpCard topic="direction" /> : null}
                             <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                               {[
                                 { label: "Long", value: "buy", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
@@ -24410,7 +24217,6 @@ return (
                           <div data-tour-id="trades-position-size">
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Position Size</div>
-                              {showBeginnerGuidance && <InlineHelpButton topic="positionSize" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                             </div>
                             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
                               {[
@@ -24442,7 +24248,6 @@ return (
                                   value={alpacaOrderForm.qty}
                                   onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, qty: e.target.value }))}
                                 />
-                                {showBeginnerGuidance && tradeHelpTopic === "positionSize" ? <InlineHelpCard topic="positionSize" /> : null}
                               </>
                             )}
                             {alpacaOrderSizeMode === "dollars" && (() => {
@@ -24530,7 +24335,6 @@ return (
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Type</div>
-                                {showBeginnerGuidance && <InlineHelpButton topic="orderType" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                               </div>
                               <RaylaDropdown
                                 value={alpacaOrderForm.type}
@@ -24538,12 +24342,10 @@ return (
                                 options={ALPACA_ORDER_TYPE_OPTIONS}
                                 ariaLabel="Order type"
                               />
-                              {showBeginnerGuidance && tradeHelpTopic === "orderType" ? <InlineHelpCard topic="orderType" /> : null}
                             </div>
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
-                                {showBeginnerGuidance && <InlineHelpButton topic="timeInForce" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                               </div>
                               <RaylaDropdown
                                 value={alpacaOrderForm.timeInForce}
@@ -24556,9 +24358,36 @@ return (
                                   Fractional equity orders require DAY duration.
                                 </div>
                               )}
-                              {showBeginnerGuidance && tradeHelpTopic === "timeInForce" ? <InlineHelpCard topic="timeInForce" /> : null}
                             </div>
                           </div>
+                          {alpacaOrderForm.type === "limit" && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <span style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Extended Hours</span>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={alpacaOrderForm.extendedHours}
+                                  onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, extendedHours: !prev.extendedHours }))}
+                                  style={{
+                                    width: 36, height: 20, borderRadius: 999, border: "none", cursor: "pointer", padding: 2,
+                                    background: alpacaOrderForm.extendedHours ? "#7aa8d8" : "rgba(255,255,255,0.12)",
+                                    transition: "background 0.15s",
+                                    display: "flex", alignItems: "center",
+                                  }}
+                                >
+                                  <span style={{
+                                    width: 16, height: 16, borderRadius: "50%", background: "#fff", display: "block",
+                                    transform: alpacaOrderForm.extendedHours ? "translateX(16px)" : "translateX(0)",
+                                    transition: "transform 0.15s",
+                                  }} />
+                                </button>
+                              </div>
+                              {alpacaOrderForm.extendedHours && (
+                                <div style={{ fontSize: 10, color: "#64748b" }}>Pre-market 4am–9:30am · After-market 4pm–8pm ET</div>
+                              )}
+                            </div>
+                          )}
                           {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit" || alpacaOrderForm.type === "stop") && (
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
                               {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit") ? (
@@ -24585,50 +24414,6 @@ return (
                               ) : null}
                             </div>
                           )}
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                            <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Leverage / Margin</div>
-                            {showBeginnerGuidance && <InlineHelpButton topic="leverage" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
-                          </div>
-                          {showBeginnerGuidance && tradeHelpTopic === "leverage" ? <InlineHelpCard topic="leverage" /> : null}
-                          <div style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 8 }}>
-                            {alpacaOrderValidation.leverageAvailable ? (
-                              <>
-                                <RaylaDropdown
-                                  value={alpacaOrderForm.leverage}
-                                  onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, leverage: value }))}
-                                  options={tradeSelectedLeverageOptions}
-                                  ariaLabel="Leverage or margin"
-                                />
-                                <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.55 }}>
-                                  Buying power available at {alpacaOrderValidation.effectiveLeverage}x: {formatCurrency(alpacaOrderValidation.buyingPowerLimit)}
-                                </div>
-                                {alpacaOrderValidation.effectiveLeverage > 1 ? (
-                                  <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.5 }}>
-                                    Higher leverage increases risk because the same price move affects a larger position.
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                                Margin/leverage availability depends on your broker account permissions.
-                              </div>
-                            )}
-                          </div>
-                          {(() => {
-                            const dollarInput = Number(alpacaOrderSizeInput);
-                            const displayValue = alpacaOrderSizeMode === "dollars" && Number.isFinite(dollarInput) && dollarInput > 0
-                              ? dollarInput
-                              : alpacaOrderValidation.estimatedValue;
-                            return displayValue != null ? (
-                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                                Estimated order value: <span style={{ color: "#e2e8f0" }}>{formatCurrency(displayValue)}</span>
-                              </div>
-                            ) : preparedCloseOrder ? (
-                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                                Market close order. Estimated value unavailable until fill.
-                              </div>
-                            ) : null;
-                          })()}
                           <div data-tour-id="trades-exit-plan" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
                               <button
@@ -24637,16 +24422,15 @@ return (
                                 style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, flex: 1, minWidth: 0 }}
                               >
                                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Exit Plan</div>
-                                <div style={{ fontSize: 10, color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.18)", borderRadius: 6, padding: "2px 7px" }}>PLAN ONLY</div>
                                 <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{alpacaOrderPlanOpen ? "▲" : "▼"}</div>
                               </button>
-                            {showBeginnerGuidance && <InlineHelpButton topic="exits" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                             </div>
-                            {showBeginnerGuidance && tradeHelpTopic === "exits" ? <InlineHelpCard topic="exits" /> : null}
                             {alpacaOrderPlanOpen && (
                               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                                 <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
-                                  These levels are for planning only — they are NOT submitted to the broker.
+                                  {alpacaOrderPlanMode === "price" && (alpacaOrderForm.planStop || alpacaOrderForm.planTarget)
+                                    ? "Stop and target submitted as live bracket orders"
+                                    : "Optional · add stop and target levels"}
                                 </div>
                                 {/* Mode toggle */}
                                 <div style={{ display: "flex", gap: 6 }}>
@@ -24740,7 +24524,6 @@ return (
                                         <div>
                                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
                                             <div style={{ fontSize: 11, color: "#7f8ea3" }}>R/R Ratio</div>
-                                            {showBeginnerGuidance && <InlineHelpButton topic="riskReward" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                                           </div>
                                           <div style={{ fontSize: 14, fontWeight: 700, color: rr >= 2 ? "#4ade80" : rr >= 1 ? "#fbbf24" : "#f87171" }}>1 : {rr.toFixed(1)}</div>
                                         </div>
@@ -24748,7 +24531,6 @@ return (
                                     </div>
                                   );
                                 })()}
-                                {showBeginnerGuidance && tradeHelpTopic === "riskReward" ? <InlineHelpCard topic="riskReward" /> : null}
                               </div>
                             )}
                           </div>
