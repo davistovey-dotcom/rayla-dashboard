@@ -24897,22 +24897,21 @@ return (
                   )}
 
                   {showBeginnerGuidance && !activeGuidedSimulation && simulationPositions.length === 0 && visibleSimulationTradeHistory.length === 0 && (
-                    <div style={{ ...simulationBriefingPanelStyle, padding: 14, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
-                      <div style={{ minWidth: 220 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
-                          First trade path
-                        </div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", marginBottom: 4 }}>
-                          Pick an Intel asset, simulate the idea, then review the result.
-                        </div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                          Simulation is the safest first rep. Use the chart, set a small plan, then close the trade to unlock Performance feedback.
-                        </div>
-                      </div>
+                    <div style={{ display: "flex", justifyContent: "flex-start" }}>
                       <button
                         type="button"
-                        className="ghostButton"
                         onClick={() => { setActiveTab("intel"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          background: "rgba(255,255,255,0.045)",
+                          color: "#8fa0b7",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          letterSpacing: "0.01em",
+                        }}
                       >
                         Open Intel
                       </button>
@@ -24953,6 +24952,37 @@ return (
                   <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(0, 1fr) minmax(300px, 340px)" : "minmax(0, 1fr) minmax(280px, 320px)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "stretch" }}>
                   {(!isMobileView || simMobileTab === 0) && (
                   <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 560 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
+                    {simulationMode === "scenario" && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>Scenario Setup</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <RaylaDropdown
+                            value={simulationScenarioType}
+                            onChange={setSimulationScenarioType}
+                            options={SIMULATION_SCENARIO_TYPE_OPTIONS}
+                            ariaLabel="Scenario type"
+                          />
+                          {simulationScenarioNoLimit ? (
+                            <RaylaDropdown
+                              value={simulationScenarioSpeed}
+                              onChange={setSimulationScenarioSpeed}
+                              options={SIMULATION_SCENARIO_SPEED_OPTIONS}
+                              ariaLabel="Scenario speed"
+                            />
+                          ) : (
+                            <RaylaDropdown
+                              value={simulationScenarioPlaybackDuration}
+                              onChange={setSimulationScenarioPlaybackDuration}
+                              options={SIMULATION_SCENARIO_DURATION_OPTIONS}
+                              ariaLabel="Scenario playback duration"
+                            />
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.5 }}>
+                          Realistic unlocks AI review after close.
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         Trade Controls
@@ -25038,11 +25068,6 @@ return (
                         </div>
                       </div>
                     )}
-                    {simulationMode === "scenario" && (
-                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                        Set the trade, then press Play.
-                      </div>
-                    )}
 
                     {isBeginner && showSimulationHelp && (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
@@ -25105,39 +25130,6 @@ return (
                       key={`simulation-controls-${simulationAsset?.id || "none"}`}
                       style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}
                     >
-                      {simulationMode === "scenario" && (
-                        <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Scenario setup</div>
-                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                            Choose the market condition and pace.
-                          </div>
-                          <RaylaDropdown
-                            value={simulationScenarioType}
-                            onChange={setSimulationScenarioType}
-                            options={SIMULATION_SCENARIO_TYPE_OPTIONS}
-                            ariaLabel="Scenario type"
-                          />
-                          {simulationScenarioNoLimit ? (
-                            <RaylaDropdown
-                              value={simulationScenarioSpeed}
-                              onChange={setSimulationScenarioSpeed}
-                              options={SIMULATION_SCENARIO_SPEED_OPTIONS}
-                              ariaLabel="Scenario speed"
-                            />
-                          ) : (
-                            <RaylaDropdown
-                              value={simulationScenarioPlaybackDuration}
-                              onChange={setSimulationScenarioPlaybackDuration}
-                              options={SIMULATION_SCENARIO_DURATION_OPTIONS}
-                              ariaLabel="Scenario playback duration"
-                            />
-                          )}
-                          <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.5 }}>
-                            Realistic unlocks AI review after close.
-                          </div>
-                        </div>
-                      )}
-
                       <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Trade direction</div>
                       <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
@@ -25371,22 +25363,7 @@ return (
                               : "Check the asset, size, and exit plan."}
                           </div>
                         </div>
-                        {simulationMode === "scenario" ? (
-                          <div
-                            style={{
-                              padding: "12px 14px",
-                              borderRadius: 10,
-                              background: "rgba(124,196,255,0.08)",
-                              border: "1px solid rgba(124,196,255,0.18)",
-                              fontSize: 13,
-                              color: "#cbd5e1",
-                              lineHeight: 1.6,
-                            }}
-                          >
-                            Press <span style={{ color: "#dbeafe", fontWeight: 700 }}>Play</span> when the plan is set.
-                          </div>
-                        ) : (
-                          <button
+                        <button
                             type="button"
                             className="ghostButton"
                             onClick={handleOpenSimulationTrade}
@@ -25395,7 +25372,6 @@ return (
                           >
                             {selectedSimulationOpenPosition ? "Trade Active" : "Open Trade"}
                           </button>
-                        )}
                       </div>
                       )}
                     </div>
@@ -25420,11 +25396,6 @@ return (
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      {useScenarioDesktopLayout && (
-                        <div style={{ fontSize: 12, color: "#9fb2c7", padding: "6px 10px", borderRadius: 10, background: "rgba(124,196,255,0.07)", border: "1px solid rgba(124,196,255,0.14)" }}>
-                          Press Play when the plan is set.
-                        </div>
-                      )}
                       <div style={{ fontSize: 13, color: "#94a3b8" }}>
                         {simulationMode === "scenario" ? "Scenario price" : "Current price"}: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>
                           {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
@@ -25535,142 +25506,160 @@ return (
                       </div>
                       <div className="scenarioChartControlArea" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flex: isMobileView ? 1 : undefined }}>
                         {simulationMode === "scenario" && (
-                          <>
-                            <div className="scenarioChartToolbarStack" style={{ display: "flex", alignItems: "center", gap: isMobileView ? 8 : 14, flexWrap: "wrap", justifyContent: isMobileView ? "center" : "flex-end", flex: 1, minWidth: 0 }}>
-                              <div className="scenarioChartActionToolbar">
+                          <div className="scenarioChartUnifiedToolbar" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: isMobileView ? "center" : "flex-end", flex: 1, minWidth: 0, padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.018)", border: "1px solid rgba(255,255,255,0.045)" }}>
+                            {/* Play / Reset */}
+                            <button
+                              type="button"
+                              className="ghostButton scenarioPlaybackButton"
+                              onClick={handleStartScenarioRep}
+                              style={{
+                                padding: "6px 14px",
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: simulationScenarioIsPlaying ? "#e2e8f0" : "#0b1017",
+                                background: simulationScenarioIsPlaying ? "rgba(255,255,255,0.06)" : "#7CC4FF",
+                                borderColor: simulationScenarioIsPlaying ? "rgba(255,255,255,0.1)" : "rgba(124,196,255,0.38)",
+                                boxShadow: simulationScenarioIsPlaying ? "none" : "0 10px 24px rgba(124,196,255,0.18)",
+                              }}
+                            >
+                              {!simulationScenarioIsPlaying && scenarioPlaybackElapsedMsRef.current === 0
+                                ? "Play"
+                                : simulationScenarioIsPlaying
+                                  ? "Pause"
+                                  : "Resume"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghostButton scenarioPlaybackButton"
+                              onClick={resetScenarioPlayback}
+                              style={{
+                                padding: "6px 12px",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: "#aab7c7",
+                                background: "rgba(255,255,255,0.035)",
+                                borderColor: "rgba(255,255,255,0.08)",
+                              }}
+                            >
+                              Reset
+                            </button>
+                            {/* Separator */}
+                            <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.07)", flexShrink: 0 }} />
+                            {/* Timeframe pills */}
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: 2, borderRadius: 999, border: "1px solid rgba(124,196,255,0.12)", background: "rgba(6,12,22,0.68)" }}>
+                              {[{ value: "1m", label: "1m" }, { value: "5m", label: "5m" }, { value: "15m", label: "15m" }, { value: "30m", label: "30m" }, { value: "1h", label: "1H" }].map((opt) => (
                                 <button
+                                  key={opt.value}
                                   type="button"
-                                  className="ghostButton scenarioPlaybackButton"
-                                  onClick={handleStartScenarioRep}
+                                  onClick={() => setSimulationChartTimeframe(opt.value)}
                                   style={{
-                                    padding: "9px 16px",
-                                    fontSize: 12,
-                                    fontWeight: 800,
-                                    color: simulationScenarioIsPlaying ? "#e2e8f0" : "#0b1017",
-                                    background: simulationScenarioIsPlaying ? "rgba(255,255,255,0.06)" : "#7CC4FF",
-                                    borderColor: simulationScenarioIsPlaying ? "rgba(255,255,255,0.1)" : "rgba(124,196,255,0.38)",
-                                    boxShadow: simulationScenarioIsPlaying ? "none" : "0 10px 24px rgba(124,196,255,0.18)",
-                                  }}
-                                >
-                                  {!simulationScenarioIsPlaying && scenarioPlaybackElapsedMsRef.current === 0
-                                    ? "Play"
-                                    : simulationScenarioIsPlaying
-                                      ? "Pause"
-                                      : "Resume"}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="ghostButton scenarioPlaybackButton"
-                                  onClick={resetScenarioPlayback}
-                                  style={{
-                                    padding: "9px 14px",
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    color: "#aab7c7",
-                                    background: "rgba(255,255,255,0.035)",
-                                    borderColor: "rgba(255,255,255,0.08)",
-                                  }}
-                                >
-                                  Reset
-                                </button>
-                              </div>
-                              <div className="scenarioModeToolbar" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.018)", border: "1px solid rgba(255,255,255,0.045)" }}>
-                                <ChartTimeframeDropdown value={simulationChartTimeframe} onChange={setSimulationChartTimeframe} />
-                                <div style={{ display: "flex", gap: 3, padding: 2, borderRadius: 8, background: "rgba(9,14,22,0.72)", border: "1px solid rgba(255,255,255,0.045)" }}>
-                                  {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
-                                    <button
-                                      key={mode}
-                                      type="button"
-                                      className="ghostButton"
-                                      onClick={() => setSimulationScenarioChartMode(mode)}
-                                      style={{
-                                        padding: "5px 10px",
-                                        fontSize: 10,
-                                        borderRadius: 6,
-                                        borderColor: "transparent",
-                                        background: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.15)" : "transparent",
-                                        color: simulationScenarioChartMode === mode ? "#d7efff" : "#7f8ea3",
-                                        fontWeight: 700,
-                                        letterSpacing: "0.4px",
-                                      }}
-                                    >
-                                      {label}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                              <div className="scenarioDrawingToolbarWide" style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", justifyContent: isMobileView ? "center" : "flex-start", padding: isMobileView ? "6px 8px" : "4px 6px", borderRadius: 10, background: "rgba(255,255,255,0.012)", border: "1px solid rgba(255,255,255,0.035)", flex: isMobileView ? 1 : undefined }}>
-                                {[
-                                  ["horizontal", "Line"],
-                                  ["profit", "Profit Line"],
-                                  ["loss", "Loss Line"],
-                                ].map(([tool, label]) => (
-                                  <button
-                                    key={tool}
-                                    type="button"
-                                    className="ghostButton"
-                                    onClick={() => setSimulationScenarioDrawingMode((prev) => (prev === tool ? "none" : tool))}
-                                    style={{
-                                      padding: isMobileView ? "6px 11px" : "4px 8px",
-                                      fontSize: 10,
-                                      borderRadius: 6,
-                                      borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.06)",
-                                      background: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.11)" : "transparent",
-                                      color: simulationScenarioDrawingMode === tool ? "#d7efff" : "#6f839a",
-                                      fontWeight: 700,
-                                      letterSpacing: "0.35px",
-                                    }}
-                                  >
-                                    {label}
-                                  </button>
-                                ))}
-                                <button
-                                  type="button"
-                                  className="ghostButton"
-                                  onClick={() => undoStoredChartDrawing(scenarioDrawingStorageKey)}
-                                  style={{
-                                    padding: isMobileView ? "6px 11px" : "4px 8px",
+                                    minHeight: 24,
+                                    border: 0,
+                                    borderRadius: 999,
+                                    background: simulationChartTimeframe === opt.value ? "linear-gradient(180deg, #9bd4ff, #6bbcff)" : "transparent",
+                                    color: simulationChartTimeframe === opt.value ? "#07111d" : "#8fa0b7",
+                                    font: "inherit",
                                     fontSize: 10,
-                                    borderRadius: 6,
-                                    borderColor: "rgba(255,255,255,0.06)",
-                                    color: "#7f8ea3",
-                                    background: "transparent",
-                                    fontWeight: 700,
-                                    letterSpacing: "0.35px",
+                                    fontWeight: 850,
+                                    padding: "4px 8px",
+                                    cursor: "pointer",
+                                    boxShadow: simulationChartTimeframe === opt.value ? "0 8px 22px rgba(124,196,255,0.16)" : "none",
                                   }}
                                 >
-                                  Undo
+                                  {opt.label}
                                 </button>
-                                <button
-                                  type="button"
-                                  className="ghostButton"
-                                  onClick={clearScenarioDrawings}
-                                  style={{
-                                    padding: isMobileView ? "6px 11px" : "4px 8px",
-                                    fontSize: 10,
-                                    borderRadius: 6,
-                                    borderColor: "rgba(248,113,113,0.16)",
-                                    color: "#d88b8b",
-                                    background: "rgba(248,113,113,0.025)",
-                                    fontWeight: 700,
-                                    letterSpacing: "0.35px",
-                                  }}
-                                >
-                                  Clear Chart
-                                </button>
-                              </div>
-                              <div style={{ display: "flex", flexDirection: "column", alignItems: isMobileView ? "center" : "flex-end", gap: 2, minWidth: isMobileView ? undefined : 112 }}>
-                                <div style={{ fontSize: 11, color: "#7f8ea3", textAlign: isMobileView ? "center" : "right", whiteSpace: "nowrap" }}>
-                                  {simulationScenarioType === "uptrend" ? "Uptrend" : simulationScenarioType === "downtrend" ? "Downtrend" : simulationScenarioType === "realistic" ? "Realistic" : "Range"} · {simulationScenarioNoLimit ? simulationScenarioSpeed : simulationScenarioPlaybackDuration}
-                                </div>
-                                {scenarioDrawingStatus ? (
-                                  <div style={{ fontSize: 11, color: "#aab7c7", textAlign: "right", lineHeight: 1.35 }}>
-                                    {scenarioDrawingStatus}
-                                  </div>
-                                ) : null}
-                              </div>
+                              ))}
                             </div>
-                          </>
+                            {/* Line / Candles toggle */}
+                            <div style={{ display: "flex", gap: 2, padding: 2, borderRadius: 8, background: "rgba(9,14,22,0.72)", border: "1px solid rgba(255,255,255,0.045)" }}>
+                              {[["line", "Line"], ["candlestick", "Candles"]].map(([mode, label]) => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  className="ghostButton"
+                                  onClick={() => setSimulationScenarioChartMode(mode)}
+                                  style={{
+                                    padding: "4px 8px",
+                                    fontSize: 10,
+                                    borderRadius: 6,
+                                    borderColor: "transparent",
+                                    background: simulationScenarioChartMode === mode ? "rgba(124,196,255,0.15)" : "transparent",
+                                    color: simulationScenarioChartMode === mode ? "#d7efff" : "#7f8ea3",
+                                    fontWeight: 700,
+                                    letterSpacing: "0.4px",
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                            {/* Separator */}
+                            <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.07)", flexShrink: 0 }} />
+                            {/* Drawing tools */}
+                            {[
+                              ["horizontal", "Line"],
+                              ["profit", "Profit Line"],
+                              ["loss", "Loss Line"],
+                            ].map(([tool, label]) => (
+                              <button
+                                key={tool}
+                                type="button"
+                                className="ghostButton"
+                                onClick={() => setSimulationScenarioDrawingMode((prev) => (prev === tool ? "none" : tool))}
+                                style={{
+                                  padding: "4px 8px",
+                                  fontSize: 10,
+                                  borderRadius: 6,
+                                  borderColor: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.34)" : "rgba(255,255,255,0.06)",
+                                  background: simulationScenarioDrawingMode === tool ? "rgba(124,196,255,0.11)" : "transparent",
+                                  color: simulationScenarioDrawingMode === tool ? "#d7efff" : "#6f839a",
+                                  fontWeight: 700,
+                                  letterSpacing: "0.35px",
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={() => undoStoredChartDrawing(scenarioDrawingStorageKey)}
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: 10,
+                                borderRadius: 6,
+                                borderColor: "rgba(255,255,255,0.06)",
+                                color: "#7f8ea3",
+                                background: "transparent",
+                                fontWeight: 700,
+                                letterSpacing: "0.35px",
+                              }}
+                            >
+                              Undo
+                            </button>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={clearScenarioDrawings}
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: 10,
+                                borderRadius: 6,
+                                borderColor: "rgba(248,113,113,0.16)",
+                                color: "#d88b8b",
+                                background: "rgba(248,113,113,0.025)",
+                                fontWeight: 700,
+                                letterSpacing: "0.35px",
+                              }}
+                            >
+                              Clear Chart
+                            </button>
+                            {scenarioDrawingStatus ? (
+                              <div style={{ fontSize: 11, color: "#aab7c7", lineHeight: 1.35, marginLeft: 4 }}>
+                                {scenarioDrawingStatus}
+                              </div>
+                            ) : null}
+                          </div>
                         )}
                         {simulationMode === "live" && (
                           <>
@@ -25748,19 +25737,6 @@ return (
                         )}
                       </div>
                     </div>
-                    {simulationMode === "scenario" && (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={{ fontSize: 11, color: "#7f8ea3", letterSpacing: "1px", textTransform: "uppercase" }}>Scenario Price</div>
-                          <div style={{ fontSize: 24, fontWeight: 700, color: "#f8fafc", lineHeight: 1 }}>
-                            {selectedSimulationPrice != null ? `$${formatCompactPrice(selectedSimulationPrice)}` : "--"}
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5, textAlign: "right", maxWidth: 420 }}>
-                          Structured generated movement for practice. Use it like a training market, not a live feed.
-                        </div>
-                      </div>
-                    )}
                   <div className="tradingviewFrameWrapFull simulationChartFrame" style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "visible" }}>
                     {simulationMode === "scenario" ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
@@ -25804,11 +25780,6 @@ return (
                             />
                           )}
                         </div>
-                        {!scenarioTapHintDismissed && scenarioChartBars.length >= 2 && simulationScenarioDrawingMode === "none" && (
-                          <div style={{ textAlign: "center", fontSize: 11, color: "#475569", padding: "4px 0 2px", pointerEvents: "none" }}>
-                            Tap any bar to ask Rayla about that price level
-                          </div>
-                        )}
                       </div>
                     ) : selectedSimulationItem ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
