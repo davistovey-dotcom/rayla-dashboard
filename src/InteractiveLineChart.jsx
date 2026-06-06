@@ -160,7 +160,6 @@ export default function InteractiveLineChart({
 }) {
   const chartId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const rootRef = useRef(null);
-  const dragRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [viewport, setViewport] = useState(null);
   const [hover, setHover] = useState(null);
@@ -284,43 +283,6 @@ export default function InteractiveLineChart({
     console.log("[Rayla chart render stats]", { label: debugLabel || className || "InteractiveLineChart", className, ...stats });
   }, [allVisiblePoints, className, debugLabel, domain, normalizedLines, primaryLine, xAxisLabels]);
 
-  const fitChart = () => {
-    setViewport(null);
-    setHover(null);
-  };
-
-  const handleWheel = (event) => {
-    if (!baseDomain || !domain) return;
-    const shouldZoom = event.ctrlKey || event.metaKey || Math.abs(event.deltaY) > Math.abs(event.deltaX);
-    if (!shouldZoom) return;
-    event.preventDefault();
-    const rect = rootRef.current?.getBoundingClientRect();
-    const focusRatio = rect ? clamp((event.clientX - rect.left - plot.x) / plot.width, 0, 1) : 0.5;
-    const currentSpan = domain.toMs - domain.fromMs;
-    const zoomFactor = event.deltaY > 0 ? 1.18 : 0.84;
-    const minSpan = 15 * 60 * 1000;
-    const maxSpan = baseDomain.toMs - baseDomain.fromMs;
-    const nextSpan = clamp(currentSpan * zoomFactor, minSpan, maxSpan);
-    const focusTime = domain.fromMs + currentSpan * focusRatio;
-    let nextFrom = focusTime - nextSpan * focusRatio;
-    let nextTo = nextFrom + nextSpan;
-    if (nextFrom < baseDomain.fromMs) {
-      nextFrom = baseDomain.fromMs;
-      nextTo = nextFrom + nextSpan;
-    }
-    if (nextTo > baseDomain.toMs) {
-      nextTo = baseDomain.toMs;
-      nextFrom = nextTo - nextSpan;
-    }
-    setViewport({ fromMs: nextFrom, toMs: nextTo });
-  };
-
-  const handlePointerDown = (event) => {
-    if (!domain) return;
-    dragRef.current = { clientX: event.clientX, domain };
-    rootRef.current?.setPointerCapture?.(event.pointerId);
-  };
-
   const handlePointerMove = (event) => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect && domain) {
@@ -338,26 +300,6 @@ export default function InteractiveLineChart({
         timeMs: nearest.timeMs,
       } : null);
     }
-    if (!dragRef.current || !baseDomain || !domain) return;
-    const deltaPx = event.clientX - dragRef.current.clientX;
-    const span = dragRef.current.domain.toMs - dragRef.current.domain.fromMs;
-    const deltaMs = -(deltaPx / plot.width) * span;
-    let nextFrom = dragRef.current.domain.fromMs + deltaMs;
-    let nextTo = dragRef.current.domain.toMs + deltaMs;
-    if (nextFrom < baseDomain.fromMs) {
-      nextFrom = baseDomain.fromMs;
-      nextTo = nextFrom + span;
-    }
-    if (nextTo > baseDomain.toMs) {
-      nextTo = baseDomain.toMs;
-      nextFrom = nextTo - span;
-    }
-    setViewport({ fromMs: nextFrom, toMs: nextTo });
-  };
-
-  const handlePointerUp = (event) => {
-    dragRef.current = null;
-    rootRef.current?.releasePointerCapture?.(event.pointerId);
   };
 
   if (!normalizedLines.length || !domain) {
@@ -373,13 +315,8 @@ export default function InteractiveLineChart({
       ref={rootRef}
       className={`interactiveLineChart ${className}`}
       style={{ height }}
-      onWheel={handleWheel}
-      onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onDoubleClick={fitChart}
       onPointerLeave={() => {
-        dragRef.current = null;
         setHover(null);
       }}
     >
@@ -395,9 +332,6 @@ export default function InteractiveLineChart({
           );
         })}
       </div>
-      <button type="button" className="interactiveLineChartFit" onPointerDown={(event) => event.stopPropagation()} onClick={fitChart}>
-        Fit
-      </button>
       <svg className="interactiveLineChartSvg" viewBox={`0 0 ${dimensions.width} ${dimensions.height}`} preserveAspectRatio="none">
         <defs>
           <linearGradient id={`${chartId}-raylaChartArea`} x1="0" x2="0" y1="0" y2="1">

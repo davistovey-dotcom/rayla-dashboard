@@ -316,8 +316,8 @@ export default function KLineTradeChart({
 
     chartRef.current = chart;
     chart.setTimezone(timeZone);
-    chart.setZoomEnabled(true);
-    chart.setScrollEnabled(true);
+    chart.setZoomEnabled(false);
+    chart.setScrollEnabled(false);
     chart.setRightMinVisibleBarCount(2);
     chart.setLeftMinVisibleBarCount(2);
     chart.setOffsetRightDistance(12);

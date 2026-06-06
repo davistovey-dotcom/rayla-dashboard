@@ -307,13 +307,8 @@ export default function LiveMarketChartV2({
         fixRightEdge: true,
         tickMarkFormatter: (time) => formatTick(time, chartRange, timeZone),
       },
-      handleScale: { mouseWheel: interactive, pinch: interactive },
-      handleScroll: {
-        mouseWheel: interactive,
-        pressedMouseMove: interactive,
-        horzTouchDrag: interactive,
-        vertTouchDrag: false,
-      },
+      handleScale: false,
+      handleScroll: false,
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
     });

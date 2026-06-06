@@ -287,13 +287,8 @@ export default function TradeChart({
         ...(Number.isFinite(minBarSpacing) && minBarSpacing > 0 ? { minBarSpacing, barSpacing: minBarSpacing } : {}),
         tickMarkFormatter: (time) => formatChartTick(time, rangeRef.current, timeZone),
       },
-      handleScale: { mouseWheel: interactive || zoomEnabled, pinch: interactive || zoomEnabled },
-      handleScroll: {
-        mouseWheel: interactive,
-        pressedMouseMove: interactive,
-        horzTouchDrag: interactive,
-        vertTouchDrag: false,
-      },
+      handleScale: false,
+      handleScroll: false,
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
     });
