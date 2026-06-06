@@ -6,7 +6,6 @@ const PORTFOLIO_HISTORY_RANGES = [
   { value: "1D", label: "1D" },
   { value: "1W", label: "1W" },
   { value: "1M", label: "1M" },
-  { value: "3M", label: "3M" },
   { value: "1Y", label: "1Y" },
   { value: "ALL", label: "All" },
 ];
@@ -18,6 +17,8 @@ const RANGE_TO_MS = {
   "3M": 90 * 24 * 60 * 60 * 1000,
   "1Y": 365 * 24 * 60 * 60 * 1000,
 };
+
+const ALPACA_ZERO_BASELINE_RANGES = new Set(["1M", "ALL"]);
 
 function normalizeRange(value) {
   const normalized = String(value || "1D").trim().toUpperCase();
@@ -42,23 +43,35 @@ function toPercent(value) {
   return `${numeric >= 0 ? "+" : ""}${numeric.toFixed(2)}%`;
 }
 
-function formatChartDate(timeMs, range, timeZone) {
+function isMobileChartViewport() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(max-width: 640px)").matches;
+}
+
+function formatChartDate(timeMs, range, timeZone, compact = false) {
   const date = new Date(timeMs);
   if (!Number.isFinite(date.getTime())) return "";
-  const options = range === "1D" || range === "1W"
-    ? { hour: "numeric", minute: "2-digit", timeZone }
-    : range === "1Y" || range === "ALL"
-      ? { month: "short", day: "numeric", year: "numeric", timeZone }
-      : { month: "short", day: "numeric", timeZone };
+  const safeTimeZone = timeZone || undefined;
+  const normalizedRange = normalizeRange(range);
+  const options = compact
+    ? normalizedRange === "1D"
+      ? { hour: "numeric", timeZone: safeTimeZone }
+      : { month: "short", day: "numeric", timeZone: safeTimeZone }
+    : normalizedRange === "1D"
+      ? { hour: "numeric", minute: "2-digit", timeZone: safeTimeZone }
+      : normalizedRange === "ALL"
+        ? { month: "short", day: "numeric", year: "numeric", timeZone: safeTimeZone }
+        : { month: "short", day: "numeric", timeZone: safeTimeZone };
   return new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
-function normalizePoints(points) {
+function normalizePoints(points, { allowZero = false } = {}) {
   const byTime = new Map();
   (Array.isArray(points) ? points : []).forEach((point) => {
     const timeMs = Number(point?.timeMs);
     const value = Number(point?.value);
-    if (!Number.isFinite(timeMs) || !Number.isFinite(value) || value <= 0) return;
+    if (!Number.isFinite(timeMs) || !Number.isFinite(value) || value < 0 || (!allowZero && value === 0)) return;
     byTime.set(Math.round(timeMs / 1000), { time: Math.round(timeMs / 1000), value });
   });
   return Array.from(byTime.values()).sort((a, b) => a.time - b.time);
@@ -127,10 +140,12 @@ function buildFallbackPointsFromSnapshots(snapshots, range, view) {
 }
 
 function buildStats(chartData, fallbackValue) {
-  const latest = chartData[chartData.length - 1]?.value;
-  const first = chartData[0]?.value;
+  const positivePoints = chartData.filter((point) => Number(point?.value) > 0);
+  const statPoints = positivePoints.length ? positivePoints : chartData;
+  const latest = statPoints[statPoints.length - 1]?.value;
+  const first = statPoints[0]?.value;
   const value = Number.isFinite(latest) ? latest : Number(fallbackValue);
-  const pnl = chartData.length >= 2 && Number.isFinite(first) && Number.isFinite(latest)
+  const pnl = statPoints.length >= 2 && Number.isFinite(first) && Number.isFinite(latest)
     ? latest - first
     : null;
   const pct = Number.isFinite(pnl) && Number.isFinite(first) && first > 0
@@ -153,35 +168,50 @@ function getPointTimestamp(point) {
 }
 
 function getVisibleDomainSeconds(chartData, range) {
-  if (!chartData.length) return null;
-  const first = chartData[0]?.time;
-  const last = chartData[chartData.length - 1]?.time;
+  const domainTimes = chartData.map((point) => point?.time).filter((time) => Number.isFinite(time));
+  if (!domainTimes.length) return null;
+  const first = Math.min(...domainTimes);
+  const last = Math.max(...domainTimes);
   if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
+  if (first === last) {
+    return { from: first - 60 * 30, to: last + 60 * 30 };
+  }
 
   const normalizedRange = normalizeRange(range);
   if (normalizedRange === "ALL") {
-    const padding = Math.max(60 * 30, Math.round((last - first) * 0.04));
-    return { from: first - padding, to: last + padding };
+    return { from: first, to: last };
   }
 
   const rangeMs = RANGE_TO_MS[normalizedRange];
   if (!Number.isFinite(rangeMs)) return null;
-  const now = Math.floor(Date.now() / 1000);
-  const end = Math.max(now, last);
   return {
-    from: end - Math.round(rangeMs / 1000),
-    to: end,
+    from: Math.max(first, last - Math.round(rangeMs / 1000)),
+    to: last,
   };
 }
 
-function buildSeriesDataWithDomainAnchors(chartData, range) {
-  const visibleDomain = getVisibleDomainSeconds(chartData, range);
-  if (!visibleDomain) return chartData;
-  const realTimes = new Set(chartData.map((point) => point.time));
-  const anchors = [];
-  if (!realTimes.has(visibleDomain.from)) anchors.push({ time: visibleDomain.from });
-  if (!realTimes.has(visibleDomain.to)) anchors.push({ time: visibleDomain.to });
-  return [...anchors, ...chartData].sort((a, b) => a.time - b.time);
+function buildXAxisLabels(visibleDomain, range, timeZone) {
+  if (!visibleDomain) return [];
+  const from = Number(visibleDomain.from);
+  const to = Number(visibleDomain.to);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return [];
+  const compact = isMobileChartViewport();
+  const normalizedRange = normalizeRange(range);
+  const count = compact ? 3 : normalizedRange === "1D" ? 4 : 4;
+  const labels = Array.from({ length: count }, (_, index) => {
+    const ratio = count === 1 ? 0 : index / (count - 1);
+    const timeMs = (from + ((to - from) * ratio)) * 1000;
+    return {
+      key: `${index}-${Math.round(timeMs)}`,
+      text: formatChartDate(timeMs, range, timeZone, true),
+    };
+  });
+  let previousText = "";
+  return labels.map((label) => {
+    if (label.text === previousText) return { ...label, text: "" };
+    previousText = label.text;
+    return label;
+  });
 }
 
 class PortfolioHistoryChartBoundary extends React.Component {
@@ -240,8 +270,21 @@ function PortfolioHistoryChartInner({
   compact = false,
   fallbackSnapshots = [],
   snapshotView = "portfolio",
+  rangeOptions = PORTFOLIO_HISTORY_RANGES,
+  showRangeHint = true,
 }) {
   const normalizedRange = normalizeRange(range);
+  const resolvedRangeOptions = useMemo(() => {
+    const options = Array.isArray(rangeOptions) && rangeOptions.length ? rangeOptions : PORTFOLIO_HISTORY_RANGES;
+    return options.map((option) => ({
+      ...option,
+      normalizedValue: normalizeRange(option.value),
+    }));
+  }, [rangeOptions]);
+  const mobileChartViewport = isMobileChartViewport();
+  const frameHeight = mobileChartViewport
+    ? Math.min(Number(height) || 340, 270)
+    : height;
   const containerRef = useRef(null);
   const endpointRef = useRef(null);
   const chartRef = useRef(null);
@@ -306,18 +349,21 @@ function PortfolioHistoryChartInner({
   );
   const usesAlpacaHistory = historyState.points.length >= 2;
   const displayPoints = usesAlpacaHistory ? historyState.points : fallbackPoints;
-  const chartData = useMemo(() => normalizePoints(displayPoints), [displayPoints]);
-  const seriesData = useMemo(() => buildSeriesDataWithDomainAnchors(chartData, normalizedRange), [chartData, normalizedRange]);
+  const allowZeroBaseline = usesAlpacaHistory && ALPACA_ZERO_BASELINE_RANGES.has(normalizedRange);
+  const chartData = useMemo(
+    () => normalizePoints(displayPoints, { allowZero: allowZeroBaseline }),
+    [allowZeroBaseline, displayPoints]
+  );
+  const seriesData = chartData;
+  const visibleDomain = useMemo(
+    () => getVisibleDomainSeconds(chartData, normalizedRange),
+    [chartData, normalizedRange]
+  );
+  const xAxisLabels = useMemo(
+    () => buildXAxisLabels(visibleDomain, normalizedRange, timeZone || undefined),
+    [normalizedRange, timeZone, visibleDomain]
+  );
   const stats = useMemo(() => buildStats(chartData, currentValue), [chartData, currentValue]);
-  const chartCoverageLabel = useMemo(() => {
-    if (chartData.length < 2) return "";
-    const first = chartData[0].time * 1000;
-    const last = chartData[chartData.length - 1].time * 1000;
-    const spanDays = Math.max(1, Math.round((last - first) / RANGE_TO_MS["1D"]));
-    const rangeDays = normalizedRange === "ALL" ? spanDays : Math.round((RANGE_TO_MS[normalizedRange] || 0) / RANGE_TO_MS["1D"]);
-    if (!rangeDays || spanDays >= rangeDays - 1) return "";
-    return `Showing ${spanDays} day${spanDays === 1 ? "" : "s"} of available history`;
-  }, [chartData, normalizedRange]);
 
   const updateEndpointMarker = () => {
     const marker = endpointRef.current;
@@ -346,12 +392,16 @@ function PortfolioHistoryChartInner({
     if (!chartRef.current) return;
     chartRef.current.applyOptions({
       timeScale: {
-        timeVisible: normalizedRange === "1D" || normalizedRange === "1W",
-        tickMarkFormatter: (time) => formatChartDate(Number(time) * 1000, rangeRef.current, timeZoneRef.current),
+        visible: false,
+        timeVisible: normalizedRange === "1D",
+        secondsVisible: false,
+        borderVisible: false,
+        ticksVisible: false,
+        tickMarkFormatter: (time) => formatChartDate(Number(time) * 1000, rangeRef.current, timeZoneRef.current, mobileChartViewport),
       },
     });
     requestAnimationFrame(updateEndpointMarker);
-  }, [normalizedRange, timeZone]);
+  }, [mobileChartViewport, normalizedRange, timeZone]);
 
   useEffect(() => {
     const firstDisplayTimestamp = getPointTimestamp(displayPoints[0]);
@@ -376,7 +426,7 @@ function PortfolioHistoryChartInner({
 
     const chart = createChart(container, {
       autoSize: true,
-      height,
+      height: frameHeight,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#8f9aad",
@@ -393,23 +443,25 @@ function PortfolioHistoryChartInner({
       },
       leftPriceScale: { visible: false },
       timeScale: {
+        visible: false,
         borderVisible: false,
-        timeVisible: normalizedRange === "1D" || normalizedRange === "1W",
+        ticksVisible: false,
+        timeVisible: normalizedRange === "1D",
         secondsVisible: false,
-        rightOffset: 2,
+        rightOffset: 4,
         barSpacing: 8,
-        fixLeftEdge: false,
-        fixRightEdge: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
         lockVisibleTimeRangeOnResize: true,
-        tickMarkFormatter: (time) => formatChartDate(Number(time) * 1000, rangeRef.current, timeZoneRef.current),
+        tickMarkFormatter: (time) => formatChartDate(Number(time) * 1000, rangeRef.current, timeZoneRef.current, mobileChartViewport),
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: { color: "rgba(124,196,255,0.28)", labelBackgroundColor: "#16263a" },
         horzLine: { color: "rgba(124,196,255,0.22)", labelBackgroundColor: "#16263a" },
       },
-      handleScroll: true,
-      handleScale: true,
+      handleScroll: false,
+      handleScale: false,
     });
     const series = chart.addSeries(AreaSeries, {
       lineColor: "#7cc4ff",
@@ -454,19 +506,18 @@ function PortfolioHistoryChartInner({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [height, normalizedRange, timeZone]);
+  }, [frameHeight, mobileChartViewport, normalizedRange, timeZone]);
 
   useEffect(() => {
     if (!chartRef.current || !seriesRef.current) return;
     seriesRef.current.setData(seriesData);
-    const visibleDomain = getVisibleDomainSeconds(chartData, normalizedRange);
     if (visibleDomain) {
       chartRef.current.timeScale().setVisibleRange(visibleDomain);
     } else if (chartData.length) {
       chartRef.current.timeScale().fitContent();
     }
     requestAnimationFrame(updateEndpointMarker);
-  }, [chartData, normalizedRange, seriesData]);
+  }, [chartData, normalizedRange, seriesData, visibleDomain]);
 
   const headerValue = stats.value == null ? "--" : toCurrency(stats.value);
   const headerChange = Number.isFinite(stats.pnl) ? `${stats.pnl >= 0 ? "+" : ""}${toCurrency(stats.pnl)}` : "--";
@@ -476,7 +527,7 @@ function PortfolioHistoryChartInner({
   return (
     <div
       className={`portfolioHistoryChart performancePortfolioTrendCard ${compact ? "portfolioHistoryChartCompact" : ""} ${className}`}
-      style={{ "--portfolioHistoryChartHeight": `${height}px` }}
+      style={{ "--portfolioHistoryChartHeight": `${frameHeight}px` }}
     >
       <div className="portfolioHistoryHeader">
         <div className="portfolioHistoryTitleBlock">
@@ -493,11 +544,11 @@ function PortfolioHistoryChartInner({
         </div>
         <div className="portfolioHistoryControls">
           <div className="portfolioHistoryRangeGroup" aria-label={`${title} chart range`}>
-            {PORTFOLIO_HISTORY_RANGES.map((option) => (
+            {resolvedRangeOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                className={normalizedRange === option.value ? "active" : ""}
+                className={normalizedRange === option.normalizedValue ? "active" : ""}
                 onClick={() => onRangeChange(option.value === "ALL" ? "MAX" : option.value)}
               >
                 {option.label}
@@ -511,9 +562,8 @@ function PortfolioHistoryChartInner({
           {statusLabel ? <div className="portfolioHistoryStatus">{statusLabel}</div> : null}
         </div>
       </div>
-      <div className="portfolioHistoryHint">Scroll to zoom · drag to pan · double-click to fit</div>
-      {chartCoverageLabel ? <div className="portfolioHistoryCoverage">{chartCoverageLabel}</div> : null}
-      <div className="portfolioHistoryChartFrame" style={{ height }}>
+      {showRangeHint ? <div className="portfolioHistoryHint">Range buttons control this chart view.</div> : null}
+      <div className="portfolioHistoryChartFrame" style={{ height: frameHeight }}>
         <div ref={containerRef} className="portfolioHistoryChartCanvas" />
         {hasChart ? <div ref={endpointRef} className="portfolioHistoryLiveMarker" aria-hidden="true" /> : null}
         {!hasChart && (
@@ -525,6 +575,15 @@ function PortfolioHistoryChartInner({
                 : emptyMessage}
           </div>
         )}
+        {xAxisLabels.length ? (
+          <div className="portfolioHistoryXAxisLabels" aria-hidden="true">
+            {xAxisLabels.map((label) => (
+              <span key={label.key}>
+                {label.text}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

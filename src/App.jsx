@@ -6822,7 +6822,7 @@ function PortfolioTrendCard({
   portfolioRange = "MAX",
   setPortfolioRange = () => {},
   title = "Portfolio",
-  subtitle = "Live broker positions grouped into one portfolio view.",
+  subtitle = "Portfolio value including all open and closed positions.",
   emptyMessage = "Performance history grows automatically as Rayla collects broker snapshots.",
   statusLabel = null,
   chartHeight = 340,
@@ -6960,7 +6960,7 @@ function PortfolioPerformancePanel({
           portfolioRange={portfolioRange}
           setPortfolioRange={setPortfolioRange}
           title="Investing"
-          subtitle="Live broker positions grouped into one portfolio view."
+          subtitle="Portfolio value including all open and closed positions."
           chartHeight={330}
           timeZone={timeZone}
         />
@@ -12003,7 +12003,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade })
 
 const JOURNAL_MISTAKE_TAGS = ["FOMO", "Oversized", "Rule break", "Chased entry", "Early exit", "Missed target", "Emotional"];
 
-function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade, isBeginnerMode = false, onStartTour }) {
+function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade, isBeginnerMode = false }) {
   const [journalSource, setJournalSource] = useState("live_trades");
   const [search, setSearch] = useState("");
   const [filterDir, setFilterDir] = useState("all");
@@ -12195,13 +12195,6 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
             })}
           </div>
         </div>
-        {isBeginnerMode && (
-          <div style={{ textAlign: "center" }}>
-            <button type="button" onClick={onStartTour} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
-              Feeling lost? Click here.
-            </button>
-          </div>
-        )}
       </div>
     );
   }
@@ -21604,8 +21597,8 @@ return (
               .homeLayout {
                 display: flex;
                 flex-direction: row;
-                height: 100vh;
-                overflow: hidden;
+                min-height: 100vh;
+                overflow: visible;
                 margin: -24px;
                 background: #050d1f;
               }
@@ -21626,7 +21619,7 @@ return (
                   linear-gradient(180deg, #071321 0%, #050b14 100%);
                 display: grid;
                 grid-template-columns: minmax(0, 1fr) minmax(300px, 326px);
-                grid-template-rows: 38px 20px 104px 40px 34px minmax(0, 1fr);
+                grid-template-rows: 38px 20px 104px 40px 34px minmax(720px, 72vh);
                 grid-template-areas:
                   "title actions"
                   "status actions"
@@ -21636,8 +21629,8 @@ return (
                   "chart rail";
                 gap: 10px 14px;
                 padding: 20px;
-                height: 100%;
-                overflow: hidden;
+                min-height: 100vh;
+                overflow: visible;
               }
               .homeRightFullscreen {
                 grid-template-columns: minmax(0, 1fr) minmax(300px, 650px);
@@ -21691,6 +21684,9 @@ return (
                 justify-self: end;
                 display: flex;
                 align-items: center;
+              }
+              .homePortfolioViewSection {
+                display: contents;
               }
               .homeMarketSearchBar {
                 grid-area: search;
@@ -22070,15 +22066,15 @@ return (
                   min-height: 100vh;
                   overflow: visible;
                   grid-template-columns: minmax(0, 1fr) auto;
-                  grid-template-rows: 62px 20px 104px 40px 34px auto minmax(620px, 1fr);
+                  grid-template-rows: 62px 20px 104px 40px 34px minmax(760px, 1fr) auto;
                   grid-template-areas:
                     "title actions"
                     "status status"
                     "carousel carousel"
                     "search search"
                     "controls controls"
-                    "rail rail"
-                    "chart chart";
+                    "chart chart"
+                    "rail rail";
                   padding: 24px;
                 }
                 .homeTopActions {
@@ -22103,8 +22099,8 @@ return (
                   overflow: visible;
                 }
                 .homeChartStage {
-                  min-height: 620px !important;
-                  height: min(68vh, 760px);
+                  min-height: 760px !important;
+                  height: 760px;
                 }
                 .homePortfolioChartHeader {
                   align-items: flex-start;
@@ -22146,6 +22142,7 @@ return (
                 .homeMarketCarouselSection,
                 .homeMarketControls,
                 .homeChartStage,
+                .homePortfolioViewSection,
                 .homeUtilityRail { grid-area: auto; }
                 .homePageTitle {
                   width: 100%;
@@ -22179,24 +22176,30 @@ return (
                   z-index: 2;
                 }
                 .homeUtilityRail {
-                  order: 3;
-                  margin-top: 12px;
+                  order: 8;
+                  margin-top: 2px;
+                }
+                .homePortfolioViewSection {
+                  order: 2;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 12px;
                 }
                 .homeMarketStatusBar {
-                  order: 4;
+                  order: 1;
                   padding: 0 2px !important;
                 }
                 .homeMarketSearchBar {
-                  order: 5;
+                  order: 4;
                 }
                 .homeMarketCarouselSection {
-                  order: 6;
+                  order: 3;
                 }
                 .homeMarketControls {
-                  order: 7;
+                  order: 5;
                 }
                 .homeChartStage {
-                  order: 8;
+                  order: 2;
                 }
                 .homePortfolioChartHeader,
                 .homePortfolioChartControls {
@@ -22282,8 +22285,8 @@ return (
                 }
                 .homeChartStage {
                   flex: 0 0 auto !important;
-                  min-height: 520px !important;
-                  height: 520px !important;
+                  min-height: 720px !important;
+                  height: 720px !important;
                   padding: 0 !important;
                   border-radius: 16px;
                 }
@@ -22438,150 +22441,151 @@ return (
                     </button>
                   )}
                 </div>
-                {/* Label */}
-                <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
-                  {homePortfolioViewMode === "asset" ? "Live Market" : "Portfolio View"}
-                </div>
                 <div className="homeTopActions">
                   <RaylaLaunchButton
                     label="Ask Rayla"
                     onClick={() => openGlobalRaylaPopup("Ask Rayla")}
                   />
                 </div>
-                {/* Search bar */}
-                <div className="homeMarketSearchBar" style={{ position: "relative", padding: "0 20px 12px", flexShrink: 0 }}>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <input
-                      type="text"
-                      value={newSymbol}
-                      onChange={async (e) => {
-                        const val = e.target.value;
-                        setNewSymbol(val);
-                        if (homeMarketSearchTimeoutRef.current) clearTimeout(homeMarketSearchTimeoutRef.current);
-                        if (val.length < 1) { setHomeMarketSearchResults([]); return; }
-                        homeMarketSearchTimeoutRef.current = setTimeout(async () => {
-                          try {
-                            const results = await searchRaylaSupportedAssets(val, Boolean(alpacaAccount));
-                            setHomeMarketSearchResults(results);
-                          } catch { setHomeMarketSearchResults([]); }
-                        }, 120);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          const resolved = resolveTickerAlias(newSymbol.trim());
-                          const best = homeMarketSearchResults.find(r => r.symbol === resolved)
-                            || homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
-                            || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
-                          if (best || CRYPTO_SYMBOL_SET.has(resolved)) handleSelectHomeAsset(best || resolved);
-                        }
-                      }}
-                      placeholder="Search symbol (AAPL, BTC, NVDA…)"
-                      className="authInput"
-                    />
-                    <button type="button" onClick={() => {
-                      const resolved = resolveTickerAlias(newSymbol.trim());
-                      const best = homeMarketSearchResults.find(r => r.symbol === resolved)
-                        || homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
-                        || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
-                      if (!best && !CRYPTO_SYMBOL_SET.has(resolved)) {
-                        showToast("Asset not found. Try a ticker like AAPL, TSLA, or BTC.", "warning");
-                        return;
-                      }
-                      handleSelectHomeAsset(best || resolved);
-                    }} className="ghostButton">Select</button>
+                <section className="homePortfolioViewSection" aria-label="Home portfolio view">
+                  {/* Label */}
+                  <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
+                    {homePortfolioViewMode === "asset" ? "Live Market" : "Portfolio View"}
                   </div>
-                  {homeMarketSearchResults.length > 0 && (
-                    <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, left: 20, right: 20, maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
-                      {homeMarketSearchResults.map((r) => (
-                        <div key={r.symbol} onClick={() => handleSelectHomeAsset(r)}
-                          style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{r.symbol}</span>
-                          <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{r.description}</span>
-                        </div>
+                  {/* Search bar */}
+                  <div className="homeMarketSearchBar" style={{ position: "relative", padding: "0 20px 12px", flexShrink: 0 }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <input
+                        type="text"
+                        value={newSymbol}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          setNewSymbol(val);
+                          if (homeMarketSearchTimeoutRef.current) clearTimeout(homeMarketSearchTimeoutRef.current);
+                          if (val.length < 1) { setHomeMarketSearchResults([]); return; }
+                          homeMarketSearchTimeoutRef.current = setTimeout(async () => {
+                            try {
+                              const results = await searchRaylaSupportedAssets(val, Boolean(alpacaAccount));
+                              setHomeMarketSearchResults(results);
+                            } catch { setHomeMarketSearchResults([]); }
+                          }, 120);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const resolved = resolveTickerAlias(newSymbol.trim());
+                            const best = homeMarketSearchResults.find(r => r.symbol === resolved)
+                              || homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
+                              || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
+                            if (best || CRYPTO_SYMBOL_SET.has(resolved)) handleSelectHomeAsset(best || resolved);
+                          }
+                        }}
+                        placeholder="Search symbol (AAPL, BTC, NVDA…)"
+                        className="authInput"
+                      />
+                      <button type="button" onClick={() => {
+                        const resolved = resolveTickerAlias(newSymbol.trim());
+                        const best = homeMarketSearchResults.find(r => r.symbol === resolved)
+                          || homeMarketSearchResults.find(r => r.symbol === newSymbol.trim().toUpperCase())
+                          || (homeMarketSearchResults.length === 1 ? homeMarketSearchResults[0] : null);
+                        if (!best && !CRYPTO_SYMBOL_SET.has(resolved)) {
+                          showToast("Asset not found. Try a ticker like AAPL, TSLA, or BTC.", "warning");
+                          return;
+                        }
+                        handleSelectHomeAsset(best || resolved);
+                      }} className="ghostButton">Select</button>
+                    </div>
+                    {homeMarketSearchResults.length > 0 && (
+                      <div style={{ position: "absolute", zIndex: 999, background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, left: 20, right: 20, maxHeight: 220, overflowY: "auto", marginTop: 4 }}>
+                        {homeMarketSearchResults.map((r) => (
+                          <div key={r.symbol} onClick={() => handleSelectHomeAsset(r)}
+                            style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontWeight: 700, color: "#fff", fontSize: 13 }}>{r.symbol}</span>
+                            <span style={{ color: "#7f8ea3", fontSize: 12, marginLeft: 8 }}>{r.description}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Asset carousel */}
+                  <div className="homeMarketCarouselSection" data-tour-id="home-carousel" style={{ padding: "0 20px 12px", flexShrink: 0 }}>
+                    <AssetCarousel
+                      assets={(() => {
+                        // Open broker positions first (live price + change from Alpaca)
+                        const positionAssets = (alpacaPositions || []).map((pos) => {
+                          const raw = String(pos.symbol || "").toUpperCase();
+                          const cryptoMatch = raw.match(/^([A-Z0-9]{2,8})USD$/);
+                          const displaySymbol = cryptoMatch && CRYPTO_SYMBOL_SET.has(cryptoMatch[1]) ? cryptoMatch[1] : raw;
+                          return {
+                            id: displaySymbol,
+                            symbol: displaySymbol,
+                            name: displaySymbol,
+                            type: pos.assetClass === "crypto" ? "crypto" : "stock",
+                            price: Number(pos.currentPrice) || null,
+                            change: Number.isFinite(Number(pos.changeToday)) ? Number(pos.changeToday) * 100 : null,
+                          };
+                        });
+                        // Fill remaining slots with watchlist defaults (deduped)
+                        const positionIds = new Set(positionAssets.map((a) => a.id));
+                        const fillAssets = [...marketItems]
+                          .filter((item) => !positionIds.has(item.id))
+                          .sort((a, b) => a.id.localeCompare(b.id))
+                          .map((item) => ({
+                            id: item.id,
+                            symbol: item.id,
+                            name: item.description || item.name || item.id,
+                            type: item.type || "stock",
+                            price: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.price ?? item.priceValue,
+                            change: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.change ?? item.changeValue,
+                          }));
+                        return [...positionAssets, ...fillAssets];
+                      })()}
+                      selectedId={selectedMarketId}
+                      onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); setHomePortfolioViewMode("asset"); }}
+                    />
+                  </div>
+                  {/* Range + Mode toggles */}
+                  <div className="homeMarketControls" style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <div className="homeAdaptiveModeSwitch" aria-label="Home chart view">
+                      {[
+                        ["portfolio", "Portfolio"],
+                        ["active", "Active"],
+                        ["holdings", "Holdings"],
+                        ["asset", "Asset"],
+                      ].map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={`homeAdaptiveModeButton ${homePortfolioViewMode === mode ? "active" : ""}`}
+                          onClick={() => setHomePortfolioViewMode(mode)}
+                        >
+                          {label}
+                        </button>
                       ))}
                     </div>
-                  )}
-                </div>
-                {/* Asset carousel */}
-                <div className="homeMarketCarouselSection" data-tour-id="home-carousel" style={{ padding: "0 20px 12px", flexShrink: 0 }}>
-                  <AssetCarousel
-                    assets={(() => {
-                      // Open broker positions first (live price + change from Alpaca)
-                      const positionAssets = (alpacaPositions || []).map((pos) => {
-                        const raw = String(pos.symbol || "").toUpperCase();
-                        const cryptoMatch = raw.match(/^([A-Z0-9]{2,8})USD$/);
-                        const displaySymbol = cryptoMatch && CRYPTO_SYMBOL_SET.has(cryptoMatch[1]) ? cryptoMatch[1] : raw;
-                        return {
-                          id: displaySymbol,
-                          symbol: displaySymbol,
-                          name: displaySymbol,
-                          type: pos.assetClass === "crypto" ? "crypto" : "stock",
-                          price: Number(pos.currentPrice) || null,
-                          change: Number.isFinite(Number(pos.changeToday)) ? Number(pos.changeToday) * 100 : null,
-                        };
-                      });
-                      // Fill remaining slots with watchlist defaults (deduped)
-                      const positionIds = new Set(positionAssets.map((a) => a.id));
-                      const fillAssets = [...marketItems]
-                        .filter((item) => !positionIds.has(item.id))
-                        .sort((a, b) => a.id.localeCompare(b.id))
-                        .map((item) => ({
-                          id: item.id,
-                          symbol: item.id,
-                          name: item.description || item.name || item.id,
-                          type: item.type || "stock",
-                          price: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.price ?? item.priceValue,
-                          change: getLiveQuoteByAssetId(homeMarketQuotes, item.id, item.type, item.tvSymbol)?.change ?? item.changeValue,
-                        }));
-                      return [...positionAssets, ...fillAssets];
-                    })()}
-                    selectedId={selectedMarketId}
-                    onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); setHomePortfolioViewMode("asset"); }}
-                  />
-                </div>
-                {/* Range + Mode toggles */}
-                <div className="homeMarketControls" style={{ padding: "0 20px 8px", flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                  <div className="homeAdaptiveModeSwitch" aria-label="Home chart view">
-                    {[
-                      ["portfolio", "Portfolio"],
-                      ["active", "Active"],
-                      ["holdings", "Holdings"],
-                      ["asset", "Asset"],
-                    ].map(([mode, label]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`homeAdaptiveModeButton ${homePortfolioViewMode === mode ? "active" : ""}`}
-                        onClick={() => setHomePortfolioViewMode(mode)}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                    {homePortfolioViewMode === "asset" ? (
+                      <ChartTimeframeDropdown
+                        value={homeMarketChartRange}
+                        onChange={setHomeMarketChartRange}
+                        options={LIVE_WIDGET_INTERVAL_OPTIONS}
+                        width={88}
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      className="ghostButton"
+                      onClick={() => setIsHomeLiveChartFullscreen((value) => !value)}
+                      style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
+                    >
+                      {isHomeLiveChartFullscreen ? "Back to normal" : "Full page"}
+                    </button>
+                    {homeMarketChartUpdatedLabel && (isMarketCurrentlyOpen() || String(homeMarketSelectedItem?.type || "").toLowerCase() === "crypto") && (
+                      <div style={{ fontSize: 10, color: "#7f8ea3", marginLeft: "auto" }}>
+                        Last updated: {homeMarketChartUpdatedLabel}
+                      </div>
+                    )}
                   </div>
-                  {homePortfolioViewMode === "asset" ? (
-                    <ChartTimeframeDropdown
-                      value={homeMarketChartRange}
-                      onChange={setHomeMarketChartRange}
-                      options={LIVE_WIDGET_INTERVAL_OPTIONS}
-                      width={88}
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    className="ghostButton"
-                    onClick={() => setIsHomeLiveChartFullscreen((value) => !value)}
-                    style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
-                  >
-                    {isHomeLiveChartFullscreen ? "Back to normal" : "Full page"}
-                  </button>
-                  {homeMarketChartUpdatedLabel && (isMarketCurrentlyOpen() || String(homeMarketSelectedItem?.type || "").toLowerCase() === "crypto") && (
-                    <div style={{ fontSize: 10, color: "#7f8ea3", marginLeft: "auto" }}>
-                      Last updated: {homeMarketChartUpdatedLabel}
-                    </div>
-                  )}
-                </div>
-                <div className="homeChartStage" data-tour-id="home-chart" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
+                  <div className="homeChartStage" data-tour-id="home-chart" style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
                   {homePortfolioViewMode === "asset" ? (
                     <>
                       {homeMarketSelectedItem && <MarketClosedBanner assetType={homeMarketSelectedItem.type} updatedLabel={homeMarketChartUpdatedLabel} />}
@@ -22616,14 +22620,14 @@ return (
                           ? "Long-term positions classified as investments or crypto holds."
                           : homePortfolioViewMode === "active"
                             ? "Open broker positions classified as day or swing trades."
-                            : "Open broker positions grouped into one portfolio view."}
+                            : "Portfolio value including all open and closed positions."}
                         currentValue={Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue}
                         positionsCount={homePortfolioPositions.length}
                         positionsValue={homePortfolioMarketValue}
                         statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
                         range={homePortfolioChartRange}
                         onRangeChange={setHomePortfolioChartRange}
-                        height={360}
+                        height={520}
                         timeZone={raylaChartTimeZone}
                         emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Portfolio history will appear as Alpaca returns account history." : "Open positions will appear here once broker data is synced."}
                         className="homePortfolioHistoryChart"
@@ -22632,7 +22636,8 @@ return (
                       />
                     </div>
                   )}
-                </div>
+                  </div>
+                </section>
                 {!isHomeLiveChartFullscreen && (
                   <aside className="homeUtilityRail" data-tour-id="home-stats">
                     <div className="homeUtilityTabs" aria-label="Home market overview">
@@ -22792,6 +22797,39 @@ return (
                               }) : (
                                 <div className="homeUtilityMuted">Logged trades will appear here.</div>
                               )}
+                            </div>
+                          </section>
+
+                          <section className="homeUtilitySection homeMobileAccountBalance">
+                            <div className="homeUtilityKicker">Account Balance</div>
+                            <div className="homeUtilityMetrics" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                              <div className="homeUtilityMetric">
+                                <span>Cash</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.cash) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Buying Power</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.buyingPower) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Equity</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.equity) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric">
+                                <span>Broker Portfolio Value</span>
+                                <strong>{alpacaAccount ? formatCurrency(alpacaAccount.portfolioValue ?? alpacaAccount.equity) : "--"}</strong>
+                              </div>
+                              <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
+                                <span>Day P/L</span>
+                                {(() => {
+                                  const dayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
+                                  return (
+                                    <strong style={{ color: Number.isFinite(dayPnL) && dayPnL < 0 ? "#f87171" : "#4ade80" }}>
+                                      {Number.isFinite(dayPnL) ? `${dayPnL >= 0 ? "+" : ""}${formatCurrency(dayPnL)}` : "--"}
+                                    </strong>
+                                  );
+                                })()}
+                              </div>
                             </div>
                           </section>
                         </>
@@ -22981,7 +23019,7 @@ return (
                   padding: 5px 11px !important;
                 }
                 .tradeExecutionGrid {
-                  grid-template-columns: minmax(430px, 1.5fr) minmax(300px, 1fr) minmax(280px, 0.9fr) !important;
+                  grid-template-columns: minmax(0, 1fr) 340px !important;
                   gap: 10px !important;
                   align-items: stretch !important;
                 }
@@ -22998,20 +23036,25 @@ return (
                   border-color: rgba(255,255,255,0.08) !important;
                 }
                 .tradeLiveMarketPanel {
+                  grid-column: 1 !important;
                   height: 540px !important;
                   max-height: 540px;
-                  overflow-y: auto;
+                  overflow: visible;
                   padding: 10px !important;
                   gap: 7px !important;
                 }
-                .tradeOrderTicket,
-                .tradePositionsPanel {
+                .tradeOrderTicket {
+                  grid-column: 2 !important;
                   height: 540px !important;
                   max-height: 540px;
                   overflow-y: auto;
-                }
-                .tradeOrderTicket {
                   gap: 7px !important;
+                }
+                .tradePositionsPanel {
+                  grid-column: 1 / -1 !important;
+                  height: auto !important;
+                  max-height: none;
+                  overflow: visible;
                 }
                 .tradeOrderForm {
                   gap: 7px !important;
@@ -23088,7 +23131,7 @@ return (
             `}</style>
             <div className="span12">
               <div className="tradePageHeader mobilePageHeader">
-                <div>
+                <div className="pageTitleHelpStack">
                   <div className="raylaPageTitle tradePageTitle mobilePageTitle">Live Trades</div>
                   {isBeginnerMode && (
                     <button type="button" onClick={() => setActiveTour("trades")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 4, display: "inline-block" }}>
@@ -23451,12 +23494,12 @@ return (
                   )}
 
                   {alpacaAccount && (
-                    <div className="tradeExecutionGrid" style={{ display: "grid", gridTemplateColumns: "minmax(560px, 1.75fr) minmax(305px, 0.95fr) minmax(245px, 0.85fr)", gap: 14, alignItems: "stretch" }}>
-                      <div className="tradePositionsPanel" data-tour-id="trades-open" style={{ order: isMobileView ? 2 : 3, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+                    <div className="tradeExecutionGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(620px, 1.85fr) minmax(320px, 0.82fr)", gap: 14, alignItems: "stretch" }}>
+                      <div className="tradePositionsPanel" data-tour-id="trades-open" style={{ order: isMobileView ? 2 : 3, gridColumn: isMobileView ? undefined : "1 / -1", padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                              Positions & Holdings
+                              Open Positions & Holdings
                             </div>
                             {showBeginnerGuidance && <InlineHelpButton topic="brokerPortfolio" activeTopic={tradeHelpTopic} onToggle={setTradeHelpTopic} />}
                           </div>
@@ -23639,7 +23682,7 @@ return (
 
                       {(() => {
                         return (
-                          <div className="tradeLiveMarketPanel" style={{ order: 1, padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div className="tradeLiveMarketPanel" style={{ order: 1, gridColumn: isMobileView ? undefined : "1", padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
                             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                               Live Market
                             </div>
@@ -24024,7 +24067,7 @@ return (
                         );
                       })()}
 
-                      <div ref={orderTicketRef} className="tradeOrderTicket" data-tour-id="trades-ticket" style={{ order: isMobileView ? 3 : 2, padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
+                      <div ref={orderTicketRef} className="tradeOrderTicket" data-tour-id="trades-ticket" style={{ order: isMobileView ? 3 : 2, gridColumn: isMobileView ? undefined : "2", padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                           Order Ticket
                         </div>
@@ -24835,7 +24878,7 @@ return (
           <div className="mainGrid">
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
-                <div>
+                <div className="pageTitleHelpStack">
                   <div className="raylaPageTitle mobilePageTitle">Simulation</div>
                   {isBeginnerMode && (
                     <button type="button" onClick={() => setActiveTour("simulation")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 4, display: "inline-block" }}>
@@ -25173,9 +25216,9 @@ return (
                       ))}
                     </div>
                   )}
-                  <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(300px, 340px) minmax(0, 1fr)" : "minmax(280px, 320px) minmax(0, 1fr)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "start" }}>
+                  <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : useScenarioDesktopLayout ? "minmax(0, 1fr) minmax(300px, 340px)" : "minmax(0, 1fr) minmax(280px, 320px)", gap: isMobileView ? 14 : useScenarioDesktopLayout ? 14 : 18, alignItems: "start" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: useScenarioDesktopLayout ? "1" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined })}>
+                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, maxHeight: !isMobileView ? simulationChartViewportHeight : undefined, overflowY: !isMobileView ? "auto" : undefined })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         Trade Controls
@@ -25640,7 +25683,7 @@ return (
                   </div>
                   )}
                   {(!isMobileView || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
-                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: useScenarioDesktopLayout ? "2" : undefined, gridRow: useScenarioDesktopLayout ? "1" : undefined }}>
+                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -26512,9 +26555,9 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              {isBeginnerMode && (
-                <div style={{ textAlign: "center" }}>
-                  <button type="button" onClick={() => {
+              <div className="pageHelpIntro">
+                {isBeginnerMode && (
+                  <button type="button" className="feelingLostPill" onClick={() => {
                     const key = performancePositionFilter === "holdings"
                       ? "performanceHoldings"
                       : performancePositionFilter === "all"
@@ -26524,8 +26567,8 @@ return (
                   }} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
                     Feeling lost? Click here.
                   </button>
-                </div>
-              )}
+                )}
+              </div>
               <div data-tour-id="perf-filters" style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
@@ -26813,14 +26856,20 @@ return (
 
         {activeTab === "journal" && (
           <div className="mainGrid">
-            <div className="span12">
+            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div className="pageHelpIntro">
+                {isBeginnerMode && (
+                  <button type="button" className="feelingLostPill" onClick={() => setActiveTour("journal")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
+                    Feeling lost? Click here.
+                  </button>
+                )}
+              </div>
               <JournalTab
                 trades={combinedTrades}
                 liveSimulationTrades={liveSimulationJournalTrades}
                 onOpenRaylaPopup={openGlobalRaylaPopup}
                 onDeleteManualTrade={handleDeleteTrade}
                 isBeginnerMode={isBeginnerMode}
-                onStartTour={() => setActiveTour("journal")}
               />
             </div>
           </div>
@@ -27250,20 +27299,21 @@ return (
                 .intelMobileGrid  { display: grid; }
               }
             `}</style>
-            <div className="span12">
+            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div className="pageHelpIntro">
+                {isBeginnerMode && (
+                  <button type="button" className="feelingLostPill" onClick={() => setActiveTour("intel")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
+                    Feeling lost? Click here.
+                  </button>
+                )}
+              </div>
               <div className="card">
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                     <div>
-                      <h3 style={{ margin: 0 }}>Market Intel</h3>
-                      <div style={{ fontSize: 13, color: "#7f8ea3", marginTop: 6 }}>
+                      <div style={{ fontSize: 13, color: "#7f8ea3" }}>
                         Pick a hot or cold asset, then try the idea in Simulation before risking real capital.
                       </div>
-                      {isBeginnerMode && (
-                        <button type="button" onClick={() => setActiveTour("intel")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, marginTop: 8, display: "inline-block" }}>
-                          Feeling lost? Click here.
-                        </button>
-                      )}
                     </div>
                   </div>
                   <div data-tour-id="intel-ask-rayla">

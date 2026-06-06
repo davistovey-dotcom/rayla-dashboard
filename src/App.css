@@ -253,6 +253,22 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   line-height: 1.25;
 }
 
+.pageHelpIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.pageHelpIntro .feelingLostPill {
+  display: inline-block;
+}
+
+.homeMobileAccountBalance {
+  display: none;
+}
+
 .cardHeader h2 {
   margin: 0 0 12px 0;
   font-size: 13px;
@@ -2298,6 +2314,14 @@ body.tour-active .mobileNav {
     z-index: 1;
   }
 
+  .pageHelpIntro {
+    align-items: center;
+  }
+
+  .homeMobileAccountBalance {
+    display: flex;
+  }
+
   .topbar.mobilePageHeader {
     padding: 0;
   }
@@ -2937,10 +2961,50 @@ body.tour-active .mobileNav {
 
   .tradePageHeader {
     display: flex !important;
-    align-items: center !important;
+    align-items: flex-start !important;
     justify-content: center !important;
     gap: 12px;
-    margin-bottom: 14px !important;
+    min-height: 116px;
+    padding-top: 28px;
+    margin-bottom: 22px !important;
+  }
+
+  .tradePageHeader .pageTitleHelpStack,
+  .simulationPageHeader .pageTitleHelpStack {
+    width: 100%;
+    min-width: 0;
+    padding: 0 78px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 13px;
+    text-align: center;
+  }
+
+  .tradePageHeader .mobilePageTitle,
+  .simulationPageHeader .mobilePageTitle {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    transform: none !important;
+    pointer-events: auto !important;
+  }
+
+  .tradePageHeader .feelingLostPill,
+  .simulationPageHeader .feelingLostPill,
+  .tradePageHeader .pageTitleHelpStack button,
+  .simulationPageHeader .pageTitleHelpStack button {
+    margin-top: 0 !important;
+  }
+
+  .simulationPageHeader.mobilePageHeader {
+    align-items: flex-start !important;
+    justify-content: center !important;
+    min-height: 116px;
+    padding-top: 28px;
+    margin-bottom: 22px !important;
   }
 
   .tradePageHeader .raylaLaunchButton {
@@ -3092,26 +3156,102 @@ body.raylaTradeFormKeyboardOpen .tradeMobileScope {
   overflow-x: hidden !important;
 }
 
-/* Tablet: collapse 3-col trade grid before columns overflow */
-@media (min-width: 601px) and (max-width: 1110px) {
+/* Tablet: keep Live Trades balanced before desktop columns have enough room */
+@media (min-width: 768px) and (max-width: 1110px) {
+  .tradeMobileScope {
+    width: 100%;
+    max-width: none !important;
+    overflow-x: hidden !important;
+  }
+
+  .tradeMobileScope .span12 {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .tradeWorkspaceGrid,
+  .tradeHistoryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  .tradeExecutionGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: start !important;
+    gap: 14px !important;
+    width: 100%;
+  }
+
+  .tradeExecutionGrid > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tradeLiveMarketPanel {
+    grid-column: 1;
+    order: 1 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .tradeOrderTicket {
+    grid-column: 2;
+    order: 2 !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .tradePositionsPanel {
+    grid-column: 1 / -1;
+    order: 3 !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .tradeLiveChartViewport {
+    height: clamp(320px, 38vh, 430px) !important;
+  }
+
+  .tradePortfolioMiniChart {
+    height: clamp(280px, 32vh, 360px) !important;
+  }
+
+  .tradeSelectedAssetCard {
+    display: grid !important;
+  }
+
+  .tradePositionsList {
+    max-height: 420px;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 767px) {
   .tradeExecutionGrid {
     grid-template-columns: minmax(0, 1fr) !important;
     gap: 12px !important;
   }
+
   .tradePositionsPanel,
   .tradeOrderTicket {
     height: auto !important;
     order: unset !important;
   }
+
   .tradeLiveMarketPanel {
     order: 1 !important;
   }
+
   .tradeOrderTicket {
     order: 2 !important;
   }
+
   .tradePositionsPanel {
     order: 3 !important;
   }
+
   .tradePositionsList {
     max-height: 360px;
     overscroll-behavior: contain;
@@ -3446,6 +3586,11 @@ select.authInput option,
   gap: 8px;
 }
 
+#homePanel .portfolioHistoryChart,
+[data-tour-id="home-portfolio-value"] .portfolioHistoryChart {
+  min-height: calc(var(--portfolioHistoryChartHeight) + 245px);
+}
+
 .portfolioHistoryHeader {
   display: flex;
   justify-content: space-between;
@@ -3583,13 +3728,59 @@ select.authInput option,
 .portfolioHistoryChartFrame {
   position: relative;
   min-width: 0;
+  flex: 0 0 var(--portfolioHistoryChartHeight);
+  min-height: var(--portfolioHistoryChartHeight);
   margin-top: 18px;
-  margin-bottom: 30px;
+  margin-bottom: 0;
+  overflow: visible;
 }
 
 .portfolioHistoryChartCanvas {
   position: absolute;
-  inset: 0;
+  inset: 0 0 78px 0;
+}
+
+.portfolioHistoryXAxisLabels {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 48px;
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  height: 24px;
+  padding: 0 54px 0 8px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.portfolioHistoryXAxisLabels span {
+  position: static;
+  flex: 1 1 0;
+  min-width: 0;
+  color: #7f8ea3;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 4px rgba(3, 8, 15, 0.9);
+}
+
+.portfolioHistoryXAxisLabels span:first-child {
+  text-align: left;
+}
+
+.portfolioHistoryXAxisLabels span:nth-child(2) {
+  text-align: center;
+}
+
+.portfolioHistoryXAxisLabels span:nth-child(3):not(:last-child) {
+  text-align: center;
+}
+
+.portfolioHistoryXAxisLabels span:last-child {
+  text-align: right;
 }
 
 .portfolioHistoryLiveMarker {
@@ -3840,6 +4031,12 @@ select.authInput option,
   margin-top: 18px;
 }
 
+.positionPerformanceInsights {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 @media (min-width: 768px) and (max-width: 1180px) {
   .performancePortfolioTrendCard {
     --performancePortfolioChartHeight: clamp(320px, 38vh, 400px) !important;
@@ -3852,6 +4049,29 @@ select.authInput option,
 
   .performancePortfolioHomeValue {
     font-size: 31px;
+  }
+
+  [data-tour-id="perf-panel"] {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .performanceHistoryGrid {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr) !important;
+    gap: 14px !important;
+  }
+
+  .performanceHistorySidebar,
+  .performanceHistoryChartPanel,
+  .performanceHistoryChartBox,
+  .positionPerformanceInsights {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .positionPerformanceInsights {
+    overflow: hidden;
   }
 }
 
@@ -3964,7 +4184,7 @@ select.authInput option,
 
   .portfolioHistoryChartFrame {
     margin-top: 12px;
-    margin-bottom: 28px;
+    margin-bottom: 0;
   }
 }
 
