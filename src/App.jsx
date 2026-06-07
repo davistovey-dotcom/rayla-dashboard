@@ -1834,6 +1834,16 @@ function getChartSelectionWindowMs(value) {
   return selection?.lookbackMs ?? selection?.ms ?? null;
 }
 
+function buildPortfolioRangeNote(range, inceptionMs) {
+  if (!inceptionMs) return null;
+  const windowMs = getChartSelectionWindowMs(range);
+  if (!windowMs) return null; // ALL range — full history, no note needed
+  if (Date.now() - windowMs >= inceptionMs) return null; // range fully within data
+  const d = new Date(inceptionMs);
+  const formatted = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return `Rayla only has data going back to ${formatted}`;
+}
+
 function buildIntelSimulationPrompt(signal) {
   if (!signal) {
     return "Notable signal on this asset. Run it in the simulator.";
@@ -6829,6 +6839,7 @@ function PortfolioTrendCard({
   useAccountValue = true,
   timeZone = null,
   prebuiltPoints = null,
+  rangeNote = null,
 }) {
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
@@ -6857,6 +6868,7 @@ function PortfolioTrendCard({
       fallbackSnapshots={portfolioSnapshots}
       snapshotView={snapshotView}
       prebuiltPoints={prebuiltPoints}
+      rangeNote={rangeNote}
     />
   );
 }
@@ -6884,6 +6896,7 @@ function PortfolioPerformancePanel({
   benchmarkLoading = false,
   timeZone = null,
   positionActions = null,
+  portfolioInceptionMs = null,
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -6966,6 +6979,7 @@ function PortfolioPerformancePanel({
           subtitle="Portfolio value including all open and closed positions."
           chartHeight={520}
           timeZone={timeZone}
+          rangeNote={buildPortfolioRangeNote(portfolioRange, portfolioInceptionMs)}
         />
       </div>
 
@@ -12734,6 +12748,7 @@ useEffect(() => {
   const [alpacaConnectionLoading, setAlpacaConnectionLoading] = useState(false);
   const [alpacaConnectionLoaded, setAlpacaConnectionLoaded] = useState(false);
   const [alpacaAccount, setAlpacaAccount] = useState(null);
+  const [portfolioInceptionMs, setPortfolioInceptionMs] = useState(null);
   const [pendingBrokerConfirm, setPendingBrokerConfirm] = useState(false);
   const [brokerDisconnecting, setBrokerDisconnecting] = useState(false);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
@@ -13108,6 +13123,20 @@ useEffect(() => {
         if (error) console.warn("Could not ensure default position trade classifications.", error);
       });
   }, [session?.user?.id, alpacaPositions.map((position) => position?.symbol || "").join("|")]);
+
+  useEffect(() => {
+    if (!alpacaAccount?.id) return;
+    let cancelled = false;
+    supabase.functions.invoke("alpaca-portfolio-history", { body: { range: "MAX" } })
+      .then(({ data }) => {
+        if (cancelled || !data?.ok) return;
+        const firstLive = (Array.isArray(data.points) ? data.points : []).find((p) => p?.value > 0);
+        if (firstLive?.timeMs) setPortfolioInceptionMs(firstLive.timeMs);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [alpacaAccount?.id]);
+
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
   const [raylaMode, setRaylaMode] = useState(() => {
@@ -22652,6 +22681,7 @@ return (
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                         showRangeHint={false}
+                        rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
                       />
                     </div>
                   )}
@@ -26389,6 +26419,7 @@ return (
                       ]}
                     />
                   ) : null}
+                  portfolioInceptionMs={portfolioInceptionMs}
                 />
                 </>
               ) : isLiveTradesPerformance && performancePositionFilter === "holdings" ? (

@@ -280,6 +280,7 @@ function PortfolioHistoryChartInner({
   openPnl = null,
   openPct = null,
   prebuiltPoints = null,
+  rangeNote = null,
 }) {
   const normalizedRange = normalizeRange(range);
   const resolvedRangeOptions = useMemo(() => {
@@ -586,6 +587,7 @@ function PortfolioHistoryChartInner({
         </div>
       </div>
       {showRangeHint ? <div className="portfolioHistoryHint">Range buttons control this chart view.</div> : null}
+      {rangeNote ? <div className="portfolioHistoryCoverage" style={{ marginTop: 8, marginLeft: 2 }}>{rangeNote}</div> : null}
       <div className="portfolioHistoryChartFrame" style={{ height: frameHeight }}>
         <div ref={containerRef} className="portfolioHistoryChartCanvas" />
         {hasChart ? <div ref={endpointRef} className="portfolioHistoryLiveMarker" aria-hidden="true" /> : null}
