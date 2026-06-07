@@ -428,23 +428,6 @@ function PortfolioHistoryChartInner({
   }, [mobileChartViewport, normalizedRange, timeZone]);
 
   useEffect(() => {
-    const firstDisplayTimestamp = getPointTimestamp(displayPoints[0]);
-    const lastDisplayTimestamp = getPointTimestamp(displayPoints[displayPoints.length - 1]);
-    console.log("[PortfolioHistoryChart]", {
-      range: normalizedRange,
-      dataSource: usesAlpacaHistory ? historyState.source : "broker_snapshot_fallback",
-      rawPointCount: historyState.rawCount,
-      fallbackPointCount: fallbackPoints.length,
-      renderedPointCount: chartData.length,
-      firstTimestamp: firstDisplayTimestamp ? new Date(firstDisplayTimestamp).toISOString() : null,
-      lastTimestamp: lastDisplayTimestamp ? new Date(lastDisplayTimestamp).toISOString() : null,
-      minValue: chartData.length ? Math.min(...chartData.map((point) => point.value)) : null,
-      maxValue: chartData.length ? Math.max(...chartData.map((point) => point.value)) : null,
-      alpacaHistoryError: historyState.error || null,
-    });
-  }, [chartData, displayPoints, fallbackPoints.length, historyState, normalizedRange, usesAlpacaHistory]);
-
-  useEffect(() => {
     const container = containerRef.current;
     if (!container || chartRef.current) return undefined;
 

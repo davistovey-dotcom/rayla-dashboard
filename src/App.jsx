@@ -9353,8 +9353,6 @@ function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requested
       [debugLabel]: audit,
     };
   }
-  console.log("[Rayla snapshot history audit]", audit);
-
   if (bars.length < 2) return null;
 
   return {
