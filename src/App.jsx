@@ -26357,20 +26357,6 @@ return (
         {activeTab === "ai" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div className="pageHelpIntro">
-                {isBeginnerMode && (
-                  <button type="button" className="feelingLostPill" onClick={() => {
-                    const key = performancePositionFilter === "holdings"
-                      ? "performanceHoldings"
-                      : performancePositionFilter === "all"
-                        ? "performanceDayTrades"
-                        : "performancePortfolio";
-                    setActiveTour(key);
-                  }} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
-                    Feeling lost? Click here.
-                  </button>
-                )}
-              </div>
               <div data-tour-id="perf-filters" style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
