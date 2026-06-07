@@ -385,8 +385,8 @@ function PortfolioHistoryChartInner({
     () => buildXAxisLabels(visibleDomain, normalizedRange, timeZone || undefined),
     [normalizedRange, timeZone, visibleDomain]
   );
-  const effectivePnl = (usesAlpacaHistory && historyState.periodPnl != null) ? historyState.periodPnl : openPnl;
-  const effectivePct = (usesAlpacaHistory && historyState.periodPct != null) ? historyState.periodPct : openPct;
+  const effectivePnl = openPnl != null ? openPnl : (usesAlpacaHistory && historyState.periodPnl != null) ? historyState.periodPnl : null;
+  const effectivePct = openPct != null ? openPct : (usesAlpacaHistory && historyState.periodPct != null) ? historyState.periodPct : null;
   const stats = useMemo(() => buildStats(chartData, currentValue, effectivePnl, effectivePct), [chartData, currentValue, effectivePnl, effectivePct]);
 
   const updateEndpointMarker = () => {

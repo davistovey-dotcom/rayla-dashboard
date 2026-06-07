@@ -6840,6 +6840,8 @@ function PortfolioTrendCard({
   timeZone = null,
   prebuiltPoints = null,
   rangeNote = null,
+  openPnl = null,
+  openPct = null,
 }) {
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
@@ -6869,6 +6871,8 @@ function PortfolioTrendCard({
       snapshotView={snapshotView}
       prebuiltPoints={prebuiltPoints}
       rangeNote={rangeNote}
+      openPnl={openPnl}
+      openPct={openPct}
     />
   );
 }
@@ -7225,6 +7229,8 @@ function HoldingsPerformancePanel({
           chartHeight={420}
           useAccountValue={false}
           timeZone={timeZone}
+          openPnl={summary.totalUnrealizedPl}
+          openPct={summary.unrealizedPct}
         />
       </div>
 
