@@ -47,6 +47,7 @@ Deno.serve(async (req) => {
       orders: orders.map(normalizeAlpacaOrder),
     });
   } catch (error) {
+    console.log("[alpaca-orders error]", String((error as any)?.message || error), (error as any)?.stack);
     return jsonResponse(
       {
         ok: false,
