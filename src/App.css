@@ -537,6 +537,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   }
 
   .topbar {
+    flex-direction: row;
     align-items: flex-start;
     margin-bottom: 20px;
   }
