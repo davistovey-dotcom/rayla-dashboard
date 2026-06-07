@@ -1,4 +1,4 @@
-import { alpacaBrokerRequest, fetchCashflowActivities, resolveBrokerConnection } from "../_shared/alpaca.ts";
+import { alpacaBrokerRequest, resolveBrokerConnection } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 const RANGE_CONFIG: Record<string, { period: string; timeframe: string; intradayReporting?: string }> = {
@@ -53,6 +53,22 @@ function normalizePortfolioHistory(raw: any, range: string) {
     .filter(Boolean);
 }
 
+function firstFinite(arr: any[]): number | null {
+  for (const v of arr) {
+    const n = toFiniteNumber(v);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+function lastFinite(arr: any[]): number | null {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const n = toFiniteNumber(arr[i]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: buildCorsHeaders() });
@@ -90,42 +106,102 @@ Deno.serve(async (req) => {
       `/v2/account/portfolio/history?${params.toString()}`,
       isPaper
     );
-    console.log("[alpaca-portfolio-history cashflow]", JSON.stringify({ range, cashflow: history?.cashflow ?? null }));
     const points = normalizePortfolioHistory(history, range);
 
-    const rawProfitLoss = Array.isArray(history?.profit_loss) ? history.profit_loss : [];
-    const baseValue = toFiniteNumber(history?.base_value);
-    const rawPnl = rawProfitLoss.length > 0
-      ? toFiniteNumber(rawProfitLoss[rawProfitLoss.length - 1])
-      : null;
+    const histTimestamps = Array.isArray(history?.timestamp) ? history.timestamp : [];
+    const histEquityArr = Array.isArray(history?.equity) ? history.equity : [];
+    const firstEquity = firstFinite(histEquityArr);
+    const histLastEquity = lastFinite(histEquityArr);
 
-    const rangeStartMs = points[0]?.timeMs ?? null;
-    let netCashflowInRange = 0;
-    let cashflowFetched = false;
+    // Window start: first timestamp of the history response (Unix seconds → ms)
+    const windowStartMs = histTimestamps.length > 0 ? normalizeTimestamp(histTimestamps[0]) : null;
+
+    // Fetch live account + positions; on failure fall back to equity-array only
+    let liveEquity: number | null = null;
+    let unrealizedPnl: number | null = null;
     try {
-      const activities = await fetchCashflowActivities(connection.access_token, isPaper, rangeStartMs);
-      netCashflowInRange = activities.reduce((sum, a) => sum + a.netAmount, 0);
-      cashflowFetched = true;
-    } catch (e) {
-      console.log("[periodPnl ERROR]", String((e as any)?.message || e), (e as any)?.stack || "");
-      // fall back to raw P/L below
+      const [rawAccount, rawPositions] = await Promise.all([
+        alpacaBrokerRequest(connection.access_token, "/v2/account", isPaper),
+        alpacaBrokerRequest(connection.access_token, "/v2/positions", isPaper),
+      ]);
+      liveEquity = toFiniteNumber(rawAccount?.equity);
+      if (Array.isArray(rawPositions)) {
+        unrealizedPnl = rawPositions.reduce((sum, p) => {
+          const pl = parseFloat(p?.unrealized_pl ?? p?.unrealizedPl ?? "");
+          return sum + (Number.isFinite(pl) ? pl : 0);
+        }, 0);
+      }
+    } catch (_e) {
+      // fall through — liveEquity and unrealizedPnl remain null
     }
 
-    const correctedPnl = rawPnl != null && cashflowFetched
-      ? rawPnl - netCashflowInRange
-      : rawPnl;
-    const currentValue = points[points.length - 1]?.value ?? null;
-    const startingCapital = (currentValue != null && correctedPnl != null)
-      ? currentValue - correctedPnl
-      : null;
-    const correctedPct = (startingCapital != null && startingCapital > 0)
-      ? (correctedPnl! / startingCapital) * 100
-      : null;
+    // For non-ALL ranges: fetch cash deposit/withdrawal activities in the window
+    // to subtract them from the equity delta (equity delta includes deposits).
+    let netDepositsInWindow = 0;
+    if (range !== "ALL" && windowStartMs != null) {
+      try {
+        const afterDate = new Date(windowStartMs).toISOString().split("T")[0];
+        const actParams = new URLSearchParams({
+          activity_types: "CSD,CSW",
+          after: afterDate,
+        });
+        const rawActivities = await alpacaBrokerRequest(
+          connection.access_token,
+          `/v2/account/activities?${actParams.toString()}`,
+          isPaper
+        );
+        console.log("[activities raw]", JSON.stringify(rawActivities));
 
-    console.log("[periodPnl debug]", JSON.stringify({ range, rawPnl, netCashflowInRange, correctedPnl, correctedPct, currentValue, startingCapital, baseValue }));
+        if (Array.isArray(rawActivities)) {
+          // Filter to activities on or after the window start (after= may be exclusive)
+          netDepositsInWindow = rawActivities.reduce((sum, a) => {
+            const actDateMs = Date.parse(String(a?.date || a?.transaction_time || a?.created_at || ""));
+            if (Number.isFinite(actDateMs) && actDateMs < windowStartMs) return sum;
+            const amt = parseFloat(a?.net_amount ?? a?.amount ?? a?.netAmount ?? "");
+            return sum + (Number.isFinite(amt) ? amt : 0);
+          }, 0);
+        }
+      } catch (e) {
+        console.log("[activities error]", String((e as any)?.message || e));
+        // netDepositsInWindow stays 0 — fall back to raw equity delta
+      }
+    }
 
-    const periodPnl = correctedPnl;
-    const periodPct = correctedPct;
+    let periodPnl: number | null = null;
+    let periodPct: number | null = null;
+    let startingCapital: number | null = null;
+    let source: string;
+
+    if (range === "ALL") {
+      // Use live unrealized P/L as the all-time P/L anchor — unchanged
+      const effectiveEquity = liveEquity ?? histLastEquity;
+      if (unrealizedPnl != null && effectiveEquity != null) {
+        periodPnl = unrealizedPnl;
+        startingCapital = effectiveEquity - periodPnl;
+        periodPct = startingCapital > 0 ? (periodPnl / startingCapital) * 100 : null;
+        source = "unrealized";
+      } else if (firstEquity != null && histLastEquity != null) {
+        periodPnl = histLastEquity - firstEquity;
+        startingCapital = firstEquity;
+        periodPct = startingCapital > 0 ? (periodPnl / startingCapital) * 100 : null;
+        source = "equity-delta-fallback";
+      } else {
+        source = "unavailable";
+      }
+    } else {
+      // 1D/1W/1M/1Y: equity delta minus deposits, anchored to live price
+      const lastEquity = liveEquity ?? histLastEquity;
+      if (firstEquity != null && lastEquity != null) {
+        periodPnl = (lastEquity - firstEquity) - netDepositsInWindow;
+        startingCapital = firstEquity + netDepositsInWindow;
+        periodPct = startingCapital > 0 ? (periodPnl / startingCapital) * 100 : null;
+        source = liveEquity != null ? "equity-delta" : "equity-delta-fallback";
+      } else {
+        source = "unavailable";
+      }
+    }
+
+    console.log("[periodPnl debug]", JSON.stringify({ range, periodPnl, periodPct, startingCapital, source, netDepositsInWindow }));
 
     return jsonResponse({
       ok: true,
