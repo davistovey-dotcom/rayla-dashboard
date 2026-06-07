@@ -7403,6 +7403,8 @@ function ActiveTradesPerformancePanel({
   showNoNewTrades = false,
   onRunAnalysis = null,
   timeZone = null,
+  startingCapital = 0,
+  onChangeStartingCapital = null,
 }) {
   const trades = Array.isArray(positions) ? positions : [];
   const nowMs = Date.now();
@@ -7582,6 +7584,8 @@ function ActiveTradesPerformancePanel({
             benchmarkLoading={benchmarkLoading}
             alpacaConnected={alpacaConnected}
             timeZone={timeZone}
+            startingCapital={startingCapital}
+            onChangeStartingCapital={onChangeStartingCapital}
           />
         </div>
       )}
@@ -7897,7 +7901,7 @@ function PerformanceDashboard({
 
   const dashboardEquityPoints = useMemo(
     () => normalizeChartSeriesToStrictAscending(
-      addSingleTradeEquityBaseline(filterEquityCurvePointsByRange(buildLoggedEquityCurvePoints(ft), chartRange))
+      addSingleTradeEquityBaseline(filterEquityCurvePointsByRange(buildLoggedEquityCurvePoints(ft, 0), chartRange), 0)
     ),
     [ft, chartRange]
   );
@@ -10008,7 +10012,14 @@ function EquityCurveCard({
   benchmarkLoading,
   alpacaConnected,
   timeZone = null,
+  startingCapital = null,
+  onChangeStartingCapital = null,
 }) {
+  const [capitalDraft, setCapitalDraft] = useState(startingCapital != null ? String(startingCapital) : "");
+  const [capitalEditing, setCapitalEditing] = useState(false);
+  useEffect(() => {
+    if (!capitalEditing) setCapitalDraft(startingCapital != null ? String(startingCapital) : "");
+  }, [startingCapital, capitalEditing]);
   const [benchmarkQuery, setBenchmarkQuery] = useState("");
   const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
   const values = equityPoints.map((point) => point.equity);
@@ -10172,6 +10183,44 @@ function EquityCurveCard({
         <div><span>Current</span><strong>{formatCurrency(currentValue)}</strong></div>
         <div><span>Net</span><strong>{`${netValue >= 0 ? "+" : ""}${formatCurrency(netValue)}`}</strong></div>
       </div>
+      {onChangeStartingCapital != null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, marginTop: -4 }}>
+          <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>Starting Capital</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 12, color: "#7BA6EC" }}>$</span>
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={capitalDraft}
+              onChange={(e) => { setCapitalEditing(true); setCapitalDraft(e.target.value); }}
+              onBlur={() => {
+                setCapitalEditing(false);
+                const num = Math.max(0, Number(capitalDraft) || 0);
+                setCapitalDraft(String(num));
+                onChangeStartingCapital(num);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") { setCapitalEditing(false); setCapitalDraft(startingCapital != null ? String(startingCapital) : ""); }
+              }}
+              style={{
+                background: "rgba(18,26,38,0.86)",
+                border: "1px solid rgba(123,166,236,0.35)",
+                borderRadius: 6,
+                color: "#7BA6EC",
+                fontSize: 13,
+                fontWeight: 600,
+                padding: "3px 8px",
+                width: 110,
+                outline: "none",
+              }}
+              placeholder="0"
+            />
+          </div>
+          <span style={{ fontSize: 11, color: "#475569" }}>Sets the equity curve baseline</span>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 14 }}>
         <div style={statCardStyle}>
           <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Total Portfolio Return %</span>
@@ -13145,6 +13194,7 @@ useEffect(() => {
 
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
+  const [dayTradeStartingCapital, setDayTradeStartingCapital] = useState(0);
   const [raylaMode, setRaylaMode] = useState(() => {
     try {
       const storedMode = localStorage.getItem(RAYLA_MODE_STORAGE_KEY);
@@ -15956,7 +16006,7 @@ useEffect(() => {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("user_level")
+        .select("user_level, day_trade_starting_capital")
         .eq("id", session.user.id)
         .single();
 
@@ -15969,6 +16019,7 @@ useEffect(() => {
 
       setProfile(data);
       setUserLevel(data.user_level || "beginner");
+      setDayTradeStartingCapital(Number(data.day_trade_starting_capital) || 0);
     }
 
     loadProfile();
@@ -16660,8 +16711,8 @@ useEffect(() => {
     [selectedPerformanceTrades, performancePositionFilter, isLiveTradesPerformance]
   );
   const selectedPerformanceEquityPoints = useMemo(
-    () => buildLoggedEquityCurvePoints(positionFilteredPerformanceTrades),
-    [positionFilteredPerformanceTrades]
+    () => buildLoggedEquityCurvePoints(positionFilteredPerformanceTrades, dayTradeStartingCapital),
+    [positionFilteredPerformanceTrades, dayTradeStartingCapital]
   );
   const filteredEquityPoints = useMemo(
     () => filterEquityCurvePointsByRange(selectedPerformanceEquityPoints, chartRange),
@@ -17012,6 +17063,13 @@ useEffect(() => {
         setProfile((prev) => ({ ...(prev || {}), user_level: level }));
         showToast("User level updated.", "success");
       }
+
+  async function saveDayTradeStartingCapital(value) {
+    const num = Math.max(0, Number(value) || 0);
+    setDayTradeStartingCapital(num);
+    if (!user) return;
+    await supabase.from("profiles").update({ day_trade_starting_capital: num }).eq("id", user.id);
+  }
 
   function handleRaylaAdaptiveOnboardingAnswer(questionKey, answer) {
     setRaylaAdaptiveState((prev) => {
@@ -26503,6 +26561,8 @@ return (
                   showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
                   onRunAnalysis={() => runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource)}
                   timeZone={raylaChartTimeZone}
+                  startingCapital={dayTradeStartingCapital}
+                  onChangeStartingCapital={saveDayTradeStartingCapital}
                 />
               ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
