@@ -342,6 +342,61 @@ export async function upsertBrokerTradeLogs(supabase: any, userId: string, provi
   return data || [];
 }
 
+const CASHFLOW_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC", "ACATC", "ACATS"];
+
+export async function fetchCashflowActivities(
+  accessToken: string,
+  isPaper: boolean,
+  afterMs: number | null = null,
+): Promise<Array<{ date: string | null; netAmount: number }>> {
+  const activities: Array<{ date: string | null; netAmount: number }> = [];
+  let pageToken: string | null = null;
+  let pageGuard = 0;
+
+  do {
+    const params = new URLSearchParams({
+      category: "non_trade_activity",
+      activity_types: CASHFLOW_ACTIVITY_TYPES.join(","),
+      direction: "asc",
+      page_size: "100",
+    });
+    if (pageToken) params.set("page_token", pageToken);
+
+    const { data, headers } = await alpacaBrokerRequestWithHeaders(
+      accessToken,
+      `/v2/account/activities?${params.toString()}`,
+      isPaper,
+    );
+
+    const page = Array.isArray(data) ? data : [];
+    for (const activity of page) {
+      const activityType = String(activity?.activity_type || "").trim().toUpperCase();
+      if (!CASHFLOW_ACTIVITY_TYPES.includes(activityType)) continue;
+      const netAmount = Number(activity?.net_amount ?? activity?.netAmount);
+      if (!Number.isFinite(netAmount)) continue;
+      const date = activity?.date || activity?.transaction_time || activity?.created_at || null;
+      activities.push({ date, netAmount });
+    }
+
+    pageToken =
+      headers.get("pagination-token") ||
+      headers.get("Pagination-Token") ||
+      headers.get("next-page-token") ||
+      headers.get("Next-Page-Token") ||
+      null;
+    pageGuard += 1;
+  } while (pageToken && pageGuard < 50);
+
+  if (afterMs != null) {
+    return activities.filter((a) => {
+      const parsed = Date.parse(String(a.date || ""));
+      return Number.isFinite(parsed) && parsed >= afterMs;
+    });
+  }
+
+  return activities;
+}
+
 // Resolves the best available broker connection: live first, paper fallback.
 export async function resolveBrokerConnection(supabase: any, userId: string) {
   const { data: liveConn } = await supabase

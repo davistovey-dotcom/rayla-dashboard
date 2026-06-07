@@ -1,4 +1,4 @@
-import { alpacaBrokerRequest, resolveBrokerConnection } from "../_shared/alpaca.ts";
+import { alpacaBrokerRequest, fetchCashflowActivities, resolveBrokerConnection } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 const RANGE_CONFIG: Record<string, { period: string; timeframe: string; intradayReporting?: string }> = {
@@ -90,7 +90,42 @@ Deno.serve(async (req) => {
       `/v2/account/portfolio/history?${params.toString()}`,
       isPaper
     );
+    console.log("[alpaca-portfolio-history cashflow]", JSON.stringify({ range, cashflow: history?.cashflow ?? null }));
     const points = normalizePortfolioHistory(history, range);
+
+    const rawProfitLoss = Array.isArray(history?.profit_loss) ? history.profit_loss : [];
+    const baseValue = toFiniteNumber(history?.base_value);
+    const rawPnl = rawProfitLoss.length > 0
+      ? toFiniteNumber(rawProfitLoss[rawProfitLoss.length - 1])
+      : null;
+
+    const rangeStartMs = points[0]?.timeMs ?? null;
+    let netCashflowInRange = 0;
+    let cashflowFetched = false;
+    try {
+      const activities = await fetchCashflowActivities(connection.access_token, isPaper, rangeStartMs);
+      netCashflowInRange = activities.reduce((sum, a) => sum + a.netAmount, 0);
+      cashflowFetched = true;
+    } catch (e) {
+      console.log("[periodPnl ERROR]", String((e as any)?.message || e), (e as any)?.stack || "");
+      // fall back to raw P/L below
+    }
+
+    const correctedPnl = rawPnl != null && cashflowFetched
+      ? rawPnl - netCashflowInRange
+      : rawPnl;
+    const currentValue = points[points.length - 1]?.value ?? null;
+    const startingCapital = (currentValue != null && correctedPnl != null)
+      ? currentValue - correctedPnl
+      : null;
+    const correctedPct = (startingCapital != null && startingCapital > 0)
+      ? (correctedPnl! / startingCapital) * 100
+      : null;
+
+    console.log("[periodPnl debug]", JSON.stringify({ range, rawPnl, netCashflowInRange, correctedPnl, correctedPct, currentValue, startingCapital, baseValue }));
+
+    const periodPnl = correctedPnl;
+    const periodPct = correctedPct;
 
     return jsonResponse({
       ok: true,
@@ -107,6 +142,8 @@ Deno.serve(async (req) => {
       rawCount: Array.isArray(history?.timestamp) ? history.timestamp.length : 0,
       firstTimestamp: points[0]?.timeMs || null,
       lastTimestamp: points[points.length - 1]?.timeMs || null,
+      periodPnl,
+      periodPct,
     });
   } catch (error) {
     return jsonResponse(

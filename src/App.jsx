@@ -6374,7 +6374,7 @@ function PositionBreakdownCard({ title, rows = [], totalValue = 0 }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
         <div style={{ fontSize: 11, color: "#475569" }}>{rows.length}</div>
       </div>
-      <div style={{ padding: "4px 0" }}>
+      <div style={{ padding: "4px 0", maxHeight: 140, overflowY: "auto" }}>
         {rows.map((row, index) => {
           const value = Number(row.value) || 0;
           const pl = Number(row.pl) || 0;
@@ -6828,6 +6828,7 @@ function PortfolioTrendCard({
   chartHeight = 340,
   useAccountValue = true,
   timeZone = null,
+  prebuiltPoints = null,
 }) {
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
@@ -6855,6 +6856,7 @@ function PortfolioTrendCard({
       className={`portfolioHistoryChart-${snapshotView}`}
       fallbackSnapshots={portfolioSnapshots}
       snapshotView={snapshotView}
+      prebuiltPoints={prebuiltPoints}
     />
   );
 }
@@ -6881,6 +6883,7 @@ function PortfolioPerformancePanel({
   benchmarkPoints = [],
   benchmarkLoading = false,
   timeZone = null,
+  positionActions = null,
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -6961,7 +6964,7 @@ function PortfolioPerformancePanel({
           setPortfolioRange={setPortfolioRange}
           title="Investing"
           subtitle="Portfolio value including all open and closed positions."
-          chartHeight={330}
+          chartHeight={520}
           timeZone={timeZone}
         />
       </div>
@@ -7004,10 +7007,10 @@ function PortfolioPerformancePanel({
 
         {/* Allocation */}
         <div data-tour-id="perf-portfolio-allocation" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#94a3b8", marginBottom: 16 }}>
             Allocation
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 13, maxHeight: 250, overflowY: "auto" }}>
             {sortedPositions.map((pos) => {
               const mv = Number(pos?.marketValue) || 0;
               const alloc = totalMarketValue > 0 ? (mv / totalMarketValue) * 100 : 0;
@@ -7016,7 +7019,7 @@ function PortfolioPerformancePanel({
                 <div key={pos.symbol}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#dde6f0" }}>{pos.symbol}</span>
-                    <span style={{ fontSize: 12, color: "#334155" }}>{formatPerformancePercent(alloc)}</span>
+                    <span style={{ fontSize: 12, color: "#94a3b8" }}>{formatPerformancePercent(alloc)}</span>
                   </div>
                   <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,0.05)" }}>
                     <div style={{
@@ -7037,10 +7040,11 @@ function PortfolioPerformancePanel({
 
         {/* Positions */}
         <div data-tour-id="perf-portfolio-positions" style={{ background: "rgba(8,16,26,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "18px 22px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#94a3b8", marginBottom: 16 }}>
             Positions
           </div>
-          <div>
+          {positionActions && positionActions}
+          <div style={{ maxHeight: 200, overflowY: "auto" }}>
             {sortedPositions.map((pos, idx) => {
               const pl = Number(pos?.unrealizedPl) || 0;
               const plpc = Number(pos?.unrealizedPlpc);
@@ -7064,7 +7068,7 @@ function PortfolioPerformancePanel({
                         {isEquity ? "EQ" : "CR"}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11, color: "#334155", marginTop: 3 }}>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>
                       {formatBrokerQuantity(pos.qty)} × {formatCurrency(pos.avgEntryPrice || 0)} · {formatCurrency(pos.marketValue)}
                     </div>
                   </div>
@@ -22648,8 +22652,6 @@ return (
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                         showRangeHint={false}
-                        openPnl={homePortfolioUnrealizedPl}
-                        openPct={homePortfolioReturnPct}
                       />
                     </div>
                   )}
@@ -26363,31 +26365,31 @@ return (
                   benchmarkPoints={strictBenchmarkPoints}
                   benchmarkLoading={equityBenchmarkLoading}
                   timeZone={raylaChartTimeZone}
+                  positionActions={brokerPositionsWithIntent.length > 0 && alpacaAccount ? (
+                    <InvestorCtaBand
+                      actions={[
+                        {
+                          label: "Analyze my portfolio",
+                          onClick: () => {
+                            const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
+                            const q = `Analyze my investment portfolio and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                            openGlobalRaylaPopup("Analyze my portfolio");
+                            handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                          },
+                        },
+                        {
+                          label: "What should I add?",
+                          onClick: () => {
+                            const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
+                            const q = `Based on my current portfolio, what should I consider adding for better diversification or growth potential?\n\n${formatInvestorContextForAI(p)}`;
+                            openGlobalRaylaPopup("What should I add?");
+                            handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                          },
+                        },
+                      ]}
+                    />
+                  ) : null}
                 />
-                {brokerPositionsWithIntent.length > 0 && alpacaAccount && (
-                  <InvestorCtaBand
-                    actions={[
-                      {
-                        label: "Analyze my portfolio",
-                        onClick: () => {
-                          const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
-                          const q = `Analyze my investment portfolio and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
-                          openGlobalRaylaPopup("Analyze my portfolio");
-                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
-                        },
-                      },
-                      {
-                        label: "What should I add?",
-                        onClick: () => {
-                          const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
-                          const q = `Based on my current portfolio, what should I consider adding for better diversification or growth potential?\n\n${formatInvestorContextForAI(p)}`;
-                          openGlobalRaylaPopup("What should I add?");
-                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
-                        },
-                      },
-                    ]}
-                  />
-                )}
                 </>
               ) : isLiveTradesPerformance && performancePositionFilter === "holdings" ? (
                 <>

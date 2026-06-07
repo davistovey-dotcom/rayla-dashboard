@@ -72,7 +72,7 @@ function normalizePoints(points, { allowZero = false } = {}) {
     const timeMs = Number(point?.timeMs);
     const value = Number(point?.value);
     if (!Number.isFinite(timeMs) || !Number.isFinite(value) || value < 0 || (!allowZero && value === 0)) return;
-    byTime.set(Math.round(timeMs / 1000), { time: Math.round(timeMs / 1000), value });
+    byTime.set(Math.round(timeMs / 1000), { time: Math.round(timeMs / 1000), value, pnl: point?.pnl, returnPct: point?.returnPct });
   });
   return Array.from(byTime.values()).sort((a, b) => a.time - b.time);
 }
@@ -146,18 +146,16 @@ function buildStats(chartData, fallbackValue, openPnl = null, openPct = null) {
   const latest = lastPoint?.value;
   const first = statPoints[0]?.value;
   const value = Number.isFinite(latest) ? latest : Number(fallbackValue);
-  const propPnl = Number.isFinite(Number(openPnl)) ? Number(openPnl) : null;
-  const propPct = Number.isFinite(Number(openPct)) ? Number(openPct) : null;
-  const alpacaPnl = Number.isFinite(Number(lastPoint?.pnl)) ? Number(lastPoint.pnl) : null;
-  const alpacaPct = Number.isFinite(Number(lastPoint?.returnPct)) ? Number(lastPoint.returnPct) * 100 : null;
-  const fallbackPnl = statPoints.length >= 2 && Number.isFinite(first) && Number.isFinite(latest)
+  const propPnl = openPnl != null && Number.isFinite(Number(openPnl)) ? Number(openPnl) : null;
+  const propPct = openPct != null && Number.isFinite(Number(openPct)) ? Number(openPct) : null;
+  const seriesPnl = statPoints.length >= 2 && Number.isFinite(first) && Number.isFinite(latest)
     ? latest - first
     : null;
-  const fallbackPct = Number.isFinite(fallbackPnl) && Number.isFinite(first) && first > 0
-    ? (fallbackPnl / first) * 100
+  const seriesPct = Number.isFinite(seriesPnl) && Number.isFinite(first) && first > 0
+    ? (seriesPnl / first) * 100
     : null;
-  const pnl = propPnl ?? alpacaPnl ?? fallbackPnl;
-  const pct = propPct ?? alpacaPct ?? fallbackPct;
+  const pnl = propPnl ?? seriesPnl;
+  const pct = propPct ?? seriesPct;
   return {
     value: Number.isFinite(value) ? value : null,
     pnl,
@@ -281,6 +279,7 @@ function PortfolioHistoryChartInner({
   showRangeHint = true,
   openPnl = null,
   openPct = null,
+  prebuiltPoints = null,
 }) {
   const normalizedRange = normalizeRange(range);
   const resolvedRangeOptions = useMemo(() => {
@@ -309,6 +308,8 @@ function PortfolioHistoryChartInner({
     firstTimestamp: null,
     lastTimestamp: null,
     source: "alpaca_portfolio_history",
+    periodPnl: null,
+    periodPct: null,
   });
 
   useEffect(() => {
@@ -332,6 +333,8 @@ function PortfolioHistoryChartInner({
           firstTimestamp: data?.firstTimestamp || points[0]?.timeMs || null,
           lastTimestamp: data?.lastTimestamp || points[points.length - 1]?.timeMs || null,
           source: "alpaca_portfolio_history",
+          periodPnl: data?.periodPnl ?? null,
+          periodPct: data?.periodPct ?? null,
         });
       } catch (error) {
         if (cancelled) return;
@@ -343,6 +346,8 @@ function PortfolioHistoryChartInner({
           firstTimestamp: null,
           lastTimestamp: null,
           source: "alpaca_portfolio_history",
+          periodPnl: null,
+          periodPct: null,
         });
       }
     }
@@ -356,8 +361,15 @@ function PortfolioHistoryChartInner({
     () => buildFallbackPointsFromSnapshots(fallbackSnapshots, normalizedRange, snapshotView),
     [fallbackSnapshots, normalizedRange, snapshotView]
   );
-  const usesAlpacaHistory = historyState.points.length >= 2;
-  const displayPoints = usesAlpacaHistory ? historyState.points : fallbackPoints;
+  const prebuiltMapped = useMemo(
+    () => Array.isArray(prebuiltPoints) && prebuiltPoints.length >= 2
+      ? prebuiltPoints.map((bar) => ({ timeMs: bar.timeMs, value: bar.close }))
+      : null,
+    [prebuiltPoints]
+  );
+  const usesPrebuilt = prebuiltMapped != null;
+  const usesAlpacaHistory = !usesPrebuilt && historyState.points.length >= 2;
+  const displayPoints = usesPrebuilt ? prebuiltMapped : usesAlpacaHistory ? historyState.points : fallbackPoints;
   const allowZeroBaseline = usesAlpacaHistory && ALPACA_ZERO_BASELINE_RANGES.has(normalizedRange);
   const chartData = useMemo(
     () => normalizePoints(displayPoints, { allowZero: allowZeroBaseline }),
@@ -372,7 +384,9 @@ function PortfolioHistoryChartInner({
     () => buildXAxisLabels(visibleDomain, normalizedRange, timeZone || undefined),
     [normalizedRange, timeZone, visibleDomain]
   );
-  const stats = useMemo(() => buildStats(chartData, currentValue, openPnl, openPct), [chartData, currentValue, openPnl, openPct]);
+  const effectivePnl = (usesAlpacaHistory && historyState.periodPnl != null) ? historyState.periodPnl : openPnl;
+  const effectivePct = (usesAlpacaHistory && historyState.periodPct != null) ? historyState.periodPct : openPct;
+  const stats = useMemo(() => buildStats(chartData, currentValue, effectivePnl, effectivePct), [chartData, currentValue, effectivePnl, effectivePct]);
 
   const updateEndpointMarker = () => {
     const marker = endpointRef.current;
