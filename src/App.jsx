@@ -6995,7 +6995,7 @@ function PortfolioPerformancePanel({
         {[
           { label: "Cash", value: cash !== null ? formatCurrency(cash) : "—", color: "#e2e8f0" },
           {
-            label: "Day P/L",
+            label: "Open positions today",
             value: Number.isFinite(dayPnL) ? `${dayPos ? "+" : ""}${formatCurrency(dayPnL)}` : "—",
             color: Number.isFinite(dayPnL) ? (dayPos ? "#4ade80" : "#f87171") : "#e2e8f0",
           },
