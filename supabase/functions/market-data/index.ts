@@ -731,8 +731,8 @@ serve(async (req) => {
       headers: FALLBACK_CORS_JSON_HEADERS,
       status: 200,
     });
-  } catch (err) {
-    console.error("market-data error:", err);
+  } catch (err: any) {
+    console.log("[market-data error]", String(err?.message || err), err?.stack);
     return new Response(JSON.stringify({ ok: false, error: err?.message || "Unknown error" }), {
       headers: FALLBACK_CORS_JSON_HEADERS,
       status: 500,

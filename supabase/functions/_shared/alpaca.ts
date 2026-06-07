@@ -20,7 +20,7 @@ export function getAlpacaEnv() {
 export function getAlpacaMarketDataEnv() {
   const keyId = Deno.env.get("ALPACA_MARKET_DATA_KEY_ID");
   const secretKey = Deno.env.get("ALPACA_MARKET_DATA_SECRET_KEY");
-  const stockFeed = (Deno.env.get("ALPACA_MARKET_DATA_STOCK_FEED") || "sip").toLowerCase();
+  const stockFeed = (Deno.env.get("ALPACA_MARKET_DATA_STOCK_FEED") || "iex").toLowerCase();
 
   if (!keyId || !secretKey) {
     throw new Error("Missing Alpaca market-data credentials.");
@@ -29,7 +29,7 @@ export function getAlpacaMarketDataEnv() {
   return {
     keyId,
     secretKey,
-    stockFeed: stockFeed === "iex" ? "iex" : "sip",
+    stockFeed: stockFeed === "sip" ? "sip" : "iex",
   };
 }
 
