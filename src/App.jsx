@@ -7131,6 +7131,7 @@ function HoldingsPerformancePanel({
   timeZone = null,
   onAskRayla = null,
   onSaveThesis = null,
+  portfolioInceptionMs = null,
 }) {
   const holdings = Array.isArray(positions) ? positions : [];
   const rangeOptions = [
@@ -7231,6 +7232,7 @@ function HoldingsPerformancePanel({
           timeZone={timeZone}
           openPnl={summary.totalUnrealizedPl}
           openPct={summary.unrealizedPct}
+          rangeNote={buildPortfolioRangeNote(portfolioRange, portfolioInceptionMs)}
         />
       </div>
 
@@ -26499,6 +26501,7 @@ return (
                   portfolioRange={performanceHoldingsRange}
                   setPortfolioRange={setPerformanceHoldingsRange}
                   timeZone={raylaChartTimeZone}
+                  portfolioInceptionMs={portfolioInceptionMs}
                   onSaveThesis={saveHoldingThesis}
                   onAskRayla={(symbol) => {
                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
