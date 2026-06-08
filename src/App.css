@@ -3033,33 +3033,72 @@ body.tour-active .mobileNav {
 }
 
 @media (max-width: 600px) {
-  /* Performance chart — stack sidebar above chart so chart gets full width */
+  /* Outer card: proper section separation on mobile.
+     !important needed to override the inline gap:12 on the element. */
+  .performanceLiveChartCard {
+    gap: 20px !important;
+    isolation: isolate;
+  }
+
+  /* Header section: ensure the "Closed Trade History" block has a clear bottom boundary */
+  .performanceLiveChartCard > div:first-child {
+    padding-bottom: 4px;
+  }
+
+  /* Performance chart — stack sidebar above chart so chart gets full width.
+     margin-top pushes the grid below the "Closed Trade History" header, since
+     flex gap alone doesn't always clear the overlap on mobile. */
   .performanceHistoryGrid {
     grid-template-columns: 1fr !important;
     min-height: 0 !important;
     gap: var(--space-section) !important;
+    row-gap: 24px !important;
+    align-items: start !important;
+    margin-top: 40px !important;
   }
 
   /* Sidebar: auto height on mobile, capped asset list */
   .performanceHistorySidebar {
     height: auto !important;
     max-height: none !important;
+    overflow: visible !important;
   }
 
   .performanceHistoryAssetList {
+    flex: none !important;
     max-height: 150px !important;
     overflow-y: auto !important;
   }
 
-  /* Tighten chart box inner padding on mobile */
+  /* Chart box: remove contain:paint on mobile — it can cause iOS Safari to composite
+     the box into a layer that paints above the card header. */
   .performanceHistoryChartBox {
     min-height: var(--chart-height-sm) !important;
     padding: 14px 12px 16px !important;
+    contain: none !important;
   }
 
   /* Give x-axis labels a few extra pixels of breathing room on mobile */
   .performanceHistoryEngineChart .interactiveLineChartCanvas {
     inset: 62px 16px 28px 14px !important;
+  }
+
+  /* Push the MAX-row down from the sidebar/divider above on mobile —
+     zero padding-top means it starts flush at the grid row-gap boundary. */
+  .performanceHistoryChartPanel {
+    padding-top: 14px;
+  }
+
+  /* Hide the mouse-only interaction hint on touch screens */
+  .performanceHistoryChartPanel .customChartInteractionHint {
+    display: none;
+  }
+
+  /* Controls row: wrap cleanly with gap instead of space-between crowding */
+  .performanceHistoryChartPanel > div:first-child {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
   }
 
   .interactiveLineChart {
@@ -3082,6 +3121,13 @@ body.tour-active .mobileNav {
 
   .interactiveLineChartLegendItem {
     font-size: 10.5px;
+  }
+
+  /* ActiveTradesPerformancePanel — push Closed Day Trades section down from
+     the equity curve and stats strip above it. Parent gap:12 is an inline
+     style so we target the section directly via data-tour-id. */
+  [data-tour-id="perf-daytrades-history"] {
+    margin-top: 20px;
   }
 }
 
