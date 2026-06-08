@@ -22711,6 +22711,11 @@ return (
                         </div>
                       ) : null}
                     </>
+                  ) : homePortfolioViewMode === "active" && activeBrokerPositions.length === 0 ? (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 8, padding: "32px 24px", textAlign: "center" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 4 }}>Day Trades</div>
+                      <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, maxWidth: 320 }}>No open day or swing positions. Active positions classified as day or swing trades will appear here.</div>
+                    </div>
                   ) : (
                     <div data-tour-id="home-portfolio-value">
                       <PortfolioHistoryChart
