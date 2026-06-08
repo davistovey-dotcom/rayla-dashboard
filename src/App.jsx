@@ -6157,13 +6157,7 @@ function BrokerDisclosureNote({ children, compact = false, action = null }) {
 function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = null, hideOutcomeValues = false }) {
   if (!rows || rows.length === 0) return null;
   const maxAbs = Math.max(5, ...rows.map(r => Math.abs(r.totalR)));
-  const isAssetBreakdown = title === "By Asset";
-  const rowAreaHeight = isAssetBreakdown
-    ? 180
-    : Number.isFinite(Number(maxHeight))
-      ? Number(maxHeight)
-      : null;
-  const hasInternalScroll = Number.isFinite(rowAreaHeight);
+  const rowAreaMaxHeight = Number.isFinite(Number(maxHeight)) ? Number(maxHeight) : 185;
   return (
     <div
       data-perf-breakdown-card={title}
@@ -6185,16 +6179,15 @@ function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = nu
       </div>
       <div
         data-perf-breakdown-rows={title}
-        className={hasInternalScroll ? "perfBreakdownScrollArea" : undefined}
+        className="perfBreakdownScrollArea"
         style={{
           display: "block",
           padding: "4px 0",
-          height: rowAreaHeight || undefined,
-          maxHeight: rowAreaHeight || undefined,
-          overflowY: hasInternalScroll ? "auto" : "visible",
-          overscrollBehavior: hasInternalScroll ? "contain" : undefined,
-          WebkitOverflowScrolling: hasInternalScroll ? "touch" : undefined,
-          flex: hasInternalScroll ? "0 0 auto" : undefined,
+          maxHeight: rowAreaMaxHeight,
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          WebkitOverflowScrolling: "touch",
+          flex: "0 0 auto",
           minHeight: 0,
         }}
       >
@@ -6577,7 +6570,7 @@ function PerformanceLiveChartCard({
     : "Selected assets only";
 
   return (
-    <div style={{ ...cardBase, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="performanceLiveChartCard" style={{ ...cardBase, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
       <div>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3", marginBottom: 6 }}>
@@ -12295,7 +12288,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
       {renderJournalHeader()}
 
       {/* Summary stats grid */}
-      <div data-tour-id="journal-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+      <div data-tour-id="journal-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
         {[
           { label: "Total Trades", value: journalAnalyticsTrades.length, sub: `${wins.length}W · ${losses.length}L`, color: "#f3f7fc" },
           { label: "Win Rate", value: `${wr.toFixed(1)}%`, sub: `${wins.length} winners`, color: wr >= 50 ? "#4ade80" : "#f87171" },
@@ -12312,10 +12305,10 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
             color: journalPnlValue(worstTrade) < 0 ? "#f87171" : journalPnlValue(worstTrade) > 0 ? "#4ade80" : "#94a3b8",
           }] : []),
         ].map(item => (
-          <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>{item.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: item.color, marginBottom: 2 }}>{item.value}</div>
-            <div style={{ fontSize: 11, color: "#475569" }}>{item.sub}</div>
+          <div key={item.label} style={{ background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "10px 10px" }}>
+            <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>{item.label}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: item.color, marginBottom: 2 }}>{item.value}</div>
+            <div style={{ fontSize: 10, color: "#475569" }}>{item.sub}</div>
           </div>
         ))}
       </div>
@@ -22559,11 +22552,6 @@ return (
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
                 <div className="homeHeaderRow" style={{ padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
                   <div className="raylaPageTitle homePageTitle mobilePageTitle" style={{ padding: 0 }}>Home</div>
-                  {isBeginnerMode && (
-                    <button className="feelingLostPill" type="button" onClick={() => setActiveTour("home")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600, display: "inline-block", flexShrink: 0 }}>
-                      Feeling lost? Click here.
-                    </button>
-                  )}
                 </div>
                 <div className="homeTopActions">
                   <RaylaLaunchButton
@@ -23475,6 +23463,33 @@ return (
                             <span style={{ fontSize: item.prominent ? 16 : 13, fontWeight: item.prominent ? 800 : 700, fontVariantNumeric: "tabular-nums", color: item.color }}>{item.value}</span>
                           </div>
                         ))}
+                        </div>
+                        {/* Reconnect / refresh buttons */}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto", flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            onClick={() => handleConnectAlpaca(false)}
+                            style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.1)", borderColor: "rgba(123,166,236,0.25)", color: "#7BA6EC" }}
+                          >
+                            {alpacaAccount.isPaper === false ? "Reconnect Live" : "Switch to Live"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            onClick={() => handleConnectAlpaca(true)}
+                            style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.06)", borderColor: "rgba(123,166,236,0.15)", color: "#94a3b8" }}
+                          >
+                            {alpacaAccount.isPaper === true ? "Reconnect Paper" : "Switch to Paper"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghostButton"
+                            onClick={() => fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" })}
+                            style={{ fontSize: 11, padding: "5px 12px" }}
+                          >
+                            Refresh
+                          </button>
                         </div>
                       </div>
                     );
@@ -26647,13 +26662,6 @@ return (
         {activeTab === "journal" && (
           <div className="mainGrid">
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div className="pageHelpIntro">
-                {isBeginnerMode && (
-                  <button type="button" className="feelingLostPill" onClick={() => setActiveTour("journal")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
-                    Feeling lost? Click here.
-                  </button>
-                )}
-              </div>
               <JournalTab
                 trades={combinedTrades}
                 liveSimulationTrades={liveSimulationJournalTrades}
@@ -27090,13 +27098,6 @@ return (
               }
             `}</style>
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div className="pageHelpIntro">
-                {isBeginnerMode && (
-                  <button type="button" className="feelingLostPill" onClick={() => setActiveTour("intel")} style={{ fontSize: 11, color: "#7aa8d8", background: "rgba(122,168,216,0.08)", border: "1px solid rgba(122,168,216,0.18)", borderRadius: 999, padding: "3px 12px", cursor: "pointer", fontWeight: 600 }}>
-                    Feeling lost? Click here.
-                  </button>
-                )}
-              </div>
               <div className="card">
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -27343,14 +27344,6 @@ return (
           </button>
         </div>
       </div>
-      <SubscriptionCard
-        subscription={billingSubscription}
-        isLoading={billingLoading}
-        action={billingAction}
-        error={billingError}
-        onStartCheckout={handleStartStripeCheckout}
-        onOpenPortal={handleOpenStripePortal}
-      />
     </div>
   </div>
 )}

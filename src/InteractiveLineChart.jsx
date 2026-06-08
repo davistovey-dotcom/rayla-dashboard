@@ -280,7 +280,6 @@ export default function InteractiveLineChart({
       ...(window.__raylaChartRenderStats || {}),
       [debugLabel || className || "InteractiveLineChart"]: stats,
     };
-    console.log("[Rayla chart render stats]", { label: debugLabel || className || "InteractiveLineChart", className, ...stats });
   }, [allVisiblePoints, className, debugLabel, domain, normalizedLines, primaryLine, xAxisLabels]);
 
   const handlePointerMove = (event) => {
