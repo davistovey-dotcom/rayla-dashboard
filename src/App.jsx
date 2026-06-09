@@ -23102,16 +23102,16 @@ return (
                 }
                 .tradeLiveMarketPanel {
                   grid-column: 1 !important;
-                  height: 540px !important;
-                  max-height: 540px;
+                  height: 760px !important;
+                  max-height: 760px;
                   overflow: visible;
                   padding: 10px !important;
                   gap: 7px !important;
                 }
                 .tradeOrderTicket {
                   grid-column: 2 !important;
-                  height: 540px !important;
-                  max-height: 540px;
+                  height: 760px !important;
+                  max-height: 760px;
                   overflow-y: auto;
                   gap: 7px !important;
                 }
@@ -23140,7 +23140,7 @@ return (
                   padding: 34px 14px 16px !important;
                 }
                 .tradeLiveChartViewport {
-                  height: 310px !important;
+                  height: 560px !important;
                 }
                 .tradeSelectedAssetCard {
                   display: none !important;
@@ -24019,7 +24019,7 @@ return (
                               })() : (
                                 <div>
                                   <MarketClosedBanner assetType={tradeChartAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 310, borderRadius: 12, overflow: "hidden", position: "relative", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 560, borderRadius: 12, overflow: "hidden", position: "relative", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
