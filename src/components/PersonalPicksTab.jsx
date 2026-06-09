@@ -333,6 +333,7 @@ export default function PersonalPicksTab({
   brokerPositions,
   alpacaAccount,
   tradeCount = 0,
+  onProfileComplete,
 }) {
   const [profile, setProfileState] = useState(() => loadProfile());
 
@@ -441,6 +442,7 @@ export default function PersonalPicksTab({
     setProfileState(completed);
     saveProfile(completed);
     localStorage.removeItem(PICKS_CACHE_KEY);
+    if (typeof onProfileComplete === "function") onProfileComplete(completed);
     setPhase("output");
   }
 

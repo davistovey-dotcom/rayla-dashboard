@@ -641,6 +641,64 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
+const RAYLA_COACH_PROFILE_STORAGE_KEY = "rayla_coach_profile_v1";
+
+function loadCoachProfile() {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(RAYLA_COACH_PROFILE_STORAGE_KEY) : null;
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveCoachProfile(profile) {
+  try {
+    if (typeof window !== "undefined") localStorage.setItem(RAYLA_COACH_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  } catch {}
+}
+function normalizeRisk(value) {
+  const v = String(value || "").trim().toLowerCase();
+  if (v === "tight") return "low";
+  if (v === "moderate") return "medium";
+  if (v === "aggressive") return "high";
+  if (v === "low" || v === "medium" || v === "high") return v;
+  return null;
+}
+function normalizeGoal(value) {
+  const v = String(value || "").trim().toLowerCase();
+  if (["learn the basics", "improve execution", "build investing confidence", "analyze performance", "learning"].includes(v)) return "learning";
+  if (v === "income") return "income";
+  if (v === "wealth" || v === "growth") return "wealth";
+  if (v === "alpha") return "alpha";
+  return null;
+}
+function migrateToCoachProfile() {
+  if (typeof window === "undefined") return;
+  if (loadCoachProfile()) return;
+  const safeJson = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+  const picks = safeJson(localStorage.getItem("rayla-picks-profile-v1"));
+  const adaptive = safeJson(localStorage.getItem("rayla_adaptive_learning_profile"));
+  if (!picks && !adaptive?.onboardingAnswers) return;
+  const merged = {};
+  if (picks?.completed) {
+    if (picks.marketApproach) merged.marketApproach = picks.marketApproach;
+    if (picks.riskComfort) { merged.riskComfort = picks.riskComfort; merged.risk = normalizeRisk(picks.riskComfort); }
+    if (picks.setup) merged.setup = picks.setup;
+    if (picks.sectors) merged.sectors = picks.sectors;
+    if (picks.goal) merged.goal = normalizeGoal(picks.goal);
+    merged.picksCompleted = true;
+  }
+  if (adaptive?.onboardingAnswers) {
+    const a = adaptive.onboardingAnswers;
+    if (a.experience) merged.experience = a.experience;
+    if (a.familiarity) merged.familiarity = a.familiarity;
+    if (a.timeCommitment) merged.timeCommitment = a.timeCommitment;
+    if (!merged.goal && a.goal) merged.goal = normalizeGoal(a.goal);
+  }
+  if (Object.keys(merged).length) {
+    merged.migratedAt = new Date().toISOString();
+    saveCoachProfile(merged);
+  }
+}
+
 const DEFAULT_LIVE_TRADE_SYMBOL = "BTC";
 const HOLDING_THESIS_STORAGE_KEY = "rayla-holding-thesis-v1";
 
@@ -764,6 +822,12 @@ const RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS = [
     title: "Main goal",
     prompt: "What do you want Rayla to help you with most right now?",
     options: ["learn the basics", "improve execution", "analyze performance", "build investing confidence"],
+  },
+  {
+    key: "timeCommitment",
+    title: "Time commitment",
+    prompt: "How much time can you dedicate to trading each week?",
+    options: ["minimal", "moderate", "active"],
   },
 ];
 
@@ -4074,8 +4138,10 @@ function buildCashDeploymentContext({ account, positions, goals, picksProfile, a
   }
 
   // Risk profile
-  if (picksProfile?.riskComfort) {
-    const rl = { tight: "Low risk", moderate: "Moderate risk", aggressive: "Aggressive risk" }[picksProfile.riskComfort];
+  const coachProfile = loadCoachProfile();
+  const riskKey = coachProfile?.risk || normalizeRisk(coachProfile?.riskComfort || picksProfile?.riskComfort);
+  if (riskKey) {
+    const rl = { low: "Low risk", medium: "Moderate risk", high: "Aggressive risk" }[riskKey];
     if (rl) lines.push(`Risk profile: ${rl}`);
   }
 
@@ -9867,6 +9933,34 @@ function isCapitalGuideIntent(question) {
     || hasExtraCashPattern;
 }
 
+function isNextPickIntent(question) {
+  const normalized = String(question || "").trim().toLowerCase();
+  if (!normalized) return false;
+  const phrases = [
+    "next best pick",
+    "next pick",
+    "what should i buy next",
+    "best pick for my portfolio",
+    "best stock to buy",
+    "best trade to make",
+    "what to buy next",
+    "what should i add",
+    "what's my next trade",
+    "what's my best pick",
+    "what is my next pick",
+    "recommend a stock",
+    "recommend a ticker",
+    "give me a pick",
+    "what would you buy",
+    "what would rayla buy",
+    "what should i invest in next",
+    "what should i trade next",
+    "next investment pick",
+    "best pick right now",
+  ];
+  return phrases.some((p) => normalized.includes(p));
+}
+
 function normalizeCapitalGuideAnswer(questionKey, value) {
   const normalized = String(value || "")
     .trim()
@@ -12784,7 +12878,6 @@ useEffect(() => {
   const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_simulation");
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
-    stepIndex: 0,
     answers: {},
   });
   const [capitalGuideResult, setCapitalGuideResult] = useState(null);
@@ -13214,6 +13307,7 @@ useEffect(() => {
       // ignore localStorage write errors for mode preference
     }
   }, [raylaMode]);
+  useEffect(() => { migrateToCoachProfile(); }, []);
   const isBeginnerMode = raylaMode === "beginner";
   const showBeginnerGuidance = isBeginnerMode;
   const [activeTour, setActiveTour] = useState(null);
@@ -13703,10 +13797,7 @@ useEffect(() => {
         fallbackChange: "--",
       })),
   ]), [watchlist, simulationAsset, simulationPositions]);
-  const capitalGuideQuestions = useMemo(() => getCapitalGuideQuestions(), []);
-  const activeCapitalGuideQuestion = capitalGuideState.active
-    ? capitalGuideQuestions[capitalGuideState.stepIndex] || null
-    : null;
+  const activeCapitalGuideQuestion = null; // conversational flow — option buttons removed
   const askRaylaHasMessages = raylaChatMessages.length > 0;
   const raylaAdaptiveOnboardingStep = raylaAdaptiveState.onboardingCompleted
     ? -1
@@ -17070,9 +17161,20 @@ useEffect(() => {
         ...(prev?.onboardingAnswers || {}),
         [questionKey]: answer,
       };
+      const completed = RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS.every((question) => nextAnswers[question.key]);
+      if (completed) {
+        const current = loadCoachProfile() || {};
+        saveCoachProfile({
+          ...current,
+          experience: nextAnswers.experience,
+          familiarity: nextAnswers.familiarity,
+          timeCommitment: nextAnswers.timeCommitment,
+          goal: current.goal || normalizeGoal(nextAnswers.goal),
+        });
+      }
       return {
         ...(prev || createDefaultRaylaAdaptiveState()),
-        onboardingCompleted: RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS.every((question) => nextAnswers[question.key]),
+        onboardingCompleted: completed,
         onboardingAnswers: nextAnswers,
       };
     });
@@ -17275,165 +17377,470 @@ useEffect(() => {
       };
     }
 
-    function buildCapitalGuideResponse(answers) {
-      const userContext = buildCapitalGuideUserContext();
-      const directions = [];
-      const {
-        timeHorizon,
-        riskTolerance,
-        goal,
-        experience,
-        drawdownTolerance,
-        managementStyle,
-        moneyImportance,
-      } = answers;
-      const personalizationNote = userContext.notes[0] || "This is based on your answers first.";
-      const footerNote = "The more you simulate and log trades, the more personalized this gets.";
-      const buildFitList = (items) => items.filter(Boolean).slice(0, 3);
-      const formatFitText = (items) => [
-        "Fits you because:",
-        ...buildFitList(items).map((item) => `• ${item}`),
-      ].join("\n");
+    async function buildCapitalGuideResponse(answers) {
+      const { timeHorizon, riskTolerance, goal, experience, drawdownTolerance, managementStyle, moneyImportance } = answers;
+      const risk = riskTolerance || "medium";
+      const horizon = timeHorizon || "medium";
+      const amount = extractCashAmount(trimmedQuestion);
+      const disclaimer = "This is guidance only, not financial advice — adjust as your situation changes.";
 
-      directions.push({
-        id: timeHorizon === "long" || managementStyle === "mostly passive" ? "steady-long-term-growth" : goal === "income" ? "lower-volatility-income-focus" : "core-diversified-base",
-        title: timeHorizon === "long" || managementStyle === "mostly passive" ? "Steady long-term growth" : goal === "income" ? "Lower-volatility income focus" : "Core diversified base",
-        body: timeHorizon === "long"
-          ? "This direction fits money that can stay invested for years and grow through multiple market cycles."
-          : goal === "income"
-            ? "This direction fits users who care more about steadier cash generation and lower volatility than chasing the biggest upside."
-            : "This direction fits building a stable foundation before taking on more concentrated ideas.",
-        fit: formatFitText([
-          `your horizon is ${timeHorizon}`,
-          `your management style is ${managementStyle}`,
-          `the money is ${moneyImportance}`,
-        ]),
-      });
-
-      if (riskTolerance === "high" || goal === "growth" || moneyImportance === "high-risk / learning capital") {
-        directions.push({
-          id: "higher-growth-sector-exposure",
-          title: "Higher-growth sector exposure",
-          body: "This direction leans toward faster-growing parts of the market with higher swings and more upside potential.",
-          fit: formatFitText([
-            `${goal} is your main goal`,
-            `your risk tolerance is ${riskTolerance}`,
-            `your drawdown response would be ${drawdownTolerance}`,
-          ]),
-        });
-      } else {
-        directions.push({
-          id: "balanced-growth-and-stability",
-          title: "Balanced growth and stability",
-          body: "This direction splits the focus between compounding growth and limiting large drawdowns.",
-          fit: formatFitText([
-            "you want a middle path between opportunity and stability",
-            `your drawdown tolerance sounds more like ${drawdownTolerance}`,
-            `your risk tolerance is ${riskTolerance}`,
-          ]),
-        });
+      // MATRIX fallback used when LLM path fails or returns too few valid tickers
+      function buildMatrixAllocation() {
+        const MATRIX = {
+          low: {
+            short: [
+              { ticker: "VOO",  label: "broad market ETF",   pct: 25, why: "capital preservation, stable core" },
+              { ticker: "BND",  label: "bond ETF",           pct: 35, why: "low risk means bonds anchor the portfolio" },
+              { ticker: "SGOV", label: "short-term gov ETF", pct: 20, why: "near-zero duration risk, horizon is short" },
+              { ticker: "cash", label: "cash",               pct: 20, why: "short horizon demands high liquidity" },
+            ],
+            medium: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 40, why: "diversified equity core, medium horizon" },
+              { ticker: "BND",  label: "bond ETF",         pct: 30, why: "stability buffer, low risk tolerance" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 15, why: "income stream, low drawdown profile" },
+              { ticker: "cash", label: "cash",             pct: 15, why: "medium horizon keeps a liquidity cushion" },
+            ],
+            long: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 55, why: "compounding equity growth, long horizon" },
+              { ticker: "BND",  label: "bond ETF",         pct: 25, why: "low risk means bonds stay meaningful" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 15, why: "dividend reinvestment over long period" },
+              { ticker: "cash", label: "cash",             pct:  5, why: "minimal cash drag, long horizon" },
+            ],
+          },
+          medium: {
+            short: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 30, why: "broad diversification, short deployment" },
+              { ticker: "QQQ",  label: "growth ETF",       pct: 15, why: "medium risk allows moderate growth tilt" },
+              { ticker: "BND",  label: "bond ETF",         pct: 20, why: "stability anchor, short horizon" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 10, why: "income buffer while horizon is short" },
+              { ticker: "cash", label: "cash",             pct: 25, why: "short horizon needs deployment flexibility" },
+            ],
+            medium: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 40, why: "market-rate compounding, medium horizon" },
+              { ticker: "QQQ",  label: "growth ETF",       pct: 20, why: "growth tilt fits medium risk tolerance" },
+              { ticker: "BND",  label: "bond ETF",         pct: 15, why: "smooths out volatility across cycles" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 15, why: "income adds stability to growth tilt" },
+              { ticker: "cash", label: "cash",             pct: 10, why: "medium horizon keeps small dry powder" },
+            ],
+            long: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 45, why: "long-run equity compounding" },
+              { ticker: "QQQ",  label: "growth ETF",       pct: 25, why: "risk and horizon both support growth tilt" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 15, why: "dividend reinvestment over years" },
+              { ticker: "BTC",  label: "crypto",           pct: 10, why: "small risk-on slice, medium risk and long horizon" },
+              { ticker: "cash", label: "cash",             pct:  5, why: "minimal cash drag, long term" },
+            ],
+          },
+          high: {
+            short: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 25, why: "equity base even at high risk, short horizon" },
+              { ticker: "QQQ",  label: "growth ETF",       pct: 20, why: "high risk allows aggressive growth tilt" },
+              { ticker: "BND",  label: "bond ETF",         pct: 10, why: "minimal stabilizer for short timeframe" },
+              { ticker: "BTC",  label: "crypto",           pct:  5, why: "small crypto sliver, high risk profile" },
+              { ticker: "cash", label: "cash",             pct: 40, why: "short horizon requires significant liquidity" },
+            ],
+            medium: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 35, why: "diversified equity core" },
+              { ticker: "QQQ",  label: "growth ETF",       pct: 25, why: "high risk supports growth overweight" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 10, why: "income component for balance" },
+              { ticker: "BTC",  label: "crypto",           pct: 10, why: "high risk and medium horizon fit crypto exposure" },
+              { ticker: "cash", label: "cash",             pct: 20, why: "medium horizon keeps deployment optionality" },
+            ],
+            long: [
+              { ticker: "VOO",  label: "broad market ETF", pct: 30, why: "long-run market compounding" },
+              { ticker: "QQQ",  label: "growth ETF",       pct: 30, why: "high risk + long horizon — growth overweight justified" },
+              { ticker: "SCHD", label: "dividend ETF",     pct: 10, why: "dividend reinvestment over decade-plus" },
+              { ticker: "BTC",  label: "crypto",           pct: 15, why: "maximum crypto allocation — high risk and long horizon only" },
+              { ticker: "cash", label: "cash",             pct: 15, why: "dry powder even in aggressive long-term portfolios" },
+            ],
+          },
+        };
+        const cells = MATRIX[risk]?.[horizon] || MATRIX.medium.medium;
+        const allocation = cells.map((cell) => ({
+          ...cell,
+          dollarAmt: amount ? `$${Math.round(amount * cell.pct / 100).toLocaleString("en-US")}` : null,
+        }));
+        const amtPhrase = amount ? ` on $${Math.round(amount).toLocaleString("en-US")}` : "";
+        const riskLabel = risk === "low" ? "conservative" : risk === "high" ? "aggressive" : "moderate";
+        const horizonLabel = horizon === "short" ? "short-term" : horizon === "long" ? "long-term" : "medium-term";
+        const goalPhrase = goal ? ` with a focus on ${goal}` : "";
+        // Build a flowing prose paragraph from MATRIX picks
+        const mainPicks = allocation.filter((l) => l.ticker.toUpperCase() !== "CASH" && l.pct >= 15);
+        const cashPick = allocation.find((l) => l.ticker.toUpperCase() === "CASH");
+        const mainPicksText = mainPicks.map((l) =>
+          amount
+            ? `${l.dollarAmt} into ${l.ticker} (${l.pct}%) — ${l.why}`
+            : `${l.ticker} at ${l.pct}% — ${l.why}`
+        ).join("; ");
+        const smallPicks = allocation.filter((l) => l.ticker.toUpperCase() !== "CASH" && l.pct < 15);
+        const smallText = smallPicks.length
+          ? ` Rounding it out: ${smallPicks.map((l) => amount ? `${l.dollarAmt} into ${l.ticker}` : `${l.ticker} at ${l.pct}%`).join(" and ")}.`
+          : "";
+        const cashText = cashPick
+          ? ` ${amount ? `${cashPick.dollarAmt} stays` : `${cashPick.pct}% stays`} in cash${horizon === "short" ? " — with your horizon, liquidity matters" : " as dry powder"}.`
+          : "";
+        const matrixProse = `Given your ${riskLabel} risk tolerance and ${horizonLabel} outlook${goalPhrase}${amtPhrase}, here's how I'd build this out. ${mainPicksText}.${smallText}${cashText} ${disclaimer}`;
+        setCapitalGuideResult({ allocation, summary: "Your Capital Guide Allocation", confidenceLine: disclaimer });
+        return matrixProse;
       }
 
-      if (experience === "active trader" || goal === "learning" || moneyImportance === "high-risk / learning capital") {
-        directions.push({
-          id: "high-volatility-learning-sleeve",
-          title: "High-volatility learning sleeve",
-          body: "This direction is for a smaller experimental portion of capital used to learn how faster-moving risk behaves.",
-          fit: formatFitText([
-            `your experience is ${experience}`,
-            `your goal is ${goal}`,
-            `you described this money as ${moneyImportance}`,
-          ]),
-        });
-      } else if (goal === "income") {
-        directions.push({
-          id: "cash-flow-oriented-allocation",
-          title: "Cash-flow oriented allocation",
-          body: "This direction prioritizes consistency and durability over the most aggressive upside.",
-          fit: formatFitText([
-            "income is your goal",
-            `your management style is ${managementStyle}`,
-            "your answers do not point to high-volatility learning capital",
-          ]),
-        });
-      } else {
-        directions.push({
-          id: "measured-upside-allocation",
-          title: "Measured upside allocation",
-          body: "This direction adds some growth potential without making the whole plan depend on one volatile theme.",
-          fit: formatFitText([
-            "it matches a gradual step-up in risk",
-            "it does not turn the full plan into a speculation bet",
-            `your management style is ${managementStyle}`,
-          ]),
-        });
+      // Show thinking indicator while LLM + validation run
+      setCapitalGuideResult({ loading: true });
+
+      try {
+        const amountLine = amount ? `\n- Amount to deploy: $${Math.round(amount).toLocaleString("en-US")}` : "";
+        const llmPrompt = `CAPITAL GUIDE ALLOCATION REQUEST — RETURN STRICT JSON ONLY. START YOUR RESPONSE WITH { AND END WITH }. NO PROSE, NO MARKDOWN FENCES, NO EXPLANATION OUTSIDE THE JSON OBJECT.
+
+User profile:
+- Risk tolerance: ${risk}
+- Time horizon: ${horizon}
+- Goal: ${goal || "not specified"}
+- Experience: ${experience || "not specified"}
+- Drawdown response: ${drawdownTolerance || "not specified"}
+- Management style: ${managementStyle || "not specified"}
+- Money importance: ${moneyImportance || "not specified"}${amountLine}
+
+Return ONLY this exact JSON shape:
+{ "picks": [ { "ticker": "SYMBOL", "type": "ETF|stock|crypto|cash", "pct": 30, "pitch": "one conviction sentence on why this fits this user" } ], "prose": "5-7 sentence advisor paragraph written in human voice — lead with the dollar amount and overall thesis, then weave in the specific picks with dollar figures and conviction reasoning, close with one short disclaimer. Sound like a sharp advisor talking, not a list." }
+
+Rules: 4–6 picks total, percentages sum to exactly 100, use real tickers (VOO/QQQ/BND/SCHD/SGOV/AAPL/NVDA/BTC/ETH etc), zero crypto for low risk, max 15% crypto only at high risk with long horizon, cash ticker is CASH type cash, more cash for short horizon.`;
+
+        const llmRes = await fetchWithTimeout(
+          ASK_RAYLA_URL,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({ question: llmPrompt, context: "" }),
+          },
+          20000
+        );
+
+        if (!llmRes.ok) throw new Error(`LLM status ${llmRes.status}`);
+        const llmData = await llmRes.json();
+        const rawAnswer = String(llmData?.answer || "").trim();
+
+        // Strip markdown fences if the model ignores the instruction, then parse JSON
+        const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON object found in LLM response");
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(parsed?.picks) || parsed.picks.length < 2) throw new Error("Insufficient picks in LLM response");
+
+        const picks = parsed.picks;
+        const prose = String(parsed.prose || "").trim();
+
+        // Validate tickers against live prices — batch, skip CASH
+        const nonCashPicks = picks.filter((p) => String(p.ticker || "").toUpperCase() !== "CASH");
+        const validTickers = new Set(["CASH"]);
+        if (nonCashPicks.length > 0) {
+          const { data: quoteData } = await supabase.functions.invoke("market-data", {
+            body: {
+              symbols: nonCashPicks.map((p) => ({
+                symbol: String(p.ticker || "").toUpperCase(),
+                type: String(p.type || "stock").toLowerCase() === "crypto" ? "crypto" : "stock",
+              })),
+            },
+          });
+          Object.entries(quoteData?.quotes || {}).forEach(([sym, q]) => {
+            if (Number(q?.price) > 0) validTickers.add(sym.toUpperCase());
+          });
+        }
+
+        const validPicks = picks.filter((p) => validTickers.has(String(p.ticker || "").toUpperCase()));
+        if (validPicks.length < 2) throw new Error("Fewer than 2 tickers passed price validation — falling back");
+
+        // Renormalize to exactly 100%
+        const rawTotal = validPicks.reduce((s, p) => s + Number(p.pct || 0), 0);
+        const normalized = validPicks.map((p) => ({ ...p, pct: Math.round((Number(p.pct) / rawTotal) * 100) }));
+        const normSum = normalized.reduce((s, p) => s + p.pct, 0);
+        if (normSum !== 100) normalized[normalized.length - 1].pct += (100 - normSum);
+
+        const allocation = normalized.map((p) => ({
+          ticker: String(p.ticker).toUpperCase(),
+          label: String(p.type || ""),
+          pct: p.pct,
+          why: String(p.pitch || ""),
+          dollarAmt: amount ? `$${Math.round(amount * p.pct / 100).toLocaleString("en-US")}` : null,
+        }));
+
+        setCapitalGuideResult({ allocation, summary: "Your Capital Guide Allocation", confidenceLine: disclaimer });
+        return prose || (amount
+          ? `Here is your Capital Guide allocation on $${Math.round(amount).toLocaleString("en-US")}. ${disclaimer}`
+          : `Here is your Capital Guide allocation. ${disclaimer}`);
+
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[Capital Guide] LLM path failed, using MATRIX fallback:", err?.message);
+        return buildMatrixAllocation();
       }
+    }
 
-      setCapitalGuideResult({
-        directions: directions.slice(0, 3),
-        confidenceLine: footerNote,
-      });
+    // Conversational Capital Guide extraction helper — used on both first trigger and each reply.
+    // Calls the LLM to parse any fields from the user message, merges with existing answers,
+    // and either proceeds to allocation or returns a conversational follow-up.
+    async function handleCapitalGuideReply(userMessage, existingAnswers) {
+      const msgAmount = extractCashAmount(userMessage);
+      const knownAmount = existingAnswers.amount || msgAmount || null;
 
-      return [
-        "Capital Guide summary",
-        "",
-        personalizationNote,
-        "",
-        ...directions.slice(0, 3).flatMap((direction) => [
-          `${direction.title}`,
-          `${direction.body}`,
-          `${direction.fit}`,
-          "Try in Scenario",
-          "",
-        ]),
-        footerNote,
-        "Rayla does not predict markets, and this is guidance rather than financial advice.",
-      ].join("\n");
+      // Detect deference/closing signals — user is saying "you decide / just tell me / I'm open"
+      const DEFERENCE_RE = /\b(what(?:'s| is) (?:your |the )?(?:call|take|pick|choice)|you (?:decide|pick|choose)|your call|if (?:you were|i were you|i was you)|whatever you (?:think|recommend|suggest)|i'?m (?:open|flexible|good with anything)|just (?:tell|give) me|you pick|go ahead|just (?:do it|build it?)|make the call|build it|your (?:recommendation|pick|choice)|you decide|doesn'?t matter|up to you|don'?t (?:care|mind)|no preference)\b/i;
+      const isDeference = DEFERENCE_RE.test(userMessage);
+
+      const knownSummary = Object.entries({ ...existingAnswers, ...(knownAmount ? { amount: knownAmount } : {}) })
+        .filter(([, v]) => v != null)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ") || "none yet";
+
+      const missingCritical = [
+        !existingAnswers.riskTolerance && "riskTolerance",
+        !existingAnswers.timeHorizon && "timeHorizon",
+        !existingAnswers.goal && "goal",
+      ].filter(Boolean);
+
+      const missingMinor = [
+        !existingAnswers.experience && "experience",
+        !existingAnswers.drawdownTolerance && "drawdownTolerance",
+        !existingAnswers.managementStyle && "managementStyle",
+        !existingAnswers.moneyImportance && "moneyImportance",
+      ].filter(Boolean);
+
+      const missingDesc = [...missingCritical, ...missingMinor]
+        .map((k) => ({
+          riskTolerance: "riskTolerance (low/medium/high)",
+          timeHorizon: "timeHorizon (short/medium/long)",
+          goal: "goal (growth/income/learning)",
+          experience: "experience (beginner/some experience/active trader)",
+          drawdownTolerance: "drawdownTolerance (sell quickly/hold/buy more)",
+          managementStyle: "managementStyle (mostly passive/active hands-on)",
+          moneyImportance: "moneyImportance (important/somewhat flexible/high-risk learning capital)",
+        }[k]))
+        .join(", ") || "none — all critical fields known";
+
+      const extractPrompt = `You are collecting investment profile fields for a Capital Guide allocation. Extract any fields you can from the user's latest message, then decide whether to proceed.
+
+Already collected: ${knownSummary}
+Still needed: ${missingDesc}
+
+User said: "${userMessage}"
+
+RETURN STRICT JSON ONLY — start with { end with }, no markdown, no extra text:
+{ "extracted": { "riskTolerance": "low|medium|high|null", "timeHorizon": "short|medium|long|null", "goal": "growth|income|learning|null", "experience": "beginner|some experience|active trader|null", "drawdownTolerance": "sell quickly|hold|buy more|null", "managementStyle": "mostly passive|active / hands-on|null", "moneyImportance": "important / cannot lose much|somewhat flexible|high-risk / learning capital|null", "amount": 9000 }, "ready": false, "followUp": "natural conversational question for the most important missing field — no Options menu, no list" }
+
+Rules: set any field to null if the message gives no clear signal; "ready" is true when riskTolerance + timeHorizon + goal are all known counting both already-collected and newly-extracted; "followUp" only needed when ready is false; extract dollar amounts as numbers (9k=9000). IMPORTANT: if the user expresses any deference or closing signal ("you decide", "I'm open", "whatever you think", "your call", "just tell me", "doesn't matter", "up to you", "go ahead", etc.), set "ready": true immediately and leave "followUp" empty — do not ask another question.`;
+
+      try {
+        const extractRes = await fetchWithTimeout(ASK_RAYLA_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+          body: JSON.stringify({ question: extractPrompt, context: "" }),
+        }, 15000);
+
+        if (!extractRes.ok) throw new Error(`extract status ${extractRes.status}`);
+        const extractData = await extractRes.json();
+        const rawExtract = String(extractData?.answer || "").trim();
+        const extractMatch = rawExtract.match(/\{[\s\S]*\}/);
+        if (!extractMatch) throw new Error("no JSON in extract response");
+        const parsed = JSON.parse(extractMatch[0]);
+
+        // Merge: only accept non-null, non-"null" string values
+        const mergedAnswers = { ...existingAnswers };
+        for (const [key, val] of Object.entries(parsed?.extracted || {})) {
+          if (val != null && val !== "null") mergedAnswers[key] = val;
+        }
+        if (knownAmount) mergedAnswers.amount = knownAmount;
+
+        // Deference signal: fill any remaining fields with sensible defaults so allocation fires
+        if (isDeference) {
+          if (!mergedAnswers.riskTolerance) mergedAnswers.riskTolerance = "medium";
+          if (!mergedAnswers.timeHorizon) mergedAnswers.timeHorizon = "medium";
+          if (!mergedAnswers.goal) mergedAnswers.goal = "growth";
+          if (!mergedAnswers.experience) mergedAnswers.experience = "some experience";
+          if (!mergedAnswers.drawdownTolerance) mergedAnswers.drawdownTolerance = "hold";
+          if (!mergedAnswers.managementStyle) mergedAnswers.managementStyle = "mostly passive";
+          if (!mergedAnswers.moneyImportance) mergedAnswers.moneyImportance = "somewhat flexible";
+        }
+
+        const isReady = parsed?.ready === true
+          || (mergedAnswers.riskTolerance && mergedAnswers.timeHorizon && mergedAnswers.goal);
+
+        if (isReady) {
+          setCapitalGuideState({ active: false, answers: {} });
+          setRaylaAdaptiveState(nextAdaptiveState);
+          const _cgCurrent = loadCoachProfile() || {};
+          saveCoachProfile({
+            ..._cgCurrent,
+            timeHorizon: mergedAnswers.timeHorizon,
+            drawdownTolerance: mergedAnswers.drawdownTolerance,
+            managementStyle: mergedAnswers.managementStyle,
+            moneyImportance: mergedAnswers.moneyImportance,
+            experience: _cgCurrent.experience || mergedAnswers.experience,
+            goal: _cgCurrent.goal || normalizeGoal(mergedAnswers.goal),
+            risk: _cgCurrent.risk || normalizeRisk(mergedAnswers.riskTolerance),
+          });
+          return await buildCapitalGuideResponse(mergedAnswers);
+        }
+
+        setCapitalGuideState({ active: true, answers: mergedAnswers });
+        setRaylaAdaptiveState(nextAdaptiveState);
+        const followUp = String(parsed?.followUp || "").trim();
+        return followUp || "What's your risk tolerance and roughly how long are you investing for?";
+
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[Capital Guide extract] failed:", err?.message);
+        // Graceful fallback: ask about the first missing critical field, no options menu
+        setRaylaAdaptiveState(nextAdaptiveState);
+        const ea = { ...existingAnswers };
+        if (knownAmount) ea.amount = knownAmount;
+        // On deference, fill defaults and fire rather than asking more questions
+        if (isDeference) {
+          if (!ea.riskTolerance) ea.riskTolerance = "medium";
+          if (!ea.timeHorizon) ea.timeHorizon = "medium";
+          if (!ea.goal) ea.goal = "growth";
+          if (!ea.experience) ea.experience = "some experience";
+          if (!ea.drawdownTolerance) ea.drawdownTolerance = "hold";
+          if (!ea.managementStyle) ea.managementStyle = "mostly passive";
+          if (!ea.moneyImportance) ea.moneyImportance = "somewhat flexible";
+          setCapitalGuideState({ active: false, answers: {} });
+          const _cgCurrent = loadCoachProfile() || {};
+          saveCoachProfile({
+            ..._cgCurrent,
+            timeHorizon: ea.timeHorizon,
+            drawdownTolerance: ea.drawdownTolerance,
+            managementStyle: ea.managementStyle,
+            moneyImportance: ea.moneyImportance,
+            experience: _cgCurrent.experience || ea.experience,
+            goal: _cgCurrent.goal || normalizeGoal(ea.goal),
+            risk: _cgCurrent.risk || normalizeRisk(ea.riskTolerance),
+          });
+          return await buildCapitalGuideResponse(ea);
+        }
+        setCapitalGuideState({ active: true, answers: ea });
+        if (!ea.riskTolerance) return "How would you describe your risk tolerance — conservative, moderate, or aggressive?";
+        if (!ea.timeHorizon) return "And how long are you planning to keep this invested?";
+        if (!ea.goal) return "What's the main goal — growing the money, generating income, or building trading skill?";
+        return "Got it. Anything else to factor in, or should I build your allocation now?";
+      }
+    }
+
+    async function handleNextPickRecommendation() {
+      const coachProfile = loadCoachProfile() || {};
+      const risk = coachProfile.risk || coachProfile.riskComfort || "medium";
+      const goal = coachProfile.goal || "wealth";
+      const experience = coachProfile.experience || "some";
+      const sectors = Array.isArray(coachProfile.sectors) ? coachProfile.sectors : [];
+      const marketApproach = String(coachProfile.marketApproach || "").trim();
+
+      const heldSymbols = new Set(
+        (brokerPositionsWithIntent || [])
+          .map((p) => String(p.symbol || "").toUpperCase())
+          .filter(Boolean)
+      );
+      const heldList = heldSymbols.size > 0 ? [...heldSymbols].join(", ") : "none";
+
+      const intelSignals = [
+        ...(Array.isArray(hotColdReport?.stockHot) ? hotColdReport.stockHot.slice(0, 3).map((a) => `${a.symbol} (hot stock, score ${a.score})`) : []),
+        ...(hotColdReport?.cryptoHot ? [`${hotColdReport.cryptoHot.symbol} (hot crypto)`] : []),
+      ].join(", ");
+
+      const prompt = `You are Rayla, a sharp trading advisor. The user wants their next best pick.
+
+USER PROFILE:
+- Risk: ${risk}
+- Goal: ${goal}
+- Experience: ${experience}${sectors.length > 0 ? `\n- Sectors of interest: ${sectors.join(", ")}` : ""}${marketApproach ? `\n- Approach: ${marketApproach}` : ""}
+
+CURRENTLY HELD (do NOT recommend these): ${heldList}
+
+TODAY'S MARKET SIGNALS: ${intelSignals || "not available"}
+
+Propose 1-3 specific tickers the user does NOT already hold. Each must be a real, liquid US-listed stock or crypto. For each, one conviction sentence explaining why it fits this user's profile right now.
+
+Respond in strict JSON only — no markdown, no extra text:
+{"picks":[{"ticker":"AAPL","type":"stock","conviction":"one sentence why"}],"prose":"Two to three sentences in sharp advisor voice naming the picks with key reasoning. No bullet points. No hedging disclaimers."}`;
+
+      try {
+        const llmRes = await fetchWithTimeout(
+          ASK_RAYLA_URL,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+            body: JSON.stringify({ question: prompt, context: "" }),
+          },
+          30000
+        );
+        if (!llmRes.ok) throw new Error(`LLM status ${llmRes.status}`);
+        const llmData = await llmRes.json();
+        const rawAnswer = String(llmData?.answer || "").trim();
+        const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON in LLM response");
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(parsed?.picks) || parsed.picks.length === 0) throw new Error("No picks in response");
+
+        const candidatePicks = parsed.picks.filter((p) => {
+          const sym = String(p.ticker || "").toUpperCase();
+          return sym && !heldSymbols.has(sym);
+        });
+        if (candidatePicks.length === 0) throw new Error("All picks already held");
+
+        const { data: quoteData } = await supabase.functions.invoke("market-data", {
+          body: {
+            symbols: candidatePicks.map((p) => ({
+              symbol: String(p.ticker || "").toUpperCase(),
+              type: String(p.type || "stock").toLowerCase() === "crypto" ? "crypto" : "stock",
+            })),
+          },
+        });
+
+        const validPicks = candidatePicks.filter((p) => {
+          const sym = String(p.ticker || "").toUpperCase();
+          return Number(quoteData?.quotes?.[sym]?.price) > 0;
+        });
+
+        if (validPicks.length === 0) throw new Error("No picks passed price validation");
+
+        const prose = String(parsed.prose || "").trim();
+        return prose || validPicks.map((p) => `${String(p.ticker).toUpperCase()}: ${p.conviction}`).join(" ");
+
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[NextPick] LLM path failed, using scanner fallback:", err?.message);
+
+        // Fallback: surface scanner signals on held symbols as a watch list
+        const scannerEntries = Object.entries(scannerResults || {})
+          .filter(([sym]) => !heldSymbols.has(sym.toUpperCase()) && sym !== "SPY")
+          .map(([sym, r]) => ({ sym: sym.toUpperCase(), trend: String(r?.trend || ""), roc20: r?.roc20 ?? null }))
+          .filter((e) => e.trend === "Bullish" || (e.roc20 != null && e.roc20 > 3))
+          .sort((a, b) => (b.roc20 ?? 0) - (a.roc20 ?? 0))
+          .slice(0, 3);
+
+        if (scannerEntries.length > 0) {
+          const names = scannerEntries.map((e) => `${e.sym}${e.roc20 != null ? ` (+${e.roc20.toFixed(1)}% momentum)` : ""}`).join(", ");
+          return `I couldn't lock in a fully validated pick right now, but your scanner is flagging these as worth watching: ${names}. None of these are in your current holdings — worth a closer look before pulling the trigger.`;
+        }
+
+        return "I don't have enough validated market data to commit to a specific pick right now. Check the Intel page for today's hot signals, or ask me about a sector or asset class you're watching and I'll dig in.";
+      }
     }
 
     if (capitalGuideState.active) {
-      const currentStep = capitalGuideQuestions[capitalGuideState.stepIndex];
-      const parsedAnswer = currentStep?.parse(trimmedQuestion);
-
-      if (!currentStep) {
-        setCapitalGuideState({ active: false, stepIndex: 0, answers: {} });
-        setRaylaAdaptiveState(nextAdaptiveState);
-      } else if (!parsedAnswer) {
-        setRaylaAdaptiveState(nextAdaptiveState);
-        return `${currentStep.prompt} Options: ${currentStep.options.join(", ")}.`;
-      } else {
-        const nextAnswers = {
-          ...capitalGuideState.answers,
-          [currentStep.key]: parsedAnswer,
-        };
-        const nextStepIndex = capitalGuideState.stepIndex + 1;
-
-        if (nextStepIndex >= capitalGuideQuestions.length) {
-          setCapitalGuideState({ active: false, stepIndex: 0, answers: {} });
-          setRaylaAdaptiveState(nextAdaptiveState);
-          return buildCapitalGuideResponse(nextAnswers);
-        }
-
-        setCapitalGuideState({
-          active: true,
-          stepIndex: nextStepIndex,
-          answers: nextAnswers,
-        });
-        setRaylaAdaptiveState(nextAdaptiveState);
-        return capitalGuideQuestions[nextStepIndex].prompt;
-      }
+      return await handleCapitalGuideReply(trimmedQuestion, capitalGuideState.answers || {});
     }
 
     if (isCapitalGuideIntent(trimmedQuestion)) {
       setCapitalGuideResult(null);
-      setCapitalGuideState({ active: true, stepIndex: 0, answers: {} });
       setRaylaAdaptiveState(nextAdaptiveState);
-      return capitalGuideQuestions[0].prompt;
+      return await handleCapitalGuideReply(trimmedQuestion, {});
+    }
+
+    if (isNextPickIntent(trimmedQuestion)) {
+      setCapitalGuideResult(null);
+      setRaylaAdaptiveState(nextAdaptiveState);
+      return await handleNextPickRecommendation();
     }
 
     setCapitalGuideResult(null);
 
-    const picksProfile = loadPicksProfile();
+    const _coachProfile = loadCoachProfile();
+    const picksProfile = (_coachProfile?.picksCompleted || _coachProfile?.marketApproach) ? _coachProfile : loadPicksProfile();
 
     const screenCtx = buildUniversalScreenContext({
       activeTab,
@@ -17472,7 +17879,7 @@ useEffect(() => {
           account: alpacaAccount,
           positions: brokerPositionsWithIntent,
           goals: loadFinancialGoals(),
-          picksProfile: loadPicksProfile(),
+          picksProfile: picksProfile,
           amount: extractCashAmount(trimmedQuestion),
         })
       : null;
@@ -22507,17 +22914,23 @@ return (
                           </div>
                         </div>
                       )}
-                      {capitalGuideResult?.directions?.length ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {capitalGuideResult.directions.map((direction) => (
-                            <div key={direction.id} style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{direction.title}</div>
-                              <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>{direction.body}</div>
-                              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{direction.fit}</div>
-                              <div><button type="button" className="ghostButton" onClick={() => handleTryCapitalGuideInScenario(direction)}>Try in Scenario</button></div>
+                      {capitalGuideResult?.loading ? (
+                        <div style={{ fontSize: 13, color: "#7f8ea3", fontStyle: "italic", padding: "6px 0" }}>Building your allocation...</div>
+                      ) : capitalGuideResult?.allocation?.length ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {capitalGuideResult.summary && (
+                            <div style={{ fontSize: 13, color: "#7CC4FF", fontWeight: 600, lineHeight: 1.5 }}>{capitalGuideResult.summary}</div>
+                          )}
+                          {capitalGuideResult.allocation.map((line) => (
+                            <div key={line.ticker} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 12px", borderRadius: 10, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                              <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 13, minWidth: 44 }}>{line.ticker}</div>
+                              <div style={{ flex: 1 }}>
+                                <span style={{ color: "#7CC4FF", fontWeight: 700, fontSize: 13 }}>{line.dollarAmt || `${line.pct}%`}</span>
+                                <span style={{ color: "#94a3b8", fontSize: 12 }}> {line.label} — {line.why}</span>
+                              </div>
                             </div>
                           ))}
-                          {capitalGuideResult.confidenceLine && <div style={{ fontSize: 12, color: "#7f8ea3", lineHeight: 1.6 }}>{capitalGuideResult.confidenceLine}</div>}
+                          {capitalGuideResult.confidenceLine && <div style={{ fontSize: 11, color: "#7f8ea3", lineHeight: 1.5, marginTop: 2 }}>{capitalGuideResult.confidenceLine}</div>}
                         </div>
                       ) : null}
                     </div>
@@ -26659,6 +27072,19 @@ return (
                 brokerPositions={brokerPositionsWithIntent}
                 alpacaAccount={alpacaAccount}
                 tradeCount={trades.length}
+                onProfileComplete={(completedProfile) => {
+                  const current = loadCoachProfile() || {};
+                  saveCoachProfile({
+                    ...current,
+                    marketApproach: completedProfile.marketApproach,
+                    riskComfort: completedProfile.riskComfort,
+                    setup: completedProfile.setup,
+                    sectors: completedProfile.sectors,
+                    goal: current.goal || normalizeGoal(completedProfile.goal),
+                    risk: normalizeRisk(completedProfile.riskComfort),
+                    picksCompleted: true,
+                  });
+                }}
               />
             </div>
           </div>
@@ -26966,37 +27392,37 @@ return (
                     </div>
                   )}
 
-                  {capitalGuideResult?.directions?.length ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {capitalGuideResult.directions.map((direction) => (
+                  {capitalGuideResult?.loading ? (
+                    <div style={{ fontSize: 13, color: "#7f8ea3", fontStyle: "italic", padding: "6px 0" }}>Building your allocation...</div>
+                  ) : capitalGuideResult?.allocation?.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {capitalGuideResult.summary && (
+                        <div style={{ fontSize: 13, color: "#7CC4FF", fontWeight: 600, lineHeight: 1.5 }}>
+                          {capitalGuideResult.summary}
+                        </div>
+                      )}
+                      {capitalGuideResult.allocation.map((line) => (
                         <div
-                          key={direction.id}
+                          key={line.ticker}
                           style={{
-                            padding: 12,
-                            borderRadius: 12,
-                            background: "rgba(255,255,255,0.04)",
-                            border: "1px solid rgba(255,255,255,0.08)",
                             display: "flex",
-                            flexDirection: "column",
-                            gap: 8,
+                            alignItems: "flex-start",
+                            gap: 10,
+                            padding: "8px 12px",
+                            borderRadius: 10,
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.07)",
                           }}
                         >
-                          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{direction.title}</div>
-                          <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>{direction.body}</div>
-                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{direction.fit}</div>
-                          <div>
-                            <button
-                              type="button"
-                              className="ghostButton"
-                              onClick={() => handleTryCapitalGuideInScenario(direction)}
-                            >
-                              Try in Scenario
-                            </button>
+                          <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 13, minWidth: 44 }}>{line.ticker}</div>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ color: "#7CC4FF", fontWeight: 700, fontSize: 13 }}>{line.dollarAmt || `${line.pct}%`}</span>
+                            <span style={{ color: "#94a3b8", fontSize: 12 }}> {line.label} — {line.why}</span>
                           </div>
                         </div>
                       ))}
                       {capitalGuideResult.confidenceLine && (
-                        <div style={{ fontSize: 12, color: "#7f8ea3", lineHeight: 1.6 }}>
+                        <div style={{ fontSize: 11, color: "#7f8ea3", lineHeight: 1.5, marginTop: 2 }}>
                           {capitalGuideResult.confidenceLine}
                         </div>
                       )}
