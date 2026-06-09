@@ -76,7 +76,7 @@ export default function TradingViewLiveChart({
     widgetContainer.className = "tradingview-widget-container";
     widgetContainer.style.width = "100%";
     widgetContainer.style.height = "100%";
-    widgetContainer.style.pointerEvents = "none";
+    widgetContainer.style.pointerEvents = "auto";
 
     const widgetInner = document.createElement("div");
     widgetInner.className = "tradingview-widget-container__widget";
@@ -102,9 +102,6 @@ export default function TradingViewLiveChart({
       hide_side_toolbar: true,
       hide_top_toolbar: true,
       disabled_features: [
-        "mouse_wheel_scale",
-        "pinch_scale",
-        "axis_pressed_mouse_move_scale",
         "chart_scroll",
         "left_toolbar",
       ],
