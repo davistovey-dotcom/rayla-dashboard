@@ -27113,29 +27113,7 @@ return (
                     </div>
                   </div>
                   <div data-tour-id="intel-ask-rayla">
-                  <BrokerDisclosureNote
-                    action={(
-                      <button
-                        type="button"
-                        className="ghostButton raylaAskTypography"
-                        onClick={() => openGlobalRaylaPopup("Ask Rayla")}
-                        style={{
-                          width: "auto",
-                          minHeight: 26,
-                          padding: "4px 9px",
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: "#d7efff",
-                          background: "rgba(124,196,255,0.08)",
-                          borderColor: "rgba(124,196,255,0.2)",
-                          flex: "0 0 auto",
-                        }}
-                      >
-                        Ask Rayla
-                      </button>
-                    )}
-                  >
+                  <BrokerDisclosureNote>
                     Market Intel may include assets unavailable through your connected broker. For deeper analysis and broker-aware opportunities, ask Rayla.
                   </BrokerDisclosureNote>
                   </div>
