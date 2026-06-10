@@ -178,6 +178,25 @@ serve(async (req) => {
       deletedCount: deletedProfileCount,
     });
 
+    // Clean up remaining user-scoped rows — log errors and continue so a single
+    // missing table never blocks the auth.users deletion.
+    const softDeletes: Array<{ table: string; column: string }> = [
+      { table: "user_broker_connections", column: "user_id" },
+      { table: "broker_oauth_states", column: "user_id" },
+      { table: "position_trade_types", column: "user_id" },
+      { table: "portfolio_snapshots", column: "user_id" },
+      { table: "broker_trade_logs", column: "user_id" },
+      { table: "user_subscriptions", column: "user_id" },
+    ];
+    for (const { table, column } of softDeletes) {
+      const { error: softErr } = await supabase.from(table).delete().eq(column, userId);
+      if (softErr) {
+        console.error(`[delete-account] delete_${table}_failed`, { message: softErr.message, code: softErr.code });
+      } else {
+        console.log(`[delete-account] delete_${table}_success`, { userId });
+      }
+    }
+
     const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
     if (deleteError) {
       console.error("[delete-account] delete_auth_user_failed", {

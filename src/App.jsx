@@ -14933,6 +14933,9 @@ useEffect(() => {
       if (!accountData?.connected) {
         setAlpacaAccount(null);
         setAlpacaPositions([]);
+        if (snapshotSource === "broker_connect") {
+          showToast("Alpaca connected, but we couldn't load your account yet. Please refresh the page.", "error");
+        }
         return;
       }
 
@@ -14973,7 +14976,12 @@ useEffect(() => {
       setAlpacaAccount(null);
       setAlpacaPositions([]);
       if (!silent) {
-        showToast(error?.message || "Could not load Alpaca connection.", "error");
+        showToast(
+          snapshotSource === "broker_connect"
+            ? "Alpaca connected, but we couldn't load your account yet. Please refresh the page."
+            : (error?.message || "Could not load Alpaca connection."),
+          "error"
+        );
       }
     } finally {
       setAlpacaConnectionLoaded(true);
@@ -16187,7 +16195,7 @@ useEffect(() => {
     fetchPortfolioSnapshots({ silent: true });
 
     if (positionTradeTypesLoaded) {
-      fetchAlpacaBrokerData({ silent: true, snapshotSource: brokerStatus === "connected" ? "broker_connect" : "app_startup" });
+      fetchAlpacaBrokerData({ silent: brokerStatus !== "connected", snapshotSource: brokerStatus === "connected" ? "broker_connect" : "app_startup" });
       fetchBrokerTradeLog({ sync: true, silent: true });
     }
   }, [session, positionTradeTypesLoaded]);
@@ -21703,6 +21711,8 @@ async function handleDeleteAccount() {
     localStorage.removeItem(getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.closedTrade, deletingUserId));
     localStorage.removeItem(getUserScopedStorageKey(SIMULATION_STORAGE_KEYS.balance, deletingUserId));
     localStorage.removeItem("rayla_sim_open_position");
+    localStorage.removeItem(RAYLA_COACH_PROFILE_STORAGE_KEY);
+    localStorage.removeItem("rayla-visited");
     sessionStorage.removeItem("rayla-intel-report");
     showToast(data?.message || "Account deleted successfully.", "success");
   } catch (error) {
