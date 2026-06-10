@@ -226,8 +226,13 @@ export default function Login({ onLogin }) {
       setAuthMessage({ type: "error", text: "Enter your email and password first." });
       return;
     }
-    if (password.length < 6) {
-      setAuthMessage({ type: "error", text: "Use at least 6 characters for your password." });
+    const missingRules = [];
+    if (password.length < 8) missingRules.push("at least 8 characters");
+    if (!/[A-Z]/.test(password)) missingRules.push("an uppercase letter");
+    if (!/[0-9]/.test(password)) missingRules.push("a number");
+    if (!/[^A-Za-z0-9]/.test(password)) missingRules.push("a special character");
+    if (missingRules.length > 0) {
+      setAuthMessage({ type: "error", text: `Password must include ${missingRules.join(", ")}.` });
       return;
     }
     if (password !== confirmPassword) {
@@ -455,10 +460,15 @@ export default function Login({ onLogin }) {
           <input
             className="authInput"
             type="password"
-            placeholder="Minimum 6 characters"
+            placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          {isCreatingAccount && (
+            <p style={{ margin: "4px 0 6px", fontSize: 11, color: "#64748b", lineHeight: 1.4 }}>
+              8+ characters, uppercase letter, number, and special character required.
+            </p>
+          )}
           {isCreatingAccount && (
             <>
               <label className="authLabel">Confirm Password</label>
