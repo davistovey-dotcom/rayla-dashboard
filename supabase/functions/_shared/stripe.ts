@@ -90,6 +90,14 @@ export function summarizeStripeSubscription(subscription: Record<string, any>): 
 
 export async function syncSubscriptionForUser(userId: string, summary: StripeSubscriptionSummary, metadata: Record<string, unknown> = {}) {
   const supabase = getSupabaseAdmin();
+
+  const { data: existing } = await supabase
+    .from("user_subscriptions")
+    .select("plan_key")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (existing?.plan_key === "rayla_discount") return existing;
+
   const { data, error } = await supabase
     .from("user_subscriptions")
     .upsert({

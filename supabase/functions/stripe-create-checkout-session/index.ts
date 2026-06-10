@@ -47,6 +47,7 @@ Deno.serve(async (req) => {
     appendParam(checkoutParams, "metadata[user_id]", user.id);
     appendParam(checkoutParams, "subscription_data[metadata][user_id]", user.id);
     appendParam(checkoutParams, "subscription_data[metadata][plan_key]", "rayla_base");
+    appendParam(checkoutParams, "allow_promotion_codes", "true");
 
     const trialDays = Number(Deno.env.get("STRIPE_RAYLA_TRIAL_DAYS") || 14);
     if (Number.isFinite(trialDays) && trialDays > 0) {
