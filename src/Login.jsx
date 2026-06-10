@@ -11,7 +11,7 @@ function getCalmAuthErrorMessage(error, fallback) {
   if (normalized.includes("rate limit") || normalized.includes("too many")) return "Too many attempts. Wait a moment, then try again.";
   if (normalized.includes("token") && normalized.includes("expired")) return "That code has expired. Use Resend to get a new one.";
   if (normalized.includes("otp") || normalized.includes("token is invalid")) return "That code is incorrect or has expired. Check your email or use Resend.";
-  return message;
+  return "Something went wrong. Please try again.";
 }
 
 function getAuthRedirectUrl() {
@@ -252,6 +252,8 @@ export default function Login({ onLogin }) {
         },
       });
 
+      console.log("[signup debug] data:", JSON.stringify(data, null, 2), "error:", JSON.stringify(error, null, 2));
+
       console.info("[auth] signup verification requested", {
         email: normalizedEmail,
         ok: !error,
@@ -270,6 +272,15 @@ export default function Login({ onLogin }) {
 
       if (data?.session) {
         onLogin?.(data);
+        return;
+      }
+
+      if (data?.user?.identities?.length === 0) {
+        setAuthMessage({
+          type: "error",
+          text: "An account with this email already exists. Try signing in, or reset your password later.",
+        });
+        setIsCreatingAccount(false);
         return;
       }
 
