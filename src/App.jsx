@@ -445,6 +445,26 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
     .finally(() => clearTimeout(timeout));
 }
 
+// Repairs JSON strings that ask-rayla's cleanupAnswerText may have corrupted:
+// 1. Reverses "• " bullet injection (was "- " or "* " or "1. " at line start)
+// 2. Escapes literal unescaped newlines/carriage-returns inside JSON string values
+function repairLLMJsonString(raw) {
+  let s = raw.replace(/• /g, "- ");
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (escaped) { result += ch; escaped = false; continue; }
+    if (ch === "\\") { escaped = true; result += ch; continue; }
+    if (ch === '"') { inString = !inString; result += ch; continue; }
+    if (inString && ch === "\n") { result += "\\n"; continue; }
+    if (inString && ch === "\r") { continue; }
+    result += ch;
+  }
+  return result;
+}
+
 function getTvSymbol(asset) {
   if (asset?.tvSymbol) return asset.tvSymbol;
   if (asset?.type === "crypto") return `BINANCE:${asset.id}USDT`;
@@ -17500,9 +17520,9 @@ User profile:
 - Money importance: ${moneyImportance || "not specified"}${amountLine}
 
 Return ONLY this exact JSON shape:
-{ "picks": [ { "ticker": "SYMBOL", "type": "ETF|stock|crypto|cash", "pct": 30, "pitch": "one conviction sentence on why this fits this user" } ], "prose": "5-7 sentence advisor paragraph written in human voice — lead with the dollar amount and overall thesis, then weave in the specific picks with dollar figures and conviction reasoning, close with one short disclaimer. Sound like a sharp advisor talking, not a list." }
+{ "picks": [ { "ticker": "SYMBOL", "type": "ETF|stock|crypto|cash", "pct": 30, "pitch": "one short clause why this fits" } ] }
 
-Rules: 4–6 picks total, percentages sum to exactly 100, use real tickers (VOO/QQQ/BND/SCHD/SGOV/AAPL/NVDA/BTC/ETH etc), zero crypto for low risk, max 15% crypto only at high risk with long horizon, cash ticker is CASH type cash, more cash for short horizon.`;
+Rules: 4-6 picks total, percentages sum to exactly 100, use real tickers (VOO/QQQ/BND/SCHD/SGOV/AAPL/NVDA/BTC/ETH etc), zero crypto for low risk, max 15% crypto only at high risk with long horizon, cash ticker is CASH type cash, more cash for short horizon.`;
 
         const llmRes = await fetchWithTimeout(
           ASK_RAYLA_URL,
@@ -17520,21 +17540,20 @@ Rules: 4–6 picks total, percentages sum to exactly 100, use real tickers (VOO/
         if (!llmRes.ok) throw new Error(`LLM status ${llmRes.status}`);
         const llmData = await llmRes.json();
         const rawAnswer = String(llmData?.answer || "").trim();
+        if (import.meta.env.DEV) console.warn("[Capital Guide] rawAnswer:", rawAnswer.slice(0, 2000));
 
-        // Strip markdown fences if the model ignores the instruction, then parse JSON
         const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON object found in LLM response");
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (!Array.isArray(parsed?.picks) || parsed.picks.length < 2) throw new Error("Insufficient picks in LLM response");
+        const parsed = JSON.parse(repairLLMJsonString(jsonMatch[0]));
+        if (!Array.isArray(parsed?.picks) || parsed.picks.length === 0) throw new Error("No picks in LLM response");
 
         const picks = parsed.picks;
-        const prose = String(parsed.prose || "").trim();
 
         // Validate tickers against live prices — batch, skip CASH
         const nonCashPicks = picks.filter((p) => String(p.ticker || "").toUpperCase() !== "CASH");
         const validTickers = new Set(["CASH"]);
         if (nonCashPicks.length > 0) {
-          const { data: quoteData } = await supabase.functions.invoke("market-data", {
+          const { data: quoteData, error: quoteError } = await supabase.functions.invoke("market-data", {
             body: {
               symbols: nonCashPicks.map((p) => ({
                 symbol: String(p.ticker || "").toUpperCase(),
@@ -17542,13 +17561,19 @@ Rules: 4–6 picks total, percentages sum to exactly 100, use real tickers (VOO/
               })),
             },
           });
-          Object.entries(quoteData?.quotes || {}).forEach(([sym, q]) => {
-            if (Number(q?.price) > 0) validTickers.add(sym.toUpperCase());
+          if (quoteError && import.meta.env.DEV) console.warn("[Capital Guide] market-data invoke error:", quoteError);
+          const quotesMap = quoteData?.quotes || {};
+          // Keep a pick if it has a confirmed live price OR if its symbol is plausible (1–5 uppercase letters).
+          // Off-hours empty quotes must not drop valid LLM picks — only reject definitively malformed symbols.
+          nonCashPicks.forEach((p) => {
+            const sym = String(p.ticker || "").toUpperCase();
+            if (Number(quotesMap[sym]?.price) > 0 || /^[A-Z]{1,5}$/.test(sym)) validTickers.add(sym);
           });
         }
 
         const validPicks = picks.filter((p) => validTickers.has(String(p.ticker || "").toUpperCase()));
-        if (validPicks.length < 2) throw new Error("Fewer than 2 tickers passed price validation — falling back");
+        // Only fall back for total failure — a single valid pick is enough to render
+        if (validPicks.length === 0) throw new Error("No valid picks from LLM response — total validation failure");
 
         // Renormalize to exactly 100%
         const rawTotal = validPicks.reduce((s, p) => s + Number(p.pct || 0), 0);
@@ -17564,10 +17589,24 @@ Rules: 4–6 picks total, percentages sum to exactly 100, use real tickers (VOO/
           dollarAmt: amount ? `$${Math.round(amount * p.pct / 100).toLocaleString("en-US")}` : null,
         }));
 
+        // Build advisor-voice prose client-side from validated picks — deterministic string assembly,
+        // no JSON parsing of prose, so unescaped quotes in LLM output can't break this path.
+        const riskLabel = risk === "low" ? "conservative" : risk === "high" ? "aggressive" : "moderate";
+        const horizonLabel = horizon === "short" ? "short-term" : horizon === "long" ? "long-term" : "medium-term";
+        const goalPhrase = goal ? ` focused on ${goal}` : "";
+        const amtPhrase = amount ? ` on $${Math.round(amount).toLocaleString("en-US")}` : "";
+        const cashAlloc = allocation.find((l) => l.ticker === "CASH");
+        const nonCashAlloc = allocation.filter((l) => l.ticker !== "CASH");
+        const pickPhrases = nonCashAlloc.map((l) =>
+          amount ? `${l.dollarAmt} into ${l.ticker} — ${l.why}` : `${l.ticker} at ${l.pct}% — ${l.why}`
+        ).join("; ");
+        const cashPhrase = cashAlloc
+          ? ` The remaining ${amount ? cashAlloc.dollarAmt : `${cashAlloc.pct}%`} stays in cash${horizon === "short" ? " — your horizon demands liquidity" : " as dry powder"}.`
+          : "";
+        const clientProse = `Here's how I'd build this${amtPhrase} for a ${riskLabel}, ${horizonLabel} profile${goalPhrase}. ${pickPhrases}.${cashPhrase} ${disclaimer}`;
+
         setCapitalGuideResult({ allocation, summary: "Your Capital Guide Allocation", confidenceLine: disclaimer });
-        return prose || (amount
-          ? `Here is your Capital Guide allocation on $${Math.round(amount).toLocaleString("en-US")}. ${disclaimer}`
-          : `Here is your Capital Guide allocation. ${disclaimer}`);
+        return clientProse;
 
       } catch (err) {
         if (import.meta.env.DEV) console.warn("[Capital Guide] LLM path failed, using MATRIX fallback:", err?.message);
@@ -17773,7 +17812,7 @@ Respond in strict JSON only — no markdown, no extra text:
         const rawAnswer = String(llmData?.answer || "").trim();
         const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON in LLM response");
-        const parsed = JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(repairLLMJsonString(jsonMatch[0]));
         if (!Array.isArray(parsed?.picks) || parsed.picks.length === 0) throw new Error("No picks in response");
 
         const candidatePicks = parsed.picks.filter((p) => {
@@ -17782,7 +17821,7 @@ Respond in strict JSON only — no markdown, no extra text:
         });
         if (candidatePicks.length === 0) throw new Error("All picks already held");
 
-        const { data: quoteData } = await supabase.functions.invoke("market-data", {
+        const { data: quoteData, error: quoteError } = await supabase.functions.invoke("market-data", {
           body: {
             symbols: candidatePicks.map((p) => ({
               symbol: String(p.ticker || "").toUpperCase(),
@@ -17790,13 +17829,14 @@ Respond in strict JSON only — no markdown, no extra text:
             })),
           },
         });
-
+        if (quoteError && import.meta.env.DEV) console.warn("[NextPick] market-data invoke error:", quoteError);
+        const quotesMap = quoteData?.quotes || {};
         const validPicks = candidatePicks.filter((p) => {
           const sym = String(p.ticker || "").toUpperCase();
-          return Number(quoteData?.quotes?.[sym]?.price) > 0;
+          return Number(quotesMap[sym]?.price) > 0 || /^[A-Z]{1,5}$/.test(sym);
         });
 
-        if (validPicks.length === 0) throw new Error("No picks passed price validation");
+        if (validPicks.length === 0) throw new Error("No valid picks from LLM response");
 
         const prose = String(parsed.prose || "").trim();
         return prose || validPicks.map((p) => `${String(p.ticker).toUpperCase()}: ${p.conviction}`).join(" ");
@@ -17821,14 +17861,33 @@ Respond in strict JSON only — no markdown, no extra text:
       }
     }
 
+    // Investment questions route straight to ask-rayla — no step questionnaire or allocation matrix.
+    // Reset any stale capitalGuideState that may have been left active.
     if (capitalGuideState.active) {
-      return await handleCapitalGuideReply(trimmedQuestion, capitalGuideState.answers || {});
+      setCapitalGuideState({ active: false, answers: {} });
     }
 
-    if (isCapitalGuideIntent(trimmedQuestion)) {
-      setCapitalGuideResult(null);
-      setRaylaAdaptiveState(nextAdaptiveState);
-      return await handleCapitalGuideReply(trimmedQuestion, {});
+    const isInvestingQuestion = isCapitalGuideIntent(trimmedQuestion);
+
+    // Lightweight non-blocking profile extraction: save any signals found in the question.
+    if (isInvestingQuestion) {
+      const _cgCurrent = loadCoachProfile() || {};
+      const q = trimmedQuestion.toLowerCase();
+      const patch = {};
+      if (!_cgCurrent.risk) {
+        if (/\b(aggressive|high.?risk)\b/.test(q)) patch.risk = "high";
+        else if (/\b(conservative|low.?risk)\b/.test(q)) patch.risk = "low";
+        else if (/\bmoderate\b/.test(q)) patch.risk = "medium";
+      }
+      if (!_cgCurrent.timeHorizon) {
+        if (/\b(long.?term|5\+?\s*years?|decade|retirement)\b/.test(q)) patch.timeHorizon = "long";
+        else if (/\b(short.?term|quick|under\s*(a |one |1 |2 )?year)\b/.test(q)) patch.timeHorizon = "short";
+      }
+      if (!_cgCurrent.goal) {
+        if (/\b(income|dividend)\b/.test(q)) patch.goal = "income";
+        else if (/\b(growth|wealth|grow)\b/.test(q)) patch.goal = "wealth";
+      }
+      if (Object.keys(patch).length > 0) saveCoachProfile({ ..._cgCurrent, ...patch });
     }
 
     if (isNextPickIntent(trimmedQuestion)) {
@@ -17897,8 +17956,15 @@ Respond in strict JSON only — no markdown, no extra text:
       console.debug("[Rayla Template Engine]", { template: templateType, question: trimmedQuestion.slice(0, 100) });
     }
 
+    // For investing questions, prepend a framing instruction so Rayla answers directly
+    // rather than deflecting to a questionnaire. Already-collected profile context
+    // (picksProfileContext, brokerPositions, financialGoalsContext) flows through normally.
+    const investingFraming = isInvestingQuestion
+      ? "[Investing guidance context] Respond as Rayla, a direct and knowledgeable trading and investing assistant. Answer the way a sharp advisor actually would — give specific named tickers with conviction and clear reasoning when asked. Honor the user's exact request including concentrated single-name or high-risk bets — do NOT force diversification or refuse to name a pick. State risk plainly. Close with one brief note that this is guidance only, not financial advice. Keep it tight and conversational — no questionnaires, no step flows.\n\n"
+      : "";
+
     const askRaylaRequestPayload = {
-      question: augmentQuestionWithPicksProfile(questionWithTemplate),
+      question: augmentQuestionWithPicksProfile(investingFraming + questionWithTemplate),
       context: buildAskRaylaContext({
         trades,
         simulationTradeHistory: visibleSimulationTradeHistoryAll,
@@ -17982,7 +18048,7 @@ Respond in strict JSON only — no markdown, no extra text:
       const answer = await requestRaylaAnswer(trimmedQuestion, {
         ...extraContext,
         activeReviewedTrade: nextActiveReviewedTrade,
-        recentConversation: normalizeConversationSlice(raylaChatMessages),
+        recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
       });
       setRaylaResponse(answer);
       setRaylaActiveReviewedTrade(nextActiveReviewedTrade);
