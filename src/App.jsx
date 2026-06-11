@@ -23360,8 +23360,8 @@ return (
                           : homePortfolioMarketValue}
                         positionsCount={homePortfolioPositions.length}
                         positionsValue={homePortfolioMarketValue}
-                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioDisplayPl : null}
-                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioDisplayReturnPct : null}
+                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : null}
+                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : null}
                         statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
                         range={homePortfolioChartRange}
                         onRangeChange={setHomePortfolioChartRange}
