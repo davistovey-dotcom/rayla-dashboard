@@ -3896,8 +3896,16 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
         return {
           symbol: position?.symbol || "",
           qty: position?.qty ?? null,
+          qtyAvailable: position?.qtyAvailable ?? position?.qty ?? null,
+          assetClass: position?.assetClass || "us_equity",
+          currentPrice: Number.isFinite(Number(position?.currentPrice)) && Number(position?.currentPrice) > 0 ? Number(position.currentPrice) : null,
+          avgEntryPrice: Number.isFinite(Number(position?.avgEntryPrice)) && Number(position?.avgEntryPrice) > 0 ? Number(position.avgEntryPrice) : null,
           marketValue: position?.marketValue ?? null,
           unrealizedPl: position?.unrealizedPl ?? null,
+          unrealizedPlpc: position?.unrealizedPlpc ?? null,
+          unrealizedIntradayPl: position?.unrealizedIntradayPl ?? null,
+          unrealizedIntradayPlpc: position?.unrealizedIntradayPlpc ?? null,
+          changeToday: position?.changeToday ?? null,
           positionType: intent.positionType,
           positionTypeLabel: intent.positionTypeLabel,
           positionCategory: intent.positionCategory,
@@ -11597,8 +11605,10 @@ function RaylaDropdown({
   menuHeader = null,
   menuWidth,
   menuAlign = "left",
+  useFixed = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [fixedMenuStyle, setFixedMenuStyle] = useState(null);
   const rootRef = useRef(null);
   const buttonRef = useRef(null);
   const optionRefs = useRef([]);
@@ -11624,8 +11634,30 @@ function RaylaDropdown({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !useFixed) return undefined;
+    const close = () => setIsOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [isOpen, useFixed]);
+
   const openMenu = (index = selectedIndex) => {
     if (disabled) return;
+    if (useFixed && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const mw = menuWidth || rect.width;
+      setFixedMenuStyle({
+        position: "fixed",
+        top: rect.bottom + 7,
+        left: menuAlign === "right" ? rect.right - mw : rect.left,
+        width: mw,
+        zIndex: 9999,
+      });
+    }
     setIsOpen(true);
     window.requestAnimationFrame(() => {
       optionRefs.current[index]?.focus();
@@ -11695,7 +11727,7 @@ function RaylaDropdown({
           className="raylaDropdownMenu"
           role="listbox"
           aria-label={ariaLabel}
-          style={{
+          style={useFixed && fixedMenuStyle ? fixedMenuStyle : {
             width: menuWidth,
             left: menuWidth && menuAlign === "right" ? "auto" : undefined,
             right: menuWidth && menuAlign === "right" ? 0 : undefined,
@@ -24209,6 +24241,7 @@ return (
                                         size="compact"
                                         ariaLabel="Position type"
                                         menuWidth={190}
+                                        useFixed
                                       />
                                     </td>
                                     {/* Qty */}

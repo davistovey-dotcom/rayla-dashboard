@@ -804,6 +804,62 @@ function buildVisualChartContextBlock(visualRead: any) {
   ].join("\n");
 }
 
+function buildBrokerPositionsBlock(context: any) {
+  const positions = Array.isArray(context?.brokerPositionContext) ? context.brokerPositionContext : [];
+  if (!positions.length) return "";
+
+  const lines = ["Live open positions:"];
+  for (const pos of positions) {
+    const sym = String(pos.symbol || "?").toUpperCase();
+    const qty = pos.qty != null ? Number(pos.qty) : null;
+    const currentPrice = Number.isFinite(Number(pos.currentPrice)) && Number(pos.currentPrice) > 0 ? Number(pos.currentPrice) : null;
+    const avgEntry = Number.isFinite(Number(pos.avgEntryPrice)) && Number(pos.avgEntryPrice) > 0 ? Number(pos.avgEntryPrice) : null;
+    const mv = Number.isFinite(Number(pos.marketValue)) ? Number(pos.marketValue) : null;
+    const totalPl = Number.isFinite(Number(pos.unrealizedPl)) ? Number(pos.unrealizedPl) : null;
+    const totalPlPct = Number.isFinite(Number(pos.unrealizedPlpc)) ? Number(pos.unrealizedPlpc) * 100 : null;
+    const intradayPl = Number.isFinite(Number(pos.unrealizedIntradayPl)) ? Number(pos.unrealizedIntradayPl) : null;
+    const intradayPlPct = Number.isFinite(Number(pos.unrealizedIntradayPlpc)) ? Number(pos.unrealizedIntradayPlpc) * 100 : null;
+    const changeToday = Number.isFinite(Number(pos.changeToday)) ? Number(pos.changeToday) * 100 : null;
+    const typeLabel = pos.positionTypeLabel || pos.positionType || "unknown";
+    const thesis = String(pos.thesis || "").trim();
+    const entryReason = String(pos.entryReason || "").trim();
+
+    const priceLine = currentPrice != null && avgEntry != null
+      ? `price $${currentPrice.toFixed(2)} vs avg entry $${avgEntry.toFixed(2)}`
+      : currentPrice != null
+        ? `price $${currentPrice.toFixed(2)}`
+        : null;
+
+    const plLine = totalPl != null
+      ? `total P&L ${totalPl >= 0 ? "+" : ""}$${totalPl.toFixed(2)}${totalPlPct != null ? ` (${totalPlPct >= 0 ? "+" : ""}${totalPlPct.toFixed(1)}%)` : ""}`
+      : null;
+
+    const intradayLine = intradayPl != null
+      ? `intraday P&L ${intradayPl >= 0 ? "+" : ""}$${intradayPl.toFixed(2)}${intradayPlPct != null ? ` (${intradayPlPct >= 0 ? "+" : ""}${intradayPlPct.toFixed(1)}%)` : ""}`
+      : null;
+
+    const changeLine = changeToday != null
+      ? `asset up ${changeToday >= 0 ? "+" : ""}${changeToday.toFixed(2)}% today`
+      : null;
+
+    const bits = [
+      qty != null ? `${qty} shares` : null,
+      priceLine,
+      mv != null ? `mkt value $${mv.toFixed(2)}` : null,
+      plLine,
+      intradayLine,
+      changeLine,
+      `type: ${typeLabel}`,
+      thesis ? `thesis: "${thesis}"` : null,
+      entryReason ? `entry reason: "${entryReason}"` : null,
+    ].filter(Boolean);
+
+    lines.push(`  ${sym}: ${bits.join(" | ")}`);
+  }
+
+  return lines.join("\n");
+}
+
 function buildUnifiedRaylaContext(question: string, rawContext: any, visualChartContext = "") {
   const context = rawContext ?? {};
   const performanceStats = context?.performanceStats && typeof context.performanceStats === "object"
@@ -830,6 +886,9 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     raylaPicksContext: context.raylaPicksContext ?? null,
     behavioralPatternContext: context.behavioralPatternContext ?? null,
     selectedAssetContext: context.selectedAssetContext ?? null,
+    brokerPositionContext: Array.isArray(context.brokerPositionContext) && context.brokerPositionContext.length > 0
+      ? context.brokerPositionContext
+      : null,
     appContext: context.appContext ?? null,
     recentConversation: context.recentConversation ?? [],
     adaptiveProfile: context.adaptiveProfile ?? null,
@@ -1123,6 +1182,23 @@ function buildSystemPrompt(context: any, intent: string) {
     "- Do not lead with setup/session stats or table-like phrasing. The observation comes first; the count supports it.",
   ].join("\n");
 
+  const livePositionGuidance = Array.isArray(context?.brokerPositionContext) && context.brokerPositionContext.length > 0
+    ? [
+      "Live position guidance (broker positions are open right now):",
+      "- Position data is live from the user's brokerage account. Use it as ground truth — don't hedge on whether positions exist.",
+      "- Lead with what the data actually shows: entry price, current price, P&L, position type. Don't summarize generically.",
+      "- For day trades (type: Day Trade / intraday horizon): intraday P&L is the primary signal — how much has moved since the open, not just since entry. Comment on direction and magnitude of today's move.",
+      "- For swing trades: total unrealized P&L vs avg entry is the primary signal. Intraday is secondary context.",
+      "- If intraday P&L and total P&L diverge meaningfully (e.g., total down but intraday up), call that out — it's useful context about today's action vs the broader position.",
+      "- When asked about a specific position, anchor your answer to that position's exact numbers. Don't give generic market commentary when the user is asking about their live trade.",
+      "- Asset change today (changeToday) reflects the stock/crypto's own move — not the position P&L, which depends on qty. Distinguish these.",
+      "- If the user asks what to do with a position, give a direct read: the trade is working/not working, what the key level or condition is, what would change the thesis. Don't hedge with 'it depends on your risk tolerance' unless the user hasn't set a position type.",
+      "- For add-to-position questions: comment on whether the thesis is holding, the risk of averaging vs letting it work, and whether the intraday action supports adding.",
+      "- Thesis and entry reason (if present) are the user's own notes — reference them directly when giving advice. If there's a thesis, the question is whether the trade is tracking it.",
+      "- If thesis or entry reason are absent, note briefly that the trade intent isn't labeled and ask one question to understand it — then give the read based on the numbers.",
+    ].join("\n")
+    : "";
+
   const marketNarrativeGuidance = context?.marketIntelContext
     ? [
       "Market narrative guidance:",
@@ -1165,6 +1241,7 @@ function buildSystemPrompt(context: any, intent: string) {
     evidenceGroundingRules,
     confidenceCalibrationGuidance,
     setupSessionPatternGuidance,
+    livePositionGuidance,
     marketNarrativeGuidance,
     behaviorPatternGuidance,
     strategyTeachingGuidance,
@@ -1173,6 +1250,7 @@ function buildSystemPrompt(context: any, intent: string) {
     postTradeReviewGuidance,
     coachingPressureGuidance,
     // Active scene context — what the user is looking at right now
+    buildBrokerPositionsBlock(context),
     buildChartSummary(context),
     buildSimulationSummary(context),
     buildPostTradeReviewBlock(context),
