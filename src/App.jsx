@@ -7235,6 +7235,7 @@ function HoldingsPerformancePanel({
   onAskRayla = null,
   onSaveThesis = null,
   portfolioInceptionMs = null,
+  intentOverrides = null,
 }) {
   const holdings = Array.isArray(positions) ? positions : [];
   const rangeOptions = [
@@ -7267,9 +7268,10 @@ function HoldingsPerformancePanel({
       myRequestedStartMs,
       nowMs,
       "holdings",
-      "Performance Long-Term Holdings"
+      "Performance Long-Term Holdings",
+      intentOverrides
     ),
-    [portfolioSnapshots, myRequestedStartMs, nowMs]
+    [portfolioSnapshots, myRequestedStartMs, nowMs, intentOverrides]
   );
   const holdingsLinePoints = useMemo(
     () => buildOpenPositionReturnLinePoints(holdingsBenchmarkChart, summary.totalCostBasis),
@@ -7510,6 +7512,7 @@ function ActiveTradesPerformancePanel({
   timeZone = null,
   startingCapital = 0,
   onChangeStartingCapital = null,
+  intentOverrides = null,
 }) {
   const trades = Array.isArray(positions) ? positions : [];
   const nowMs = Date.now();
@@ -7550,9 +7553,10 @@ function ActiveTradesPerformancePanel({
       myRequestedStartMs,
       nowMs,
       "active",
-      "Performance Day Trades"
+      "Performance Day Trades",
+      intentOverrides
     ),
-    [portfolioSnapshots, myRequestedStartMs, nowMs]
+    [portfolioSnapshots, myRequestedStartMs, nowMs, intentOverrides]
   );
   const linePoints = useMemo(() => {
     const pts = buildOpenPositionReturnLinePoints(benchmarkChart, summary.totalCostBasis);
@@ -9338,7 +9342,7 @@ function getPortfolioChartVisibleTimeRange(snapshots, points, range, nowMs = Dat
   return { fromMs: firstMs - padMs, toMs: lastMs + padMs };
 }
 
-function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requestedEndMs, view = "portfolio", debugLabel = view) {
+function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requestedEndMs, view = "portfolio", debugLabel = view, intentOverrides = null) {
   const startMs = Number.isFinite(Number(requestedStartMs)) ? Number(requestedStartMs) : null;
   const endMs = Number.isFinite(Number(requestedEndMs)) ? Number(requestedEndMs) : Date.now();
   const normalizedRows = normalizePortfolioSnapshotRows(snapshots);
@@ -9358,7 +9362,13 @@ function buildPortfolioChartFromSnapshots(snapshots, requestedStartMs, requested
 
   const bars = rows.map((snapshot) => {
     const filteredPositions = (Array.isArray(snapshot.positions) ? snapshot.positions : [])
-      .filter((position) => snapshotPositionMatchesView(position, view));
+      .filter((position) => {
+        if (!intentOverrides || view === "portfolio") return snapshotPositionMatchesView(position, view);
+        const key = getPositionIntentKey(String(position?.symbol || ""));
+        const override = key ? intentOverrides[key] : null;
+        const effectiveType = override?.tradeType || override?.trade_type || override?.positionType || position?.trade_type || position?.tradeType;
+        return snapshotPositionMatchesView({ ...position, trade_type: effectiveType }, view);
+      });
     if (view !== "portfolio" && !filteredPositions.length) {
       addDiscard(view === "portfolio" ? "snapshot_has_no_positions" : `snapshot_has_no_${view}_positions`);
       return null;
@@ -16587,9 +16597,10 @@ useEffect(() => {
       homePortfolioRequestedStartMs,
       homePortfolioNowMs,
       homePortfolioSnapshotView,
-      `Home ${homePortfolioChartLabel}`
+      `Home ${homePortfolioChartLabel}`,
+      positionIntentOverrides
     ),
-    [portfolioSnapshots, homePortfolioRequestedStartMs, homePortfolioNowMs, homePortfolioSnapshotView]
+    [portfolioSnapshots, homePortfolioRequestedStartMs, homePortfolioNowMs, homePortfolioSnapshotView, positionIntentOverrides]
   );
   const homePortfolioCostBasis = getOpenPositionCostBasis(homePortfolioPositions);
   const homePortfolioLinePoints = useMemo(
@@ -27122,6 +27133,7 @@ return (
                   timeZone={raylaChartTimeZone}
                   portfolioInceptionMs={portfolioInceptionMs}
                   onSaveThesis={saveHoldingThesis}
+                  intentOverrides={positionIntentOverrides}
                   onAskRayla={(symbol) => {
                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                     const q = `Sharp read on my ${symbol} position — how is it doing and what's the one most important thing to watch right now?\n\n${formatInvestorContextForAI(p)}`;
@@ -27185,6 +27197,7 @@ return (
                   timeZone={raylaChartTimeZone}
                   startingCapital={dayTradeStartingCapital}
                   onChangeStartingCapital={saveDayTradeStartingCapital}
+                  intentOverrides={positionIntentOverrides}
                 />
               ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
