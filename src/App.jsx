@@ -15125,11 +15125,15 @@ useEffect(() => {
     setBillingError("");
 
     try {
-      const { data, error } = await supabase
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Billing check timed out.")), 12000)
+      );
+      const queryPromise = supabase
         .from("user_subscriptions")
         .select("*")
         .eq("user_id", session.user.id)
         .maybeSingle();
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
       if (error) throw new Error(error.message);
       setBillingSubscription(data || null);
@@ -16245,6 +16249,12 @@ useEffect(() => {
       setPortfolioSnapshotsLoading(false);
       return;
     }
+    fetchBillingSubscription({ silent: false });
+    fetchPortfolioSnapshots({ silent: true });
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
 
     const url = new URL(window.location.href);
     const broker = url.searchParams.get("broker");
@@ -16261,8 +16271,6 @@ useEffect(() => {
         } catch {
           setBrokerOnboardingSkipped(false);
         }
-        // Trigger confirmation screen instead of immediately showing toast.
-        // BrokerConnectConfirmPage will show the account details for user to confirm.
         setPendingBrokerConfirm(true);
       } else if (brokerStatus === "error") {
         showToast(brokerMessage || "Alpaca connection failed.", "error");
@@ -16287,9 +16295,6 @@ useEffect(() => {
       url.searchParams.delete("billing");
       window.history.replaceState({}, "", url.toString());
     }
-
-    fetchBillingSubscription({ silent: false });
-    fetchPortfolioSnapshots({ silent: true });
 
     if (positionTradeTypesLoaded) {
       fetchAlpacaBrokerData({ silent: brokerStatus !== "connected", snapshotSource: brokerStatus === "connected" ? "broker_connect" : "app_startup" });
