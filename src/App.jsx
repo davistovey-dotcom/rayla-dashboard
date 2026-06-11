@@ -11726,7 +11726,7 @@ function RaylaDropdown({
         aria-expanded={isOpen}
         aria-label={ariaLabel}
         disabled={disabled}
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => isOpen ? setIsOpen(false) : openMenu()}
         onKeyDown={handleButtonKeyDown}
       >
         <span>{buttonLabel || selectedOption.label}</span>
