@@ -7560,16 +7560,6 @@ function ActiveTradesPerformancePanel({
   const hasClosedTrades = closedActiveTrades.length > 0;
   const canRunAiAnalysis = typeof onRunAnalysis === "function";
 
-  console.log("[ActiveTradesPerformancePanel]", {
-    timeframe: portfolioRange,
-    firstPortfolioValue: activePeriodReturn?.firstValue ?? null,
-    lastPortfolioValue: activePeriodReturn?.lastValue ?? null,
-    periodPnL: activePeriodReturn?.pnl ?? null,
-    periodReturnPct: activePeriodReturn?.returnPct ?? null,
-    includedSymbols: trades.map((p) => p.symbol),
-    includedSnapshotsCount: activePeriodReturn?.barsCount ?? 0,
-    closedActiveTradesCount: closedActiveTrades.length,
-  });
 
   if (!alpacaConnected) {
     return (
@@ -14914,7 +14904,6 @@ useEffect(() => {
           tableLoad: audit,
         };
       }
-      console.log("[Rayla snapshot table audit]", audit);
       setPortfolioSnapshots(normalized);
     } catch (error) {
       console.warn("[Rayla snapshot table audit] load failed", {
@@ -14942,18 +14931,6 @@ useEffect(() => {
       return;
     }
 
-    console.log("[Rayla snapshot write audit] inserting snapshot", {
-      table: "portfolio_snapshots",
-      source,
-      timestamp: payload.timestamp,
-      positionsCount: payload.positions_count,
-      symbols: payload.positions_json.map((position) => position.symbol),
-      tradeTypes: payload.positions_json.map((position) => position.trade_type),
-      totalMarketValue: payload.total_market_value,
-      cash: payload.cash,
-      equity: payload.equity,
-    });
-
     const { data, error } = await supabase
       .from("portfolio_snapshots")
       .insert([payload])
@@ -14971,12 +14948,6 @@ useEffect(() => {
       return;
     }
 
-    console.log("[Rayla snapshot write audit] insert succeeded", {
-      table: "portfolio_snapshots",
-      id: data?.id || null,
-      timestamp: data?.timestamp || payload.timestamp,
-      source,
-    });
     setPortfolioSnapshots((prev) => normalizePortfolioSnapshotRows([...(Array.isArray(prev) ? prev : []), data]));
   }
 
@@ -16977,26 +16948,6 @@ useEffect(() => {
       source: item.trade?.source || (item.trade?.isBrokerTrade ? "broker" : "manual"),
       pnl: item.pnl,
       asset: item.trade?.asset || null,
-    });
-    console.log("RAYLA TRADE PIPELINE DEBUG", {
-      manualTradesCount: trades.length,
-      brokerTradesCount: normalizedBrokerTrades.length,
-      combinedTradesCount: combinedTrades.length,
-      usableClosedTradesCount: usableClosedTradesForEquity.length,
-      selectedTimeframe: chartRange,
-      sortedFirst5Trades: usableClosedTradesForEquity.slice(0, 5).map(summarizeTrade),
-      sortedLast5Trades: usableClosedTradesForEquity.slice(-5).map(summarizeTrade),
-      uniqueTimestampCount,
-      duplicateTimestampCount,
-      groupedTimestampCount,
-      tradeSourcesPresent: [...new Set(combinedTrades.map((trade) => trade.source || "unknown"))],
-      performanceInputTradesCount: combinedTrades.length,
-      equityCurvePointCount: equityPoints.length,
-      firstEquityPoint: equityPoints[0] || null,
-      lastEquityPoint: equityPoints[equityPoints.length - 1] || null,
-      benchmarkDataPointsCount: normalizedBenchmarkPoints.length,
-      benchmarkFirstTimestamp: normalizedBenchmarkPoints[0]?.time || null,
-      benchmarkLastTimestamp: normalizedBenchmarkPoints[normalizedBenchmarkPoints.length - 1]?.time || null,
     });
   }, [trades, normalizedBrokerTrades, combinedTrades, usableClosedTradesForEquity, chartRange, equityPoints, normalizedBenchmarkPoints]);
 
