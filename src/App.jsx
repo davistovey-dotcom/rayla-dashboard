@@ -15333,7 +15333,7 @@ useEffect(() => {
       error = "Choose a valid time in force.";
     } else if (
       (() => {
-        const symBase = symbol.replace(/\/USD.*$/i, "");
+        const symBase = symbol.replace(/\/USD.*$/i, "").replace(/USD$/i, "");
         const isCrypto = selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(symBase);
         const isFractional = Number.isFinite(qty) && qty > 0 && qty !== Math.floor(qty);
         const isDollarMode = alpacaOrderSizeMode === "dollars";
@@ -15343,7 +15343,7 @@ useEffect(() => {
       error = "Fractional and dollar-amount equity orders require DAY time in force.";
     } else if (
       (() => {
-        const symBase = symbol.replace(/\/USD.*$/i, "");
+        const symBase = symbol.replace(/\/USD.*$/i, "").replace(/USD$/i, "");
         const isCrypto = selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(symBase);
         return isCrypto && !["gtc", "ioc"].includes(timeInForce);
       })()
