@@ -1781,6 +1781,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   position: static;
 }
 
+/* Mobile layout block — hidden by default, shown at ≤600px */
+.unlockMobile { display: none; }
+
 .brokerOnboardingShell {
   width: min(980px, 100%);
   padding: clamp(24px, 4vw, 46px);
@@ -1881,82 +1884,213 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 }
 
 @media (max-width: 600px) {
+  /* ── Show mobile layout, hide desktop shell ── */
+  .unlockMobile {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 100dvh;
+  }
+
+  .unlockShell { display: none; }
+  .unlockPage > .unlockSignOut { display: none; }
+
+  /* ── Page: flat dark surface, no nested cards ── */
   .unlockPage {
     min-height: 100dvh;
-    padding: 14px;
+    padding: 0;
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
-  .unlockHero,
-  .unlockPanel,
-  .brokerOnboardingShell {
-    border-radius: 18px;
+  /* ── Mobile inner content column ── */
+  .unlockMobileInner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 24px 16px 16px;
   }
 
-  .unlockHero,
-  .unlockPanel,
-  .brokerOnboardingShell {
-    padding: 20px;
+  .unlockMobileTop {
+    display: flex;
+    flex-direction: column;
   }
 
-  .unlockHero h1,
-  .brokerOnboardingHero h1 {
-    font-size: clamp(34px, 12vw, 46px);
-    line-height: 1;
+  .unlockMobileBottom {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
-  .unlockHero p,
-  .brokerOnboardingHero p {
-    margin-top: 16px;
+  .unlockMobileInner .unlockEyebrow {
+    margin-bottom: 12px;
+  }
+
+  /* (1) Headline */
+  .unlockMobileHeadline {
+    margin: 0 0 10px;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.22;
+    letter-spacing: -0.01em;
+    color: #f8fbff;
+  }
+
+  /* (2) Subcopy */
+  .unlockMobileSubcopy {
+    margin: 0 0 20px;
     font-size: 14px;
-    line-height: 1.58;
+    color: #7f8ea3;
+    line-height: 1.55;
   }
 
-  .unlockActions,
+  /* (3) Checklist */
+  .unlockMobileChecklist {
+    list-style: none;
+    margin: 0 0 22px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .unlockMobileCheckItem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #d8e4f0;
+    line-height: 1.3;
+  }
+
+  .unlockMobileCheckItem svg {
+    flex-shrink: 0;
+  }
+
+  /* (4) Pricing strip */
+  .unlockMobilePricing {
+    font-size: 13px;
+    color: #7f8ea3;
+    line-height: 1.4;
+    margin-bottom: 18px;
+  }
+
+  /* (5) CTA buttons */
+  .unlockMobileCta {
+    width: 100%;
+    min-height: 50px;
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+
+  /* (6) Discount form — inline, reduced visual weight */
+  .unlockMobileDiscountForm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    margin-bottom: 12px;
+    opacity: 0.72;
+  }
+
+  .unlockMobileDiscountForm input,
+  .unlockMobileDiscountForm button {
+    min-height: 38px;
+    border-radius: 999px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+  }
+
+  .unlockMobileDiscountForm input {
+    min-width: 0;
+    border: 1px solid rgba(124,196,255,0.14);
+    background: rgba(6,12,22,0.6);
+    color: #f8fbff;
+    padding: 0 12px;
+    outline: none;
+  }
+
+  .unlockMobileDiscountForm input:focus {
+    border-color: rgba(124,196,255,0.38);
+  }
+
+  .unlockMobileDiscountForm input::placeholder {
+    color: #4a5568;
+  }
+
+  .unlockMobileDiscountForm button {
+    border: 1px solid rgba(124,196,255,0.16);
+    background: rgba(124,196,255,0.07);
+    color: #94a3b8;
+    padding: 0 14px;
+    font-weight: 750;
+    cursor: pointer;
+  }
+
+  .unlockMobileDiscountForm button:disabled,
+  .unlockMobileDiscountForm input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* (7) Trust line */
+  .unlockMobileTrust {
+    font-size: 11px;
+    color: #3d4f63;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  /* (8) Sign out — pinned at bottom, unobtrusive */
+  .unlockMobileSignOut {
+    display: block;
+    width: 100%;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    font-size: 12px;
+    font-weight: 600;
+    color: #3d4f63;
+    background: none;
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Broker onboarding — keep existing behavior, tighten sizing ── */
+  .brokerOnboardingShell {
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .brokerOnboardingHero h1 {
+    font-size: clamp(22px, 6.5vw, 28px);
+    line-height: 1.15;
+  }
+
+  .brokerOnboardingHero p {
+    font-size: 13px;
+    line-height: 1.5;
+    margin-top: 8px;
+  }
+
   .brokerOnboardingFooter {
     flex-direction: column;
     align-items: stretch;
     margin-top: 22px;
   }
 
-  .unlockPrimaryButton,
-  .unlockSecondaryButton,
   .brokerOnboardingFooter .unlockSignOut {
     width: 100%;
   }
 
-  .unlockDiscountForm {
-    grid-template-columns: 1fr;
-    max-width: none;
-  }
-
-  .unlockStatusRow {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .unlockPlanPrice span {
-    display: block;
-    margin: 8px 0 0;
-  }
-
-  .unlockCapability {
-    min-height: 40px;
-    align-items: flex-start;
-  }
-
-  .unlockCapability span {
-    margin-top: 5px;
-  }
-
-  .unlockSignOut {
-    position: static;
-    align-self: flex-end;
-    margin: 0 0 12px auto;
-  }
-
   .brokerOnboardingCard {
-    min-height: 156px;
-    padding: 18px;
+    min-height: 136px;
+    padding: 16px;
   }
 
   .brokerOnboardingBenefits {

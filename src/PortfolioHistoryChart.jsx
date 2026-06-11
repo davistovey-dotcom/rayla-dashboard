@@ -572,7 +572,7 @@ function PortfolioHistoryChartInner({
       {showRangeHint ? <div className="portfolioHistoryHint">Range buttons control this chart view.</div> : null}
       {rangeNote ? <div className="portfolioHistoryCoverage" style={{ marginTop: 8, marginLeft: 2 }}>{rangeNote}</div> : null}
       <div className="portfolioHistoryChartFrame" style={{ height: frameHeight }}>
-        <div ref={containerRef} className="portfolioHistoryChartCanvas" />
+        <div ref={containerRef} className="portfolioHistoryChartCanvas" style={hasChart ? undefined : { display: "none" }} />
         {hasChart ? <div ref={endpointRef} className="portfolioHistoryLiveMarker" aria-hidden="true" /> : null}
         {!hasChart && (
           <div className="portfolioHistoryEmpty">
@@ -583,7 +583,7 @@ function PortfolioHistoryChartInner({
                 : emptyMessage}
           </div>
         )}
-        {xAxisLabels.length ? (
+        {hasChart && xAxisLabels.length ? (
           <div className="portfolioHistoryXAxisLabels" aria-hidden="true">
             {xAxisLabels.map((label) => (
               <span key={label.key}>

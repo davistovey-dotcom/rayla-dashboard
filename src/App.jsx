@@ -120,7 +120,7 @@ function getPositionIntentKey(symbol) {
 }
 
 function inferPositionTypeFromSymbol() {
-  return DEFAULT_POSITION_TYPE;
+  return "investment";
 }
 
 function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITION_TYPE) {
@@ -11792,6 +11792,52 @@ function UnlockRaylaPage({
 
   return (
     <div className="unlockPage">
+
+      {/* ── Mobile layout (<600px) — hidden on desktop via CSS ── */}
+      <div className="unlockMobile">
+        <div className="unlockMobileInner">
+          <div className="unlockMobileTop">
+            <div className="unlockEyebrow">Unlock Rayla</div>
+            <h1 className="unlockMobileHeadline">Your trading workspace starts with live intelligence.</h1>
+            <p className="unlockMobileSubcopy">
+              Connect your broker, bring your portfolio into focus, and let Rayla turn market data, performance, and decisions into one calm operating system.
+            </p>
+            <ul className="unlockMobileChecklist">
+              {capabilities.map((capability) => (
+                <li key={capability} className="unlockMobileCheckItem">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="8" fill="rgba(124,196,255,0.13)" />
+                    <path d="M5 8.3l2 2L11 6" stroke="#7CC4FF" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {capability}
+                </li>
+              ))}
+            </ul>
+            <div className="unlockMobilePricing">$30/month after a free 14-day trial · cancel anytime</div>
+          </div>
+          <div className="unlockMobileBottom">
+            <button type="button" className="unlockPrimaryButton unlockMobileCta" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
+              {action === "checkout" ? "Opening Stripe..." : "Start 14-day trial"}
+            </button>
+            {canManage ? (
+              <button type="button" className="unlockSecondaryButton unlockMobileCta" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
+                {action === "portal" ? "Opening billing..." : "Manage billing"}
+              </button>
+            ) : null}
+            <form className="unlockMobileDiscountForm" onSubmit={onRedeemDiscountCode}>
+              <input name="discountCode" type="text" placeholder="Discount code" autoComplete="off" disabled={action === "discount" || isLoading} />
+              <button type="submit" disabled={action === "discount" || isLoading}>
+                {action === "discount" ? "Unlocking..." : "Redeem"}
+              </button>
+            </form>
+            <div className="unlockMobileTrust">Stripe handles billing securely.</div>
+            {error ? <div className="unlockError" style={{ marginTop: 6 }}>{error}</div> : null}
+          </div>
+        </div>
+        <button type="button" className="unlockMobileSignOut" onClick={onSignOut}>Sign out</button>
+      </div>
+
+      {/* ── Desktop layout (≥600px) — hidden on mobile via CSS ── */}
       <div className="unlockShell">
         <div className="unlockHero">
           <div className="unlockEyebrow">Unlock Rayla</div>
@@ -11840,6 +11886,7 @@ function UnlockRaylaPage({
         </div>
       </div>
       <button type="button" className="unlockSignOut" onClick={onSignOut}>Sign out</button>
+
     </div>
   );
 }
