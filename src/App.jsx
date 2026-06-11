@@ -119,8 +119,24 @@ function getPositionIntentKey(symbol) {
   return String(normalizedAsset || symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-function inferPositionTypeFromSymbol() {
-  return "investment";
+function inferPositionTypeFromBrokerLog(symbol, brokerTradeLog) {
+  if (!symbol || !Array.isArray(brokerTradeLog) || !brokerTradeLog.length) return "investment";
+  const key = getPositionIntentKey(symbol);
+  const today = new Date();
+  const hasTodayBuy = brokerTradeLog.some((order) => {
+    if (!order?.filled_at) return false;
+    const side = String(order?.side || "").toLowerCase();
+    const status = String(order?.status || "").toLowerCase();
+    if (side !== "buy" || (status !== "filled" && status !== "partially_filled")) return false;
+    if (getPositionIntentKey(order?.symbol) !== key) return false;
+    const filled = new Date(order.filled_at);
+    return filled.getFullYear() === today.getFullYear() && filled.getMonth() === today.getMonth() && filled.getDate() === today.getDate();
+  });
+  return hasTodayBuy ? "day_trade" : "investment";
+}
+
+function inferPositionTypeFromSymbol(symbol, brokerTradeLog) {
+  return inferPositionTypeFromBrokerLog(symbol, brokerTradeLog);
 }
 
 function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITION_TYPE) {
@@ -12957,6 +12973,7 @@ useEffect(() => {
   const [portfolioSnapshotsLoading, setPortfolioSnapshotsLoading] = useState(false);
   const [brokerTradeLog, setBrokerTradeLog] = useState([]);
   const [brokerTradeLogLoading, setBrokerTradeLogLoading] = useState(false);
+  const [brokerTradeLogLoaded, setBrokerTradeLogLoaded] = useState(false);
   const [alpacaOrderSubmitting, setAlpacaOrderSubmitting] = useState(false);
   const [alpacaOrderResult, setAlpacaOrderResult] = useState(null);
   const [pendingAlpacaOrderConfirmation, setPendingAlpacaOrderConfirmation] = useState(null);
@@ -13316,7 +13333,7 @@ useEffect(() => {
   }, [session?.user?.id]);
   useEffect(() => {
     const userId = session?.user?.id;
-    if (!userId || !alpacaPositions.length) return;
+    if (!userId || !alpacaPositions.length || !brokerTradeLogLoaded) return;
     const payload = Array.from(new Set(alpacaPositions
       .map((position) => getPositionIntentKey(position?.symbol))
       .filter(Boolean)))
@@ -13324,7 +13341,7 @@ useEffect(() => {
         user_id: userId,
         broker_provider: "alpaca",
         symbol,
-        trade_type: "investment",
+        trade_type: inferPositionTypeFromBrokerLog(symbol, brokerTradeLog),
       }));
 
     if (!payload.length) return;
@@ -13338,7 +13355,7 @@ useEffect(() => {
       .then(({ error }) => {
         if (error) console.warn("Could not ensure default position trade classifications.", error);
       });
-  }, [session?.user?.id, alpacaPositions.map((position) => position?.symbol || "").join("|")]);
+  }, [session?.user?.id, alpacaPositions.map((position) => position?.symbol || "").join("|"), brokerTradeLogLoaded]);
 
   useEffect(() => {
     if (!alpacaAccount?.id) return;
@@ -13481,14 +13498,14 @@ useEffect(() => {
   const brokerPositionsWithIntent = useMemo(() => (
     alpacaPositions.map((position) => {
       const override = getPositionIntentOverride(position?.symbol, positionIntentOverrides);
-      const fallbackType = override.tradeType || override.trade_type || override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol);
+      const fallbackType = override.tradeType || override.trade_type || override.positionType || override.position_type || inferPositionTypeFromSymbol(position?.symbol, brokerTradeLog);
       const storedThesis = holdingTheses[getPositionIntentKey(position?.symbol)] || "";
       return {
         ...position,
         ...buildPositionIntentMetadata({ ...position, ...override, thesis: storedThesis || override.thesis || "" }, fallbackType),
       };
     })
-  ), [alpacaPositions, positionIntentOverrides, holdingTheses]);
+  ), [alpacaPositions, positionIntentOverrides, holdingTheses, brokerTradeLog]);
   const sortedBrokerPositionsWithIntent = useMemo(() => (
     [...brokerPositionsWithIntent].sort((a, b) => Number(a.isLongTermHolding) - Number(b.isLongTermHolding))
   ), [brokerPositionsWithIntent]);
@@ -15066,6 +15083,7 @@ useEffect(() => {
       }
     } finally {
       setBrokerTradeLogLoading(false);
+      setBrokerTradeLogLoaded(true);
     }
   }
 
