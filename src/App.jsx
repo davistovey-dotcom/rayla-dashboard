@@ -15410,7 +15410,7 @@ useEffect(() => {
   const alpacaOrderValidation = getAlpacaOrderValidationState();
 
   // Derived: is this order a fractional or notional equity order that requires DAY TIF?
-  const _orderSymBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "");
+  const _orderSymBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "").replace(/USD$/i, "");
   const _orderIsCrypto = alpacaOrderValidation.selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(_orderSymBase);
   const _orderQty = Number(alpacaOrderForm.qty);
   const _orderIsFractional = Number.isFinite(_orderQty) && _orderQty > 0 && _orderQty !== Math.floor(_orderQty);
@@ -15423,7 +15423,7 @@ useEffect(() => {
 
   // Auto-switch TIF to DAY when a fractional or dollar-amount equity order is detected
   useEffect(() => {
-    const symBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "");
+    const symBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "").replace(/USD$/i, "");
     const isCrypto = alpacaOrderValidation.selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(symBase);
     const qty = Number(alpacaOrderForm.qty);
     const isFractional = Number.isFinite(qty) && qty > 0 && qty !== Math.floor(qty);
