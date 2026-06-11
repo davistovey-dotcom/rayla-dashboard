@@ -13263,7 +13263,32 @@ useEffect(() => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "position_trade_types", filter: `user_id=eq.${userId}` },
-        loadPositionTradeTypes
+        (payload) => {
+          if (cancelled) return;
+          if (payload.eventType === "DELETE") {
+            const key = getPositionIntentKey(payload.old?.symbol);
+            if (key) setPositionIntentOverrides((prev) => { const next = { ...prev }; delete next[key]; return next; });
+            return;
+          }
+          const row = payload.new;
+          if (!row?.symbol) return;
+          const key = getPositionIntentKey(row.symbol);
+          if (!key) return;
+          const tradeType = normalizePositionType(row.trade_type);
+          const meta = getPositionTypeMeta(tradeType);
+          setPositionIntentOverrides((prev) => ({
+            ...prev,
+            [key]: {
+              symbol: String(row.symbol || key).trim().toUpperCase(),
+              tradeType,
+              trade_type: tradeType,
+              positionType: tradeType,
+              position_type: tradeType,
+              timeHorizon: meta.defaultTimeHorizon,
+              time_horizon: meta.defaultTimeHorizon,
+            },
+          }));
+        }
       )
       .subscribe();
 
@@ -16024,7 +16049,15 @@ useEffect(() => {
       setTradeViewMode("asset");
       const selectedSymbol = tradeAppliedSelection.symbols[0];
       if (selectedSymbol) {
-        setAlpacaOrderForm((prev) => ({ ...prev, symbol: selectedSymbol }));
+        setAlpacaOrderForm((prev) => {
+          const matchingBrokerPosition = brokerPositionsWithIntent.find(
+            (p) => brokerSymbolsMatch(p.symbol, selectedSymbol)
+          );
+          const existingType = matchingBrokerPosition?.positionType
+            ? normalizePositionType(matchingBrokerPosition.positionType)
+            : null;
+          return { ...prev, symbol: selectedSymbol, ...(existingType ? { tradeType: existingType } : {}) };
+        });
       }
     }
   }, [tradeAppliedSelection, tradePortfolioAllSymbols]);
@@ -18179,9 +18212,10 @@ Respond in strict JSON only — no markdown, no extra text:
     }
   }
 
-  async function handleChartExplainPopupQuestion(question, chartContext, { resetThread = false } = {}) {
+  async function handleChartExplainPopupQuestion(question, chartContext, { resetThread = false, displayQuestion = null } = {}) {
     const trimmedQuestion = String(question || "").trim();
     if (!trimmedQuestion) return;
+    const chatDisplayQuestion = String(displayQuestion || trimmedQuestion).trim();
 
     if (intelSimulationSetupPrompt) {
       const normalized = trimmedQuestion.toLowerCase();
@@ -18201,7 +18235,7 @@ Respond in strict JSON only — no markdown, no extra text:
     const nextUserMessage = {
       id: createClientId(),
       role: "user",
-      content: trimmedQuestion,
+      content: chatDisplayQuestion,
     };
     const loadingMessage = {
       id: pendingMessageId,
@@ -23345,7 +23379,7 @@ return (
                                   </div>
                                 </div>
                                 <div className="homeUtilityRows" style={{ marginTop: 2 }}>
-                                  {longTermBrokerPositions.slice(0, 4).map((position) => (
+                                  {brokerPositionsWithIntent.slice(0, 4).map((position) => (
                                     <button
                                       key={`home-holding-${position.symbol}`}
                                       type="button"
@@ -23376,18 +23410,18 @@ return (
                                   label: "Analyze my portfolio",
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                                    const q = `Analyze my investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                                    const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
                                     openGlobalRaylaPopup("Analyze my portfolio");
-                                    handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
                                   },
                                 },
                                 {
                                   label: "What should I add?",
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                                    const q = `Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`;
+                                    const q = `Based on my current investment holdings, give me 1-2 specific tickers I should consider adding and why — be direct, not generic.\n\n${formatInvestorContextForAI(p)}`;
                                     openGlobalRaylaPopup("What should I add?");
-                                    handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "What should I add?" });
                                   },
                                 },
                               ]}
@@ -24862,35 +24896,45 @@ return (
                               )}
                             </div>
                           </div>
-                          <div data-tour-id="trades-type">
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                              <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Trade Type</div>
-                            </div>
-                            <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                              {POSITION_TYPE_OPTIONS.map((item) => {
-                                const active = normalizePositionType(alpacaOrderForm.tradeType) === item.value;
-                                return (
-                                  <button
-                                    key={item.value}
-                                    type="button"
-                                    onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, tradeType: item.value }))}
-                                    style={{
-                                      padding: "8px 12px",
-                                      borderRadius: 8,
-                                      border: `1px solid ${active ? "rgba(124,196,255,0.38)" : "rgba(255,255,255,0.08)"}`,
-                                      background: active ? "rgba(124,196,255,0.14)" : "rgba(255,255,255,0.03)",
-                                      color: active ? "#dbeafe" : "#94a3b8",
-                                      fontSize: 12,
-                                      fontWeight: 700,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    {item.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
+                          {(() => {
+                            const isAddToPositionMode = alpacaOrderValidation.hasLongPosition && alpacaOrderForm.side === "buy";
+                            return (
+                              <div data-tour-id="trades-type">
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                                  <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Trade Type</div>
+                                  {isAddToPositionMode && (
+                                    <div style={{ fontSize: 10, color: "#475569" }}>locked to existing position</div>
+                                  )}
+                                </div>
+                                <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                  {POSITION_TYPE_OPTIONS.map((item) => {
+                                    const active = normalizePositionType(alpacaOrderForm.tradeType) === item.value;
+                                    return (
+                                      <button
+                                        key={item.value}
+                                        type="button"
+                                        disabled={isAddToPositionMode}
+                                        onClick={isAddToPositionMode ? undefined : () => setAlpacaOrderForm((prev) => ({ ...prev, tradeType: item.value }))}
+                                        style={{
+                                          padding: "8px 12px",
+                                          borderRadius: 8,
+                                          border: `1px solid ${active ? "rgba(124,196,255,0.38)" : "rgba(255,255,255,0.08)"}`,
+                                          background: active ? "rgba(124,196,255,0.14)" : "rgba(255,255,255,0.03)",
+                                          color: active ? "#dbeafe" : isAddToPositionMode ? "#475569" : "#94a3b8",
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                          cursor: isAddToPositionMode ? "default" : "pointer",
+                                          opacity: isAddToPositionMode && !active ? 0.35 : 1,
+                                        }}
+                                      >
+                                        {item.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           <div data-tour-id="trades-position-size">
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Position Size</div>
@@ -27005,18 +27049,18 @@ return (
                           label: "Analyze my portfolio",
                           onClick: () => {
                             const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
-                            const q = `Analyze my investment portfolio and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                            const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
                             openGlobalRaylaPopup("Analyze my portfolio");
-                            handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                            handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
                           },
                         },
                         {
                           label: "What should I add?",
                           onClick: () => {
                             const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
-                            const q = `Based on my current portfolio, what should I consider adding for better diversification or growth potential?\n\n${formatInvestorContextForAI(p)}`;
+                            const q = `Based on my current portfolio, give me 1-2 specific tickers I should consider adding and why — be direct, not generic.\n\n${formatInvestorContextForAI(p)}`;
                             openGlobalRaylaPopup("What should I add?");
-                            handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                            handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "What should I add?" });
                           },
                         },
                       ]}
@@ -27042,9 +27086,9 @@ return (
                   onSaveThesis={saveHoldingThesis}
                   onAskRayla={(symbol) => {
                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                    const q = `Tell me about my ${symbol} holding. How is it performing and what should I be thinking about?\n\n${formatInvestorContextForAI(p)}`;
+                    const q = `Sharp read on my ${symbol} position — how is it doing and what's the one most important thing to watch right now?\n\n${formatInvestorContextForAI(p)}`;
                     openGlobalRaylaPopup(`About ${symbol}`);
-                    handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: `About my ${symbol} position` });
                   }}
                 />
                 {longTermBrokerPositions.length > 0 && alpacaAccount && (
@@ -27054,18 +27098,18 @@ return (
                         label: "Analyze my holdings",
                         onClick: () => {
                           const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                          const q = `Analyze my long-term investment holdings and give me key insights on concentration, performance, and what to watch.\n\n${formatInvestorContextForAI(p)}`;
+                          const q = `Give me a sharp, direct read on my long-term holdings — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
                           openGlobalRaylaPopup("Analyze my holdings");
-                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                          handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my holdings" });
                         },
                       },
                       {
                         label: "What should I add?",
                         onClick: () => {
                           const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                          const q = `Based on my current investment holdings, what should I consider adding to improve my portfolio?\n\n${formatInvestorContextForAI(p)}`;
+                          const q = `Based on my current investment holdings, give me 1-2 specific tickers I should consider adding and why — be direct, not generic.\n\n${formatInvestorContextForAI(p)}`;
                           openGlobalRaylaPopup("What should I add?");
-                          handleChartExplainPopupQuestion(q, null, { resetThread: true });
+                          handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "What should I add?" });
                         },
                       },
                     ]}
