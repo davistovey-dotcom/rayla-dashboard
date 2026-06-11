@@ -15668,7 +15668,11 @@ useEffect(() => {
         setPreparedCloseOrder(null);
       } else {
         setSubmittedCloseOrder(null);
-        await savePositionTradeType(data.order.symbol || pendingAlpacaOrderConfirmation.symbol, pendingAlpacaOrderConfirmation.tradeType);
+        try {
+          await savePositionTradeType(data.order.symbol || pendingAlpacaOrderConfirmation.symbol, pendingAlpacaOrderConfirmation.tradeType);
+        } catch {
+          // Classification save failure does not affect the submitted order.
+        }
       }
       showToast(`Order submitted for ${data.order.symbol}.`, "success");
       setPendingAlpacaOrderConfirmation(null);
@@ -15968,6 +15972,12 @@ useEffect(() => {
     );
     return () => clearInterval(interval);
   }, [activeTab, tradeChartRange, tradeChartAssetType]);
+
+  useEffect(() => {
+    if (activeTab !== "trades") return;
+    const id = setInterval(() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "position_poll" }), 30000);
+    return () => clearInterval(id);
+  }, [activeTab]);
 
   useEffect(() => {
     const symbols = alpacaPositions.map((position) => position.symbol).filter(Boolean);
