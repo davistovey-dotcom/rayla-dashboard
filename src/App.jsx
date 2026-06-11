@@ -16602,6 +16602,21 @@ useEffect(() => {
     ),
     [portfolioSnapshots, homePortfolioRequestedStartMs, homePortfolioNowMs, homePortfolioSnapshotView, positionIntentOverrides]
   );
+  const homePortfolioPrebuiltBars = useMemo(() => {
+    if (homePortfolioViewMode === "portfolio") return null;
+    const bars = extractChartBars(homePortfolioBenchmarkChart).map((bar) => {
+      const timeMs = getChartBarTimeMs(bar);
+      return Number.isFinite(timeMs) && timeMs > 0 ? { timeMs, close: bar.close } : null;
+    }).filter(Boolean);
+    const liveValue = homePortfolioPositions.reduce((sum, p) => sum + (Number(p?.marketValue) || 0), 0);
+    if (liveValue > 0) {
+      const lastBarTimeMs = bars[bars.length - 1]?.timeMs || 0;
+      if (homePortfolioNowMs > lastBarTimeMs + 30000) {
+        bars.push({ timeMs: homePortfolioNowMs, close: liveValue });
+      }
+    }
+    return bars.length >= 2 ? bars : null;
+  }, [homePortfolioBenchmarkChart, homePortfolioViewMode, homePortfolioPositions, homePortfolioNowMs]);
   const homePortfolioCostBasis = getOpenPositionCostBasis(homePortfolioPositions);
   const homePortfolioLinePoints = useMemo(
     () => buildOpenPositionReturnLinePoints(homePortfolioBenchmarkChart, homePortfolioCostBasis),
@@ -23340,16 +23355,27 @@ return (
                           : homePortfolioViewMode === "active"
                             ? "Open broker positions classified as day or swing trades."
                             : "Portfolio value including all open and closed positions."}
-                        currentValue={Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue}
+                        currentValue={homePortfolioViewMode === "portfolio"
+                          ? (Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue)
+                          : homePortfolioMarketValue}
                         positionsCount={homePortfolioPositions.length}
                         positionsValue={homePortfolioMarketValue}
+                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioDisplayPl : null}
+                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioDisplayReturnPct : null}
                         statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
                         range={homePortfolioChartRange}
                         onRangeChange={setHomePortfolioChartRange}
                         height={520}
                         timeZone={raylaChartTimeZone}
-                        emptyMessage={portfolioSnapshotsLoading ? "Loading portfolio history..." : homePortfolioPositions.length ? "Portfolio history will appear as Alpaca returns account history." : "Open positions will appear here once broker data is synced."}
+                        emptyMessage={portfolioSnapshotsLoading
+                          ? "Loading portfolio history..."
+                          : homePortfolioPositions.length
+                            ? homePortfolioViewMode !== "portfolio"
+                              ? "Chart builds up as Rayla collects broker snapshots. Refresh broker data to add a snapshot."
+                              : "Portfolio history will appear as Alpaca returns account history."
+                            : "Open positions will appear here once broker data is synced."}
                         className="homePortfolioHistoryChart"
+                        prebuiltPoints={homePortfolioPrebuiltBars}
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                         intentOverrides={positionIntentOverrides}
