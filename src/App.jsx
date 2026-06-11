@@ -14974,7 +14974,7 @@ useEffect(() => {
       return;
     }
 
-    setAlpacaConnectionLoaded(false);
+    if (!silent) setAlpacaConnectionLoaded(false);
     setAlpacaConnectionLoading(true);
     try {
       const { data: accountData, error: accountError } = await supabase.functions.invoke("alpaca-account", {
