@@ -15424,7 +15424,7 @@ useEffect(() => {
   // Auto-switch TIF to DAY when a fractional or dollar-amount equity order is detected
   useEffect(() => {
     const symBase = String(alpacaOrderForm.symbol || "").trim().toUpperCase().replace(/\/USD.*$/i, "");
-    const isCrypto = CRYPTO_SYMBOL_SET.has(symBase);
+    const isCrypto = alpacaOrderValidation.selectedBrokerAsset?.assetClass === "crypto" || CRYPTO_SYMBOL_SET.has(symBase);
     const qty = Number(alpacaOrderForm.qty);
     const isFractional = Number.isFinite(qty) && qty > 0 && qty !== Math.floor(qty);
     const isDollar = alpacaOrderSizeMode === "dollars";
@@ -15433,7 +15433,7 @@ useEffect(() => {
     } else if (isCrypto && !["gtc", "ioc"].includes(alpacaOrderForm.timeInForce)) {
       setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: "gtc" }));
     }
-  }, [alpacaOrderForm.qty, alpacaOrderForm.symbol, alpacaOrderSizeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [alpacaOrderForm.qty, alpacaOrderForm.symbol, alpacaOrderSizeMode, alpacaOrderValidation.selectedBrokerAsset?.assetClass]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!preparedCloseOrder) return;
