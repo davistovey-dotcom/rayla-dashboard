@@ -16614,6 +16614,17 @@ useEffect(() => {
       if (homePortfolioNowMs > lastBarTimeMs + 30000) {
         bars.push({ timeMs: homePortfolioNowMs, close: liveValue });
       }
+      // Synthesize a day-open reference point when no historical snapshots exist
+      if (bars.length < 2) {
+        const intradayPl = homePortfolioPositions.reduce((sum, p) => sum + (Number(p?.unrealizedIntradayPl) || 0), 0);
+        const startValue = liveValue - intradayPl;
+        if (startValue > 0 && Math.abs(intradayPl) > 0.001) {
+          const now = new Date(homePortfolioNowMs);
+          const todayOpen = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 30, 0).getTime();
+          const startMs = todayOpen < homePortfolioNowMs ? todayOpen : homePortfolioNowMs - 6 * 60 * 60 * 1000;
+          bars.unshift({ timeMs: startMs, close: startValue });
+        }
+      }
     }
     return bars.length >= 2 ? bars : null;
   }, [homePortfolioBenchmarkChart, homePortfolioViewMode, homePortfolioPositions, homePortfolioNowMs]);
