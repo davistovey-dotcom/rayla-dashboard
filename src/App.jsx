@@ -23352,6 +23352,7 @@ return (
                         className="homePortfolioHistoryChart"
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
+                        intentOverrides={positionIntentOverrides}
                         showRangeHint={false}
                         rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
                       />

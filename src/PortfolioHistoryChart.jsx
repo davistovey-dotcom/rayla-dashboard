@@ -99,7 +99,7 @@ function normalizeSnapshotTime(snapshot) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function buildFallbackPointsFromSnapshots(snapshots, range, view) {
+function buildFallbackPointsFromSnapshots(snapshots, range, view, intentOverrides = null) {
   const normalizedRange = normalizeRange(range);
   const rows = (Array.isArray(snapshots) ? snapshots : [])
     .map((snapshot) => {
@@ -110,7 +110,15 @@ function buildFallbackPointsFromSnapshots(snapshots, range, view) {
         : Array.isArray(snapshot?.positions_json)
           ? snapshot.positions_json
           : [];
-      const matchingPositions = positions.filter((position) => positionMatchesView(position, view));
+      const matchingPositions = positions.filter((position) => {
+        if (!intentOverrides || view === "portfolio") return positionMatchesView(position, view);
+        const symbol = String(position?.symbol || "").trim().toUpperCase();
+        const strippedCrypto = symbol.match(/^([A-Z0-9]{2,8})USD$/) ?? symbol.match(/^([A-Z0-9]{2,8})USDT$/);
+        const key = strippedCrypto ? strippedCrypto[1] : symbol;
+        const override = key ? intentOverrides[key] : null;
+        const effectiveType = override?.tradeType || override?.trade_type || override?.positionType || position?.trade_type || position?.tradeType;
+        return positionMatchesView({ ...position, trade_type: effectiveType || normalizeTradeType(null) }, view);
+      });
 
       let value = null;
       if (view === "portfolio") {
@@ -281,6 +289,7 @@ function PortfolioHistoryChartInner({
   openPct = null,
   prebuiltPoints = null,
   rangeNote = null,
+  intentOverrides = null,
 }) {
   const normalizedRange = normalizeRange(range);
   const resolvedRangeOptions = useMemo(() => {
@@ -359,8 +368,8 @@ function PortfolioHistoryChartInner({
   }, [normalizedRange]);
 
   const fallbackPoints = useMemo(
-    () => buildFallbackPointsFromSnapshots(fallbackSnapshots, normalizedRange, snapshotView),
-    [fallbackSnapshots, normalizedRange, snapshotView]
+    () => buildFallbackPointsFromSnapshots(fallbackSnapshots, normalizedRange, snapshotView, intentOverrides),
+    [fallbackSnapshots, normalizedRange, snapshotView, intentOverrides]
   );
   const prebuiltMapped = useMemo(
     () => Array.isArray(prebuiltPoints) && prebuiltPoints.length >= 2
@@ -369,7 +378,8 @@ function PortfolioHistoryChartInner({
     [prebuiltPoints]
   );
   const usesPrebuilt = prebuiltMapped != null;
-  const usesAlpacaHistory = !usesPrebuilt && historyState.points.length >= 2;
+  // Alpaca portfolio history is total account equity — never use it for filtered views
+  const usesAlpacaHistory = !usesPrebuilt && snapshotView === "portfolio" && historyState.points.length >= 2;
   const displayPoints = usesPrebuilt ? prebuiltMapped : usesAlpacaHistory ? historyState.points : fallbackPoints;
   const allowZeroBaseline = usesAlpacaHistory && ALPACA_ZERO_BASELINE_RANGES.has(normalizedRange);
   const chartData = useMemo(
