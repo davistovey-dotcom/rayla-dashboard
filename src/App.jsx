@@ -13295,27 +13295,31 @@ useEffect(() => {
     }
 
     async function runMigration() {
-      // Skip if this user already has rows — prevents the global key from leaking into other accounts.
       const { count } = await supabase
         .from("position_trade_types")
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId);
-      if (count > 0) {
-        try { localStorage.setItem(migrationKey, "true"); } catch {}
-        return;
-      }
+
+      // Always clear the global key and mark done, regardless of outcome.
+      // The key must not outlive this check — any subsequent account on this browser
+      // would otherwise read another user's classifications.
+      try { localStorage.removeItem(POSITION_INTENT_STORAGE_KEY); } catch {}
+      try { localStorage.setItem(migrationKey, "true"); } catch {}
+
+      // Only fill classification gaps for existing users (count > 0).
+      // New users with no DB rows get their defaults from the position seeding effect.
+      // Legacy localStorage data on this browser may belong to a different account,
+      // so we must not write it under a new user's ID.
+      if (!count) return;
 
       const { error } = await supabase
         .from("position_trade_types")
-        .upsert(payload, { onConflict: "user_id,broker_provider,symbol" });
+        .upsert(payload, { onConflict: "user_id,broker_provider,symbol", ignoreDuplicates: true });
       if (error) {
         console.warn("Could not sync legacy local trade classifications.", error);
         return;
       }
       setPositionIntentOverrides((prev) => ({ ...prev, ...mapPositionTradeTypeRows(payload) }));
-      try { localStorage.setItem(migrationKey, "true"); } catch {}
-      // Delete the global key so it cannot bleed into any other account on this browser.
-      try { localStorage.removeItem(POSITION_INTENT_STORAGE_KEY); } catch {}
     }
 
     runMigration();
