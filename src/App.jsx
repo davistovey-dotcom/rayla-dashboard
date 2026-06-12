@@ -11670,7 +11670,7 @@ function RaylaDropdown({
     }
     setIsOpen(true);
     window.requestAnimationFrame(() => {
-      optionRefs.current[index]?.focus();
+      optionRefs.current[index]?.focus({ preventScroll: true });
     });
   };
 
