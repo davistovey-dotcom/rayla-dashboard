@@ -14207,16 +14207,15 @@ useEffect(() => {
     });
   }
 
-  async function handleSignOut() {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error("Sign out failed before local cleanup:", error);
-      }
-    } finally {
-      clearSignedOutWorkspaceState();
-      setSession(null);
-    }
+  function handleSignOut() {
+    // Fire the network sign-out without awaiting — if the Supabase session
+    // lock is broken (AbortError), awaiting hangs forever and the finally
+    // never runs. Local cleanup must happen unconditionally.
+    supabase.auth.signOut().catch((err) => {
+      console.error("Sign out network error (ignored):", err);
+    });
+    clearSignedOutWorkspaceState();
+    setSession(null);
   }
 
   const normalizedBrokerTrades = useMemo(
