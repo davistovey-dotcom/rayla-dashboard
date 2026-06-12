@@ -1,4 +1,5 @@
 import React, { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "./App.css";
 import Login from "./Login";
 import { supabase } from "./supabase";
@@ -575,11 +576,11 @@ function rankSupportedSearchResult(result, query) {
 
 const supportedSearchCache = new Map();
 
-async function searchRaylaSupportedAssets(query, alpacaConnected) {
+async function searchRaylaSupportedAssets(query, alpacaConnected, preferPaper = false) {
   const normalizedQuery = resolveTickerAlias(String(query || "").trim().toUpperCase());
   if (!normalizedQuery) return [];
 
-  const cacheKey = `${alpacaConnected ? "alpaca" : "local"}:${normalizedQuery}`;
+  const cacheKey = `${alpacaConnected ? (preferPaper ? "alpaca-paper" : "alpaca-live") : "local"}:${normalizedQuery}`;
   if (supportedSearchCache.has(cacheKey)) {
     return supportedSearchCache.get(cacheKey);
   }
@@ -595,7 +596,7 @@ async function searchRaylaSupportedAssets(query, alpacaConnected) {
   if (alpacaConnected) {
     try {
       const { data, error } = await supabase.functions.invoke("alpaca-assets", {
-        body: { query: normalizedQuery },
+        body: { query: normalizedQuery, preferPaper },
       });
 
       if (!error && data?.ok && Array.isArray(data.assets)) {
@@ -6945,6 +6946,7 @@ function PortfolioTrendCard({
   rangeNote = null,
   openPnl = null,
   openPct = null,
+  preferPaper = false,
 }) {
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
@@ -6976,6 +6978,7 @@ function PortfolioTrendCard({
       rangeNote={rangeNote}
       openPnl={openPnl}
       openPct={openPct}
+      preferPaper={preferPaper}
     />
   );
 }
@@ -10195,7 +10198,7 @@ function EquityCurveCard({
     let isCancelled = false;
     const timeout = setTimeout(async () => {
       try {
-        const results = await searchRaylaSupportedAssets(query, alpacaConnected);
+        const results = await searchRaylaSupportedAssets(query, alpacaConnected, brokerPreferPaper);
         if (isCancelled) return;
         setBenchmarkSearchResults(
           results.slice(0, 8).map((item) => ({
@@ -11058,7 +11061,7 @@ useEffect(() => {
             if (val.length < 1) { setSearchResults([]); return; }
             marketSearchTimeoutRef.current = setTimeout(async () => {
               try {
-                const results = await searchRaylaSupportedAssets(val, alpacaConnected);
+                const results = await searchRaylaSupportedAssets(val, alpacaConnected, brokerPreferPaper);
                 setSearchResults(results);
               } catch {
                 setSearchResults([]);
@@ -11618,8 +11621,9 @@ function RaylaDropdown({
   useFixed = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [fixedMenuStyle, setFixedMenuStyle] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
   const buttonRef = useRef(null);
   const optionRefs = useRef([]);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
@@ -11628,7 +11632,7 @@ function RaylaDropdown({
   useEffect(() => {
     if (!isOpen) return undefined;
     const handlePointerDown = (event) => {
-      if (!rootRef.current?.contains(event.target)) setIsOpen(false);
+      if (!rootRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setIsOpen(false);
     };
     const handleEscape = (event) => {
       if (event.key === "Escape") {
@@ -11655,20 +11659,28 @@ function RaylaDropdown({
     };
   }, [isOpen, useFixed]);
 
+  // Compute viewport-anchored position after the DOM commits so getBoundingClientRect
+  // always reflects the live layout. useLayoutEffect runs before the browser paints,
+  // so the user never sees an intermediate unpositioned state.
+  useEffect(() => {
+    if (!isOpen || !useFixed || !buttonRef.current) {
+      if (!isOpen) setMenuPos(null);
+      return;
+    }
+    const rect = buttonRef.current.getBoundingClientRect();
+    const mw = menuWidth || rect.width;
+    setMenuPos({
+      position: "fixed",
+      top: rect.bottom + 7,
+      left: menuAlign === "right" ? rect.right - mw : rect.left,
+      right: "auto",
+      width: mw,
+      zIndex: 9999,
+    });
+  }, [isOpen, useFixed, menuWidth, menuAlign]);
+
   const openMenu = (index = selectedIndex) => {
     if (disabled) return;
-    if (useFixed && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      const mw = menuWidth || rect.width;
-      setFixedMenuStyle({
-        position: "fixed",
-        top: rect.bottom + 7,
-        left: menuAlign === "right" ? rect.right - mw : rect.left,
-        right: "auto",
-        width: mw,
-        zIndex: 9999,
-      });
-    }
     setIsOpen(true);
     window.requestAnimationFrame(() => {
       optionRefs.current[index]?.focus({ preventScroll: true });
@@ -11733,37 +11745,41 @@ function RaylaDropdown({
         <span>{buttonLabel || selectedOption.label}</span>
         <span className="raylaDropdownChevron" aria-hidden="true" />
       </button>
-      {isOpen && (
-        <div
-          className="raylaDropdownMenu"
-          role="listbox"
-          aria-label={ariaLabel}
-          style={useFixed && fixedMenuStyle ? fixedMenuStyle : {
-            width: menuWidth,
-            left: menuWidth && menuAlign === "right" ? "auto" : undefined,
-            right: menuWidth && menuAlign === "right" ? 0 : undefined,
-          }}
-        >
-          {menuHeader}
-          {options.map((option, index) => {
-            const active = option.value === value;
-            return (
-              <button
-                key={option.value}
-                ref={(node) => { optionRefs.current[index] = node; }}
-                type="button"
-                className={`raylaDropdownOption${active ? " active" : ""}`}
-                role="option"
-                aria-selected={active}
-                onClick={() => selectOption(option)}
-                onKeyDown={(event) => handleOptionKeyDown(event, index)}
-              >
-                {renderOption ? renderOption(option, active) : option.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {isOpen && (() => {
+        const menuEl = (
+          <div
+            ref={menuRef}
+            className="raylaDropdownMenu"
+            role="listbox"
+            aria-label={ariaLabel}
+            style={useFixed && menuPos ? menuPos : {
+              width: menuWidth,
+              left: menuWidth && menuAlign === "right" ? "auto" : undefined,
+              right: menuWidth && menuAlign === "right" ? 0 : undefined,
+            }}
+          >
+            {menuHeader}
+            {options.map((option, index) => {
+              const active = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  ref={(node) => { optionRefs.current[index] = node; }}
+                  type="button"
+                  className={`raylaDropdownOption${active ? " active" : ""}`}
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => selectOption(option)}
+                  onKeyDown={(event) => handleOptionKeyDown(event, index)}
+                >
+                  {renderOption ? renderOption(option, active) : option.label}
+                </button>
+              );
+            })}
+          </div>
+        );
+        return useFixed ? createPortal(menuEl, document.body) : menuEl;
+      })()}
     </div>
   );
 }
@@ -13005,6 +13021,9 @@ useEffect(() => {
   const [alpacaConnectionLoading, setAlpacaConnectionLoading] = useState(false);
   const [alpacaConnectionLoaded, setAlpacaConnectionLoaded] = useState(false);
   const [alpacaAccount, setAlpacaAccount] = useState(null);
+  const [brokerPreferPaper, setBrokerPreferPaperState] = useState(() => localStorage.getItem("rayla_broker_prefer_paper") === "true");
+  const [brokerHasLiveConnection, setBrokerHasLiveConnection] = useState(false);
+  const [brokerHasPaperConnection, setBrokerHasPaperConnection] = useState(false);
   const [portfolioInceptionMs, setPortfolioInceptionMs] = useState(null);
   const [pendingBrokerConfirm, setPendingBrokerConfirm] = useState(false);
   const [brokerDisconnecting, setBrokerDisconnecting] = useState(false);
@@ -13428,7 +13447,7 @@ useEffect(() => {
   useEffect(() => {
     if (!alpacaAccount?.id) return;
     let cancelled = false;
-    supabase.functions.invoke("alpaca-portfolio-history", { body: { range: "MAX" } })
+    supabase.functions.invoke("alpaca-portfolio-history", { body: { range: "MAX", preferPaper: brokerPreferPaper } })
       .then(({ data }) => {
         if (cancelled || !data?.ok) return;
         const firstLive = (Array.isArray(data.points) ? data.points : []).find((p) => p?.value > 0);
@@ -15046,10 +15065,13 @@ useEffect(() => {
     setAlpacaConnectionLoading(true);
     try {
       const { data: accountData, error: accountError } = await supabase.functions.invoke("alpaca-account", {
-        body: {},
+        body: { preferPaper: brokerPreferPaper },
       });
 
       if (accountError) throw accountError;
+
+      if (accountData?.hasLiveConnection != null) setBrokerHasLiveConnection(Boolean(accountData.hasLiveConnection));
+      if (accountData?.hasPaperConnection != null) setBrokerHasPaperConnection(Boolean(accountData.hasPaperConnection));
 
       if (!accountData?.connected) {
         setAlpacaAccount(null);
@@ -15062,9 +15084,10 @@ useEffect(() => {
 
       setAlpacaAccount(accountData.account || null);
 
-      // Diagnostic: expose broker state for inspection without changing any logic
       const _acc = accountData.account;
       const isPaperAccount = accountData.isPaper === true;
+      // After OAuth connect, lock preference to whichever account just connected.
+      if (snapshotSource === "broker_connect") setBrokerPreferPaper(isPaperAccount);
       window.__raylaBrokerDebug = {
         alpacaBaseUrl: isPaperAccount ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets",
         endpointMode: isPaperAccount ? "paper" : "live",
@@ -15082,7 +15105,7 @@ useEffect(() => {
       };
 
       const { data: positionsData, error: positionsError } = await supabase.functions.invoke("alpaca-positions", {
-        body: {},
+        body: { preferPaper: brokerPreferPaper },
       });
 
       if (positionsError) throw positionsError;
@@ -15117,7 +15140,7 @@ useEffect(() => {
     try {
       let syncedBrokerOrderIds = null;
       if (sync) {
-        const { data: syncData, error } = await supabase.functions.invoke("alpaca-orders", { body: {} });
+        const { data: syncData, error } = await supabase.functions.invoke("alpaca-orders", { body: { preferPaper: brokerPreferPaper } });
         if (error) throw error;
         syncedBrokerOrderIds = Array.from(new Set(
           (Array.isArray(syncData?.orders) ? syncData.orders : [])
@@ -15285,6 +15308,11 @@ useEffect(() => {
     } catch (error) {
       showToast(error?.message || "Could not start Alpaca connect.", "error");
     }
+  }
+
+  function setBrokerPreferPaper(value) {
+    try { localStorage.setItem("rayla_broker_prefer_paper", value ? "true" : "false"); } catch { /* ignore */ }
+    setBrokerPreferPaperState(value);
   }
 
   function handleSkipBrokerOnboarding() {
@@ -15721,7 +15749,7 @@ useEffect(() => {
       };
 
       const { data, error } = await supabase.functions.invoke("alpaca-place-order", {
-        body: payload,
+        body: { ...payload, preferPaper: brokerPreferPaper },
       });
 
       if (error) {
@@ -15837,7 +15865,7 @@ useEffect(() => {
     const timeout = setTimeout(async () => {
       try {
         const { data, error } = await supabase.functions.invoke("alpaca-assets", {
-          body: { query },
+          body: { query, preferPaper: brokerPreferPaper },
         });
 
         if (isCancelled) return;
@@ -17220,7 +17248,7 @@ useEffect(() => {
     setManualTradeAssetSearchLoading(true);
     manualTradeAssetSearchTimeoutRef.current = setTimeout(async () => {
       try {
-        const results = await searchRaylaSupportedAssets(value, Boolean(alpacaAccount));
+        const results = await searchRaylaSupportedAssets(value, Boolean(alpacaAccount), brokerPreferPaper);
         setManualTradeAssetSearchResults(results);
         setManualTradeAssetSearchError("");
       } catch {
@@ -20448,7 +20476,7 @@ function buildSimulationAssetFromPosition(position) {
     }
     simulationSearchTimeoutRef.current = setTimeout(async () => {
       try {
-        const results = await searchRaylaSupportedAssets(value, Boolean(alpacaAccount));
+        const results = await searchRaylaSupportedAssets(value, Boolean(alpacaAccount), brokerPreferPaper);
         setSimulationSearchResults(results);
       } catch {
         setSimulationSearchResults([]);
@@ -23219,7 +23247,7 @@ return (
                           if (val.length < 1) { setHomeMarketSearchResults([]); return; }
                           homeMarketSearchTimeoutRef.current = setTimeout(async () => {
                             try {
-                              const results = await searchRaylaSupportedAssets(val, Boolean(alpacaAccount));
+                              const results = await searchRaylaSupportedAssets(val, Boolean(alpacaAccount), brokerPreferPaper);
                               setHomeMarketSearchResults(results);
                             } catch { setHomeMarketSearchResults([]); }
                           }, 120);
@@ -23391,6 +23419,7 @@ return (
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                         intentOverrides={positionIntentOverrides}
+                        preferPaper={brokerPreferPaper}
                         showRangeHint={false}
                         rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
                       />
@@ -24128,7 +24157,11 @@ return (
                           <button
                             type="button"
                             className="ghostButton"
-                            onClick={() => handleConnectAlpaca(false)}
+                            onClick={() => {
+                              if (alpacaAccount.isPaper === false) { handleConnectAlpaca(false); return; }
+                              if (brokerHasLiveConnection) { setBrokerPreferPaper(false); fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" }); }
+                              else handleConnectAlpaca(false);
+                            }}
                             style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.1)", borderColor: "rgba(123,166,236,0.25)", color: "#7BA6EC" }}
                           >
                             {alpacaAccount.isPaper === false ? "Reconnect Live" : "Switch to Live"}
@@ -24136,7 +24169,11 @@ return (
                           <button
                             type="button"
                             className="ghostButton"
-                            onClick={() => handleConnectAlpaca(true)}
+                            onClick={() => {
+                              if (alpacaAccount.isPaper === true) { handleConnectAlpaca(true); return; }
+                              if (brokerHasPaperConnection) { setBrokerPreferPaper(true); fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" }); }
+                              else handleConnectAlpaca(true);
+                            }}
                             style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.06)", borderColor: "rgba(123,166,236,0.15)", color: "#94a3b8" }}
                           >
                             {alpacaAccount.isPaper === true ? "Reconnect Paper" : "Switch to Paper"}
