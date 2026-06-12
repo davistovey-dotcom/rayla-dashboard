@@ -20716,6 +20716,25 @@ function buildSimulationAssetFromPosition(position) {
     textTransform: "uppercase",
     color: "#6f839a",
   };
+  const simControlSectionStyle = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    paddingBottom: 12,
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+  };
+  const simControlLabelStyle = {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#7f8ea3",
+    textTransform: "uppercase",
+    letterSpacing: "0.6px",
+  };
+  const simControlDescStyle = {
+    fontSize: 11,
+    color: "#64748b",
+    lineHeight: 1.5,
+  };
 
   const visibleSimulationPositions = useMemo(
     () => simulationPositions.filter((position) => (position.marketMode || "live") === simulationMode),
@@ -25945,13 +25964,11 @@ return (
                     <div
                       className="simulationControlCardsGrid"
                       key={`simulation-controls-${simulationAsset?.id || "none"}`}
-                      style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}
+                      style={{ display: "flex", flexDirection: "column", gap: 0 }}
                     >
-                      <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Trade direction</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                          Direction for this rep.
-                        </div>
+                      <div style={simControlSectionStyle}>
+                        <div style={simControlLabelStyle}>Trade direction</div>
+                        <div style={simControlDescStyle}>Direction for this rep.</div>
                         <RaylaDropdown
                           value={simulationDirection}
                           onChange={setSimulationDirection}
@@ -25960,9 +25977,9 @@ return (
                         />
                       </div>
 
-                      <div style={{ ...simulationSecondaryPanelStyle, padding: "10px 12px", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>
-                          Setup <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
+                      <div style={simControlSectionStyle}>
+                        <div style={simControlLabelStyle}>
+                          Setup <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11, textTransform: "none", letterSpacing: 0 }}>optional</span>
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {["range", "breakout", "pullback", "reversal", "trend"].map((type) => {
@@ -25992,9 +26009,9 @@ return (
                         </div>
                       </div>
 
-                      <div style={{ ...simulationSecondaryPanelStyle, padding: "10px 12px", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>
-                          Trade Thesis <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>optional</span>
+                      <div style={simControlSectionStyle}>
+                        <div style={simControlLabelStyle}>
+                          Trade Thesis <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11, textTransform: "none", letterSpacing: 0 }}>optional</span>
                         </div>
                         <textarea
                           value={simulationEntryReason}
@@ -26005,13 +26022,9 @@ return (
                         />
                       </div>
 
-                      <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Amount</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                          {simulationMode === "scenario"
-                            ? "Set the size for this rep."
-                            : "Set the size for this rep."}
-                        </div>
+                      <div style={simControlSectionStyle}>
+                        <div style={simControlLabelStyle}>Amount</div>
+                        <div style={simControlDescStyle}>Set the size for this rep.</div>
                         <RaylaDropdown
                           value={simulationAmountMode}
                           onChange={setSimulationAmountMode}
@@ -26038,13 +26051,9 @@ return (
                       </div>
 
 {!useScenarioDesktopLayout || simulationMode === "scenario" ? (
-                      <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Exit plan</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                          {simulationMode === "scenario"
-                            ? "Choose price levels or total P/L."
-                            : "Choose price levels or total P/L."}
-                        </div>
+                      <div style={simControlSectionStyle}>
+                        <div style={simControlLabelStyle}>Exit plan</div>
+                        <div style={simControlDescStyle}>Choose price levels or total P/L.</div>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button
                             type="button"
@@ -26126,11 +26135,9 @@ return (
                       ) : null}
 
 {simulationMode === "scenario" && (
-                        <div style={{ ...simulationSecondaryPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Scenario duration</div>
-                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.55 }}>
-                            Set a bounded rep or leave it open-ended.
-                          </div>
+                        <div style={simControlSectionStyle}>
+                          <div style={simControlLabelStyle}>Scenario duration</div>
+                          <div style={simControlDescStyle}>Set a bounded rep or leave it open-ended.</div>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <button
                               type="button"
