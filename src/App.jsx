@@ -11664,6 +11664,7 @@ function RaylaDropdown({
         position: "fixed",
         top: rect.bottom + 7,
         left: menuAlign === "right" ? rect.right - mw : rect.left,
+        right: "auto",
         width: mw,
         zIndex: 9999,
       });
