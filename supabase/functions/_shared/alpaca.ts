@@ -397,27 +397,30 @@ export async function fetchCashflowActivities(
   return activities;
 }
 
-// Resolves the best available broker connection: live first, paper fallback.
-export async function resolveBrokerConnection(supabase: any, userId: string) {
-  const { data: liveConn } = await supabase
+// Resolves the broker connection respecting the caller's paper/live preference.
+export async function resolveBrokerConnection(supabase: any, userId: string, preferPaper?: boolean | null) {
+  const preferredIsPaper = preferPaper === true;
+  const fallbackIsPaper = !preferredIsPaper;
+
+  const { data: preferredConn } = await supabase
     .from("user_broker_connections")
     .select("*")
     .eq("user_id", userId)
     .eq("provider", "alpaca")
-    .eq("is_paper", false)
+    .eq("is_paper", preferredIsPaper)
     .maybeSingle();
 
-  if (liveConn) return { connection: liveConn, isPaper: false };
+  if (preferredConn) return { connection: preferredConn, isPaper: preferredIsPaper };
 
-  const { data: paperConn } = await supabase
+  const { data: fallbackConn } = await supabase
     .from("user_broker_connections")
     .select("*")
     .eq("user_id", userId)
     .eq("provider", "alpaca")
-    .eq("is_paper", true)
+    .eq("is_paper", fallbackIsPaper)
     .maybeSingle();
 
-  if (paperConn) return { connection: paperConn, isPaper: true };
+  if (fallbackConn) return { connection: fallbackConn, isPaper: fallbackIsPaper };
 
   return { connection: null, isPaper: false };
 }

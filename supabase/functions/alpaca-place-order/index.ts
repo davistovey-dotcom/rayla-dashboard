@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const orderPayload = validateOrderBody(body);
 
-    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id);
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id, body?.preferPaper ?? null);
 
     if (!connection) {
       throw new Error("Connect your Alpaca account before placing an order.");

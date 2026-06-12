@@ -46,7 +46,8 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
-    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id);
+    const body = await req.json().catch(() => ({}));
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id, body?.preferPaper ?? null);
 
     if (!connection) {
       return jsonResponse({

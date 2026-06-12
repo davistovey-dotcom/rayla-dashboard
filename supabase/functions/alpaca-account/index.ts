@@ -8,7 +8,18 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
-    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id);
+    const body = await req.json().catch(() => ({}));
+    const preferPaper: boolean | null = body?.preferPaper ?? null;
+
+    const [{ data: liveConn }, { data: paperConn }] = await Promise.all([
+      supabase.from("user_broker_connections").select("id").eq("user_id", user.id).eq("provider", "alpaca").eq("is_paper", false).maybeSingle(),
+      supabase.from("user_broker_connections").select("id").eq("user_id", user.id).eq("provider", "alpaca").eq("is_paper", true).maybeSingle(),
+    ]);
+
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id, preferPaper);
+
+    const hasLiveConnection = Boolean(liveConn);
+    const hasPaperConnection = Boolean(paperConn);
 
     if (!connection) {
       return jsonResponse({
@@ -16,6 +27,8 @@ Deno.serve(async (req) => {
         connected: false,
         provider: "alpaca",
         isPaper: false,
+        hasLiveConnection,
+        hasPaperConnection,
         account: null,
       });
     }
@@ -27,6 +40,8 @@ Deno.serve(async (req) => {
       connected: true,
       provider: "alpaca",
       isPaper,
+      hasLiveConnection,
+      hasPaperConnection,
       account: normalizeAlpacaAccount(account, isPaper),
     });
   } catch (error) {

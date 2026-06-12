@@ -1,4 +1,4 @@
-import { alpacaPaperRequest } from "../_shared/alpaca.ts";
+import { alpacaBrokerRequest, alpacaPaperRequest, resolveBrokerConnection } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 const CANONICAL_ALPACA_CRYPTO_ASSETS = [
@@ -94,37 +94,28 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
-    const { query = "" } = await req.json();
+    const bodyData = await req.json().catch(() => ({}));
+    const { query = "" } = bodyData;
     const normalizedQuery = String(query || "").trim().toUpperCase();
 
     if (!normalizedQuery) {
       return jsonResponse({ ok: true, connected: true, assets: [] });
     }
 
-    const { data: connection, error } = await supabase
-      .from("user_broker_connections")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("provider", "alpaca")
-      .eq("is_paper", true)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(error.message);
-    }
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id, bodyData?.preferPaper ?? null);
 
     if (!connection) {
       return jsonResponse({
         ok: true,
         connected: false,
         assets: [],
-        error: "Connect your Alpaca Paper account before searching tradable assets.",
+        error: "Connect your Alpaca account before searching tradable assets.",
       });
     }
 
     const [equityAssets, cryptoAssets] = await Promise.all([
-      alpacaPaperRequest(connection.access_token, "/v2/assets?status=active&asset_class=us_equity"),
-      alpacaPaperRequest(connection.access_token, "/v2/assets?status=active&asset_class=crypto"),
+      alpacaBrokerRequest(connection.access_token, "/v2/assets?status=active&asset_class=us_equity", isPaper),
+      alpacaBrokerRequest(connection.access_token, "/v2/assets?status=active&asset_class=crypto", isPaper),
     ]);
     const assets = [
       ...(Array.isArray(cryptoAssets) ? cryptoAssets : []),

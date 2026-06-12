@@ -290,6 +290,7 @@ function PortfolioHistoryChartInner({
   prebuiltPoints = null,
   rangeNote = null,
   intentOverrides = null,
+  preferPaper = false,
 }) {
   const normalizedRange = normalizeRange(range);
   const resolvedRangeOptions = useMemo(() => {
@@ -328,7 +329,7 @@ function PortfolioHistoryChartInner({
       setHistoryState((state) => ({ ...state, loading: true, error: null }));
       try {
         const { data, error } = await supabase.functions.invoke("alpaca-portfolio-history", {
-          body: { range: normalizedRange },
+          body: { range: normalizedRange, preferPaper },
         });
         if (error || data?.ok === false) {
           throw new Error(data?.error || error?.message || "Unable to load Alpaca portfolio history.");
@@ -365,7 +366,7 @@ function PortfolioHistoryChartInner({
     return () => {
       cancelled = true;
     };
-  }, [normalizedRange]);
+  }, [normalizedRange, preferPaper]);
 
   const fallbackPoints = useMemo(
     () => buildFallbackPointsFromSnapshots(fallbackSnapshots, normalizedRange, snapshotView, intentOverrides),

@@ -76,7 +76,8 @@ Deno.serve(async (req) => {
 
   try {
     const { supabase, user } = await requireSupabaseUser(req);
-    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id);
+    const body = await req.json().catch(() => ({}));
+    const { connection, isPaper } = await resolveBrokerConnection(supabase, user.id, body?.preferPaper ?? null);
 
     if (!connection) {
       return jsonResponse({
@@ -89,7 +90,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const url = new URL(req.url);
     const range = normalizeRange(body?.range || url.searchParams.get("range"));
     const config = RANGE_CONFIG[range];
