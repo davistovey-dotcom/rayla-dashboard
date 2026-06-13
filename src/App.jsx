@@ -12391,6 +12391,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
   const [filterDir, setFilterDir] = useState("all");
   const [filterSetup, setFilterSetup] = useState("all");
   const [filterResult, setFilterResult] = useState("all");
+  const [filterTradeType, setFilterTradeType] = useState("all");
   const [sortNewest, setSortNewest] = useState(true);
   const [viewMode, setViewMode] = useState("cards");
   const [viewingAllTrades, setViewingAllTrades] = useState(false);
@@ -12431,22 +12432,14 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
       if (filterResult === "be") return result === 0;
       return true;
     })
+    .filter(t => filterTradeType === "all" || normalizePositionType(t.tradeType || t.trade_type) === filterTradeType)
     .sort((a, b) => {
       const ta = a.entry_time ? new Date(a.entry_time).getTime() : 0;
       const tb = b.entry_time ? new Date(b.entry_time).getTime() : 0;
       return sortNewest ? tb - ta : ta - tb;
-    }), [selectedJournalTrades, search, filterDir, filterSetup, filterResult, sortNewest]);
+    }), [selectedJournalTrades, search, filterDir, filterSetup, filterResult, filterTradeType, sortNewest]);
 
-  const recentFive = useMemo(() =>
-    [...selectedJournalTrades]
-      .sort((a, b) => {
-        const ta = a.entry_time ? new Date(a.entry_time).getTime() : 0;
-        const tb = b.entry_time ? new Date(b.entry_time).getTime() : 0;
-        return tb - ta;
-      })
-      .slice(0, 5),
-    [selectedJournalTrades]
-  );
+  const recentFive = useMemo(() => filtered.slice(0, 5), [filtered]);
 
   const journalAnalyticsTrades = filtered;
   const totalPnlVal = useMemo(() => journalAnalyticsTrades.reduce((s, t) => s + journalPnlValue(t), 0), [journalAnalyticsTrades]);
@@ -12524,7 +12517,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
     setReflection(tradeId, "mistakes", next);
   }
 
-  const hasFilters = search || filterDir !== "all" || filterSetup !== "all" || filterResult !== "all";
+  const hasFilters = search || filterDir !== "all" || filterSetup !== "all" || filterResult !== "all" || filterTradeType !== "all";
 
   const breakdownTableStyle = {
     background: "rgba(18,26,38,0.86)",
@@ -12543,39 +12536,60 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
   };
 
   function renderJournalHeader() {
+    const underlineBtn = (active) => ({
+      background: "transparent",
+      border: "none",
+      borderBottom: active ? "2px solid rgba(124,196,255,0.9)" : "2px solid transparent",
+      padding: "4px 0 6px",
+      color: active ? "#e2f0ff" : "rgba(226,232,240,0.64)",
+      fontSize: 13,
+      fontWeight: active ? 700 : 600,
+      cursor: "pointer",
+    });
+    const TRADE_TYPE_OPTIONS = [
+      { value: "all", label: "All" },
+      { value: "day_trade", label: "Day Trades" },
+      { value: "swing_trade", label: "Swing Trades" },
+      { value: "investment", label: "Long-Term" },
+    ];
     return (
-      <div data-tour-id="journal-source" style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 16, flexWrap: "wrap", position: "relative", minHeight: 46 }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b" }}>
-            Source
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-            {[
-              { value: "live_trades", label: "Live Trades" },
-              { value: "live_simulation", label: "Live Simulation" },
-            ].map((option) => {
-              const active = journalSource === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setJournalSource(option.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    borderBottom: active ? "2px solid rgba(124,196,255,0.9)" : "2px solid transparent",
-                    padding: "4px 0 6px",
-                    color: active ? "#e2f0ff" : "rgba(226,232,240,0.64)",
-                    fontSize: 13,
-                    fontWeight: active ? 700 : 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+      <div data-tour-id="journal-source" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+        {/* Source row — underline toggle */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          {[
+            { value: "live_trades", label: "Live Trades" },
+            { value: "live_simulation", label: "Live Simulation" },
+          ].map((option) => (
+            <button key={option.value} type="button" onClick={() => setJournalSource(option.value)} style={underlineBtn(journalSource === option.value)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {/* Type row — pill segmented toggle */}
+        <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 4, gap: 2 }}>
+          {TRADE_TYPE_OPTIONS.map((option) => {
+            const active = filterTradeType === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setFilterTradeType(option.value)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: active ? "rgba(124,196,255,0.14)" : "transparent",
+                  color: active ? "#7CC4FF" : "#64748b",
+                  fontWeight: active ? 600 : 400,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -12737,7 +12751,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
           ))}
         </div>
         {hasFilters && (
-          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); }}
+          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); setFilterTradeType("all"); }}
             style={{ background: "transparent", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", fontSize: 12, cursor: "pointer" }}>
             Clear
           </button>
@@ -12749,11 +12763,16 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
       )}
 
       {/* Trade list */}
-      {viewingAllTrades && filtered.length === 0 ? (
+      {filterTradeType === "investment" && filtered.length === 0 ? (
+        <div className="emptyState emptyStateCompact">
+          <div className="emptyStateTitle">No closed long-term trades yet.</div>
+          <div className="emptyStateCopy">Open long-term holdings live in Live Trades → Holdings. Once a long-term position is closed, it will appear here for review.</div>
+        </div>
+      ) : viewingAllTrades && filtered.length === 0 ? (
         <div className="emptyState emptyStateCompact">
           <div className="emptyStateTitle">No trades match these filters</div>
           <div className="emptyStateCopy">Clear the filters to return to the full journal sample.</div>
-          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); }}
+          <button type="button" onClick={() => { setSearch(""); setFilterDir("all"); setFilterSetup("all"); setFilterResult("all"); setFilterTradeType("all"); }}
             style={{ background: "transparent", border: "1px solid rgba(124,196,255,0.3)", borderRadius: 8, padding: "6px 14px", color: "#7CC4FF", fontSize: 12, cursor: "pointer" }}>
             Clear filters
           </button>
@@ -27983,48 +28002,6 @@ return (
                 {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
                 {hotColdReport && (
                   <MobileSegmentedPager segments={[
-                    {
-                      label: "Picks",
-                      content: (
-                        <div data-tour-id="intel-picks" style={{ background: "rgba(18,26,38,0.78)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 16 }}>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: "#f3f7fc", marginBottom: 6 }}>
-                            Rayla&apos;s Picks for You
-                          </div>
-                          <div style={{ fontSize: 13, color: "#7f8ea3", marginBottom: 14 }}>
-                            Personalized ideas based on how your real trades and completed simulations have actually performed.
-                          </div>
-                          {(() => {
-                            const picks = [raylaPicksContext.stockLong, raylaPicksContext.stockShort, raylaPicksContext.cryptoLong, raylaPicksContext.cryptoShort];
-                            const hasPersonalizedPick = picks.some((pick) => pick?.eligible);
-                            const missingDirectionTrades = Number(raylaPicksContext?.meta?.missingDirectionTrades) || 0;
-                            if (!hasPersonalizedPick) {
-                              return (
-                                <div style={{ background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 16 }}>
-                                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fbff", marginBottom: 6 }}>
-                                    Personal picks unlock after a few reps.
-                                  </div>
-                                  <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, maxWidth: 560 }}>
-                                    {missingDirectionTrades > 0
-                                      ? "Picks use directional trade history. Older trades without direction may not count."
-                                      : "Use the market lists below for now: pick a hot or cold asset and try it in Simulation."}
-                                  </div>
-                                </div>
-                              );
-                            }
-                            return (
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                                {picks.map((pick) => (
-                                  <RaylaPickCard key={pick.title} pick={pick} />
-                                ))}
-                              </div>
-                            );
-                          })()}
-                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 12 }}>
-                            Personalized picks are based on your logged trade and simulation history. They are not guarantees or financial advice.
-                          </div>
-                        </div>
-                      ),
-                    },
                     {
                       label: "Market",
                       content: (() => {
