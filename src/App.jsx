@@ -23205,7 +23205,10 @@ return (
                               {message.role === "user" ? "You" : "Rayla"}
                             </div>
                             {message.loading ? (
-                              <div style={{ fontSize: 14, color: "#94a3b8" }}>{pickRaylaLoadingMessage(message.id)}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <img src="/badger.png" alt="" style={{ width: 18, height: 18, objectFit: "contain", animation: "badgerBob 1.5s ease-in-out infinite", flexShrink: 0 }} />
+                                <span style={{ fontSize: 14, color: "#94a3b8" }}>{pickRaylaLoadingMessage(message.id)}</span>
+                              </div>
                             ) : (
                               <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
                                 {renderRaylaMessageContent(message.content)}
@@ -27680,7 +27683,10 @@ return (
                           {message.role === "user" ? "You" : "Rayla"}
                         </div>
                         {message.loading ? (
-                          <div style={{ fontSize: 14, color: "#94a3b8" }}>{pickRaylaLoadingMessage(message.id)}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <img src="/badger.png" alt="" style={{ width: 18, height: 18, objectFit: "contain", animation: "badgerBob 1.5s ease-in-out infinite", flexShrink: 0 }} />
+                            <span style={{ fontSize: 14, color: "#94a3b8" }}>{pickRaylaLoadingMessage(message.id)}</span>
+                          </div>
                         ) : (
                           <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
                             {renderRaylaMessageContent(message.content)}
@@ -28258,8 +28264,11 @@ return (
                     }}
                   >
                     {message.loading ? (
-                      <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                        {pickRaylaLoadingMessage(message.id, chartExplainPopupContext?.contextType === "simulation" ? RAYLA_LOADING_MESSAGES_SIM : RAYLA_LOADING_MESSAGES)}
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <img src="/badger.png" alt="" style={{ width: 16, height: 16, objectFit: "contain", animation: "badgerBob 1.5s ease-in-out infinite", flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, color: "#94a3b8" }}>
+                          {pickRaylaLoadingMessage(message.id, chartExplainPopupContext?.contextType === "simulation" ? RAYLA_LOADING_MESSAGES_SIM : RAYLA_LOADING_MESSAGES)}
+                        </span>
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, lineHeight: 1.7 }}>
