@@ -646,6 +646,41 @@ const LOCAL_SUPABASE_FUNCTIONS_BASE_URL = "http://localhost:54321/functions/v1";
 const SHOULD_USE_LOCAL_SUPABASE_FUNCTIONS = import.meta.env.VITE_USE_LOCAL_SUPABASE_FUNCTIONS === "true";
 const DAILY_INTEL_URL = `${PRODUCT_SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
 const ASK_RAYLA_URL = `${(SHOULD_USE_LOCAL_SUPABASE_FUNCTIONS ? LOCAL_SUPABASE_FUNCTIONS_BASE_URL : PRODUCT_SUPABASE_FUNCTIONS_BASE_URL)}/ask-rayla`;
+const RAYLA_LOADING_MESSAGES = [
+  "On it...",
+  "Pulling the data...",
+  "Running the numbers...",
+  "Checking the tape...",
+  "Reading the setup...",
+  "Analyzing the move...",
+  "Scanning for signals...",
+  "Looking at the levels...",
+  "Breaking it down...",
+  "Thinking it through...",
+  "Connecting the dots...",
+  "Digging in...",
+  "Reading the price action...",
+  "Crunching it...",
+  "Working on it...",
+  "Sizing it up...",
+  "Mapping it out...",
+  "Reading the market...",
+];
+const RAYLA_LOADING_MESSAGES_SIM = [
+  "Reviewing your trade...",
+  "Analyzing the setup...",
+  "Looking at the simulation...",
+  "Breaking down the position...",
+  "Running the numbers...",
+  "Checking your levels...",
+  "Digging into the stats...",
+  "Pulling the trade data...",
+  "Sizing up the position...",
+];
+function pickRaylaLoadingMessage(id, pool = RAYLA_LOADING_MESSAGES) {
+  const sum = String(id || "").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return pool[sum % pool.length];
+}
 const SIMULATION_STARTING_BALANCE = 10000;
 const SIMULATION_STORAGE_KEYS = {
   tradeHistory: "rayla_sim_trade_history",
@@ -23170,7 +23205,7 @@ return (
                               {message.role === "user" ? "You" : "Rayla"}
                             </div>
                             {message.loading ? (
-                              <div style={{ fontSize: 14, color: "#94a3b8" }}>Rayla is thinking...</div>
+                              <div style={{ fontSize: 14, color: "#94a3b8" }}>{pickRaylaLoadingMessage(message.id)}</div>
                             ) : (
                               <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
                                 {renderRaylaMessageContent(message.content)}
@@ -27645,7 +27680,7 @@ return (
                           {message.role === "user" ? "You" : "Rayla"}
                         </div>
                         {message.loading ? (
-                          <div style={{ fontSize: 14, color: "#94a3b8" }}>Rayla is thinking...</div>
+                          <div style={{ fontSize: 14, color: "#94a3b8" }}>{pickRaylaLoadingMessage(message.id)}</div>
                         ) : (
                           <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
                             {renderRaylaMessageContent(message.content)}
@@ -28224,9 +28259,7 @@ return (
                   >
                     {message.loading ? (
                       <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                        {chartExplainPopupContext?.contextType === "simulation"
-                          ? "Rayla is reviewing this simulation..."
-                          : "Rayla is reading the chart..."}
+                        {pickRaylaLoadingMessage(message.id, chartExplainPopupContext?.contextType === "simulation" ? RAYLA_LOADING_MESSAGES_SIM : RAYLA_LOADING_MESSAGES)}
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, lineHeight: 1.7 }}>
