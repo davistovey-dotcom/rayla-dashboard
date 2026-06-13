@@ -18427,16 +18427,20 @@ Respond in strict JSON only — no markdown, no extra text:
     openChartExplainPopup(enrichedContext, "What's happening at this price level?");
   }
 
-  function openChartExplainPopup(chartContext, initialQuestion = "Explain this chart") {
+  function openChartExplainPopup(chartContext, initialQuestion = "Explain this chart", { title = null, prefillOnly = false } = {}) {
     setIntelSimulationSetupPrompt(null);
     setIntelSimulationSetupChecklist(null);
     setChartExplainPopupContext(chartContext);
     setChartExplainPopupMessages([]);
-    setChartExplainPopupInput("");
-    setChartExplainPopupTitle(initialQuestion || "Ask Rayla");
+    setChartExplainPopupTitle(title || initialQuestion || "Ask Rayla");
     setChartExplainPopupOpen(true);
-    if (initialQuestion) {
-      handleChartExplainPopupQuestion(initialQuestion, chartContext, { resetThread: true });
+    if (prefillOnly) {
+      setChartExplainPopupInput(initialQuestion || "");
+    } else {
+      setChartExplainPopupInput("");
+      if (initialQuestion) {
+        handleChartExplainPopupQuestion(initialQuestion, chartContext, { resetThread: true });
+      }
     }
   }
 
@@ -20522,14 +20526,14 @@ function buildSimulationAssetFromPosition(position) {
   function handleBeginnerIntelExplain(item) {
     if (!item?.symbol) return;
     const symbol = String(item.symbol).toUpperCase();
-    const question = `Why is ${symbol} on the radar right now, and what kind of setup does this suggest for a beginner trader?`;
+    const question = `Why is ${symbol} on the radar right now?`;
     const intelContext = {
       contextType: "chart",
       symbol,
       assetName: item.name || symbol,
       assetType: CRYPTO_SYMBOL_SET.has(symbol) ? "crypto" : "stock",
     };
-    openChartExplainPopup(intelContext, question);
+    openChartExplainPopup(intelContext, question, { title: "Ask Rayla", prefillOnly: true });
   }
 
   function handleTryIntelInSimulation(item) {
