@@ -581,7 +581,12 @@ function buildIntelEquityUniverse(raylaSymbols: string[]) {
   );
 
   const orderedSymbols = [
-    ...raylaSymbols.filter((symbol) => !CRYPTO_SYMBOL_SET.has(symbol)),
+    ...raylaSymbols.filter((symbol) => {
+      // Normalize BTC/USD → BTC and BTCUSD → BTC before checking so portfolio
+      // crypto symbols in any format are excluded from the equity universe.
+      const base = symbol.replace(/\/USD$/i, "").replace(/USD$/i, "");
+      return !CRYPTO_SYMBOL_SET.has(symbol) && !CRYPTO_SYMBOL_SET.has(base);
+    }),
     ...DEFAULT_EQUITY_UNIVERSE.map((item) => item.symbol),
   ];
 
@@ -632,7 +637,7 @@ async function fetchAlpacaQuoteSnapshots(
   }
 
   const cryptoPairs = cryptos.map((item) => `${item.symbol}/USD`);
-  const cryptoData = await alpacaMarketDataRequest(`/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(cryptoPairs.join(","))}`);
+  const cryptoData = await alpacaMarketDataRequest(`/v1beta3/crypto/snapshots?symbols=${encodeURIComponent(cryptoPairs.join(","))}`);
   for (const item of cryptos) {
     const normalized = normalizeAlpacaSnapshot(item.symbol, cryptoData?.snapshots?.[`${item.symbol}/USD`], "crypto");
     if (!normalized) continue;
@@ -1274,12 +1279,22 @@ Context: ${signalContext}`;
     const existing = await existingRes.json();
     if (existing.length > 0) {
       const cached = existing[0];
+      const cachedCryptoSymbols = new Set(CRYPTO_UNIVERSE.map(c => c.symbol));
+      function cachedIsCrypto(sym: string) {
+        const base = String(sym || "").replace(/\/USD$/i, "").replace(/USD$/i, "");
+        return cachedCryptoSymbols.has(sym) || cachedCryptoSymbols.has(base);
+      }
+      const hasCryptoInStockBuckets =
+        (cached.stock_hot || []).some((s: any) => cachedIsCrypto(s.symbol)) ||
+        (cached.stock_cold || []).some((s: any) => cachedIsCrypto(s.symbol));
       const isValid =
-  Array.isArray(cached.stock_hot) && cached.stock_hot.length >= 3 &&
-  Array.isArray(cached.stock_cold) && cached.stock_cold.length >= 3 &&
-  cached.crypto_hot?.symbol &&
-  cached.crypto_hot?.change !== "+0.00%" &&
-  cached.stock_hot.some(s => s.change !== "+0.00%" && s.score !== 0);
+        !hasCryptoInStockBuckets &&
+        Array.isArray(cached.stock_hot) && cached.stock_hot.length >= 3 &&
+        Array.isArray(cached.stock_cold) && cached.stock_cold.length >= 3 &&
+        cached.crypto_hot?.symbol &&
+        cached.crypto_hot?.change !== "N/A" &&
+        cached.crypto_hot?.change !== "+0.00%" &&
+        cached.stock_hot.some((s: any) => s.change !== "+0.00%" && s.score !== 0);
 
       if (isValid) {
         console.log(`[intel] Returned cached daily intel for ${today}`);
@@ -1470,13 +1485,15 @@ const cryptoCold = [...scoredCrypto].sort((a, b) => a.score - b.score).find((ite
 
         
     
-// Ensure correct fields used throughout
+// Strip any crypto that leaked into stock buckets. Always prefer filtered list —
+// never fall back to unfiltered (that was the bug: less items → reverted to unfiltered).
 const CRYPTO_SYMBOLS = new Set(CRYPTO_UNIVERSE.map(c => c.symbol));
-const filteredStockHot = stockHot.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));
-const filteredStockCold = stockCold.filter(asset => !CRYPTO_SYMBOLS.has(asset.symbol));
-// If the crypto-symbol filter dropped items below the target count, fall back to the full pre-filter slice
-const finalStockHot = filteredStockHot.length >= stockHot.length ? filteredStockHot : stockHot.slice(0, 3);
-const finalStockCold = filteredStockCold.length >= stockCold.length ? filteredStockCold : stockCold.slice(0, 3);
+function isCryptoSymbol(sym: string) {
+  const base = String(sym || "").replace(/\/USD$/i, "").replace(/USD$/i, "");
+  return CRYPTO_SYMBOLS.has(sym) || CRYPTO_SYMBOLS.has(base);
+}
+const finalStockHot = stockHot.filter(asset => !isCryptoSymbol(asset.symbol));
+const finalStockCold = stockCold.filter(asset => !isCryptoSymbol(asset.symbol));
 
 // Pick just the top (first) and bottom (first) crypto
 const filteredCrypto = scoredCrypto.filter(asset => CRYPTO_SYMBOLS.has(asset.symbol));

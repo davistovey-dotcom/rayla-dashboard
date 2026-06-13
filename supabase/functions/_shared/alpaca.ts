@@ -204,7 +204,9 @@ export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType
 
   if (assetType === "crypto") {
     const latestTradePrice = Number(snapshot?.latestTrade?.p ?? 0);
-    const prevClose = Number(snapshot?.dailyBar?.o ?? snapshot?.prevDailyBar?.c ?? 0);
+    // prevDailyBar.c (yesterday's close) is most accurate; dailyBar.o (today's open) is fallback.
+    // Use || to skip 0 values — a 0 close price is never valid.
+    const prevClose = Number(snapshot?.prevDailyBar?.c || snapshot?.dailyBar?.o || 0);
     const change = prevClose > 0 ? ((latestTradePrice - prevClose) / prevClose) * 100 : null;
     const updatedAt = snapshot?.latestTrade?.t || snapshot?.minuteBar?.t || snapshot?.dailyBar?.t || null;
 
@@ -227,8 +229,8 @@ export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType
   }
 
   const latestTradePrice = Number(snapshot?.latestTrade?.p ?? snapshot?.dailyBar?.c ?? 0);
-  const prevClose = Number(snapshot?.prevDailyBar?.c ?? 0);
-  const change = prevClose > 0 ? ((latestTradePrice - prevClose) / prevClose) * 100 : 0;
+  const prevClose = Number(snapshot?.prevDailyBar?.c || snapshot?.dailyBar?.o || 0);
+  const change = prevClose > 0 ? ((latestTradePrice - prevClose) / prevClose) * 100 : null;
   const updatedAt = snapshot?.latestTrade?.t || snapshot?.minuteBar?.t || snapshot?.dailyBar?.t || null;
 
   if (!Number.isFinite(latestTradePrice) || latestTradePrice <= 0) return null;
