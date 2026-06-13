@@ -602,6 +602,13 @@ function findAssetInIntel(intel: any, symbol: string) {
   return all.find((a) => (a.symbol || "").toUpperCase() === symbol.toUpperCase()) || null;
 }
 
+// Returns the current calendar date in the America/New_York timezone (YYYY-MM-DD).
+// Using UTC caused reports generated after midnight UTC but before NYSE open to be
+// treated as "today's" report, serving stale pre-market data all morning.
+function getMarketDate(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+}
+
 // ── Request handler ────────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -805,7 +812,7 @@ Context: ${signalContext}`;
     if (!SERVICE_KEY) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 
     // Return cached report if valid
-    const today = new Date().toISOString().split("T")[0];
+    const today = getMarketDate();
     const existingRes = await fetch(
       `${PROJECT_URL}/rest/v1/daily_intel_reports?report_date=eq.${today}`,
       { headers: { apikey: SERVICE_KEY } }
