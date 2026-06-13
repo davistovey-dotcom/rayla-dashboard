@@ -4007,16 +4007,64 @@ const PICKS_PROFILE_LABELS = {
 
 function buildPicksProfileContext(profile) {
   if (!profile) {
-    return "[Rayla Personal Picks Profile: Not yet completed. If the user asks what to buy, what fits their style, what their next pick should be, or how to deploy cash — tell them: \"For best results, complete your Personal Picks Questionnaire in the Picks tab. It takes 2 minutes and gives me everything I need to personalize your picks to your actual trading style.\"]";
+    return "[Rayla Personal Picks Profile: Not yet completed. If the user asks what to buy, what fits their style, what their next pick should be, or how to deploy cash — tell them: \"For best results, complete your Investor Profile in the Picks tab under Intel. It takes 2 minutes and gives me everything I need to personalize your picks to your actual trading style.\"]";
   }
-  const lines = ["[Rayla Personal Picks Profile — reference this when answering questions about what to buy, trade, or invest in]"];
-  if (profile.marketApproach) lines.push(`Trading style: ${PICKS_PROFILE_LABELS.marketApproach[profile.marketApproach] || profile.marketApproach}`);
-  if (profile.riskComfort) lines.push(`Risk tolerance: ${PICKS_PROFILE_LABELS.riskComfort[profile.riskComfort] || profile.riskComfort}`);
-  if (profile.setup) lines.push(`Preferred setup / approach: ${PICKS_PROFILE_LABELS.setup[profile.setup] || profile.setup}`);
-  if (Array.isArray(profile.sectors) && profile.sectors.length) lines.push(`Sectors of interest: ${profile.sectors.join(", ")}`);
-  if (profile.goal) lines.push(`Goal: ${PICKS_PROFILE_LABELS.goal[profile.goal] || profile.goal}`);
+  const lines = ["[Rayla Investor Profile — use this when answering questions about what to buy, trade, or invest in]"];
+
+  if (profile.experience) {
+    // New schema (branching questionnaire)
+    const expLabels = { brand_new: "Brand New", less_1yr: "Beginner (< 1 year)", "1_3yr": "Intermediate (1–3 years)", "3_10yr": "Experienced (3–10 years)", "10plus": "Expert (10+ years)" };
+    const styleLabels = { day_trader: "Day Trader", swing_trader: "Swing Trader", long_term: "Long-Term Investor", options: "Options Trader", mixed: "Mixed" };
+    const portfolioLabels = { under_1k: "Under $1k", "1k_10k": "$1k–$10k", "10k_50k": "$10k–$50k", "50k_250k": "$50k–$250k", "250k_plus": "$250k+" };
+    const horizonLabels = { same_day: "Same Day", days: "Days", weeks: "Weeks", months: "Months", years: "Years" };
+    const activityLabels = { daily: "Daily", few_week: "Few times per week", monthly: "Monthly", set_forget: "Set it and forget it" };
+    const goalLabels = { build_wealth: "Build Wealth", generate_income: "Generate Income", preserve_capital: "Preserve Capital", learn_investing: "Learn Investing", beat_market: "Beat the Market" };
+    lines.push(`Experience: ${expLabels[profile.experience] || profile.experience}`);
+    if (profile.style) lines.push(`Trading style: ${styleLabels[profile.style] || profile.style}`);
+    if (profile.experience === "brand_new") {
+      if (profile.newIntent) lines.push(`Primary intent: ${profile.newIntent === "learn" ? "Learn investing" : "Make money"}`);
+      if (profile.newComplexity) lines.push(`Idea preference: ${profile.newComplexity === "simple" ? "Simple, low-risk ideas" : "Higher-upside opportunities"}`);
+    }
+    const riskLevel = profile.riskLevel;
+    if (riskLevel) lines.push(`Risk tolerance: ${riskLevel === "high" ? "High — buys more on dips" : riskLevel === "medium" ? "Medium — holds through drops" : "Low — sells to protect capital"}`);
+    if (profile.portfolioSize) lines.push(`Portfolio size: ${portfolioLabels[profile.portfolioSize] || profile.portfolioSize}`);
+    if (profile.assetTypes) lines.push(`Preferred assets: ${profile.assetTypes}`);
+    if (Array.isArray(profile.cryptoFocus) && profile.cryptoFocus.length) lines.push(`Crypto focus: ${profile.cryptoFocus.join(", ")}`);
+    if (profile.horizon) lines.push(`Holding period: ${horizonLabels[profile.horizon] || profile.horizon}`);
+    if (profile.activityFrequency) lines.push(`Activity level: ${activityLabels[profile.activityFrequency] || profile.activityFrequency}`);
+    if (profile.goal) lines.push(`Goal: ${goalLabels[profile.goal] || profile.goal}`);
+    if (Array.isArray(profile.themes) && profile.themes.length) lines.push(`Themes of interest: ${profile.themes.join(", ")}`);
+  } else {
+    // Old schema fallback
+    if (profile.marketApproach) lines.push(`Trading style: ${PICKS_PROFILE_LABELS.marketApproach[profile.marketApproach] || profile.marketApproach}`);
+    if (profile.riskComfort) lines.push(`Risk tolerance: ${PICKS_PROFILE_LABELS.riskComfort[profile.riskComfort] || profile.riskComfort}`);
+    if (profile.setup) lines.push(`Preferred setup: ${PICKS_PROFILE_LABELS.setup[profile.setup] || profile.setup}`);
+    if (Array.isArray(profile.sectors) && profile.sectors.length) lines.push(`Sectors of interest: ${profile.sectors.join(", ")}`);
+    if (profile.goal) lines.push(`Goal: ${PICKS_PROFILE_LABELS.goal[profile.goal] || profile.goal}`);
+  }
+
   lines.push("Profile status: Complete");
   return lines.join("\n");
+}
+
+// Patterns that restrict answer to current weekly picks when on PersonalPicks sub-tab
+const PICKS_SCOPE_PATTERNS = [
+  /weekly pick/i,
+  /\bmy picks?\b/i,
+  /rayla'?s?\s+picks?/i,
+  /which pick/i,
+  /\badd to\b/i,
+];
+
+function isPicksScopeQuestion(question) {
+  return PICKS_SCOPE_PATTERNS.some((p) => p.test(String(question || "")));
+}
+
+function buildPicksScopeConstraint() {
+  const picks = loadPicksCacheForContext();
+  if (!picks?.length) return null;
+  const names = picks.map((p) => p.symbol || p.ticker).filter(Boolean).join(", ");
+  return `[Picks scope: The user is asking about their current weekly picks (${names}). Your answer must choose from these picks only. Do not suggest any tickers outside this list unless the user explicitly asks for a new idea beyond their weekly picks.]`;
 }
 
 // Patterns that signal the user is asking for pick/buy/deploy recommendations
@@ -4711,20 +4759,21 @@ function loadPicksCacheForContext() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.picks?.length) return null;
-    const ageMs = Date.now() - (parsed.generatedAt || 0);
-    if (ageMs > 4 * 60 * 60 * 1000) return null; // expired
+    const savedAt = parsed.generatedAt || parsed.timestamp || 0;
+    const ageMs = Date.now() - savedAt;
+    if (ageMs > 7 * 24 * 60 * 60 * 1000) return null; // 7-day TTL matches component
     return parsed.picks;
   } catch { return null; }
 }
 
-function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade }) {
+function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade, intelSubTab }) {
   if (activeTab === "home") return "Home";
   if (activeTab === "ai") {
     if (performancePositionFilter === "holdings") return "Holdings";
     return "Portfolio";
   }
   if (activeTab === "picks") return "PersonalPicks";
-  if (activeTab === "intel") return "MarketIntel";
+  if (activeTab === "intel") return intelSubTab === "picks" ? "PersonalPicks" : "MarketIntel";
   if (activeTab === "journal") {
     if (raylaActiveReviewedTrade) return "TradeReview";
     return "Journal";
@@ -5330,8 +5379,9 @@ function buildUniversalScreenContext({
   fundamentalsCache,
   scannerResults,
   trades,
+  intelSubTab,
 }) {
-  const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade });
+  const source = detectScreenSource({ activeTab, performancePositionFilter, raylaActiveReviewedTrade, intelSubTab });
   const objectsIncluded = [];
   let contextText = "";
 
@@ -5452,21 +5502,26 @@ function buildUniversalScreenContext({
     }
 
     case "PersonalPicks": {
-      const lines = ["[Screen: Personal Picks]"];
+      const lines = ["[Screen: Personal Picks — Weekly Baseline Picks]"];
       const cachedPicks = loadPicksCacheForContext();
       const profile = loadPicksProfile();
       if (profile) {
         objectsIncluded.push("picks_profile");
-        lines.push(`User profile: ${PICKS_PROFILE_LABELS.marketApproach?.[profile.marketApproach] || profile.marketApproach || "—"}`);
-        if (profile.goal) lines.push(`Goal: ${PICKS_PROFILE_LABELS.goal?.[profile.goal] || profile.goal}`);
+        const profileCtx = buildPicksProfileContext(profile);
+        if (profileCtx) lines.push(profileCtx);
       }
       if (cachedPicks?.length) {
         objectsIncluded.push("picks_cache");
-        lines.push(`Current top picks (${cachedPicks.length}):`);
+        lines.push(`\nCurrent weekly picks (${cachedPicks.length}) — treat these as the baseline recommendation set and build from there:`);
         cachedPicks.forEach((pk, i) => {
           lines.push(`  ${i + 1}. ${fmt(pk.symbol || pk.ticker)} — ${fmt(pk.fitScore ?? pk.fit_score)}% fit — ${fmt(pk.confidence ?? "—")} confidence`);
-          if (pk.reasoning) lines.push(`     Reason: ${String(pk.reasoning).slice(0, 120)}`);
+          if (pk.why) lines.push(`     Why: ${String(pk.why).slice(0, 150)}`);
+          if (pk.watchOut) lines.push(`     Watch out: ${String(pk.watchOut).slice(0, 120)}`);
+          else if (pk.reasoning) lines.push(`     Reason: ${String(pk.reasoning).slice(0, 120)}`);
         });
+        lines.push("\nWhen the user asks questions, reference these picks directly, explain the reasoning behind each, and suggest how to act on or refine them.");
+      } else {
+        lines.push("\nNo weekly picks generated yet. Help the user understand what to expect or prompt them to generate picks.");
       }
       if (goalsCtx) { objectsIncluded.push("financial_goals"); lines.push(""); lines.push(goalsCtx); }
       contextText = lines.join("\n");
@@ -13043,6 +13098,7 @@ useEffect(() => {
   const [intelSimulationSetupPrompt, setIntelSimulationSetupPrompt] = useState(null);
   const [intelSimulationSetupChecklist, setIntelSimulationSetupChecklist] = useState(null);
   const [simulationPerformanceSegment, setSimulationPerformanceSegment] = useState("live_simulation");
+  const [intelSubTab, setIntelSubTab] = useState("market");
   const [capitalGuideState, setCapitalGuideState] = useState({
     active: false,
     answers: {},
@@ -18140,6 +18196,7 @@ Respond in strict JSON only — no markdown, no extra text:
       fundamentalsCache,
       scannerResults,
       trades,
+      intelSubTab,
     });
 
     if (import.meta.env.DEV) {
@@ -18187,8 +18244,14 @@ Respond in strict JSON only — no markdown, no extra text:
       ? "[Investing guidance context] Respond as Rayla, a direct and knowledgeable trading and investing assistant. Answer the way a sharp advisor actually would — give specific named tickers with conviction and clear reasoning when asked. Honor the user's exact request including concentrated single-name or high-risk bets — do NOT force diversification or refuse to name a pick. State risk plainly. Close with one brief note that this is guidance only, not financial advice. Keep it tight and conversational — no questionnaires, no step flows.\n\n"
       : "";
 
+    const picksConstraint = isPicksScopeQuestion(trimmedQuestion)
+      ? buildPicksScopeConstraint()
+      : null;
+
     const askRaylaRequestPayload = {
-      question: augmentQuestionWithPicksProfile(investingFraming + questionWithTemplate),
+      question: augmentQuestionWithPicksProfile(
+        investingFraming + questionWithTemplate + (picksConstraint ? `\n\n${picksConstraint}` : "")
+      ),
       context: buildAskRaylaContext({
         trades,
         simulationTradeHistory: visibleSimulationTradeHistoryAll,
@@ -18204,7 +18267,7 @@ Respond in strict JSON only — no markdown, no extra text:
         recentConversation: extraContext?.recentConversation || null,
         activeReviewedTrade: extraContext?.activeReviewedTrade || null,
         raylaMode,
-        marketIntelContext: hotColdReport || null,
+        marketIntelContext: picksConstraint ? null : (hotColdReport || null),
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
         picksProfileContext: buildPicksProfileContext(picksProfile),
@@ -27873,6 +27936,36 @@ return (
               }
             `}</style>
             <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                {[
+                  { key: "market", label: "Market Intel" },
+                  { key: "picks", label: "Rayla's Picks" },
+                ].map((seg) => {
+                  const active = intelSubTab === seg.key;
+                  return (
+                    <button
+                      key={seg.key}
+                      type="button"
+                      onClick={() => setIntelSubTab(seg.key)}
+                      style={{
+                        border: "none",
+                        borderBottom: active ? "2px solid rgba(220,232,245,0.92)" : "1px solid transparent",
+                        background: "transparent",
+                        color: active ? "#e6f0fa" : "rgba(144,160,178,0.92)",
+                        borderRadius: 0,
+                        padding: "6px 0 8px 0",
+                        fontSize: 13,
+                        fontWeight: active ? 700 : 600,
+                        cursor: "pointer",
+                        opacity: active ? 1 : 0.84,
+                      }}
+                    >
+                      {seg.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {intelSubTab === "market" && (
               <div className="card">
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -28013,6 +28106,33 @@ return (
                 )}
                 </div>
               </div>
+              )}
+              {intelSubTab === "picks" && (
+                <PersonalPicksTab
+                  askRaylaUrl={ASK_RAYLA_URL}
+                  supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
+                  onAskRayla={(title, question) => {
+                    openGlobalRaylaPopup(title);
+                    handleChartExplainPopupQuestion(question, null, { resetThread: true });
+                  }}
+                  brokerPositions={brokerPositionsWithIntent}
+                  alpacaAccount={alpacaAccount}
+                  tradeCount={trades.length}
+                  onProfileComplete={(completedProfile) => {
+                    const current = loadCoachProfile() || {};
+                    saveCoachProfile({
+                      ...current,
+                      marketApproach: completedProfile.marketApproach,
+                      riskComfort: completedProfile.riskComfort,
+                      setup: completedProfile.setup,
+                      sectors: completedProfile.sectors,
+                      goal: current.goal || normalizeGoal(completedProfile.goal),
+                      risk: normalizeRisk(completedProfile.riskComfort),
+                      picksCompleted: true,
+                    });
+                  }}
+                />
+              )}
             </div>
           </div>
         )}

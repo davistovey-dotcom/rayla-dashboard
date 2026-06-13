@@ -93,8 +93,6 @@ const HIGH_STAKES_INTENTS = new Set([
   "live_trade_risk",
   "position_management",
   "stop_target_decision",
-  "asset_selection",
-  "high_consequence_financial_decision",
 ]);
 
 function jsonResponse(payload: unknown, status = 200) {

@@ -2,76 +2,221 @@ import React, { useState, useEffect } from "react";
 
 const PROFILE_STORAGE_KEY = "rayla-picks-profile-v1";
 const PICKS_CACHE_KEY = "rayla-picks-cache-v1";
-const PICKS_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const PICKS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// ─── Questions ──────────────────────────────────────────────────────────────
+// ─── Question definitions ────────────────────────────────────────────────────
 
-const Q1 = {
-  key: "marketApproach",
-  question: "How do you approach the market?",
-  options: [
-    { value: "trader", label: "Active Trader", desc: "I buy and sell regularly. Hours, days, weeks." },
-    { value: "investor", label: "Long-Term Investor", desc: "I buy and hold. Months to years." },
-    { value: "both", label: "Both", desc: "I do both depending on the opportunity." },
-  ],
+const QUESTIONS = {
+  experience: {
+    key: "experience",
+    question: "How much investing or trading experience do you have?",
+    options: [
+      { value: "brand_new", label: "Brand New", desc: "I've never bought a stock or crypto." },
+      { value: "less_1yr", label: "Less than 1 year", desc: "I've made a few trades." },
+      { value: "1_3yr", label: "1–3 years", desc: "I know the basics and have some history." },
+      { value: "3_10yr", label: "3–10 years", desc: "I've seen a few market cycles." },
+      { value: "10plus", label: "10+ years", desc: "I've been through it all." },
+    ],
+  },
+  newIntent: {
+    key: "newIntent",
+    question: "What are you trying to do first?",
+    options: [
+      { value: "learn", label: "Learn investing", desc: "I want to understand how markets work." },
+      { value: "money", label: "Make money", desc: "I want to grow my capital." },
+    ],
+  },
+  newRisk: {
+    key: "newRisk",
+    question: "Your portfolio drops 20%. What do you do?",
+    options: [
+      { value: "sell", label: "Sell", desc: "I'd want to protect what's left." },
+      { value: "hold", label: "Hold", desc: "I'd wait for recovery." },
+      { value: "buy_more", label: "Buy More", desc: "I'd see it as a buying opportunity." },
+    ],
+  },
+  newComplexity: {
+    key: "newComplexity",
+    question: "What kind of ideas do you want?",
+    options: [
+      { value: "simple", label: "Keep it simple", desc: "ETFs, blue chips, easy to understand." },
+      { value: "upside", label: "Higher upside", desc: "I'm okay with more risk for bigger gains." },
+    ],
+  },
+  style: {
+    key: "style",
+    question: "Which best describes how you trade?",
+    options: [
+      { value: "day_trader", label: "Day Trader", desc: "I open and close positions within a day." },
+      { value: "swing_trader", label: "Swing Trader", desc: "I hold for days to weeks." },
+      { value: "long_term", label: "Long-Term Investor", desc: "I hold for months to years." },
+      { value: "options", label: "Options Trader", desc: "I use calls, puts, or spreads." },
+      { value: "mixed", label: "Mixed", desc: "I do a bit of everything." },
+    ],
+  },
+  riskScenario: {
+    key: "riskScenario",
+    question: "You invest $10,000. Six months later it's worth $7,000. What do you do?",
+    options: [
+      { value: "sell", label: "Sell", desc: "A 30% loss is too much — cut it." },
+      { value: "hold", label: "Hold", desc: "Stay the course and wait for recovery." },
+      { value: "buy_more", label: "Buy More", desc: "Double down — I believe in the thesis." },
+    ],
+  },
+  portfolioSize: {
+    key: "portfolioSize",
+    question: "How large is your portfolio?",
+    options: [
+      { value: "under_1k", label: "Under $1k" },
+      { value: "1k_10k", label: "$1k – $10k" },
+      { value: "10k_50k", label: "$10k – $50k" },
+      { value: "50k_250k", label: "$50k – $250k" },
+      { value: "250k_plus", label: "$250k+" },
+    ],
+  },
+  assetTypes: {
+    key: "assetTypes",
+    question: "What assets do you want Rayla to focus on?",
+    options: [
+      { value: "stocks", label: "Stocks", desc: "Individual U.S. equities." },
+      { value: "etfs", label: "ETFs", desc: "Index funds and sector ETFs." },
+      { value: "crypto", label: "Crypto", desc: "Bitcoin, Ethereum, and altcoins." },
+      { value: "mix", label: "Mix", desc: "Stocks, ETFs, and crypto together." },
+    ],
+  },
+  cryptoFocus: {
+    key: "cryptoFocus",
+    question: "What interests you most in crypto?",
+    multi: true,
+    options: [
+      { value: "btc", label: "Bitcoin" },
+      { value: "large_caps", label: "Large Caps (ETH, SOL)" },
+      { value: "ai_coins", label: "AI Coins" },
+      { value: "defi", label: "DeFi" },
+      { value: "memecoins", label: "Memecoins" },
+      { value: "everything", label: "Everything" },
+    ],
+  },
+  horizon: {
+    key: "horizon",
+    question: "When you buy an asset, how long do you expect to hold it?",
+    options: [
+      { value: "same_day", label: "Same Day" },
+      { value: "days", label: "Days" },
+      { value: "weeks", label: "Weeks" },
+      { value: "months", label: "Months" },
+      { value: "years", label: "Years" },
+    ],
+  },
+  activityFrequency: {
+    key: "activityFrequency",
+    question: "How active do you want to be?",
+    options: [
+      { value: "daily", label: "Daily", desc: "I check and trade every day." },
+      { value: "few_week", label: "Few times per week", desc: "A few sessions per week." },
+      { value: "monthly", label: "Monthly", desc: "I make moves once a month or so." },
+      { value: "set_forget", label: "Set it and forget it", desc: "Long-term, low-maintenance ideas." },
+    ],
+  },
+  goal: {
+    key: "goal",
+    question: "What is your primary objective?",
+    options: [
+      { value: "build_wealth", label: "Build Wealth", desc: "Grow my net worth over time." },
+      { value: "generate_income", label: "Generate Income", desc: "Dividends, yield, consistent returns." },
+      { value: "preserve_capital", label: "Preserve Capital", desc: "Don't lose money — grow slowly." },
+      { value: "learn_investing", label: "Learn Investing", desc: "Build skills and confidence." },
+      { value: "beat_market", label: "Beat the Market", desc: "Outperform SPY consistently." },
+    ],
+  },
+  themes: {
+    key: "themes",
+    question: "Which themes or sectors interest you?",
+    multi: true,
+    options: [
+      { value: "ai", label: "AI" },
+      { value: "semiconductors", label: "Semiconductors" },
+      { value: "energy", label: "Energy" },
+      { value: "healthcare", label: "Healthcare" },
+      { value: "defense", label: "Defense" },
+      { value: "space", label: "Space" },
+      { value: "crypto", label: "Crypto" },
+      { value: "consumer", label: "Consumer" },
+      { value: "financials", label: "Financials" },
+      { value: "real_estate", label: "Real Estate" },
+    ],
+  },
 };
 
-const Q2 = {
-  key: "riskComfort",
-  question: "How do you feel about losing 10% on a trade?",
-  options: [
-    { value: "tight", label: "I cut it fast", desc: "Losses above 5% bother me." },
-    { value: "moderate", label: "I can handle it", desc: "10–15% is part of the game." },
-    { value: "aggressive", label: "Doesn't faze me", desc: "I'm comfortable with big swings for bigger upside." },
-  ],
+// Returns the ordered question-key sequence for the current answers state.
+// Branching occurs after "experience" and after "assetTypes".
+function computeSequence(answers) {
+  const seq = ["experience"];
+  if (!answers.experience) return seq;
+
+  if (answers.experience === "brand_new") {
+    seq.push("newIntent", "newRisk", "newComplexity");
+  } else {
+    seq.push("style", "riskScenario");
+  }
+
+  seq.push("portfolioSize", "assetTypes");
+
+  if (answers.assetTypes === "crypto") {
+    seq.push("cryptoFocus");
+  }
+
+  seq.push("horizon", "activityFrequency", "goal", "themes");
+  return seq;
+}
+
+// ─── Label maps for prompt rendering ────────────────────────────────────────
+
+const EXPERIENCE_LABELS = {
+  brand_new: "Brand New",
+  less_1yr: "Beginner (< 1 year)",
+  "1_3yr": "Intermediate (1–3 years)",
+  "3_10yr": "Experienced (3–10 years)",
+  "10plus": "Expert (10+ years)",
 };
 
-const Q3_TRADER = {
-  key: "setup",
-  question: "What kind of trades excite you most?",
-  options: [
-    { value: "momentum", label: "Momentum", desc: "Riding strong trends." },
-    { value: "breakout", label: "Breakouts", desc: "Catching the move when price clears a key level." },
-    { value: "reversal", label: "Reversals", desc: "Buying dips, shorting peaks." },
-    { value: "range", label: "Range / Mean Revert", desc: "Trading between support and resistance." },
-  ],
+const STYLE_LABELS = {
+  day_trader: "Day Trader",
+  swing_trader: "Swing Trader",
+  long_term: "Long-Term Investor",
+  options: "Options Trader",
+  mixed: "Mixed",
 };
 
-const Q3_INVESTOR = {
-  key: "setup",
-  question: "What guides your investing decisions?",
-  options: [
-    { value: "growth", label: "Growth", desc: "Companies growing fast." },
-    { value: "value", label: "Value", desc: "Undervalued companies with room to rise." },
-    { value: "dividends", label: "Dividends", desc: "Income and stability." },
-    { value: "thematic", label: "Thematic", desc: "Big ideas: AI, clean energy, biotech." },
-  ],
+const PORTFOLIO_LABELS = {
+  under_1k: "Under $1k",
+  "1k_10k": "$1k–$10k",
+  "10k_50k": "$10k–$50k",
+  "50k_250k": "$50k–$250k",
+  "250k_plus": "$250k+",
 };
 
-const Q4 = {
-  key: "sectors",
-  question: "Which sectors do you follow most?",
-  multi: true,
-  options: [
-    { value: "tech", label: "Tech" },
-    { value: "health", label: "Healthcare" },
-    { value: "finance", label: "Finance" },
-    { value: "energy", label: "Energy" },
-    { value: "consumer", label: "Consumer" },
-    { value: "industrial", label: "Industrial" },
-    { value: "all", label: "All of them" },
-  ],
+const HORIZON_LABELS = {
+  same_day: "Same Day",
+  days: "Days",
+  weeks: "Weeks",
+  months: "Months",
+  years: "Years",
 };
 
-const Q5 = {
-  key: "goal",
-  question: "What are you building toward?",
-  options: [
-    { value: "income", label: "Extra income", desc: "Supplementing my salary." },
-    { value: "wealth", label: "Long-term wealth", desc: "Growing serious money over time." },
-    { value: "learning", label: "Learning to trade well", desc: "Building skills and confidence." },
-    { value: "alpha", label: "Beat the market", desc: "Alpha. Consistent edge." },
-  ],
+const GOAL_LABELS = {
+  build_wealth: "Build Wealth",
+  generate_income: "Generate Income",
+  preserve_capital: "Preserve Capital",
+  learn_investing: "Learn Investing",
+  beat_market: "Beat the Market",
+};
+
+const ACTIVITY_LABELS = {
+  daily: "Daily",
+  few_week: "Few times per week",
+  monthly: "Monthly",
+  set_forget: "Set it and forget it",
 };
 
 // ─── Local storage helpers ───────────────────────────────────────────────────
@@ -98,7 +243,10 @@ function loadPicksCache() {
 }
 
 function savePicksCache(data) {
-  try { localStorage.setItem(PICKS_CACHE_KEY, JSON.stringify({ ...data, timestamp: Date.now() })); } catch {}
+  try {
+    const now = Date.now();
+    localStorage.setItem(PICKS_CACHE_KEY, JSON.stringify({ ...data, timestamp: now, generatedAt: now }));
+  } catch {}
 }
 
 // ─── Picks helpers ───────────────────────────────────────────────────────────
@@ -121,15 +269,32 @@ function parsePicks(text) {
 }
 
 function buildPicksPrompt({ profile, brokerPositions, alpacaAccount, tradeCount }) {
-  const hasProfile = !!(profile?.marketApproach);
+  const hasProfile = !!(profile?.experience);
   const hasBroker = Array.isArray(brokerPositions) && brokerPositions.length > 0;
 
+  const riskResponse = profile?.riskScenario || profile?.newRisk;
+  const riskLevel = profile?.riskLevel || (riskResponse === "sell" ? "low" : riskResponse === "buy_more" ? "high" : riskResponse === "hold" ? "medium" : null);
+  const riskLabel = riskLevel === "high" ? "High (buys more on dips)" : riskLevel === "medium" ? "Medium (holds through drops)" : riskLevel === "low" ? "Low (sells to protect capital)" : null;
+
   const profileLines = [];
-  if (profile?.marketApproach) profileLines.push(`Market approach: ${profile.marketApproach}`);
-  if (profile?.riskComfort) profileLines.push(`Risk tolerance: ${profile.riskComfort}`);
-  if (profile?.setup) profileLines.push(`Preferred style: ${profile.setup}`);
-  if (profile?.sectors?.length) profileLines.push(`Sectors of interest: ${profile.sectors.join(", ")}`);
-  if (profile?.goal) profileLines.push(`Goal: ${profile.goal}`);
+  if (profile?.experience) profileLines.push(`Experience: ${EXPERIENCE_LABELS[profile.experience] || profile.experience}`);
+  if (profile?.style) profileLines.push(`Style: ${STYLE_LABELS[profile.style] || profile.style}`);
+  if (profile?.experience === "brand_new") {
+    if (profile?.newIntent) profileLines.push(`Primary intent: ${profile.newIntent === "learn" ? "Learn investing" : "Make money"}`);
+    if (profile?.newComplexity) profileLines.push(`Idea preference: ${profile.newComplexity === "simple" ? "Simple, low-risk ideas" : "Higher-upside opportunities"}`);
+  }
+  if (riskLabel) profileLines.push(`Risk tolerance: ${riskLabel}`);
+  if (profile?.portfolioSize) profileLines.push(`Portfolio size: ${PORTFOLIO_LABELS[profile.portfolioSize] || profile.portfolioSize}`);
+  if (profile?.assetTypes) profileLines.push(`Preferred assets: ${profile.assetTypes}`);
+  if (Array.isArray(profile?.cryptoFocus) && profile.cryptoFocus.length) {
+    profileLines.push(`Crypto focus: ${profile.cryptoFocus.join(", ")}`);
+  }
+  if (profile?.horizon) profileLines.push(`Holding period: ${HORIZON_LABELS[profile.horizon] || profile.horizon}`);
+  if (profile?.activityFrequency) profileLines.push(`Activity level: ${ACTIVITY_LABELS[profile.activityFrequency] || profile.activityFrequency}`);
+  if (profile?.goal) profileLines.push(`Goal: ${GOAL_LABELS[profile.goal] || profile.goal}`);
+  if (Array.isArray(profile?.themes) && profile.themes.length) {
+    profileLines.push(`Themes of interest: ${profile.themes.join(", ")}`);
+  }
   if (tradeCount > 0) profileLines.push(`Trades logged: ${tradeCount}`);
   if (hasBroker) {
     const list = brokerPositions.slice(0, 6).map((p) => p.symbol || p.ticker || "").filter(Boolean).join(", ");
@@ -140,10 +305,12 @@ function buildPicksPrompt({ profile, brokerPositions, alpacaAccount, tradeCount 
   }
 
   const confidenceInstruction = hasProfile
-    ? "Use MEDIUM or HIGH confidence for picks that clearly match their profile. Use LOW only for picks where data is sparse."
+    ? "Use MEDIUM or HIGH confidence for picks that clearly match their profile. Use LOW only where data is sparse."
     : "Use LOW confidence for all picks — no profile has been provided yet.";
 
-  return `You are Rayla's Personal Picks engine. Generate exactly 3 stock picks for this user based on current market conditions and their profile.
+  const allowCrypto = profile?.assetTypes === "crypto" || profile?.assetTypes === "mix";
+
+  return `You are Rayla's Personal Picks engine. Generate exactly 3 picks for this user based on current market conditions and their investor profile.
 
 ${confidenceInstruction}
 
@@ -153,8 +320,8 @@ IMPORTANT: Format your response EXACTLY as follows, with no extra text outside t
 Ticker: [SYMBOL]
 FitScore: [50-99]
 Confidence: [LOW|MEDIUM|HIGH]
-Why: [2-3 sentences — be specific about why this pick matches their profile or current market setup. Reference their style if known.]
-WatchOut: [1 specific risk or thing to watch for this pick]
+Why: [2-3 sentences — be specific about why this pick matches their profile or current market setup.]
+WatchOut: [1 specific risk or thing to watch]
 ===END1===
 
 ===PICK2===
@@ -174,10 +341,10 @@ WatchOut: [risk]
 ===END3===
 
 ${profileLines.length > 0
-    ? `User profile:\n${profileLines.map((l) => `- ${l}`).join("\n")}`
-    : "No profile provided — use current market conditions only."}
+    ? `Investor profile:\n${profileLines.map((l) => `- ${l}`).join("\n")}`
+    : "No profile provided — generate picks based on current market conditions only."}
 
-Rules: Pick liquid US equities (stocks/ETFs) only. No crypto. No OTC stocks. Make the 3 picks diverse across different companies. Do not pick any stock already in the user's current holdings.`;
+Rules: ${allowCrypto ? "You may include crypto picks (BTC, ETH, SOL) alongside equities when appropriate for the profile." : "Pick liquid US equities (stocks/ETFs) only. No crypto."} No OTC stocks. Make the 3 picks diverse. Match holding period and activity level to pick style — a daily active trader needs short-term setups; a set-it-and-forget-it investor needs ETFs or long-term growth names. Do not pick any asset already in the user's current holdings.`;
 }
 
 // ─── Small UI pieces ─────────────────────────────────────────────────────────
@@ -337,17 +504,23 @@ export default function PersonalPicksTab({
 }) {
   const [profile, setProfileState] = useState(() => loadProfile());
 
-  // Derive initial phase from saved profile
   const [phase, setPhase] = useState(() => {
     const saved = loadProfile();
     if (saved?.completed) return "output";
-    if (saved && Object.keys(saved).length > 0) return "questionnaire";
     return "landing";
   });
 
-  const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState(() => loadProfile() || {});
-  const [selectedSectors, setSelectedSectors] = useState(() => loadProfile()?.sectors || []);
+  const [step, setStep] = useState(0);
+
+  // Generic multi-select state keyed by question key
+  const [selectedMulti, setSelectedMulti] = useState(() => {
+    const saved = loadProfile() || {};
+    const result = {};
+    if (Array.isArray(saved.themes)) result.themes = saved.themes;
+    if (Array.isArray(saved.cryptoFocus)) result.cryptoFocus = saved.cryptoFocus;
+    return result;
+  });
 
   const [picksStatus, setPicksStatus] = useState("idle");
   const [parsedPicks, setParsedPicks] = useState([]);
@@ -365,15 +538,10 @@ export default function PersonalPicksTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // Questions are order-dependent on Q1 answer
-  function getQuestions(currentAnswers) {
-    const q3 = currentAnswers.marketApproach === "investor" ? Q3_INVESTOR : Q3_TRADER;
-    return [Q1, Q2, q3, Q4, Q5];
-  }
-
-  const questions = getQuestions(answers);
-  const totalSteps = questions.length;
-  const currentQ = questions[step];
+  const sequence = computeSequence(answers);
+  const totalSteps = sequence.length;
+  const currentKey = sequence[step];
+  const currentQ = QUESTIONS[currentKey];
 
   async function doGeneratePicks(overrideProfile) {
     setPicksStatus("loading");
@@ -410,35 +578,50 @@ export default function PersonalPicksTab({
     setAnswers(nextAnswers);
     saveProfile(nextAnswers);
     setTimeout(() => {
-      if (step + 1 < totalSteps) {
-        setStep((s) => s + 1);
+      const nextSeq = computeSequence(nextAnswers);
+      if (step + 1 < nextSeq.length) {
+        setStep(step + 1);
       } else {
-        completeQuestionnaire({ ...nextAnswers, sectors: selectedSectors });
+        completeQuestionnaire(nextAnswers);
       }
     }, 160);
   }
 
-  function handleSectorToggle(value) {
-    setSelectedSectors((prev) => {
-      if (value === "all") return ["all"];
-      const without = prev.filter((s) => s !== "all");
-      return without.includes(value) ? without.filter((s) => s !== value) : [...without, value];
+  function handleMultiToggle(value) {
+    const key = currentQ.key;
+    setSelectedMulti((prev) => {
+      const current = prev[key] || [];
+      if (value === "everything") {
+        return { ...prev, [key]: current.includes("everything") ? [] : ["everything"] };
+      }
+      const withoutEverything = current.filter((v) => v !== "everything");
+      return {
+        ...prev,
+        [key]: withoutEverything.includes(value)
+          ? withoutEverything.filter((v) => v !== value)
+          : [...withoutEverything, value],
+      };
     });
   }
 
-  function handleSectorContinue() {
-    const nextAnswers = { ...answers, sectors: selectedSectors };
+  function handleMultiContinue() {
+    const key = currentQ.key;
+    const values = selectedMulti[key] || [];
+    const nextAnswers = { ...answers, [key]: values };
     setAnswers(nextAnswers);
     saveProfile(nextAnswers);
-    if (step + 1 < totalSteps) {
-      setStep((s) => s + 1);
+    const nextSeq = computeSequence(nextAnswers);
+    if (step + 1 < nextSeq.length) {
+      setStep(step + 1);
     } else {
       completeQuestionnaire(nextAnswers);
     }
   }
 
   function completeQuestionnaire(finalAnswers) {
-    const completed = { ...finalAnswers, completed: true };
+    const riskResponse = finalAnswers.riskScenario || finalAnswers.newRisk;
+    const riskLevel = riskResponse === "sell" ? "low" : riskResponse === "buy_more" ? "high" : riskResponse === "hold" ? "medium" : null;
+    const completed = { ...finalAnswers, riskLevel, completed: true };
     setProfileState(completed);
     saveProfile(completed);
     localStorage.removeItem(PICKS_CACHE_KEY);
@@ -447,15 +630,10 @@ export default function PersonalPicksTab({
   }
 
   function handleRetune() {
-    localStorage.removeItem(PROFILE_STORAGE_KEY);
-    localStorage.removeItem(PICKS_CACHE_KEY);
-    setProfileState(null);
-    setAnswers({});
-    setSelectedSectors([]);
     setStep(0);
     setParsedPicks([]);
     setPicksStatus("idle");
-    setPhase("questionnaire");
+    setPhase("landing");
   }
 
   function handleRefresh() {
@@ -466,32 +644,141 @@ export default function PersonalPicksTab({
   // ─── LANDING ───────────────────────────────────────────────────────────────
 
   if (phase === "landing") {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "58vh", padding: "48px 20px", textAlign: "center", gap: 28 }}>
-        <div style={{ fontSize: 42, lineHeight: 1 }}>✦</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: "#f3f7fc", letterSpacing: "-0.3px", lineHeight: 1.25 }}>
-            Your AI trading partner<br />learns how you trade.
+    const hasCompletedProfile = !!(profile?.completed && profile?.experience);
+
+    // ── Profile exists: show summary + update option ─────────────────────────
+    if (hasCompletedProfile) {
+      const riskResponse = profile.riskScenario || profile.newRisk;
+      const riskLevel = profile.riskLevel || (riskResponse === "sell" ? "low" : riskResponse === "buy_more" ? "high" : riskResponse === "hold" ? "medium" : null);
+      const summaryItems = [
+        profile.experience && { label: "Experience", value: EXPERIENCE_LABELS[profile.experience] || profile.experience },
+        profile.style && { label: "Style", value: STYLE_LABELS[profile.style] || profile.style },
+        profile.experience === "brand_new" && profile.newComplexity && { label: "Approach", value: profile.newComplexity === "simple" ? "Simple ideas" : "High upside" },
+        riskLevel && { label: "Risk", value: riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1) },
+        profile.portfolioSize && { label: "Portfolio", value: PORTFOLIO_LABELS[profile.portfolioSize] || profile.portfolioSize },
+        profile.assetTypes && { label: "Assets", value: profile.assetTypes.charAt(0).toUpperCase() + profile.assetTypes.slice(1) },
+        profile.horizon && { label: "Hold", value: HORIZON_LABELS[profile.horizon] || profile.horizon },
+        profile.activityFrequency && { label: "Activity", value: ACTIVITY_LABELS[profile.activityFrequency] || profile.activityFrequency },
+        profile.goal && { label: "Goal", value: GOAL_LABELS[profile.goal] || profile.goal },
+      ].filter(Boolean);
+
+      return (
+        <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px", display: "flex", flexDirection: "column", gap: 28 }}>
+          <div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#f3f7fc", letterSpacing: "-0.3px", marginBottom: 4 }}>Rayla's Picks</div>
+            <div style={{ fontSize: 13, color: "#7f8ea3" }}>Your Investor Profile</div>
           </div>
-          <div style={{ fontSize: 15, color: "#94a6bb", lineHeight: 1.7, maxWidth: 360, margin: "0 auto" }}>
-            Every pick is built around your setups, your style, your portfolio. Not generic signals. Yours.
+
+          <div style={{ background: "rgba(18,26,38,0.7)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 20 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {summaryItems.map(({ label, value }) => (
+                <div key={label} style={{ background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.12)", borderRadius: 10, padding: "8px 12px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#475569", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            {Array.isArray(profile.themes) && profile.themes.length > 0 && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#475569", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 8 }}>Themes</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {profile.themes.map((t) => (
+                    <div key={t} style={{ fontSize: 12, color: "#7CC4FF", background: "rgba(124,196,255,0.07)", border: "1px solid rgba(124,196,255,0.15)", borderRadius: 8, padding: "3px 9px", fontWeight: 600 }}>{t}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button
+              onClick={() => {
+                localStorage.removeItem(PROFILE_STORAGE_KEY);
+                localStorage.removeItem(PICKS_CACHE_KEY);
+                setProfileState(null);
+                setAnswers({});
+                setSelectedMulti({});
+                setStep(0);
+                setParsedPicks([]);
+                setPicksStatus("idle");
+                setPhase("questionnaire");
+              }}
+              style={{
+                background: "rgba(124,196,255,0.08)",
+                border: "1px solid rgba(124,196,255,0.3)",
+                borderRadius: 14, color: "#7CC4FF",
+                padding: "13px 20px", fontSize: 14, fontWeight: 700,
+                cursor: "pointer", textAlign: "center",
+              }}
+            >
+              Update Investor Profile
+            </button>
+            <button
+              onClick={() => setPhase("output")}
+              style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 13, padding: "6px 0", textDecoration: "underline", textAlign: "center" }}
+            >
+              Back to My Picks →
+            </button>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 320 }}>
+      );
+    }
+
+    // ── No profile: onboarding landing ───────────────────────────────────────
+    return (
+      <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px", display: "flex", flexDirection: "column", gap: 32 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#f3f7fc", letterSpacing: "-0.5px", lineHeight: 1.2 }}>
+            Rayla's Picks
+          </div>
+          <div style={{ fontSize: 15, color: "#94a6bb", lineHeight: 1.7 }}>
+            Build your investor profile and Rayla will generate personalized investment ideas tailored to your goals, experience, risk tolerance, and interests.
+          </div>
+          <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.65 }}>
+            New users complete a quick onboarding profile. As your trading and simulation history grows, Rayla gradually replaces assumptions with real behavioral data.
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          {[
+            { icon: "◈", title: "Experience & Risk", desc: "Your background and how you handle drawdowns." },
+            { icon: "◎", title: "Goals & Time Horizon", desc: "What you're building and how long you'll hold." },
+            { icon: "✦", title: "Sectors & Interests", desc: "Themes and asset classes you care about." },
+          ].map(({ icon, title, desc }) => (
+            <div
+              key={title}
+              style={{
+                background: "rgba(18,26,38,0.7)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                borderRadius: 14,
+                padding: "16px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 20, color: "#7CC4FF", lineHeight: 1 }}>{icon}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", lineHeight: 1.3 }}>{title}</div>
+              <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.55 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <button
-            onClick={() => setPhase("questionnaire")}
+            onClick={() => { setAnswers({}); setSelectedMulti({}); setStep(0); setPhase("questionnaire"); }}
             style={{
-              background: "linear-gradient(135deg, rgba(124,196,255,0.18) 0%, rgba(124,196,255,0.09) 100%)",
+              background: "linear-gradient(135deg, rgba(124,196,255,0.20) 0%, rgba(124,196,255,0.10) 100%)",
               border: "1px solid rgba(124,196,255,0.5)",
               borderRadius: 14, color: "#d7efff",
               padding: "15px 24px", fontSize: 15, fontWeight: 700,
-              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+              cursor: "pointer", textAlign: "center",
               boxShadow: "0 8px 24px rgba(124,196,255,0.10)",
             }}
           >
-            Get My First Picks →
+            Start Investor Profile →
           </button>
-          <div style={{ fontSize: 13, color: "#475569" }}>Takes about 2 minutes.</div>
+          <div style={{ fontSize: 12, color: "#475569", textAlign: "center" }}>Takes about 2 minutes.</div>
           <button
             onClick={() => {
               const blankProfile = { completed: true };
@@ -499,9 +786,9 @@ export default function PersonalPicksTab({
               saveProfile(blankProfile);
               setPhase("output");
             }}
-            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 13, padding: 0, textDecoration: "underline" }}
+            style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 13, padding: "4px 0", textDecoration: "underline", textAlign: "center" }}
           >
-            Skip and show picks now
+            Skip — show picks now
           </button>
         </div>
       </div>
@@ -511,7 +798,10 @@ export default function PersonalPicksTab({
   // ─── QUESTIONNAIRE ─────────────────────────────────────────────────────────
 
   if (phase === "questionnaire") {
+    if (!currentQ) return null;
+
     const isMulti = !!currentQ.multi;
+    const multiValues = selectedMulti[currentKey] || [];
 
     return (
       <div style={{ maxWidth: 500, margin: "0 auto", padding: "36px 20px", display: "flex", flexDirection: "column", gap: 28 }}>
@@ -545,13 +835,11 @@ export default function PersonalPicksTab({
         {/* Options */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {currentQ.options.map((opt) => {
-            const isSelected = isMulti
-              ? selectedSectors.includes(opt.value)
-              : answers[currentQ.key] === opt.value;
+            const isSelected = isMulti ? multiValues.includes(opt.value) : answers[currentKey] === opt.value;
             return (
               <button
                 key={opt.value}
-                onClick={() => isMulti ? handleSectorToggle(opt.value) : handleSingleSelect(opt.value)}
+                onClick={() => isMulti ? handleMultiToggle(opt.value) : handleSingleSelect(opt.value)}
                 style={{
                   background: isSelected ? "rgba(124,196,255,0.11)" : "rgba(255,255,255,0.03)",
                   border: `1.5px solid ${isSelected ? "rgba(124,196,255,0.55)" : "rgba(255,255,255,0.08)"}`,
@@ -574,9 +862,9 @@ export default function PersonalPicksTab({
         </div>
 
         {/* Multi-select continue */}
-        {isMulti && selectedSectors.length > 0 && (
+        {isMulti && multiValues.length > 0 && (
           <button
-            onClick={handleSectorContinue}
+            onClick={handleMultiContinue}
             style={{
               background: "rgba(124,196,255,0.14)",
               border: "1px solid rgba(124,196,255,0.38)",
@@ -604,9 +892,25 @@ export default function PersonalPicksTab({
 
   // ─── OUTPUT ────────────────────────────────────────────────────────────────
 
-  const hasProfile = !!(profile?.completed && profile?.marketApproach);
+  const hasProfile = !!(profile?.completed && profile?.experience);
   const engineLabel = tradeCount >= 200 ? "Mature" : tradeCount >= 50 ? "Growing" : tradeCount >= 10 ? "Building" : "Seed";
   const engineDots = tradeCount >= 200 ? 4 : tradeCount >= 50 ? 3 : tradeCount >= 10 ? 2 : 1;
+
+  let cacheInfo = null;
+  try {
+    const raw = localStorage.getItem(PICKS_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const savedAt = parsed.generatedAt || parsed.timestamp;
+      if (savedAt) {
+        const fmtDate = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        cacheInfo = {
+          generated: fmtDate(new Date(savedAt)),
+          next: fmtDate(new Date(savedAt + PICKS_CACHE_TTL_MS)),
+        };
+      }
+    }
+  } catch {}
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingBottom: 40 }}>
@@ -615,6 +919,11 @@ export default function PersonalPicksTab({
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#f3f7fc", letterSpacing: "-0.3px" }}>Rayla Picks</div>
+          {cacheInfo && (
+            <div style={{ fontSize: 11, color: "#475569", marginTop: 3 }}>
+              Generated {cacheInfo.generated} · Next refresh {cacheInfo.next}
+            </div>
+          )}
           {tradeCount > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5 }}>
               <span style={{ fontSize: 12, color: "#7f8ea3" }}>Engine: {engineLabel}</span>
@@ -644,20 +953,20 @@ export default function PersonalPicksTab({
         </div>
       </div>
 
-      {/* Questionnaire callout — if profile incomplete */}
+      {/* Profile incomplete callout */}
       {!hasProfile && (
         <div style={{ background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.2)", borderRadius: 14, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
           <div style={{ fontSize: 18, flexShrink: 0, lineHeight: 1 }}>✦</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Get personalized picks in 2 minutes</div>
             <div style={{ fontSize: 13, color: "#94a6bb", lineHeight: 1.55 }}>
-              Complete your Picks Profile for best results. Picks below are based on general market conditions until your profile is complete.
+              Complete your Investor Profile for best results. Picks below are based on general market conditions until your profile is complete.
             </div>
             <button
-              onClick={() => { setStep(0); setPhase("questionnaire"); }}
+              onClick={() => setPhase("landing")}
               style={{ marginTop: 6, background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.3)", borderRadius: 9, color: "#7CC4FF", padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "flex-start" }}
             >
-              Set up Picks Profile →
+              Build Investor Profile →
             </button>
           </div>
         </div>
