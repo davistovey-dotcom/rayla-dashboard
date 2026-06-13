@@ -256,23 +256,15 @@ const SUPPORTED_CRYPTO_SEARCH_ASSETS = [
   { symbol: "VET", description: "VeChain", exchange: "CRYPTO", type: "crypto" },
 ];
 
-const BROKER_ORDER_SUPPORTED_CRYPTO_SYMBOLS = new Set(["BTC", "ETH"]);
-
-const CANONICAL_BROKER_CRYPTO_ASSETS = SUPPORTED_CRYPTO_SEARCH_ASSETS.map((asset) => {
-  const tradable = BROKER_ORDER_SUPPORTED_CRYPTO_SYMBOLS.has(asset.symbol);
-  return {
-    symbol: asset.symbol,
-    name: asset.description,
-    exchange: "Crypto",
-    assetClass: "crypto",
-    tradable,
-    marginable: false,
-    shortable: false,
-    easyToBorrow: false,
-    fractionable: tradable,
-    status: tradable ? "active" : "watch_only",
-  };
-});
+const CANONICAL_BROKER_CRYPTO_ASSETS = SUPPORTED_CRYPTO_SEARCH_ASSETS.map((asset) => ({
+  symbol: asset.symbol,
+  name: asset.description,
+  exchange: "Crypto",
+  assetClass: "crypto",
+  marginable: false,
+  shortable: false,
+  easyToBorrow: false,
+}));
 
 function normalizeBrokerAssetSearchKey(symbol) {
   return String(symbol || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -290,9 +282,11 @@ function getCanonicalBrokerCryptoAssetsForQuery(query) {
 }
 
 function mergeBrokerAssetSearchResults(query, backendAssets) {
+  // Backend assets come first so their live tradability value wins the dedup.
+  // Canonical entries serve as fallback only when Alpaca returns no result.
   const merged = [
-    ...getCanonicalBrokerCryptoAssetsForQuery(query),
     ...(Array.isArray(backendAssets) ? backendAssets : []),
+    ...getCanonicalBrokerCryptoAssetsForQuery(query),
   ];
   const seen = new Set();
 
@@ -713,6 +707,7 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
 const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
+const ADVANCED_TRADING_STORAGE_KEY = "rayla_advanced_trading_features";
 const RAYLA_COACH_PROFILE_STORAGE_KEY = "rayla_coach_profile_v1";
 
 function loadCoachProfile() {
@@ -2268,12 +2263,14 @@ function mergeIncomingQuotes(prevQuotes, incomingQuotes) {
       price,
       change: Number.isFinite(Number(rawQuote?.change)) ? Number(rawQuote.change) : rawQuote?.change ?? currentQuote?.change ?? null,
       updatedAt: rawQuote?.updatedAt || currentQuote?.updatedAt || new Date().toISOString(),
+      fetchedAt: new Date().toISOString(),
     };
 
     const quoteChanged = (
       currentQuote?.price !== nextQuote.price
       || currentQuote?.change !== nextQuote.change
       || currentQuote?.updatedAt !== nextQuote.updatedAt
+      || !currentQuote?.fetchedAt
     );
 
     if (!quoteChanged) return;
@@ -2314,7 +2311,7 @@ function formatQuoteUpdatedAt(updatedAt) {
 }
 
 function isQuoteFresh(quote, maxAgeMs = 60_000) {
-  const timestamp = Date.parse(String(quote?.updatedAt || ""));
+  const timestamp = Date.parse(String(quote?.fetchedAt || quote?.updatedAt || ""));
   if (!Number.isFinite(timestamp)) return false;
   return Date.now() - timestamp <= maxAgeMs;
 }
@@ -13230,6 +13227,7 @@ useEffect(() => {
     extendedHours: false,
   });
   const [alpacaOrderPlanOpen, setAlpacaOrderPlanOpen] = useState(true);
+  const [alpacaOrderAdvancedOpen, setAlpacaOrderAdvancedOpen] = useState(false);
   const [alpacaOrderPlanMode, setAlpacaOrderPlanMode] = useState("price");
   const [alpacaOrderSizeMode, setAlpacaOrderSizeMode] = useState("qty");
   const [alpacaOrderSizeInput, setAlpacaOrderSizeInput] = useState("");
@@ -13578,6 +13576,10 @@ useEffect(() => {
       return "beginner";
     }
   });
+  const [advancedTradingEnabled, setAdvancedTradingEnabled] = useState(() => {
+    try { return localStorage.getItem(ADVANCED_TRADING_STORAGE_KEY) === "true"; }
+    catch { return false; }
+  });
   const [raylaAdaptiveState, setRaylaAdaptiveState] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(RAYLA_ADAPTIVE_STORAGE_KEY) || "null");
@@ -13596,6 +13598,11 @@ useEffect(() => {
       // ignore localStorage write errors for mode preference
     }
   }, [raylaMode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(ADVANCED_TRADING_STORAGE_KEY, advancedTradingEnabled ? "true" : "false");
+    } catch {}
+  }, [advancedTradingEnabled]);
   useEffect(() => { migrateToCoachProfile(); }, []);
   const isBeginnerMode = raylaMode === "beginner";
   const showBeginnerGuidance = isBeginnerMode;
@@ -15166,7 +15173,6 @@ useEffect(() => {
 
   async function fetchAlpacaBrokerData({ silent = false, snapshotSource = "broker_refresh" } = {}) {
     if (!session) {
-      setAlpacaConnectionLoaded(false);
       return;
     }
 
@@ -15887,6 +15893,13 @@ useEffect(() => {
       }
       showToast(`Order submitted for ${data.order.symbol}.`, "success");
       setPendingAlpacaOrderConfirmation(null);
+      if (!pendingAlpacaOrderConfirmation.isCloseOrder) {
+        setAlpacaOrderForm({ symbol: "", side: "buy", qty: "", notional: "", type: "market", limitPrice: "", timeInForce: "gtc", stopPrice: "", takeProfit: "", maxLoss: "", buyingPowerPercent: "", tradeType: DEFAULT_POSITION_TYPE, leverage: "1x", planStop: "", planTarget: "", extendedHours: false });
+        setAlpacaOrderSizeInput("");
+        setAlpacaOrderSizeMode("qty");
+        setAlpacaOrderAdvancedOpen(false);
+        setAlpacaOrderResult(null);
+      }
       await refreshBrokerStateAfterOrder();
       if (!pendingAlpacaOrderConfirmation.isCloseOrder && data.order.id) {
         const syncedTradeType = normalizePositionType(pendingAlpacaOrderConfirmation.tradeType);
@@ -16024,9 +16037,11 @@ useEffect(() => {
     if (!visibleSymbols.length) return;
 
     const uniqueSymbols = [...new Set(visibleSymbols)];
-    const missingSymbols = uniqueSymbols.filter((symbol) => (
-      !Number.isFinite(getKnownStockQuotePrice(symbol, simulationQuotes, marketItems, alpacaAssetQuotes))
-    ));
+    const missingSymbols = uniqueSymbols.filter((symbol) => {
+      if (!Number.isFinite(getKnownStockQuotePrice(symbol, simulationQuotes, marketItems, alpacaAssetQuotes))) return true;
+      const quote = getKnownStockQuoteData(symbol, simulationQuotes, marketItems, alpacaAssetQuotes);
+      return !quote?.fetchedAt;
+    });
 
     if (!missingSymbols.length) return;
 
@@ -16036,7 +16051,11 @@ useEffect(() => {
       try {
         const { data, error } = await supabase.functions.invoke("market-data", {
           body: {
-            symbols: missingSymbols.map((symbol) => ({ symbol, type: CRYPTO_SYMBOL_SET.has(normalizeCryptoAssetId(symbol)) ? "crypto" : "stock" })),
+            symbols: missingSymbols.map((symbol) => {
+              const base = normalizeCryptoAssetId(symbol);
+              const isCrypto = CRYPTO_SYMBOL_SET.has(base);
+              return { symbol: isCrypto ? base : symbol, type: isCrypto ? "crypto" : "stock" };
+            }),
           },
         });
 
@@ -16242,6 +16261,13 @@ useEffect(() => {
           const existingType = matchingBrokerPosition?.positionType
             ? normalizePositionType(matchingBrokerPosition.positionType)
             : null;
+          // Don't overwrite a user-entered symbol that isn't an existing position.
+          // Broker refreshes fire this effect with the last position-panel selection;
+          // without this guard they clobber a manually-typed non-position asset (e.g. BTC).
+          if (prev.symbol && !brokerSymbolsMatch(prev.symbol, selectedSymbol)) {
+            const prevIsPosition = brokerPositionsWithIntent.some((p) => brokerSymbolsMatch(p.symbol, prev.symbol));
+            if (!prevIsPosition) return prev;
+          }
           return { ...prev, symbol: selectedSymbol, ...(existingType ? { tradeType: existingType } : {}) };
         });
       }
@@ -24303,7 +24329,7 @@ return (
                             className="ghostButton"
                             onClick={() => {
                               if (alpacaAccount.isPaper === false) { handleConnectAlpaca(false); return; }
-                              if (brokerHasLiveConnection) { setBrokerPreferPaper(false); fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" }); }
+                              if (brokerHasLiveConnection) { setBrokerPreferPaper(false); fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" }); }
                               else handleConnectAlpaca(false);
                             }}
                             style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.1)", borderColor: "rgba(123,166,236,0.25)", color: "#7BA6EC" }}
@@ -24315,7 +24341,7 @@ return (
                             className="ghostButton"
                             onClick={() => {
                               if (alpacaAccount.isPaper === true) { handleConnectAlpaca(true); return; }
-                              if (brokerHasPaperConnection) { setBrokerPreferPaper(true); fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" }); }
+                              if (brokerHasPaperConnection) { setBrokerPreferPaper(true); fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" }); }
                               else handleConnectAlpaca(true);
                             }}
                             style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.06)", borderColor: "rgba(123,166,236,0.15)", color: "#94a3b8" }}
@@ -24325,7 +24351,7 @@ return (
                           <button
                             type="button"
                             className="ghostButton"
-                            onClick={() => fetchAlpacaBrokerData({ snapshotSource: "manual_refresh" })}
+                            onClick={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                             style={{ fontSize: 11, padding: "5px 12px" }}
                           >
                             Refresh
@@ -25321,89 +25347,117 @@ return (
                               );
                             })()}
                           </div>
-                          <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                            <div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                                <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Type</div>
-                              </div>
-                              <RaylaDropdown
-                                value={alpacaOrderForm.type}
-                                onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, type: value }))}
-                                options={ALPACA_ORDER_TYPE_OPTIONS}
-                                ariaLabel="Order type"
-                              />
-                            </div>
-                            <div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                                <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
-                              </div>
-                              <RaylaDropdown
-                                value={alpacaOrderForm.timeInForce}
-                                onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: value }))}
-                                options={availableTifOptions}
-                                ariaLabel="Time in force"
-                              />
-                              {requiresDayTif && (
-                                <div style={{ marginTop: 5, fontSize: 11, color: "#7CC4FF", lineHeight: 1.4 }}>
-                                  Fractional equity orders require DAY duration.
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          {alpacaOrderForm.type === "limit" && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                                <span style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Extended Hours</span>
-                                <button
-                                  type="button"
-                                  role="switch"
-                                  aria-checked={alpacaOrderForm.extendedHours}
-                                  onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, extendedHours: !prev.extendedHours }))}
-                                  style={{
-                                    width: 36, height: 20, borderRadius: 999, border: "none", cursor: "pointer", padding: 2,
-                                    background: alpacaOrderForm.extendedHours ? "#7aa8d8" : "rgba(255,255,255,0.12)",
-                                    transition: "background 0.15s",
-                                    display: "flex", alignItems: "center",
-                                  }}
-                                >
-                                  <span style={{
-                                    width: 16, height: 16, borderRadius: "50%", background: "#fff", display: "block",
-                                    transform: alpacaOrderForm.extendedHours ? "translateX(16px)" : "translateX(0)",
-                                    transition: "transform 0.15s",
-                                  }} />
-                                </button>
-                              </div>
-                              {alpacaOrderForm.extendedHours && (
-                                <div style={{ fontSize: 10, color: "#64748b" }}>Pre-market 4am–9:30am · After-market 4pm–8pm ET</div>
-                              )}
-                            </div>
-                          )}
-                          {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit" || alpacaOrderForm.type === "stop") && (
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-                              {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit") ? (
-                                <input
-                                  className="authInput"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  placeholder="Limit Price"
-                                  value={alpacaOrderForm.limitPrice}
-                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, limitPrice: e.target.value }))}
-                                />
-                              ) : null}
-                              {(alpacaOrderForm.type === "stop" || alpacaOrderForm.type === "stop_limit") ? (
-                                <input
-                                  className="authInput"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  placeholder="Stop Price"
-                                  value={alpacaOrderForm.stopPrice}
-                                  onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
-                                />
-                              ) : null}
-                            </div>
-                          )}
+                          {advancedTradingEnabled && <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
+                            {(() => {
+                              const advancedOpen = alpacaOrderAdvancedOpen || alpacaOrderForm.type !== "market";
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAlpacaOrderAdvancedOpen((prev) => !prev)}
+                                    style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
+                                  >
+                                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Advanced Order Settings</div>
+                                    {!advancedOpen && (
+                                      <div style={{ fontSize: 11, color: "#64748b", marginLeft: 4 }}>
+                                        {alpacaOrderForm.type === "market" ? "Market" : alpacaOrderForm.type.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                                        {" · "}
+                                        {String(alpacaOrderForm.timeInForce || "gtc").toUpperCase()}
+                                      </div>
+                                    )}
+                                    <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{advancedOpen ? "▲" : "▼"}</div>
+                                  </button>
+                                  {advancedOpen && (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                                      <div className="tradeOrderTwoColumn" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                        <div>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                                            <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Order Type</div>
+                                          </div>
+                                          <RaylaDropdown
+                                            value={alpacaOrderForm.type}
+                                            onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, type: value }))}
+                                            options={ALPACA_ORDER_TYPE_OPTIONS}
+                                            ariaLabel="Order type"
+                                          />
+                                        </div>
+                                        <div>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                                            <div style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Time In Force</div>
+                                          </div>
+                                          <RaylaDropdown
+                                            value={alpacaOrderForm.timeInForce}
+                                            onChange={(value) => setAlpacaOrderForm((prev) => ({ ...prev, timeInForce: value }))}
+                                            options={availableTifOptions}
+                                            ariaLabel="Time in force"
+                                          />
+                                          {requiresDayTif && (
+                                            <div style={{ marginTop: 5, fontSize: 11, color: "#7CC4FF", lineHeight: 1.4 }}>
+                                              Fractional equity orders require DAY duration.
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {alpacaOrderForm.type === "limit" && (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                            <span style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.6px" }}>Extended Hours</span>
+                                            <button
+                                              type="button"
+                                              role="switch"
+                                              aria-checked={alpacaOrderForm.extendedHours}
+                                              onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, extendedHours: !prev.extendedHours }))}
+                                              style={{
+                                                width: 36, height: 20, borderRadius: 999, border: "none", cursor: "pointer", padding: 2,
+                                                background: alpacaOrderForm.extendedHours ? "#7aa8d8" : "rgba(255,255,255,0.12)",
+                                                transition: "background 0.15s",
+                                                display: "flex", alignItems: "center",
+                                              }}
+                                            >
+                                              <span style={{
+                                                width: 16, height: 16, borderRadius: "50%", background: "#fff", display: "block",
+                                                transform: alpacaOrderForm.extendedHours ? "translateX(16px)" : "translateX(0)",
+                                                transition: "transform 0.15s",
+                                              }} />
+                                            </button>
+                                          </div>
+                                          {alpacaOrderForm.extendedHours && (
+                                            <div style={{ fontSize: 10, color: "#64748b" }}>Pre-market 4am–9:30am · After-market 4pm–8pm ET</div>
+                                          )}
+                                        </div>
+                                      )}
+                                      {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit" || alpacaOrderForm.type === "stop") && (
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+                                          {(alpacaOrderForm.type === "limit" || alpacaOrderForm.type === "stop_limit") ? (
+                                            <input
+                                              className="authInput"
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              placeholder="Limit Price"
+                                              value={alpacaOrderForm.limitPrice}
+                                              onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, limitPrice: e.target.value }))}
+                                            />
+                                          ) : null}
+                                          {(alpacaOrderForm.type === "stop" || alpacaOrderForm.type === "stop_limit") ? (
+                                            <input
+                                              className="authInput"
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              placeholder="Stop Price"
+                                              value={alpacaOrderForm.stopPrice}
+                                              onChange={(e) => setAlpacaOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
+                                            />
+                                          ) : null}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>}
                           <div data-tour-id="trades-exit-plan" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
                               <button
@@ -28177,6 +28231,35 @@ return (
             >
               Reset preferences
             </button>
+          </div>
+
+          <div className="profilePanel">
+            <div className="listTitle">Trading</div>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginTop: 12 }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#cbd5e1", fontWeight: 500 }}>Advanced Trading Features</div>
+                <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4, lineHeight: 1.5 }}>
+                  Shows Order Type, Time in Force, and limit/stop price controls in Trade Control.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={advancedTradingEnabled}
+                onClick={() => setAdvancedTradingEnabled((prev) => !prev)}
+                style={{
+                  flexShrink: 0, width: 36, height: 20, borderRadius: 999, border: "none", cursor: "pointer", padding: 2,
+                  background: advancedTradingEnabled ? "#7aa8d8" : "rgba(255,255,255,0.12)",
+                  transition: "background 0.15s", display: "flex", alignItems: "center",
+                }}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: "50%", background: "#fff", display: "block",
+                  transform: advancedTradingEnabled ? "translateX(16px)" : "translateX(0)",
+                  transition: "transform 0.15s",
+                }} />
+              </button>
+            </div>
           </div>
 
           <div className="profilePanel">
