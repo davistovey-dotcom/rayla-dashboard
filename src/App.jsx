@@ -24313,7 +24313,7 @@ return (
                         ))}
                         </div>
                         {/* Reconnect / refresh buttons */}
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto", flexShrink: 0 }}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: isSnapshotMobile ? 0 : "auto", flexShrink: 0 }}>
                           <button
                             type="button"
                             className="ghostButton"
