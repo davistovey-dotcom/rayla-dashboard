@@ -13145,6 +13145,7 @@ useEffect(() => {
   const [portfolioInceptionMs, setPortfolioInceptionMs] = useState(null);
   const [pendingBrokerConfirm, setPendingBrokerConfirm] = useState(false);
   const [brokerDisconnecting, setBrokerDisconnecting] = useState(false);
+  const brokerSwitchInFlightRef = useRef(false);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
   const [positionIntentOverrides, setPositionIntentOverrides] = useState({});
   const [holdingTheses, setHoldingTheses] = useState(() => loadHoldingTheses());
@@ -15164,7 +15165,7 @@ useEffect(() => {
     setPortfolioSnapshots((prev) => normalizePortfolioSnapshotRows([...(Array.isArray(prev) ? prev : []), data]));
   }
 
-  async function fetchAlpacaBrokerData({ silent = false, snapshotSource = "broker_refresh" } = {}) {
+  async function fetchAlpacaBrokerData({ silent = false, snapshotSource = "broker_refresh", preferPaper: preferPaperArg } = {}) {
     if (!session) {
       return;
     }
@@ -15173,9 +15174,10 @@ useEffect(() => {
       setAlpacaConnectionLoaded(false);
       setAlpacaConnectionLoading(true);
     }
+    const effectivePreferPaper = typeof preferPaperArg === "boolean" ? preferPaperArg : brokerPreferPaper;
     try {
       const { data: accountData, error: accountError } = await supabase.functions.invoke("alpaca-account", {
-        body: { preferPaper: brokerPreferPaper },
+        body: { preferPaper: effectivePreferPaper },
       });
 
       if (accountError) throw accountError;
@@ -15215,7 +15217,7 @@ useEffect(() => {
       };
 
       const { data: positionsData, error: positionsError } = await supabase.functions.invoke("alpaca-positions", {
-        body: { preferPaper: brokerPreferPaper },
+        body: { preferPaper: effectivePreferPaper },
       });
 
       if (positionsError) throw positionsError;
@@ -15240,6 +15242,7 @@ useEffect(() => {
     } finally {
       setAlpacaConnectionLoaded(true);
       setAlpacaConnectionLoading(false);
+      if (typeof preferPaperArg === "boolean") brokerSwitchInFlightRef.current = false;
     }
   }
 
@@ -16198,7 +16201,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (activeTab !== "trades") return;
-    const id = setInterval(() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "position_poll" }), 30000);
+    const id = setInterval(() => { if (!brokerSwitchInFlightRef.current) fetchAlpacaBrokerData({ silent: true, snapshotSource: "position_poll" }); }, 30000);
     return () => clearInterval(id);
   }, [activeTab]);
 
@@ -24321,7 +24324,7 @@ return (
                             className="ghostButton"
                             onClick={() => {
                               if (alpacaAccount.isPaper === false) { handleConnectAlpaca(false); return; }
-                              if (brokerHasLiveConnection) { setBrokerPreferPaper(false); fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" }); }
+                              if (brokerHasLiveConnection) { brokerSwitchInFlightRef.current = true; setBrokerPreferPaper(false); fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh", preferPaper: false }); }
                               else handleConnectAlpaca(false);
                             }}
                             style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.1)", borderColor: "rgba(123,166,236,0.25)", color: "#7BA6EC" }}
@@ -24333,7 +24336,7 @@ return (
                             className="ghostButton"
                             onClick={() => {
                               if (alpacaAccount.isPaper === true) { handleConnectAlpaca(true); return; }
-                              if (brokerHasPaperConnection) { setBrokerPreferPaper(true); fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" }); }
+                              if (brokerHasPaperConnection) { brokerSwitchInFlightRef.current = true; setBrokerPreferPaper(true); fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh", preferPaper: true }); }
                               else handleConnectAlpaca(true);
                             }}
                             style={{ fontSize: 11, padding: "5px 12px", background: "rgba(123,166,236,0.06)", borderColor: "rgba(123,166,236,0.15)", color: "#94a3b8" }}
