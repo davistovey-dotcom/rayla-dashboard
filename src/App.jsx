@@ -20857,8 +20857,7 @@ function buildSimulationAssetFromPosition(position) {
     display: "flex",
     flexDirection: "column",
     gap: 8,
-    paddingBottom: 12,
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    paddingBottom: 14,
   };
   const simControlLabelStyle = {
     fontSize: 11,
@@ -25992,7 +25991,7 @@ return (
                       </div>
                     )}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={simulationQuietLabelStyle}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade Controls
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -26133,20 +26132,53 @@ return (
                       )}
                     </div>
 
+                    {selectedSimulationItem && (
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "4px 2px 2px" }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#e2e8f0", letterSpacing: "-0.3px" }}>
+                          {selectedSimulationItem.id}
+                        </div>
+                        {Number.isFinite(selectedSimulationPrice) && (
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff" }}>
+                            ${formatCompactPrice(selectedSimulationPrice)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div
                       className="simulationControlCardsGrid"
                       key={`simulation-controls-${simulationAsset?.id || "none"}`}
                       style={{ display: "flex", flexDirection: "column", gap: 0 }}
                     >
                       <div style={simControlSectionStyle}>
-                        <div style={simControlLabelStyle}>Trade direction</div>
-                        <div style={simControlDescStyle}>Direction for this rep.</div>
-                        <RaylaDropdown
-                          value={simulationDirection}
-                          onChange={setSimulationDirection}
-                          options={SIMULATION_DIRECTION_OPTIONS}
-                          ariaLabel="Simulation trade direction"
-                        />
+                        <div style={simControlLabelStyle}>Direction</div>
+                        <div className="tradeOrderChipRow" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {[
+                            { label: "Long", value: "long", activeColor: "#4ade80", activeBg: "rgba(74,222,128,0.15)", activeBorder: "rgba(74,222,128,0.35)" },
+                            { label: "Short", value: "short", activeColor: "#f87171", activeBg: "rgba(248,113,113,0.15)", activeBorder: "rgba(248,113,113,0.35)" },
+                          ].map((item) => {
+                            const active = simulationDirection === item.value;
+                            return (
+                              <button
+                                key={item.label}
+                                type="button"
+                                onClick={() => setSimulationDirection(item.value)}
+                                style={{
+                                  padding: "8px 14px",
+                                  borderRadius: 8,
+                                  border: `1px solid ${active ? item.activeBorder : "rgba(255,255,255,0.08)"}`,
+                                  background: active ? item.activeBg : "rgba(255,255,255,0.03)",
+                                  color: active ? item.activeColor : "#94a3b8",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {item.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
                       <div style={simControlSectionStyle}>
@@ -26162,16 +26194,14 @@ return (
                                 type="button"
                                 onClick={() => setSimulationSetupType(active ? "" : type)}
                                 style={{
-                                  padding: "6px 13px",
-                                  borderRadius: 20,
-                                  border: active ? "1px solid rgba(124,196,255,0.35)" : "1px solid rgba(255,255,255,0.08)",
+                                  padding: "5px 10px",
+                                  borderRadius: 8,
+                                  border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`,
                                   background: active ? "rgba(124,196,255,0.13)" : "transparent",
                                   color: active ? "#7CC4FF" : "#64748b",
-                                  fontSize: 12,
-                                  fontWeight: active ? 600 : 400,
+                                  fontSize: 11,
+                                  fontWeight: 700,
                                   cursor: "pointer",
-                                  transition: "color 0.12s, background 0.12s, border-color 0.12s",
-                                  letterSpacing: "0.01em",
                                 }}
                               >
                                 {type}
@@ -26195,14 +26225,25 @@ return (
                       </div>
 
                       <div style={simControlSectionStyle}>
-                        <div style={simControlLabelStyle}>Amount</div>
-                        <div style={simControlDescStyle}>Set the size for this rep.</div>
-                        <RaylaDropdown
-                          value={simulationAmountMode}
-                          onChange={setSimulationAmountMode}
-                          options={SIMULATION_AMOUNT_MODE_OPTIONS}
-                          ariaLabel="Simulation amount mode"
-                        />
+                        <div style={simControlLabelStyle}>Position Size</div>
+                        <div style={{ display: "flex", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
+                          {[
+                            { label: "$ Amount", value: "dollars" },
+                            { label: "Qty", value: "shares" },
+                          ].map((m) => {
+                            const active = simulationAmountMode === m.value;
+                            return (
+                              <button
+                                key={m.value}
+                                type="button"
+                                onClick={() => setSimulationAmountMode(m.value)}
+                                style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: active ? "rgba(124,196,255,0.13)" : "transparent", color: active ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                              >
+                                {m.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                         <input
                           className="authInput"
                           placeholder={simulationAmountPlaceholder}
@@ -26224,12 +26265,10 @@ return (
 
 {!useScenarioDesktopLayout || simulationMode === "scenario" ? (
                       <div style={simControlSectionStyle}>
-                        <div style={simControlLabelStyle}>Exit plan</div>
-                        <div style={simControlDescStyle}>Choose price levels or total P/L.</div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={simControlLabelStyle}>Exit Plan</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button
                             type="button"
-                            className="ghostButton"
                             onClick={() => {
                               if (simulationUseStopTarget) {
                                 setSimulationStopLoss("");
@@ -26237,52 +26276,61 @@ return (
                               }
                               setSimulationUseStopTarget((prev) => !prev);
                             }}
-                            style={simulationUseStopTarget ? { background: "rgba(124,196,255,0.16)", borderColor: "rgba(124,196,255,0.28)", color: "#f8fafc" } : undefined}
+                            style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${simulationUseStopTarget ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: simulationUseStopTarget ? "rgba(124,196,255,0.13)" : "transparent", color: simulationUseStopTarget ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
                           >
                             {simulationUseStopTarget ? "Stop/Target On" : "Stop/Target Off"}
                           </button>
                         </div>
                         {simulationUseStopTarget && (
                           <>
-                            <RaylaDropdown
-                              value={simulationExitMode}
-                              onChange={setSimulationExitMode}
-                              options={SIMULATION_EXIT_MODE_OPTIONS}
-                              ariaLabel="Simulation exit mode"
-                            />
-                            <input
-                              key={`stop-${simulationAsset?.id || "none"}`}
-                              name={`simulation-stop-loss-${simulationAsset?.id || "none"}`}
-                              className="authInput"
-                              placeholder={simulationStopPlaceholder}
-                              type="number"
-                              step="0.01"
-                              autoComplete="off"
-                              value={simulationStopLoss}
-                              onChange={(e) => setSimulationStopLoss(e.target.value)}
-                            />
-                            <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
-                              {simulationExitMode === "price"
-                                ? "Exit if price breaks the trade."
-                                : "Exit if the loss reaches this amount."}
+                            <div style={{ display: "flex", gap: 6 }}>
+                              {[{ label: "Price", value: "price" }, { label: "P&L ($)", value: "pnl" }].map((m) => {
+                                const active = simulationExitMode === m.value;
+                                return (
+                                  <button
+                                    key={m.value}
+                                    type="button"
+                                    onClick={() => setSimulationExitMode(m.value)}
+                                    style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${active ? "rgba(124,196,255,0.35)" : "rgba(255,255,255,0.08)"}`, background: active ? "rgba(124,196,255,0.13)" : "transparent", color: active ? "#7CC4FF" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                                  >
+                                    {m.label}
+                                  </button>
+                                );
+                              })}
                             </div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              <button
-                                type="button"
-                                className="ghostButton"
-                                onClick={() => {
-                                  if (simulationUseExitPrice) setSimulationTakeProfit("");
-                                  setSimulationUseExitPrice((prev) => !prev);
-                                }}
-                                style={simulationUseExitPrice ? { background: "rgba(124,196,255,0.16)", borderColor: "rgba(124,196,255,0.28)", color: "#f8fafc" } : undefined}
-                              >
-                                {simulationExitMode === "price"
-                                  ? "Use take profit"
-                                  : "Use profit target"}
-                              </button>
-                            </div>
-                            {simulationUseExitPrice && (
-                              <>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                              <div>
+                                <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>
+                                  {simulationExitMode === "pnl" ? "Max Loss ($)" : "Stop Price"}
+                                </div>
+                                <input
+                                  key={`stop-${simulationAsset?.id || "none"}`}
+                                  name={`simulation-stop-loss-${simulationAsset?.id || "none"}`}
+                                  className="authInput"
+                                  placeholder={simulationStopPlaceholder}
+                                  type="number"
+                                  step="0.01"
+                                  autoComplete="off"
+                                  value={simulationStopLoss}
+                                  onChange={(e) => setSimulationStopLoss(e.target.value)}
+                                />
+                              </div>
+                              <div style={{ opacity: simulationUseExitPrice ? 1 : 0.45 }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                                  <div style={{ fontSize: 11, color: "#7f8ea3" }}>
+                                    {simulationExitMode === "pnl" ? "Profit Target ($)" : "Target Price"}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (simulationUseExitPrice) setSimulationTakeProfit("");
+                                      setSimulationUseExitPrice((prev) => !prev);
+                                    }}
+                                    style={{ background: "none", border: "none", padding: 0, fontSize: 10, color: simulationUseExitPrice ? "#7CC4FF" : "#64748b", cursor: "pointer" }}
+                                  >
+                                    {simulationUseExitPrice ? "on" : "+ add"}
+                                  </button>
+                                </div>
                                 <input
                                   key={`target-${simulationAsset?.id || "none"}`}
                                   name={`simulation-take-profit-${simulationAsset?.id || "none"}`}
@@ -26291,16 +26339,12 @@ return (
                                   type="number"
                                   step="0.01"
                                   autoComplete="off"
+                                  disabled={!simulationUseExitPrice}
                                   value={simulationTakeProfit}
                                   onChange={(e) => setSimulationTakeProfit(e.target.value)}
                                 />
-                                <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
-                                  {simulationExitMode === "price"
-                                    ? "Pay yourself at this level."
-                                    : "Take profit at this amount."}
-                                </div>
-                              </>
-                            )}
+                              </div>
+                            </div>
                           </>
                         )}
                       </div>
@@ -26361,10 +26405,17 @@ return (
                         </div>
                         <button
                             type="button"
-                            className="ghostButton"
+                            className="ghostButton tradeOrderSubmitButton"
                             onClick={handleOpenSimulationTrade}
                             disabled={!selectedSimulationItem || !!selectedSimulationOpenPosition}
-                            style={selectedSimulationOpenPosition ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                            style={{
+                              minHeight: 44,
+                              fontWeight: 800,
+                              background: selectedSimulationOpenPosition ? "rgba(255,255,255,0.03)" : "rgba(124,196,255,0.16)",
+                              borderColor: selectedSimulationOpenPosition ? "rgba(255,255,255,0.08)" : "rgba(124,196,255,0.3)",
+                              color: selectedSimulationOpenPosition ? "#64748b" : "#f8fbff",
+                              ...((!selectedSimulationItem || !!selectedSimulationOpenPosition) ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+                            }}
                           >
                             {selectedSimulationOpenPosition ? "Trade Active" : "Open Trade"}
                           </button>
