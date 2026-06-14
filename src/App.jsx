@@ -23947,16 +23947,16 @@ return (
                 }
                 .tradeLiveMarketPanel {
                   grid-column: 1 !important;
-                  height: 760px !important;
-                  max-height: 760px;
-                  overflow: visible;
+                  height: 800px !important;
+                  max-height: 800px;
+                  overflow: hidden;
                   padding: 10px !important;
                   gap: 7px !important;
                 }
                 .tradeOrderTicket {
                   grid-column: 2 !important;
-                  height: 760px !important;
-                  max-height: 760px;
+                  height: 800px !important;
+                  max-height: 800px;
                   overflow-y: auto;
                   gap: 7px !important;
                 }
