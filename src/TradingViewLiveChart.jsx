@@ -56,6 +56,8 @@ function mapIntervalToTradingViewValue(interval) {
   }
 }
 
+const isTouchDevice = () => window.matchMedia("(pointer: coarse)").matches;
+
 export default function TradingViewLiveChart({
   asset,
   height = "100%",
@@ -77,6 +79,7 @@ export default function TradingViewLiveChart({
     widgetContainer.style.width = "100%";
     widgetContainer.style.height = "100%";
     widgetContainer.style.pointerEvents = "auto";
+    widgetContainer.style.touchAction = "pan-y";
 
     const widgetInner = document.createElement("div");
     widgetInner.className = "tradingview-widget-container__widget";
@@ -89,6 +92,7 @@ export default function TradingViewLiveChart({
     script.src = TRADINGVIEW_WIDGET_SCRIPT;
     script.async = true;
     const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Etc/UTC";
+    const touch = isTouchDevice();
     script.innerHTML = JSON.stringify({
       autosize: true,
       symbol: widgetSymbol,
@@ -102,9 +106,10 @@ export default function TradingViewLiveChart({
       hide_side_toolbar: true,
       hide_top_toolbar: true,
       disabled_features: [
-        "chart_scroll",
+        ...(touch ? [] : ["chart_scroll"]),
         "left_toolbar",
       ],
+      enabled_features: touch ? ["pinch_scale"] : [],
       calendar: false,
       details: false,
       hotlist: false,
@@ -135,13 +140,13 @@ export default function TradingViewLiveChart({
   if (!asset) return null;
 
   return (
-    <div style={{ width: "100%", height, position: "relative", background: "#0d1117", borderRadius: 12, overflow: "hidden" }}>
+    <div style={{ width: "100%", height, position: "relative", background: "#0d1117", borderRadius: 12, overflow: "hidden", touchAction: "pan-y" }}>
       {isLoading ? (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12, zIndex: 1 }}>
           Loading chart...
         </div>
       ) : null}
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <div ref={containerRef} style={{ width: "100%", height: "100%", touchAction: "pan-y" }} />
     </div>
   );
 }
