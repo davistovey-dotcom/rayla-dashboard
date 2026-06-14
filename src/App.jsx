@@ -8239,35 +8239,37 @@ function PerformanceDashboard({
             ariaLabel="Performance setup filter"
           />
         )}
-        {allSessions.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          {allSessions.length > 0 && (
+            <RaylaDropdown
+              value={fSession}
+              onChange={setFSession}
+              options={[{ value: "all", label: "All Sessions" }, ...allSessions.map((session) => ({ value: session, label: session }))]}
+              width={110}
+              minWidth={100}
+              size="compact"
+              ariaLabel="Performance session filter"
+            />
+          )}
           <RaylaDropdown
-            value={fSession}
-            onChange={setFSession}
-            options={[{ value: "all", label: "All Sessions" }, ...allSessions.map((session) => ({ value: session, label: session }))]}
-            width={150}
-            minWidth={150}
+            value={fDir}
+            onChange={setFDir}
+            options={PERFORMANCE_DIRECTION_FILTER_OPTIONS}
+            width={110}
+            minWidth={100}
             size="compact"
-            ariaLabel="Performance session filter"
+            ariaLabel="Performance direction filter"
           />
-        )}
-        <RaylaDropdown
-          value={fDir}
-          onChange={setFDir}
-          options={PERFORMANCE_DIRECTION_FILTER_OPTIONS}
-          width={150}
-          minWidth={150}
-          size="compact"
-          ariaLabel="Performance direction filter"
-        />
-        <RaylaDropdown
-          value={fResult}
-          onChange={setFResult}
-          options={PERFORMANCE_RESULT_FILTER_OPTIONS}
-          width={140}
-          minWidth={140}
-          size="compact"
-          ariaLabel="Performance result filter"
-        />
+          <RaylaDropdown
+            value={fResult}
+            onChange={setFResult}
+            options={PERFORMANCE_RESULT_FILTER_OPTIONS}
+            width={110}
+            minWidth={100}
+            size="compact"
+            ariaLabel="Performance result filter"
+          />
+        </div>
         {hasFilters && (
           <button type="button" onClick={clearFilters}
             style={{ background: "transparent", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", fontSize: 12, cursor: "pointer" }}>
