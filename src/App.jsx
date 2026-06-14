@@ -282,29 +282,41 @@ function getCanonicalBrokerCryptoAssetsForQuery(query) {
 }
 
 function mergeBrokerAssetSearchResults(query, backendAssets) {
-  // Backend assets come first so their live tradability value wins the dedup.
-  // Canonical entries serve as fallback only when Alpaca returns no result.
-  const merged = [
-    ...(Array.isArray(backendAssets) ? backendAssets : []),
-    ...getCanonicalBrokerCryptoAssetsForQuery(query),
-  ];
   const seen = new Set();
+  const results = [];
 
-  return merged.filter((asset) => {
-    const rawKey = normalizeBrokerAssetSearchKey(asset?.symbol);
+  for (const asset of (Array.isArray(backendAssets) ? backendAssets : [])) {
     const assetClass = String(asset?.assetClass || asset?.asset_class || "").toLowerCase();
-    const cryptoKey = assetClass === "crypto"
-      ? rawKey.endsWith("USDT")
+    const isCrypto = assetClass === "crypto";
+
+    if (!isCrypto && asset?.tradable !== true) continue;
+
+    const rawKey = normalizeBrokerAssetSearchKey(asset?.symbol);
+    const baseKey = isCrypto
+      ? rawKey.endsWith("USDT") || rawKey.endsWith("USDC")
         ? rawKey.slice(0, -4)
         : rawKey.endsWith("USD")
           ? rawKey.slice(0, -3)
           : rawKey
       : rawKey;
-    const key = assetClass === "crypto" ? `crypto:${cryptoKey}` : rawKey;
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
+    const dedupKey = isCrypto ? `crypto:${baseKey}` : baseKey;
+    if (!dedupKey || seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    results.push(isCrypto ? { ...asset, symbol: baseKey } : asset);
+  }
+
+  const q = normalizeBrokerAssetSearchKey(query);
+  results.sort((a, b) => {
+    const rank = (asset) => {
+      const sym = normalizeBrokerAssetSearchKey(asset?.symbol);
+      if (sym === q) return 0;
+      if (sym.startsWith(q)) return 1;
+      return 2;
+    };
+    return rank(a) - rank(b);
   });
+
+  return results;
 }
 
 const SUPPORTED_POPULAR_STOCKS = [
