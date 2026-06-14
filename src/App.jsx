@@ -25947,7 +25947,7 @@ return (
                     </div>
                   )}
 
-                  {(isMobileView || isTabletView) && (
+                  {isMobileView && (
                     <div style={{ display: "flex", background: "rgba(255,255,255,0.025)", borderRadius: 14, padding: 4, gap: 2, flexShrink: 0, marginBottom: 10 }}>
                       {[
                         { label: "Setup", index: 0 },
@@ -25961,7 +25961,7 @@ return (
                     </div>
                   )}
                   <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(0, 1fr) 300px", gap: isMobileView ? 14 : 18, alignItems: "stretch", width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden" }}>
-                  {(!(isMobileView || isTabletView) || simMobileTab === 0) && (
+                  {(!isMobileView || simMobileTab === 0) && (
                   <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 560 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
                     {simulationMode === "scenario" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -26445,7 +26445,7 @@ return (
                     </div>
                   </div>
                   )}
-                  {(!(isMobileView || isTabletView) || simMobileTab === 1) && (
+                  {(!isMobileView || simMobileTab === 1) && (
                   <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
