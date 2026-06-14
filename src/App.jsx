@@ -718,7 +718,6 @@ const FIRST_TRADE_ONBOARDING_STORAGE_KEYS = {
   autoStarted: "rayla_first_trade_onboarding_autostarted",
 };
 const RAYLA_ADAPTIVE_STORAGE_KEY = "rayla_adaptive_learning_profile";
-const RAYLA_MODE_STORAGE_KEY = "rayla_mode_preference";
 const ADVANCED_TRADING_STORAGE_KEY = "rayla_advanced_trading_features";
 const RAYLA_COACH_PROFILE_STORAGE_KEY = "rayla_coach_profile_v1";
 
@@ -12394,7 +12393,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade })
 
 const JOURNAL_MISTAKE_TAGS = ["FOMO", "Oversized", "Rule break", "Chased entry", "Early exit", "Missed target", "Emotional"];
 
-function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade, isBeginnerMode = false }) {
+function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade }) {
   const [journalSource, setJournalSource] = useState("live_trades");
   const [search, setSearch] = useState("");
   const [filterDir, setFilterDir] = useState("all");
@@ -13580,14 +13579,6 @@ useEffect(() => {
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
   const [dayTradeStartingCapital, setDayTradeStartingCapital] = useState(0);
-  const [raylaMode, setRaylaMode] = useState(() => {
-    try {
-      const storedMode = localStorage.getItem(RAYLA_MODE_STORAGE_KEY);
-      return ["beginner", "experienced"].includes(storedMode) ? storedMode : "beginner";
-    } catch {
-      return "beginner";
-    }
-  });
   const [advancedTradingEnabled, setAdvancedTradingEnabled] = useState(() => {
     try { return localStorage.getItem(ADVANCED_TRADING_STORAGE_KEY) === "true"; }
     catch { return false; }
@@ -13605,19 +13596,11 @@ useEffect(() => {
   }, [raylaAdaptiveState]);
   useEffect(() => {
     try {
-      localStorage.setItem(RAYLA_MODE_STORAGE_KEY, raylaMode);
-    } catch {
-      // ignore localStorage write errors for mode preference
-    }
-  }, [raylaMode]);
-  useEffect(() => {
-    try {
       localStorage.setItem(ADVANCED_TRADING_STORAGE_KEY, advancedTradingEnabled ? "true" : "false");
     } catch {}
   }, [advancedTradingEnabled]);
   useEffect(() => { migrateToCoachProfile(); }, []);
-  const isBeginnerMode = raylaMode === "beginner";
-  const showBeginnerGuidance = isBeginnerMode;
+  const showBeginnerGuidance = true;
   const [activeTour, setActiveTour] = useState(null);
   // Close tour whenever the user navigates to a different main tab
   useEffect(() => { setActiveTour(null); }, [activeTab]);
@@ -14279,7 +14262,6 @@ useEffect(() => {
     setGuidedSimulationDraft(null);
     setActiveGuidedSimulation(null);
     setRaylaAdaptiveState(createDefaultRaylaAdaptiveState());
-    setRaylaMode("beginner");
     setWatchlist(marketSeeds);
     setHasCompletedFirstTradeOnboarding(null);
     setHasAttemptedFirstTradeOnboardingAutoStart(false);
@@ -14296,7 +14278,6 @@ useEffect(() => {
       "rayla_last_screenshot_parse_debug",
       SUPABASE_AUTH_STORAGE_KEY,
       RAYLA_ADAPTIVE_STORAGE_KEY,
-      RAYLA_MODE_STORAGE_KEY,
       SIMULATION_STORAGE_KEYS.openPosition,
       SIMULATION_STORAGE_KEYS.guidedDraft,
       SIMULATION_STORAGE_KEYS.quietUntil,
@@ -18323,7 +18304,6 @@ Respond in strict JSON only — no markdown, no extra text:
         }),
         recentConversation: extraContext?.recentConversation || null,
         activeReviewedTrade: extraContext?.activeReviewedTrade || null,
-        raylaMode,
         marketIntelContext: picksConstraint ? null : (hotColdReport || null),
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
@@ -22098,7 +22078,7 @@ return (
         </div>
       )}
 
-                  {isBeginnerMode && activeTour && (tourSteps[activeTour] || []).length > 0 && (
+                  {showBeginnerGuidance && activeTour && (tourSteps[activeTour] || []).length > 0 && (
                     <GuidedTour steps={tourSteps[activeTour]} onDone={() => setActiveTour(null)} />
                   )}
 
@@ -25710,8 +25690,9 @@ return (
 
                   <div style={{ padding: 10, borderRadius: 14, background: simulationMode === "scenario" ? "rgba(124,196,255,0.08)" : "rgba(255,255,255,0.04)", border: simulationMode === "scenario" ? "1px solid rgba(124,196,255,0.18)" : "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 14 }}>
                     {showBeginnerGuidance && simulationMode === "scenario" && capitalGuideScenarioIntro && (
-                      <div style={{ ...simulationBriefingPanelStyle, fontSize: 12, color: "#dbeafe", lineHeight: 1.6, padding: 12, borderRadius: 12 }}>
-                        {capitalGuideScenarioIntro}
+                      <div style={{ ...simulationBriefingPanelStyle, fontSize: 12, color: "#dbeafe", lineHeight: 1.6, padding: 12, borderRadius: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                        <span style={{ flex: 1 }}>{capitalGuideScenarioIntro}</span>
+                        <button type="button" onClick={() => setCapitalGuideScenarioIntro("")} style={{ background: "none", border: "none", color: "#7f8ea3", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
                       </div>
                     )}
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -25918,6 +25899,9 @@ return (
                           </div>
                         </>
                       )}
+                      <div>
+                        <button type="button" className="ghostButton" onClick={() => setActiveGuidedSimulation(null)}>Dismiss</button>
+                      </div>
                     </div>
                   )}
 
@@ -26754,13 +26738,16 @@ return (
                     {simulationMode === "scenario" ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         {showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage && (
-                          <div style={{ margin: "14px 16px 0", maxWidth: 420, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", boxShadow: "0 12px 24px rgba(8,12,18,0.18)" }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.3px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
-                              Rayla Guidance
+                          <div style={{ margin: "14px 16px 0", maxWidth: 420, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", boxShadow: "0 12px 24px rgba(8,12,18,0.18)", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.3px", textTransform: "uppercase", color: "#7CC4FF", marginBottom: 6 }}>
+                                Rayla Guidance
+                              </div>
+                              <div style={{ fontSize: 12, color: "#dbeafe", lineHeight: 1.6 }}>
+                                {guidedScenarioMessage}
+                              </div>
                             </div>
-                            <div style={{ fontSize: 12, color: "#dbeafe", lineHeight: 1.6 }}>
-                              {guidedScenarioMessage}
-                            </div>
+                            <button type="button" onClick={() => setGuidedScenarioMessage("")} style={{ background: "none", border: "none", color: "#7f8ea3", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
                           </div>
                         )}
                         <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, padding: showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
@@ -27025,8 +27012,9 @@ return (
                         })}
                       </div>
                       {showBeginnerGuidance && activeGuidedSimulation && (
-                        <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
-                          Guided trade is live — manage it according to your plan.
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, flex: 1 }}>Guided trade is live — manage it according to your plan.</span>
+                          <button type="button" onClick={() => setActiveGuidedSimulation(null)} style={{ background: "none", border: "none", color: "#7f8ea3", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
                         </div>
                       )}
                     </div>
@@ -27076,7 +27064,7 @@ return (
                               </div>
                             )}
                           </div>
-                          <div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <button
                               type="button"
                               className="ghostButton"
@@ -27090,6 +27078,13 @@ return (
                               }}
                             >
                               Review with Rayla
+                            </button>
+                            <button
+                              type="button"
+                              className="ghostButton"
+                              onClick={() => setActiveGuidedSimulation(null)}
+                            >
+                              Dismiss
                             </button>
                           </div>
                         </div>
@@ -27587,7 +27582,6 @@ return (
                 liveSimulationTrades={liveSimulationJournalTrades}
                 onOpenRaylaPopup={openGlobalRaylaPopup}
                 onDeleteManualTrade={handleDeleteTrade}
-                isBeginnerMode={isBeginnerMode}
               />
             </div>
           </div>
@@ -28193,33 +28187,6 @@ return (
         </div>
         <div className="profileGrid">
           <div className="profilePanel">
-            <div className="listTitle">Rayla Mode</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-              {[
-                ["beginner", "Beginner"],
-                ["experienced", "Experienced"],
-              ].map(([modeValue, label]) => (
-                <button
-                  key={modeValue}
-                  type="button"
-                  className="ghostButton"
-                  onClick={() => setRaylaMode(modeValue)}
-                  style={{
-                    background: raylaMode === modeValue ? "rgba(124,196,255,0.12)" : undefined,
-                    borderColor: raylaMode === modeValue ? "rgba(124,196,255,0.35)" : undefined,
-                    color: raylaMode === modeValue ? "#d7efff" : undefined,
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 10 }}>
-              Sets Rayla&apos;s default explanation depth.
-            </div>
-          </div>
-
-          <div className="profilePanel">
             <div className="listTitle">Adaptive Learning</div>
             <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, marginTop: 10 }}>
               Current depth: {raylaAdaptiveProfile.explanationDepth}
@@ -28534,7 +28501,7 @@ return (
                   <div style={{ fontSize: 13, color: "#dbeafe", lineHeight: 1.55 }}>
                     {intelSimulationSetupChecklist.steps[intelSimulationSetupChecklist.currentStep]?.title}
                   </div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                     <button
                       type="button"
                       onClick={handleAdvanceIntelSimulationSetupChecklist}
@@ -28551,6 +28518,7 @@ return (
                     >
                       {intelSimulationSetupChecklist.currentStep >= intelSimulationSetupChecklist.steps.length - 1 ? "Done" : "Next step"}
                     </button>
+                    <button type="button" className="ghostButton" onClick={() => setIntelSimulationSetupChecklist(null)}>Skip</button>
                   </div>
                 </div>
               )}
