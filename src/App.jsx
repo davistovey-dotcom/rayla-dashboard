@@ -5406,8 +5406,6 @@ function buildUniversalScreenContext({
       if (alpacaAccount) {
         objectsIncluded.push("account");
         lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
-        lines.push(`Cash: ${fmtMoney(alpacaAccount.cash)}`);
-        lines.push(`Buying power: ${fmtMoney(alpacaAccount.buyingPower)}`);
       }
       const posCount = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent.length : 0;
       if (posCount > 0) {
@@ -5432,7 +5430,6 @@ function buildUniversalScreenContext({
       if (alpacaAccount) {
         objectsIncluded.push("account");
         lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
-        lines.push(`Cash: ${fmtMoney(alpacaAccount.cash)}`);
       }
       if (positions.length) {
         objectsIncluded.push("all_positions");
@@ -5606,7 +5603,6 @@ function buildUniversalScreenContext({
       const lines = ["[Screen: Live Trade Execution]"];
       if (alpacaAccount) {
         objectsIncluded.push("account");
-        lines.push(`Buying power: ${fmtMoney(alpacaAccount.buyingPower)}`);
         lines.push(`Account equity: ${fmtMoney(alpacaAccount.equity || alpacaAccount.portfolioValue)}`);
       }
       if (positions.length) {
