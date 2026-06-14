@@ -25714,7 +25714,7 @@ return (
                     </div>
                   </div>
 
-                  {simulationPositions.length > 0 && (
+                  {!isMobileView && simulationPositions.length > 0 && (
                     <div style={{ ...simulationBriefingPanelStyle, padding: 12, borderRadius: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>
                         Close Open Trades
@@ -25763,19 +25763,21 @@ return (
                                   {position.marketMode === "scenario" ? "Scenario" : "Live"} · {metricLabel}
                                 </div>
                               </button>
-                              <button
-                                type="button"
-                                className="ghostButton"
-                                onClick={() => handleCloseSimulationTrade(position.id)}
-                                style={{
-                                  flexShrink: 0,
-                                  borderColor: "rgba(248,113,113,0.28)",
-                                  color: "#fecaca",
-                                  background: "rgba(248,113,113,0.08)",
-                                }}
-                              >
-                                Close Trade
-                              </button>
+                              {!isMobileView && (
+                                <button
+                                  type="button"
+                                  className="ghostButton"
+                                  onClick={() => handleCloseSimulationTrade(position.id)}
+                                  style={{
+                                    flexShrink: 0,
+                                    borderColor: "rgba(248,113,113,0.28)",
+                                    color: "#fecaca",
+                                    background: "rgba(248,113,113,0.08)",
+                                  }}
+                                >
+                                  Close Trade
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -26056,19 +26058,21 @@ return (
                                     {position.marketMode === "scenario" ? "Scenario" : "Live"} · {metricLabel}
                                   </div>
                                 </button>
-                                <button
-                                  type="button"
-                                  className="ghostButton"
-                                  onClick={() => handleCloseSimulationTrade(position.id)}
-                                  style={{
-                                    flexShrink: 0,
-                                    borderColor: "rgba(248,113,113,0.28)",
-                                    color: "#fecaca",
-                                    background: "rgba(248,113,113,0.08)",
-                                  }}
-                                >
-                                  Close Trade
-                                </button>
+                                {!isMobileView && (
+                                  <button
+                                    type="button"
+                                    className="ghostButton"
+                                    onClick={() => handleCloseSimulationTrade(position.id)}
+                                    style={{
+                                      flexShrink: 0,
+                                      borderColor: "rgba(248,113,113,0.28)",
+                                      color: "#fecaca",
+                                      background: "rgba(248,113,113,0.08)",
+                                    }}
+                                  >
+                                    Close Trade
+                                  </button>
+                                )}
                               </div>
                             );
                           })}
@@ -26406,7 +26410,10 @@ return (
                         <button
                             type="button"
                             className="ghostButton tradeOrderSubmitButton"
-                            onClick={handleOpenSimulationTrade}
+                            onClick={() => {
+                              const result = handleOpenSimulationTrade();
+                              if (result && (isMobileView || isTabletView)) setSimMobileTab(1);
+                            }}
                             disabled={!selectedSimulationItem || !!selectedSimulationOpenPosition}
                             style={{
                               minHeight: 44,
@@ -26436,8 +26443,8 @@ return (
                     </div>
                   </div>
                   )}
-                  {(!(isMobileView || isTabletView) || simMobileTab === 1 || simulationScenarioIsPlaying || simulationPositions.length > 0) && (
-                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: isMobileView && simMobileTab !== 1 ? "none" : "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined }}>
+                  {(!(isMobileView || isTabletView) || simMobileTab === 1) && (
+                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -28332,8 +28339,8 @@ return (
                 bottom: chartExplainPopupIsMobile ? 12 : "auto",
                 width: chartExplainPopupIsMobile ? "auto" : "min(400px, calc(100vw - 24px))",
                 maxWidth: chartExplainPopupIsMobile ? "none" : 420,
-                height: chartExplainPopupIsMobile ? "min(68vh, 640px)" : "min(64vh, 680px)",
-                maxHeight: chartExplainPopupIsMobile ? "68vh" : "64vh",
+                height: chartExplainPopupIsMobile ? "auto" : "min(64vh, 680px)",
+                maxHeight: chartExplainPopupIsMobile ? "min(48vh, 420px)" : "64vh",
                 display: "flex",
                 flexDirection: "column",
                 overflow: "hidden",
