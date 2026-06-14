@@ -17028,7 +17028,7 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
-    if (!chartExplainPopupOpen || chartExplainPopupIsMobile || !chartExplainPopupWindowRef.current) return;
+    if (!chartExplainPopupOpen || !chartExplainPopupWindowRef.current) return;
     const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
     const maxX = Math.max(12, window.innerWidth - rect.width - 12);
     const maxY = Math.max(12, window.innerHeight - rect.height - 12);
@@ -17041,7 +17041,7 @@ useEffect(() => {
   useEffect(() => {
     function handlePointerMove(event) {
       const dragState = chartExplainPopupDragStateRef.current;
-      if (!dragState || chartExplainPopupIsMobile || !chartExplainPopupWindowRef.current) return;
+      if (!dragState || !chartExplainPopupWindowRef.current) return;
       const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
       const nextX = event.clientX - dragState.offsetX;
       const nextY = event.clientY - dragState.offsetY;
@@ -17063,7 +17063,7 @@ useEffect(() => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [chartExplainPopupIsMobile]);
+  }, []);
 
 
 
@@ -28333,14 +28333,14 @@ return (
               className="card"
               style={{
                 position: "fixed",
-                right: chartExplainPopupIsMobile ? 12 : "auto",
-                left: chartExplainPopupIsMobile ? 12 : chartExplainPopupPosition.x,
-                top: chartExplainPopupIsMobile ? "auto" : chartExplainPopupPosition.y,
-                bottom: chartExplainPopupIsMobile ? 12 : "auto",
-                width: chartExplainPopupIsMobile ? "auto" : "min(400px, calc(100vw - 24px))",
-                maxWidth: chartExplainPopupIsMobile ? "none" : 420,
-                height: chartExplainPopupIsMobile ? "auto" : "min(64vh, 680px)",
-                maxHeight: chartExplainPopupIsMobile ? "min(48vh, 420px)" : "64vh",
+                right: "auto",
+                left: chartExplainPopupPosition.x,
+                top: chartExplainPopupPosition.y,
+                bottom: "auto",
+                width: "min(380px, calc(100vw - 24px))",
+                maxWidth: 420,
+                height: "min(56vh, 560px)",
+                maxHeight: "56vh",
                 display: "flex",
                 flexDirection: "column",
                 overflow: "hidden",
@@ -28353,7 +28353,7 @@ return (
             >
               <div
                 onPointerDown={(event) => {
-                  if (chartExplainPopupIsMobile || event.button !== 0 || !chartExplainPopupWindowRef.current) return;
+                  if (event.button !== 0 || !chartExplainPopupWindowRef.current) return;
                   const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
                   chartExplainPopupDragStateRef.current = {
                     offsetX: event.clientX - rect.left,
@@ -28367,7 +28367,7 @@ return (
                   gap: 12,
                   padding: "14px 16px 12px 16px",
                   borderBottom: "1px solid rgba(255,255,255,0.08)",
-                  cursor: chartExplainPopupIsMobile ? "default" : "grab",
+                  cursor: "grab",
                   touchAction: "none",
                 }}
               >
