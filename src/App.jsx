@@ -25129,12 +25129,12 @@ return (
                                     type="button"
                                     onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: item.value }))}
                                     style={{
-                                      padding: "8px 14px",
+                                      padding: isMobileView ? "4px 8px" : "8px 14px",
                                       borderRadius: 8,
                                       border: `1px solid ${active ? item.activeBorder : "rgba(255,255,255,0.08)"}`,
                                       background: active ? item.activeBg : "rgba(255,255,255,0.03)",
                                       color: active ? item.activeColor : "#94a3b8",
-                                      fontSize: 12,
+                                      fontSize: isMobileView ? 11 : 12,
                                       fontWeight: 700,
                                       cursor: "pointer",
                                     }}
@@ -25148,12 +25148,12 @@ return (
                                   type="button"
                                   onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "sell" }))}
                                   style={{
-                                    padding: "8px 14px",
+                                    padding: isMobileView ? "4px 6px" : "8px 14px",
                                     borderRadius: 8,
                                     border: `1px solid ${alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
                                     background: alpacaOrderForm.side === "sell" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
                                     color: alpacaOrderForm.side === "sell" ? "#fbbf24" : "#64748b",
-                                    fontSize: 11,
+                                    fontSize: isMobileView ? 10 : 11,
                                     fontWeight: 700,
                                     cursor: "pointer",
                                   }}
@@ -25166,12 +25166,12 @@ return (
                                   type="button"
                                   onClick={() => setAlpacaOrderForm((prev) => ({ ...prev, side: "buy_to_cover" }))}
                                   style={{
-                                    padding: "8px 14px",
+                                    padding: isMobileView ? "4px 6px" : "8px 14px",
                                     borderRadius: 8,
                                     border: `1px solid ${alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.06)"}`,
                                     background: alpacaOrderForm.side === "buy_to_cover" ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.02)",
                                     color: alpacaOrderForm.side === "buy_to_cover" ? "#fbbf24" : "#64748b",
-                                    fontSize: 11,
+                                    fontSize: isMobileView ? 10 : 11,
                                     fontWeight: 700,
                                     cursor: "pointer",
                                   }}
@@ -25201,12 +25201,12 @@ return (
                                         disabled={isAddToPositionMode}
                                         onClick={isAddToPositionMode ? undefined : () => setAlpacaOrderForm((prev) => ({ ...prev, tradeType: item.value }))}
                                         style={{
-                                          padding: "8px 12px",
+                                          padding: isMobileView ? "4px 6px" : "8px 12px",
                                           borderRadius: 8,
                                           border: `1px solid ${active ? "rgba(124,196,255,0.38)" : "rgba(255,255,255,0.08)"}`,
                                           background: active ? "rgba(124,196,255,0.14)" : "rgba(255,255,255,0.03)",
                                           color: active ? "#dbeafe" : isAddToPositionMode ? "#475569" : "#94a3b8",
-                                          fontSize: 12,
+                                          fontSize: isMobileView ? 10 : 12,
                                           fontWeight: 700,
                                           cursor: isAddToPositionMode ? "default" : "pointer",
                                           opacity: isAddToPositionMode && !active ? 0.35 : 1,

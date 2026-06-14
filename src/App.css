@@ -3452,14 +3452,15 @@ body.tour-active .mobileNav {
 
   .tradeOrderChipRow {
     display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px !important;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 5px !important;
   }
 
   .tradeOrderChipRow button {
     width: 100%;
-    padding: 10px 8px !important;
-    white-space: normal;
+    padding: 5px 4px !important;
+    font-size: 10px !important;
+    white-space: nowrap;
   }
 
   .brokerAssetDropdown {
