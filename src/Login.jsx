@@ -219,6 +219,23 @@ export default function Login({ onLogin }) {
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationType, setVerificationType] = useState("signup");
 
+  useEffect(() => {
+    // If the user arrives via an email confirmation link, the Supabase client
+    // parses the URL hash and fires SIGNED_IN. Detect that here so we skip
+    // the code-entry screen and go straight into the app.
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session) onLogin?.({ session: data.session, user: data.session.user });
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        onLogin?.({ session, user: session.user });
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   async function handleSignUp() {
     if (loading) return;
     setAuthMessage(null);
