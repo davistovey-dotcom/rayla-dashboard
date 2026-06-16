@@ -167,6 +167,19 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Synthesize a live-equity terminal point so all range views end at the same current value.
+    // Replace the last historical point if it falls within 60 s of now (avoids near-duplicate timestamps).
+    if (liveEquity != null && liveEquity > 0) {
+      const nowMs = Date.now();
+      const last = points[points.length - 1];
+      const livePoint = { timeMs: nowMs, value: liveEquity, pnl: null, returnPct: null, baseValue: last?.baseValue ?? null };
+      if (last && nowMs - last.timeMs < 60_000) {
+        points[points.length - 1] = livePoint;
+      } else {
+        points.push(livePoint);
+      }
+    }
+
     let periodPnl: number | null = null;
     let periodPct: number | null = null;
     let startingCapital: number | null = null;
