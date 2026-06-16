@@ -13397,6 +13397,10 @@ useEffect(() => {
   const [equityBenchmarkChart, setEquityBenchmarkChart] = useState(null);
   const [equityBenchmarkLoading, setEquityBenchmarkLoading] = useState(false);
   const [session, setSession] = useState(null);
+  const [emailJustVerified, setEmailJustVerified] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.location.hash.includes("type=signup") || new URLSearchParams(window.location.search).get("type") === "signup";
+  });
   const browserChartTimeZone = useMemo(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
@@ -21920,6 +21924,28 @@ if (authLoading) {
 }
 
 if (!session) return <Login onLogin={() => setShowSplash(false)} />;
+
+if (session && emailJustVerified) {
+  return (
+    <div className="authPage">
+      <div className="authCard">
+        <div className="authIdentity">
+          <img className="authBadge" src="/badger.png" alt="" />
+          <img className="authLogo" src="/rayla-logo.png" alt="Rayla" />
+        </div>
+        <h1 className="authTitle" style={{ color: "#4ade80" }}>&#10003; Email verified</h1>
+        <div className="authForm">
+          <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
+            Your account is confirmed. Return to the device where you created your account and sign in.
+          </div>
+          <button className="authPrimaryButton" onClick={() => setEmailJustVerified(false)}>
+            Log in
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const hasRaylaAccess = hasActiveRaylaSubscription(billingSubscription);
 const waitingForAccessState = !billingLoaded || billingLoading;

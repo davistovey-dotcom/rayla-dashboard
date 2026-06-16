@@ -1,4 +1,9 @@
 
+[functions.check-email-confirmed]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/check-email-confirmed/index.ts"
+
 [functions.daily-intel]
 enabled = true
 verify_jwt = false

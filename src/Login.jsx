@@ -74,18 +74,37 @@ function SplashScreen({ onEnter }) {
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, authMessage }) {
+function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, onConfirmed, authMessage }) {
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [codeError, setCodeError] = useState(null);
   const [resending, setResending] = useState(false);
   const [cooldown, setCooldown] = useState(RESEND_COOLDOWN_SECONDS);
+  const [verified, setVerified] = useState(false);
 
   useEffect(() => {
     if (cooldown <= 0) return;
     const t = setTimeout(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
+
+  useEffect(() => {
+    if (verified) return;
+    const id = setInterval(async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("check-email-confirmed", {
+          body: { email },
+        });
+        if (!error && data?.confirmed) {
+          setVerified(true);
+          clearInterval(id);
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    }, 4000);
+    return () => clearInterval(id);
+  }, [email, verified]);
 
   async function handleVerify() {
     const trimmed = code.replace(/\s/g, "");
@@ -128,6 +147,28 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, authMessa
 
   const canResend = cooldown === 0 && !resending;
 
+  if (verified) {
+    return (
+      <div className="authPage">
+        <div className="authCard">
+          <div className="authIdentity">
+            <img className="authBadge" src="/badger.png" alt="" />
+            <img className="authLogo" src="/rayla-logo.png" alt="Rayla" />
+          </div>
+          <h1 className="authTitle" style={{ color: "#4ade80" }}>&#10003; Email verified</h1>
+          <div className="authForm">
+            <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
+              Your account is confirmed. Return to the device where you created your account and sign in.
+            </div>
+            <button className="authPrimaryButton" onClick={onConfirmed}>
+              Log in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="authPage">
       <div className="authCard">
@@ -146,42 +187,28 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, authMessa
             </div>
           </div>
 
-          <label className="authLabel">Verification Code</label>
-          <input
-            className="authInput"
-            type="text"
-            inputMode="numeric"
-            placeholder="Enter the code from your email"
-            value={code}
-            onChange={handleCodeInput}
-            onKeyDown={handleKeyDown}
-            maxLength={8}
-            autoComplete="one-time-code"
-            autoFocus
-            style={{ letterSpacing: "0.2em", fontSize: 20, textAlign: "center" }}
-          />
-
-          {codeError ? (
-            <div className="authMessage error">{codeError}</div>
-          ) : authMessage ? (
+          {authMessage ? (
             <div className={`authMessage ${authMessage.type === "success" ? "success" : "error"}`}>
               {authMessage.text}
             </div>
           ) : null}
 
-          <button
-            className="authPrimaryButton"
-            onClick={handleVerify}
-            disabled={verifying || !code.trim()}
-          >
-            {verifying ? "Verifying..." : "Verify Account"}
-          </button>
-
           <div style={{ background: "rgba(124,196,255,0.07)", border: "1px solid rgba(124,196,255,0.15)", borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.7 }}>
-              Check your <strong style={{ color: "#cbd5e1" }}>spam or junk folder</strong> if the code doesn&rsquo;t arrive. Clicking the link in the email also works if you prefer.
+              Check your <strong style={{ color: "#cbd5e1" }}>spam or junk folder</strong> if the email doesn&rsquo;t arrive. Click the verification link inside to confirm your account.
             </div>
           </div>
+
+          <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6, textAlign: "center" }}>
+            When you see your email is verified, return to login.
+          </div>
+
+          <button
+            className="authSecondaryButton"
+            onClick={onConfirmed}
+          >
+            Return to login
+          </button>
 
           <button
             className="authSecondaryButton"
@@ -189,7 +216,7 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, authMessa
             disabled={!canResend}
             style={{ opacity: canResend ? 1 : 0.55 }}
           >
-            {resending ? "Sending new code..." : cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
+            {resending ? "Sending email..." : cooldown > 0 ? `Resend email in ${cooldown}s` : "Resend email"}
           </button>
 
           <button
@@ -450,6 +477,12 @@ export default function Login({ onLogin }) {
           setVerificationEmail("");
           setVerificationType("signup");
           setAuthMessage(null);
+        }}
+        onConfirmed={() => {
+          setScreen("login");
+          setIsCreatingAccount(false);
+          setEmail(verificationEmail);
+          setAuthMessage({ type: "success", text: "Email verified — enter your password to sign in." });
         }}
         authMessage={authMessage}
       />
