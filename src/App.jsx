@@ -16492,6 +16492,11 @@ useEffect(() => {
       setActiveTab(billingStatus === "success" ? "home" : "profile");
       if (billingStatus === "success") {
         showToast("Stripe checkout complete. Billing will update after confirmation.", "success");
+        try {
+          if (session?.user?.id) localStorage.removeItem(getBrokerOnboardingSkipStorageKey(session.user.id));
+        } catch {}
+        setBrokerOnboardingSkipped(false);
+        setTimeout(() => fetchBillingSubscription({ silent: true }), 3000);
       } else if (billingStatus === "cancelled") {
         showToast("Checkout cancelled.", "warning");
       } else if (billingStatus === "portal_return") {
