@@ -21993,12 +21993,9 @@ if (session && emailJustVerified) {
         </div>
         <h1 className="authTitle" style={{ color: "#4ade80" }}>&#10003; Email verified</h1>
         <div className="authForm">
-          <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
-            Your account is confirmed. Return to the device where you created your account and sign in.
+          <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 14, lineHeight: 1.6 }}>
+            Your account is confirmed. Return to the device or browser tab where you created your account and continue.
           </div>
-          <button className="authPrimaryButton" onClick={() => setEmailJustVerified(false)}>
-            Log in
-          </button>
         </div>
       </div>
     </div>
