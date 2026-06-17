@@ -13136,6 +13136,8 @@ useEffect(() => {
   const [isSimulationChartExpanded, setIsSimulationChartExpanded] = useState(false);
   const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
   const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
+  const [deleteTradeModalOpen, setDeleteTradeModalOpen] = useState(false);
+  const [deleteTradeModalPending, setDeleteTradeModalPending] = useState(null);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
   const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
@@ -19591,15 +19593,24 @@ Respond in strict JSON only — no markdown, no extra text:
     reader.readAsDataURL(file);
   }
 
-  async function handleDeleteTrade(trade) {
+  function handleDeleteTrade(trade) {
     const tradeId = typeof trade === "object" ? trade?.id : trade;
     if (!tradeId) return;
     if (!isDeletableAppTrade(trade)) {
       showToast("Only app-created manual and simulation trades can be deleted.", "warning");
       return;
     }
-    const confirmed = window.confirm("Delete this trade?");
-    if (!confirmed) return;
+    setDeleteTradeModalPending(trade);
+    setDeleteTradeModalOpen(true);
+  }
+
+  async function confirmDeleteTrade() {
+    const trade = deleteTradeModalPending;
+    setDeleteTradeModalOpen(false);
+    setDeleteTradeModalPending(null);
+    if (!trade) return;
+    const tradeId = typeof trade === "object" ? trade?.id : trade;
+    if (!tradeId) return;
     if (isAppSimulationTrade(trade)) {
       const userId = session?.user?.id || simulationStorageHydratedUserRef.current;
       deletedSimulationTradeIdsRef.current.add(tradeId);
@@ -29356,6 +29367,39 @@ return (
           />
         </div>
       </ChartModal>
+
+      {deleteTradeModalOpen && (
+        <div
+          onClick={() => { setDeleteTradeModalOpen(false); setDeleteTradeModalPending(null); }}
+          style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 400, background: "rgba(15,22,32,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "26px 26px 22px", boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 12, letterSpacing: "-0.3px" }}>Delete trade?</div>
+            <p style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.7, margin: "0 0 22px" }}>
+              This will permanently remove this trade from your Rayla trade history. This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => { setDeleteTradeModalOpen(false); setDeleteTradeModalPending(null); }}
+                style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 600, color: "#94a3b8", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTrade}
+                style={{ flex: 1, background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.35)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 700, color: "#fff", cursor: "pointer" }}
+              >
+                Delete trade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteAccountModalOpen && (
         <div
