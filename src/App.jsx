@@ -12167,10 +12167,12 @@ function BrokerOnboardingPage({
       <div className="brokerOnboardingShell">
         <div className="brokerOnboardingHero">
           <div className="unlockEyebrow">Connect your portfolio</div>
-          <h1>Make Rayla live from the first session.</h1>
+          <h1>Link Alpaca to see your live portfolio in Rayla.</h1>
           <p>
-            Sync Alpaca so Rayla can see your buying power, positions, holdings, and broker activity.
-            You can skip for now, but the connected experience is where Rayla becomes portfolio-aware.
+            Rayla uses Alpaca for brokerage connectivity. Once authorized, Rayla reads your positions,
+            balances, and account activity to power the dashboard and analytics. Alpaca is the broker-dealer
+            — Rayla never holds or manages your assets. Click Connect below and follow Alpaca's secure
+            authorization flow.
           </p>
         </div>
 
@@ -12199,7 +12201,7 @@ function BrokerOnboardingPage({
         </div>
 
         <div className="brokerOnboardingBenefits">
-          {["Sync your live positions", "Unlock real-time portfolio analytics", "Reduce empty dashboard setup", "Keep simulation available while you connect"].map((item) => (
+          {["View live positions and balances", "Portfolio analytics with your real account data", "Order history and broker activity", "Alpaca is the broker-dealer; Rayla is the analytics layer"].map((item) => (
             <div key={item}>{item}</div>
           ))}
         </div>
