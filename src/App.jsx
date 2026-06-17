@@ -12190,6 +12190,12 @@ function BrokerOnboardingPage({
           </button>
         </div>
 
+        <div style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 12, padding: "12px 14px", marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: "#fde68a", lineHeight: 1.65 }}>
+            <strong>Important:</strong> When creating your Alpaca account, choose the <strong>Free Trading API</strong> option. This is the account type Rayla uses to securely connect your portfolio and brokerage data.
+          </div>
+        </div>
+
         <div style={{ textAlign: "center", marginTop: 8 }}>
           <button
             type="button"
