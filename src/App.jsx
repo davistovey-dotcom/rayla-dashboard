@@ -11936,7 +11936,6 @@ function UnlockRaylaPage({
   error,
   onStartCheckout,
   onOpenPortal,
-  onRedeemDiscountCode,
   onSignOut,
 }) {
   const presentation = getSubscriptionPresentation(subscription);
@@ -11985,12 +11984,6 @@ function UnlockRaylaPage({
                 {action === "portal" ? "Opening billing..." : "Manage billing"}
               </button>
             ) : null}
-            <form className="unlockMobileDiscountForm" onSubmit={onRedeemDiscountCode}>
-              <input name="discountCode" type="text" placeholder="Discount code" autoComplete="off" disabled={action === "discount" || isLoading} />
-              <button type="submit" disabled={action === "discount" || isLoading}>
-                {action === "discount" ? "Unlocking..." : "Redeem"}
-              </button>
-            </form>
             <div className="unlockMobileTrust">Stripe handles billing securely.</div>
             {error ? <div className="unlockError" style={{ marginTop: 6 }}>{error}</div> : null}
           </div>
@@ -12017,12 +12010,6 @@ function UnlockRaylaPage({
               </button>
             ) : null}
           </div>
-          <form className="unlockDiscountForm" onSubmit={onRedeemDiscountCode}>
-            <input name="discountCode" type="text" placeholder="Discount code" autoComplete="off" disabled={action === "discount" || isLoading} />
-            <button type="submit" disabled={action === "discount" || isLoading}>
-              {action === "discount" ? "Unlocking..." : "Redeem"}
-            </button>
-          </form>
           <div className="unlockPromise">Cancel anytime. Stripe handles billing securely after your trial.</div>
           {error ? <div className="unlockError">{error}</div> : null}
         </div>
@@ -15425,52 +15412,6 @@ useEffect(() => {
       window.location.assign(data.url);
     } catch (error) {
       setBillingError(error instanceof Error ? error.message : "Unable to open billing.");
-      setBillingAction("");
-    }
-  }
-
-  async function handleRedeemDiscountCode(event) {
-    event.preventDefault();
-    if (billingAction) return;
-
-    const form = event.currentTarget;
-    const code = String(new FormData(form).get("discountCode") || "").trim();
-    if (!code) {
-      setBillingError("Enter your discount code to unlock Rayla.");
-      return;
-    }
-
-    setBillingAction("discount");
-    setBillingError("");
-
-    try {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-
-      const response = await fetch(`${PRODUCT_SUPABASE_FUNCTIONS_BASE_URL}/redeem-discount-code`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${currentSession?.access_token || ""}`,
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ code }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.message || data?.error || `Unable to redeem discount code (${response.status}).`);
-      if (!data?.ok) throw new Error(data?.message || data?.error || "Unable to redeem discount code.");
-
-      form.reset();
-      await fetchBillingSubscription({ silent: true });
-      showToast("Discount access unlocked.", "success");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to redeem discount code.";
-      setBillingError(message.includes("Failed to send a request")
-        ? "Discount code activation is not available yet. Deploy the discount-code Edge Function, then try again."
-        : message);
-    } finally {
       setBillingAction("");
     }
   }
@@ -22055,7 +21996,6 @@ if (!hasRaylaAccess) {
       error={billingError}
       onStartCheckout={handleStartStripeCheckout}
       onOpenPortal={handleOpenStripePortal}
-      onRedeemDiscountCode={handleRedeemDiscountCode}
       onSignOut={handleSignOut}
     />
   );
