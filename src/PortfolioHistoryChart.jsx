@@ -582,11 +582,12 @@ function PortfolioHistoryChartInner({
           {onExpand ? (
             <button
               type="button"
+              className="chartExpandBtn"
               onClick={onExpand}
               aria-label="Expand chart"
-              style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#94a3b8", display: "flex", alignItems: "center", marginLeft: 6, flexShrink: 0 }}
+              title="Expand chart"
             >
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>

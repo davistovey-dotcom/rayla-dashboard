@@ -24680,8 +24680,23 @@ return (
                       {(() => {
                         return (
                           <div className="tradeLiveMarketPanel" style={{ order: 1, gridColumn: isMobileView ? undefined : "1", padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
-                              Live Market
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
+                                Live Market
+                              </div>
+                              {(tradeIsComparisonMode || tradeChartSymbol) ? (
+                                <button
+                                  type="button"
+                                  className="chartExpandBtn"
+                                  onClick={() => setIsTradesChartExpanded(true)}
+                                  aria-label="Expand chart"
+                                  title="Expand chart"
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                </button>
+                              ) : null}
                             </div>
                             {(!tradeIsComparisonMode && !tradeChartSymbol) ? (
                               <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
@@ -24975,16 +24990,6 @@ return (
                                       yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
                                       entryPrice={Number(tradeChartMatchingPosition?.avgEntryPrice)}
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => setIsTradesChartExpanded(true)}
-                                      aria-label="Expand chart"
-                                      style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, cursor: "pointer", color: "#94a3b8", padding: "5px 6px", display: "flex", alignItems: "center", zIndex: 10 }}
-                                    >
-                                      <svg width="13" height="13" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                      </svg>
-                                    </button>
                                   </div>
                                 </div>
                               )}
@@ -26883,6 +26888,19 @@ return (
                                 Return to Live
                               </button>
                             ) : null}
+                            {selectedSimulationItem && !selectedSimulationAssetExplicitlyUnsupported ? (
+                              <button
+                                type="button"
+                                className="chartExpandBtn"
+                                onClick={() => setIsSimulationChartExpanded(true)}
+                                aria-label="Expand chart"
+                                title="Expand chart"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                              </button>
+                            ) : null}
                           </>
                         )}
                       </div>
@@ -26944,24 +26962,12 @@ return (
                             <div>This asset is not currently tradable through your connected broker.</div>
                           </div>
                         ) : (
-                          <div style={{ position: "relative", height: simulationChartViewportHeight }}>
-                            <TradingViewLiveChart
-                              asset={selectedSimulationItem}
-                              height="100%"
-                              interval={simulationLiveChartRange}
-                              chartType="simulation_live"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setIsSimulationChartExpanded(true)}
-                              aria-label="Expand chart"
-                              style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, cursor: "pointer", color: "#94a3b8", padding: "5px 6px", display: "flex", alignItems: "center", zIndex: 10 }}
-                            >
-                              <svg width="13" height="13" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                              </svg>
-                            </button>
-                          </div>
+                          <TradingViewLiveChart
+                            asset={selectedSimulationItem}
+                            height={simulationChartViewportHeight}
+                            interval={simulationLiveChartRange}
+                            chartType="simulation_live"
+                          />
                         )}
                         </div>
                       </div>
