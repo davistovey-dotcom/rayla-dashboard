@@ -587,8 +587,8 @@ function PortfolioHistoryChartInner({
               aria-label="Expand chart"
               title="Expand chart"
             >
-              <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
           ) : null}

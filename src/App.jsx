@@ -13123,6 +13123,7 @@ useEffect(() => {
   const [homePortfolioChartsLoading, setHomePortfolioChartsLoading] = useState(false);
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
   const [isPortfolioChartExpanded, setIsPortfolioChartExpanded] = useState(false);
+  const [isHomeLiveMarketChartExpanded, setIsHomeLiveMarketChartExpanded] = useState(false);
   const [isTradesChartExpanded, setIsTradesChartExpanded] = useState(false);
   const [isSimulationChartExpanded, setIsSimulationChartExpanded] = useState(false);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
@@ -23591,12 +23592,27 @@ return (
                       ))}
                     </div>
                     {homePortfolioViewMode === "asset" ? (
-                      <ChartTimeframeDropdown
-                        value={homeMarketChartRange}
-                        onChange={setHomeMarketChartRange}
-                        options={LIVE_WIDGET_INTERVAL_OPTIONS}
-                        width={88}
-                      />
+                      <>
+                        <ChartTimeframeDropdown
+                          value={homeMarketChartRange}
+                          onChange={setHomeMarketChartRange}
+                          options={LIVE_WIDGET_INTERVAL_OPTIONS}
+                          width={88}
+                        />
+                        {homeMarketSelectedItem && !homeMarketAssetExplicitlyUnsupported ? (
+                          <button
+                            type="button"
+                            className="chartExpandBtn"
+                            onClick={() => setIsHomeLiveMarketChartExpanded(true)}
+                            aria-label="Expand chart"
+                            title="Expand chart"
+                          >
+                            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                   <div className="homeChartStage" data-tour-id="home-chart" data-mode={homePortfolioViewMode} style={{ flex: 1, minHeight: isHomeLiveChartFullscreen ? "calc(100vh - 220px)" : 300, padding: "0 20px 20px", display: "flex", flexDirection: "column", position: "relative" }}>
@@ -24692,8 +24708,8 @@ return (
                                   aria-label="Expand chart"
                                   title="Expand chart"
                                 >
-                                  <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                                   </svg>
                                 </button>
                               ) : null}
@@ -29305,6 +29321,16 @@ return (
           showRangeHint={false}
           rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
         />
+      </ChartModal>
+      <ChartModal open={isHomeLiveMarketChartExpanded} onClose={() => setIsHomeLiveMarketChartExpanded(false)}>
+        <div style={{ height: 680, padding: "0 16px 16px" }}>
+          <TradingViewLiveChart
+            asset={homeMarketSelectedItem}
+            height="100%"
+            interval={homeMarketChartRange}
+            chartType="home_live"
+          />
+        </div>
       </ChartModal>
       <ChartModal open={isTradesChartExpanded} onClose={() => setIsTradesChartExpanded(false)}>
         <div style={{ height: 680, padding: "0 16px 16px" }}>
