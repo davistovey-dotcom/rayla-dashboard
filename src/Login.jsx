@@ -20,12 +20,13 @@ function getAuthRedirectUrl() {
 }
 
 const TUTORIAL_SLIDES = [
-  { title: "Welcome to Rayla", desc: "Rayla is your AI-powered trading companion. Track your trades, find your edge, and get real-time market intelligence — all in one place." },
-  { title: "Log your trades", desc: "Head to the Trades tab to log every entry. Track your asset, setup, session, and result in R. The more you log, the smarter your coach gets." },
-  { title: "Meet your AI Coach", desc: "The AI Coach tab analyzes your trade history and finds your strongest edges, weakest patterns, and what to focus on next. Ask it anything about your performance." },
-  { title: "Daily market intel", desc: "The Intel tab scans the S&P 500 and top crypto every day. It shows you what's hot, what's cold, and the news driving each move." },
-  { title: "Ask Rayla", desc: "Type any ticker into Ask Rayla on the Intel tab. She'll give you a direct signal — hot, cold, or neutral — based on today's data." },
-  { title: "Live market", desc: "The Market tab shows live prices for every symbol in your watchlist. Add any stock or crypto and get real-time quotes and charts." },
+  { title: "Welcome to Rayla", desc: "Rayla is your AI-powered trading workspace. Connect your broker, track your portfolio, simulate trades, and use live market intelligence in one place." },
+  { title: "Connect your portfolio", desc: "Link Alpaca so Rayla can show your live positions, balances, holdings, and broker-connected analytics." },
+  { title: "Practice before risking capital", desc: "Use Simulation to test ideas, scenarios, entries, exits, and strategy plans before placing real trades." },
+  { title: "Track your performance", desc: "Review live trades, completed simulations, portfolio history, and patterns so you can understand what is working." },
+  { title: "Daily market intel", desc: "Rayla scans stocks and crypto to show what is hot, what is cold, and the news driving each move." },
+  { title: "Ask Rayla", desc: "Ask Rayla about your portfolio, market opportunities, simulations, or a ticker you are watching." },
+  { title: "Your trading operating system", desc: "Rayla brings broker data, simulation, performance tracking, market intelligence, and AI coaching into one calm workspace." },
 ];
 
 export function Tutorial({ onDone }) {
