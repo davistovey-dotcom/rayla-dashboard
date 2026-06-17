@@ -13134,6 +13134,8 @@ useEffect(() => {
   const [isHomeLiveMarketChartExpanded, setIsHomeLiveMarketChartExpanded] = useState(false);
   const [isTradesChartExpanded, setIsTradesChartExpanded] = useState(false);
   const [isSimulationChartExpanded, setIsSimulationChartExpanded] = useState(false);
+  const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
+  const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
   const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
@@ -22088,11 +22090,8 @@ if (shouldShowBrokerOnboarding) {
 }
 
 async function handleDeleteAccount() {
-  const confirmDelete = window.confirm(
-    "Are you sure you want to delete your account? This will permanently delete all your data and cannot be undone."
-  );
-
-  if (!confirmDelete) return;
+  setDeleteAccountModalOpen(false);
+  setDeleteAccountConfirmText("");
 
   try {
     const {
@@ -28443,7 +28442,7 @@ return (
           </div>
         </div>
         <div className="profileActions">
-          <button className="ghostButton dangerButton" type="button" onClick={handleDeleteAccount}>
+          <button className="ghostButton dangerButton" type="button" onClick={() => { setDeleteAccountConfirmText(""); setDeleteAccountModalOpen(true); }}>
             Delete account
           </button>
         </div>
@@ -29357,6 +29356,58 @@ return (
           />
         </div>
       </ChartModal>
+
+      {deleteAccountModalOpen && (
+        <div
+          onClick={() => { setDeleteAccountModalOpen(false); setDeleteAccountConfirmText(""); }}
+          style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 440, background: "rgba(15,22,32,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "28px 28px 24px", boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}
+          >
+            <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", marginBottom: 14, letterSpacing: "-0.3px" }}>Delete Rayla account?</div>
+
+            <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.7, marginBottom: 18 }}>
+              <p style={{ margin: "0 0 10px" }}>Deleting your Rayla account permanently removes your Rayla account and Rayla app data. This may include profile data, saved preferences, trade journal data, simulation history, and Rayla subscription and access records, depending on what Rayla stores.</p>
+              <div style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 10, padding: "10px 13px", marginBottom: 10 }}>
+                <span style={{ color: "#fde68a" }}><strong>This does not delete your Alpaca brokerage account.</strong> If you want to close your Alpaca account, you must do that separately through Alpaca.</span>
+              </div>
+              <p style={{ margin: 0, color: "#f87171" }}><strong>This action cannot be undone.</strong></p>
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 7 }}>Type <strong style={{ color: "#94a3b8" }}>DELETE</strong> to confirm</div>
+              <input
+                type="text"
+                value={deleteAccountConfirmText}
+                onChange={(e) => setDeleteAccountConfirmText(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "10px 12px", fontSize: 14, color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => { setDeleteAccountModalOpen(false); setDeleteAccountConfirmText(""); }}
+                style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 600, color: "#94a3b8", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleteAccountConfirmText !== "DELETE"}
+                style={{ flex: 1, background: deleteAccountConfirmText === "DELETE" ? "rgba(239,68,68,0.9)" : "rgba(239,68,68,0.25)", border: "1px solid rgba(239,68,68,0.35)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 700, color: deleteAccountConfirmText === "DELETE" ? "#fff" : "rgba(255,255,255,0.3)", cursor: deleteAccountConfirmText === "DELETE" ? "pointer" : "not-allowed", transition: "background 0.15s, color 0.15s" }}
+              >
+                Delete my Rayla account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
