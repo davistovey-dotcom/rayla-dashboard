@@ -13009,6 +13009,57 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
   );
 }
 
+function ChartModal({ open, onClose, children }) {
+  React.useEffect(() => {
+    if (!open) return;
+    function onKey(e) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.85)",
+        backdropFilter: "blur(12px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "16px",
+        animation: "chartModalFadeIn 0.18s ease",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 960,
+          background: "rgba(18,26,38,0.97)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 16,
+          padding: "0 0 12px 0",
+          animation: "chartModalSlideIn 0.2s ease",
+          maxHeight: "calc(100vh - 32px)",
+          overflow: "hidden",
+          display: "flex", flexDirection: "column",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 14px 0" }}>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "4px 6px", borderRadius: 6, fontSize: 18, lineHeight: 1 }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [selectedMarketId, setSelectedMarketId] = useState("BTC");
  const [watchlist, setWatchlist] = useState(() => {
@@ -13071,6 +13122,9 @@ useEffect(() => {
   const [homePortfolioCharts, setHomePortfolioCharts] = useState({});
   const [homePortfolioChartsLoading, setHomePortfolioChartsLoading] = useState(false);
   const [isHomeLiveChartFullscreen, setIsHomeLiveChartFullscreen] = useState(false);
+  const [isPortfolioChartExpanded, setIsPortfolioChartExpanded] = useState(false);
+  const [isTradesChartExpanded, setIsTradesChartExpanded] = useState(false);
+  const [isSimulationChartExpanded, setIsSimulationChartExpanded] = useState(false);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
   const [simMobileTab, setSimMobileTab] = useState(0);
   const [homeMarketChartLastUpdated, setHomeMarketChartLastUpdated] = useState(null);
@@ -14264,7 +14318,6 @@ useEffect(() => {
     setSimulationPendingLiveDecision(null);
     setGuidedSimulationDraft(null);
     setActiveGuidedSimulation(null);
-    setRaylaAdaptiveState(createDefaultRaylaAdaptiveState());
     setWatchlist(marketSeeds);
     setHasCompletedFirstTradeOnboarding(null);
     setHasAttemptedFirstTradeOnboardingAutoStart(false);
@@ -14280,7 +14333,6 @@ useEffect(() => {
       "rayla-visited",
       "rayla_last_screenshot_parse_debug",
       SUPABASE_AUTH_STORAGE_KEY,
-      RAYLA_ADAPTIVE_STORAGE_KEY,
       SIMULATION_STORAGE_KEYS.openPosition,
       SIMULATION_STORAGE_KEYS.guidedDraft,
       SIMULATION_STORAGE_KEYS.quietUntil,
@@ -23615,6 +23667,7 @@ return (
                         preferPaper={brokerPreferPaper}
                         showRangeHint={false}
                         rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
+                        onExpand={() => setIsPortfolioChartExpanded(true)}
                       />
                     </div>
                   )}
@@ -24922,6 +24975,16 @@ return (
                                       yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
                                       entryPrice={Number(tradeChartMatchingPosition?.avgEntryPrice)}
                                     />
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsTradesChartExpanded(true)}
+                                      aria-label="Expand chart"
+                                      style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, cursor: "pointer", color: "#94a3b8", padding: "5px 6px", display: "flex", alignItems: "center", zIndex: 10 }}
+                                    >
+                                      <svg width="13" height="13" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                      </svg>
+                                    </button>
                                   </div>
                                 </div>
                               )}
@@ -26881,12 +26944,24 @@ return (
                             <div>This asset is not currently tradable through your connected broker.</div>
                           </div>
                         ) : (
-                          <TradingViewLiveChart
-                            asset={selectedSimulationItem}
-                            height={simulationChartViewportHeight}
-                            interval={simulationLiveChartRange}
-                            chartType="simulation_live"
-                          />
+                          <div style={{ position: "relative", height: simulationChartViewportHeight }}>
+                            <TradingViewLiveChart
+                              asset={selectedSimulationItem}
+                              height="100%"
+                              interval={simulationLiveChartRange}
+                              chartType="simulation_live"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setIsSimulationChartExpanded(true)}
+                              aria-label="Expand chart"
+                              style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, cursor: "pointer", color: "#94a3b8", padding: "5px 6px", display: "flex", alignItems: "center", zIndex: 10 }}
+                            >
+                              <svg width="13" height="13" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M2 2h4.5M2 2v4.5M2 2l5 5M13 13h-4.5M13 13v-4.5M13 13l-5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            </button>
+                          </div>
                         )}
                         </div>
                       </div>
@@ -29199,6 +29274,52 @@ return (
         </div>
         {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
       </div>
+      <ChartModal open={isPortfolioChartExpanded} onClose={() => setIsPortfolioChartExpanded(false)}>
+        <PortfolioHistoryChart
+          title={homePortfolioViewMode === "portfolio" ? "Your portfolio" : homePortfolioChartLabel}
+          subtitle={null}
+          currentValue={homePortfolioViewMode === "portfolio"
+            ? (Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue)
+            : homePortfolioMarketValue}
+          positionsCount={homePortfolioPositions.length}
+          positionsValue={homePortfolioMarketValue}
+          openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : null}
+          openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : null}
+          statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
+          range={homePortfolioChartRange}
+          onRangeChange={setHomePortfolioChartRange}
+          height={640}
+          timeZone={raylaChartTimeZone}
+          className="homePortfolioHistoryChart"
+          prebuiltPoints={homePortfolioPrebuiltBars}
+          fallbackSnapshots={portfolioSnapshots}
+          snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
+          intentOverrides={positionIntentOverrides}
+          preferPaper={brokerPreferPaper}
+          showRangeHint={false}
+          rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
+        />
+      </ChartModal>
+      <ChartModal open={isTradesChartExpanded} onClose={() => setIsTradesChartExpanded(false)}>
+        <div style={{ height: 680, padding: "0 16px 16px" }}>
+          <TradingViewLiveChart
+            asset={tradeChartAsset}
+            height="100%"
+            interval={tradeChartRange}
+            chartType="trades_live"
+          />
+        </div>
+      </ChartModal>
+      <ChartModal open={isSimulationChartExpanded} onClose={() => setIsSimulationChartExpanded(false)}>
+        <div style={{ height: 680, padding: "0 16px 16px" }}>
+          <TradingViewLiveChart
+            asset={selectedSimulationItem}
+            height="100%"
+            interval={simulationLiveChartRange}
+            chartType="simulation_live"
+          />
+        </div>
+      </ChartModal>
     </div>
   );
 }
