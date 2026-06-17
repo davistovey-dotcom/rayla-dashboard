@@ -13036,14 +13036,14 @@ function ChartModal({ open, onClose, children }) {
           background: "rgba(18,26,38,0.97)",
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 16,
-          padding: "0 0 12px 0",
           animation: "chartModalSlideIn 0.2s ease",
-          maxHeight: "calc(100vh - 32px)",
+          height: "calc(100vh - 48px)",
+          maxHeight: 860,
           overflow: "hidden",
           display: "flex", flexDirection: "column",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 14px 0" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 14px 4px", flexShrink: 0 }}>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -13052,7 +13052,7 @@ function ChartModal({ open, onClose, children }) {
             ✕
           </button>
         </div>
-        <div style={{ flex: 1, overflow: "hidden" }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           {children}
         </div>
       </div>
@@ -29323,7 +29323,7 @@ return (
         />
       </ChartModal>
       <ChartModal open={isHomeLiveMarketChartExpanded} onClose={() => setIsHomeLiveMarketChartExpanded(false)}>
-        <div style={{ height: 680, padding: "0 16px 16px" }}>
+        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>
           <TradingViewLiveChart
             asset={homeMarketSelectedItem}
             height="100%"
@@ -29333,7 +29333,7 @@ return (
         </div>
       </ChartModal>
       <ChartModal open={isTradesChartExpanded} onClose={() => setIsTradesChartExpanded(false)}>
-        <div style={{ height: 680, padding: "0 16px 16px" }}>
+        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>
           <TradingViewLiveChart
             asset={tradeChartAsset}
             height="100%"
@@ -29343,7 +29343,7 @@ return (
         </div>
       </ChartModal>
       <ChartModal open={isSimulationChartExpanded} onClose={() => setIsSimulationChartExpanded(false)}>
-        <div style={{ height: 680, padding: "0 16px 16px" }}>
+        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>
           <TradingViewLiveChart
             asset={selectedSimulationItem}
             height="100%"
