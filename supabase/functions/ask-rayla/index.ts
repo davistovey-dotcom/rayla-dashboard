@@ -250,13 +250,31 @@ function buildPerformanceSummary(context: any) {
   }
 
   if (stats?.bestSetup?.name) {
-    parts.push(`Best setup so far: ${stats.bestSetup.name}`);
+    const s = stats.bestSetup;
+    const t = Number(s.trades || 0);
+    const w = t > 0 && s.winRate != null ? Math.round((Number(s.winRate) / 100) * t) : null;
+    const detail = t > 0 && w != null
+      ? ` (${w} of ${t}, ${Number(s.avgR || 0) >= 0 ? "+" : ""}${Number(s.avgR || 0).toFixed(2)}R avg)`
+      : "";
+    parts.push(`Best setup: ${s.name}${detail}`);
   }
   if (stats?.worstSetup?.name) {
-    parts.push(`Weakest setup so far: ${stats.worstSetup.name}`);
+    const s = stats.worstSetup;
+    const t = Number(s.trades || 0);
+    const w = t > 0 && s.winRate != null ? Math.round((Number(s.winRate) / 100) * t) : null;
+    const detail = t > 0 && w != null
+      ? ` (${w} of ${t}, ${Number(s.avgR || 0) >= 0 ? "+" : ""}${Number(s.avgR || 0).toFixed(2)}R avg)`
+      : "";
+    parts.push(`Weakest setup: ${s.name}${detail}`);
   }
   if (stats?.bestAsset?.name) {
-    parts.push(`Best asset so far: ${stats.bestAsset.name}`);
+    const a = stats.bestAsset;
+    const t = Number(a.trades || 0);
+    const w = t > 0 && a.winRate != null ? Math.round((Number(a.winRate) / 100) * t) : null;
+    const detail = t > 0 && w != null
+      ? ` (${w} of ${t}, ${Number(a.avgR || 0) >= 0 ? "+" : ""}${Number(a.avgR || 0).toFixed(2)}R avg)`
+      : "";
+    parts.push(`Best asset: ${a.name}${detail}`);
   }
 
   if (performanceStats) {
@@ -737,11 +755,25 @@ function buildMetaContextBlock(context: any) {
   return `Session context: ${parts.join(" | ")}`;
 }
 
+function buildSetupFacetsBlock(context: any) {
+  const bySetup = Array.isArray(context?.edgeFacets?.bySetup) ? context.edgeFacets.bySetup : [];
+  const rows = bySetup.filter((s: any) => s?.name && Number(s?.count || 0) >= 3);
+  if (!rows.length) return "";
+  const lines = rows.map((s: any) => {
+    const t = Number(s.count || 0);
+    const w = Number(s.wins || 0);
+    const avgR = Number(s.avgR || 0);
+    return `  ${s.name}: ${w} of ${t} (${Number(s.winRate || 0).toFixed(1)}% WR, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg)`;
+  });
+  return ["Setup breakdown (combined trades, min 3 per bucket):", ...lines].join("\n");
+}
+
 function buildBackgroundReferenceBlock(context: any) {
   const parts = [
     buildTradeSourceSummaryBlock(context),
     buildEdgeSummaryBlock(context),
     buildPerformanceSummary(context),
+    buildSetupFacetsBlock(context),
     buildRecentTradesSummary(context),
   ].filter(Boolean);
 
