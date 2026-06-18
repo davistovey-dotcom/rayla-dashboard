@@ -13007,7 +13007,7 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
 function ChartStyleToggle({ value, onChange }) {
   return (
     <div style={{
-      position: "absolute", top: 10, right: 10, zIndex: 10,
+      position: "absolute", top: 10, right: 10, zIndex: 9999,
       display: "flex", gap: 2, padding: 3,
       background: "rgba(6,12,22,0.85)", backdropFilter: "blur(6px)",
       border: "1px solid rgba(124,196,255,0.12)", borderRadius: 999,
