@@ -13004,6 +13004,34 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
   );
 }
 
+function ChartStyleToggle({ value, onChange }) {
+  return (
+    <div style={{
+      position: "absolute", top: 10, right: 10, zIndex: 10,
+      display: "flex", gap: 2, padding: 3,
+      background: "rgba(6,12,22,0.85)", backdropFilter: "blur(6px)",
+      border: "1px solid rgba(124,196,255,0.12)", borderRadius: 999,
+      pointerEvents: "auto",
+    }}>
+      {[["1", "Candles"], ["2", "Line"]].map(([style, label]) => (
+        <button
+          key={style}
+          type="button"
+          onClick={() => onChange(style)}
+          style={{
+            border: 0, borderRadius: 999, fontSize: 11, fontWeight: 850,
+            padding: "4px 10px", minHeight: 26, cursor: "pointer",
+            background: value === style ? "linear-gradient(180deg,#9bd4ff,#6bbcff)" : "transparent",
+            color: value === style ? "#07111d" : "#8fa0b7",
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ChartModal({ open, onClose, children }) {
   React.useEffect(() => {
     if (!open) return;
@@ -13111,6 +13139,7 @@ useEffect(() => {
   const [homeMarketChartLoading, setHomeMarketChartLoading] = useState(false);
   const [homeMarketChartMode, setHomeMarketChartMode] = useState("candlestick");
   const [homeMarketChartRange, setHomeMarketChartRange] = useState("1D");
+  const [homeMarketTvStyle, setHomeMarketTvStyle] = useState("1");
   const [homeMarketChartViewPreset, setHomeMarketChartViewPreset] = useState("default");
   const [homePortfolioViewMode, setHomePortfolioViewMode] = useState("portfolio");
   const [homePortfolioChartRange, setHomePortfolioChartRange] = useState("1D");
@@ -13226,6 +13255,7 @@ useEffect(() => {
   const [tradePortfolioChartsLoading, setTradePortfolioChartsLoading] = useState(false);
   const [tradeChartMode, setTradeChartMode] = useState("candlestick");
   const [tradeChartRange, setTradeChartRange] = useState("1D");
+  const [tradeTvStyle, setTradeTvStyle] = useState("1");
   const [tradeChartLastUpdated, setTradeChartLastUpdated] = useState(null);
   const [tradeChartRefreshTick, setTradeChartRefreshTick] = useState(0);
   const [tradeViewMode, setTradeViewMode] = useState("asset");
@@ -13263,6 +13293,7 @@ useEffect(() => {
   const [simulationScenarioDrawingMode, setSimulationScenarioDrawingMode] = useState("none");
   const [simulationChartTimeframe, setSimulationChartTimeframe] = useState("5m");
   const [simulationLiveChartRange, setSimulationLiveChartRange] = useState("1D");
+  const [simulationLiveTvStyle, setSimulationLiveTvStyle] = useState("1");
   const simulationLiveChartSelection = getChartSelectionConfig(simulationLiveChartRange);
   const [simulationLiveChartLastUpdated, setSimulationLiveChartLastUpdated] = useState(null);
   const homeMarketChartUpdatedLabel = useRelativeTime(homeMarketChartLastUpdated);
@@ -23586,8 +23617,10 @@ return (
                             asset={homeMarketSelectedItem}
                             height="100%"
                             interval={homeMarketChartRange}
+                            chartStyle={homeMarketTvStyle}
                             chartType="home_live"
                           />
+                          <ChartStyleToggle value={homeMarketTvStyle} onChange={setHomeMarketTvStyle} />
                           {(() => {
                             const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
                             const entryPrice = Number(homeEntryPos?.avgEntryPrice);
@@ -24954,8 +24987,12 @@ return (
                                         asset={tradeChartAsset}
                                         height="100%"
                                         interval={tradeChartRange}
+                                        chartStyle={tradeTvStyle}
                                         chartType="trades_live"
                                       />
+                                    )}
+                                    {!tradeChartAssetExplicitlyUnsupported && (
+                                      <ChartStyleToggle value={tradeTvStyle} onChange={setTradeTvStyle} />
                                     )}
                                     <ChartEntryOverlay
                                       yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
@@ -26926,7 +26963,7 @@ return (
                     ) : selectedSimulationItem ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         <MarketClosedBanner assetType={selectedSimulationItem.type} updatedLabel={simulationLiveChartUpdatedLabel} />
-                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight }}>
+                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, position: "relative" }}>
                         {selectedSimulationAssetExplicitlyUnsupported ? (
                           <div style={{ minHeight: simulationChartViewportHeight, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                             <div>Live chart unavailable</div>
@@ -26937,8 +26974,12 @@ return (
                             asset={selectedSimulationItem}
                             height={simulationChartViewportHeight}
                             interval={simulationLiveChartRange}
+                            chartStyle={simulationLiveTvStyle}
                             chartType="simulation_live"
                           />
+                        )}
+                        {!selectedSimulationAssetExplicitlyUnsupported && (
+                          <ChartStyleToggle value={simulationLiveTvStyle} onChange={setSimulationLiveTvStyle} />
                         )}
                         </div>
                       </div>
@@ -29280,33 +29321,39 @@ return (
         </div>
       </ChartModal>
       <ChartModal open={isHomeLiveMarketChartExpanded} onClose={() => setIsHomeLiveMarketChartExpanded(false)}>
-        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>
+        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box", position: "relative" }}>
           <TradingViewLiveChart
             asset={homeMarketSelectedItem}
             height="100%"
             interval={homeMarketChartRange}
+            chartStyle={homeMarketTvStyle}
             chartType="home_live"
           />
+          <ChartStyleToggle value={homeMarketTvStyle} onChange={setHomeMarketTvStyle} />
         </div>
       </ChartModal>
       <ChartModal open={isTradesChartExpanded} onClose={() => setIsTradesChartExpanded(false)}>
-        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>
+        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box", position: "relative" }}>
           <TradingViewLiveChart
             asset={tradeChartAsset}
             height="100%"
             interval={tradeChartRange}
+            chartStyle={tradeTvStyle}
             chartType="trades_live"
           />
+          <ChartStyleToggle value={tradeTvStyle} onChange={setTradeTvStyle} />
         </div>
       </ChartModal>
       <ChartModal open={isSimulationChartExpanded} onClose={() => setIsSimulationChartExpanded(false)}>
-        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>
+        <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box", position: "relative" }}>
           <TradingViewLiveChart
             asset={selectedSimulationItem}
             height="100%"
             interval={simulationLiveChartRange}
+            chartStyle={simulationLiveTvStyle}
             chartType="simulation_live"
           />
+          <ChartStyleToggle value={simulationLiveTvStyle} onChange={setSimulationLiveTvStyle} />
         </div>
       </ChartModal>
 

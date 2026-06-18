@@ -62,6 +62,7 @@ export default function TradingViewLiveChart({
   asset,
   height = "100%",
   interval = "1D",
+  chartStyle = "1",
 }) {
   const containerRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,7 +100,7 @@ export default function TradingViewLiveChart({
       interval: widgetInterval,
       timezone: browserTimeZone,
       theme: "dark",
-      style: "1",
+      style: chartStyle,
       locale: "en",
       enable_publishing: false,
       allow_symbol_change: false,
@@ -135,7 +136,7 @@ export default function TradingViewLiveChart({
         containerRef.current.innerHTML = "";
       }
     };
-  }, [widgetSymbol, widgetInterval]);
+  }, [widgetSymbol, widgetInterval, chartStyle]);
 
   if (!asset) return null;
 
