@@ -13021,52 +13021,53 @@ function ChartPricePill({ price, change }) {
     : null;
   return (
     <div style={{
-      position: "absolute", top: 10, left: 10, zIndex: 9999,
-      pointerEvents: "none",
+      display: "inline-flex", alignItems: "baseline", gap: 6,
+      background: "rgba(6,12,22,0.88)", backdropFilter: "blur(6px)",
+      border: `1px solid ${accentColor}44`,
+      borderRadius: 8, padding: "5px 10px",
     }}>
-      <div style={{
-        display: "inline-flex", alignItems: "baseline", gap: 6,
-        background: "rgba(6,12,22,0.88)", backdropFilter: "blur(6px)",
-        border: `1px solid ${accentColor}44`,
-        borderRadius: 8, padding: "5px 10px",
-      }}>
-        <span style={{ color: "#f0f6ff", fontSize: 13, fontWeight: 850, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-          {formattedPrice}
+      <span style={{ color: "#f0f6ff", fontSize: 13, fontWeight: 850, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+        {formattedPrice}
+      </span>
+      {formattedChange && (
+        <span style={{ color: accentColor, fontSize: 11, fontWeight: 750, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+          {formattedChange}
         </span>
-        {formattedChange && (
-          <span style={{ color: accentColor, fontSize: 11, fontWeight: 750, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-            {formattedChange}
-          </span>
-        )}
-      </div>
+      )}
     </div>
   );
 }
 
-function ChartStyleToggle({ value, onChange }) {
+function ChartStyleToggle({ value, onChange, leftSlot }) {
   return (
     <div style={{
       position: "absolute", top: 10, right: 10, zIndex: 9999,
-      display: "flex", gap: 2, padding: 3,
-      background: "rgba(6,12,22,0.85)", backdropFilter: "blur(6px)",
-      border: "1px solid rgba(124,196,255,0.12)", borderRadius: 999,
-      pointerEvents: "auto",
+      display: "flex", gap: 8, alignItems: "center",
+      pointerEvents: "none",
     }}>
-      {[["1", "Candles"], ["2", "Line"]].map(([style, label]) => (
-        <button
-          key={style}
-          type="button"
-          onClick={() => onChange(style)}
-          style={{
-            border: 0, borderRadius: 999, fontSize: 11, fontWeight: 850,
-            padding: "4px 10px", minHeight: 26, cursor: "pointer",
-            background: value === style ? "linear-gradient(180deg,#9bd4ff,#6bbcff)" : "transparent",
-            color: value === style ? "#07111d" : "#8fa0b7",
-          }}
-        >
-          {label}
-        </button>
-      ))}
+      {leftSlot}
+      <div style={{
+        display: "flex", gap: 2, padding: 3,
+        background: "rgba(6,12,22,0.85)", backdropFilter: "blur(6px)",
+        border: "1px solid rgba(124,196,255,0.12)", borderRadius: 999,
+        pointerEvents: "auto",
+      }}>
+        {[["1", "Candles"], ["2", "Line"]].map(([style, label]) => (
+          <button
+            key={style}
+            type="button"
+            onClick={() => onChange(style)}
+            style={{
+              border: 0, borderRadius: 999, fontSize: 11, fontWeight: 850,
+              padding: "4px 10px", minHeight: 26, cursor: "pointer",
+              background: value === style ? "linear-gradient(180deg,#9bd4ff,#6bbcff)" : "transparent",
+              color: value === style ? "#07111d" : "#8fa0b7",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -23659,10 +23660,10 @@ return (
                             chartStyle={homeMarketTvStyle}
                             chartType="home_live"
                           />
-                          <ChartStyleToggle value={homeMarketTvStyle} onChange={setHomeMarketTvStyle} />
-                          <ChartPricePill
-                            price={homeMarketSelectedDisplayPrice}
-                            change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null}
+                          <ChartStyleToggle
+                            value={homeMarketTvStyle}
+                            onChange={setHomeMarketTvStyle}
+                            leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
                           />
                           {(() => {
                             const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
@@ -25035,10 +25036,11 @@ return (
                                       />
                                     )}
                                     {!tradeChartAssetExplicitlyUnsupported && (
-                                      <ChartStyleToggle value={tradeTvStyle} onChange={setTradeTvStyle} />
-                                    )}
-                                    {!tradeChartAssetExplicitlyUnsupported && (
-                                      <ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />
+                                      <ChartStyleToggle
+                                        value={tradeTvStyle}
+                                        onChange={setTradeTvStyle}
+                                        leftSlot={<ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />}
+                                      />
                                     )}
                                     <ChartEntryOverlay
                                       yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
@@ -27025,12 +27027,13 @@ return (
                           />
                         )}
                         {!selectedSimulationAssetExplicitlyUnsupported && (
-                          <ChartStyleToggle value={simulationLiveTvStyle} onChange={setSimulationLiveTvStyle} />
-                        )}
-                        {!selectedSimulationAssetExplicitlyUnsupported && (
-                          <ChartPricePill
-                            price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.price ?? null}
-                            change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.change ?? null}
+                          <ChartStyleToggle
+                            value={simulationLiveTvStyle}
+                            onChange={setSimulationLiveTvStyle}
+                            leftSlot={<ChartPricePill
+                              price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.price ?? null}
+                              change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.change ?? null}
+                            />}
                           />
                         )}
                         </div>
@@ -29381,10 +29384,10 @@ return (
             chartStyle={homeMarketTvStyle}
             chartType="home_live"
           />
-          <ChartStyleToggle value={homeMarketTvStyle} onChange={setHomeMarketTvStyle} />
-          <ChartPricePill
-            price={homeMarketSelectedDisplayPrice}
-            change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketSelectedItem?.tvSymbol)?.change ?? null}
+          <ChartStyleToggle
+            value={homeMarketTvStyle}
+            onChange={setHomeMarketTvStyle}
+            leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketSelectedItem?.tvSymbol)?.change ?? null} />}
           />
         </div>
       </ChartModal>
@@ -29397,8 +29400,11 @@ return (
             chartStyle={tradeTvStyle}
             chartType="trades_live"
           />
-          <ChartStyleToggle value={tradeTvStyle} onChange={setTradeTvStyle} />
-          <ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />
+          <ChartStyleToggle
+            value={tradeTvStyle}
+            onChange={setTradeTvStyle}
+            leftSlot={<ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />}
+          />
         </div>
       </ChartModal>
       <ChartModal open={isSimulationChartExpanded} onClose={() => setIsSimulationChartExpanded(false)}>
@@ -29410,10 +29416,13 @@ return (
             chartStyle={simulationLiveTvStyle}
             chartType="simulation_live"
           />
-          <ChartStyleToggle value={simulationLiveTvStyle} onChange={setSimulationLiveTvStyle} />
-          <ChartPricePill
-            price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem?.id, selectedSimulationItem?.type, selectedSimulationItem?.tvSymbol)?.price ?? null}
-            change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem?.id, selectedSimulationItem?.type, selectedSimulationItem?.tvSymbol)?.change ?? null}
+          <ChartStyleToggle
+            value={simulationLiveTvStyle}
+            onChange={setSimulationLiveTvStyle}
+            leftSlot={<ChartPricePill
+              price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem?.id, selectedSimulationItem?.type, selectedSimulationItem?.tvSymbol)?.price ?? null}
+              change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem?.id, selectedSimulationItem?.type, selectedSimulationItem?.tvSymbol)?.change ?? null}
+            />}
           />
         </div>
       </ChartModal>
