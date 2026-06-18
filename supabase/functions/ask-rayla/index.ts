@@ -293,7 +293,7 @@ function buildDisciplineObservations(context: any) {
     observations.push(`Cutting winners early has shown up in ${behavior.cutEarlyCount} of the last ${behavior.sampleSize} sim trades.`);
   } else if (behavior?.heldTooLongCount >= 2) {
     observations.push(`Holding losers too long has shown up in ${behavior.heldTooLongCount} of the last ${behavior.sampleSize} sim trades.`);
-  } else if (behavior?.strongExecCount >= Math.max(2, Math.ceil((behavior.sampleSize || 0) * 0.5))) {
+  } else if (behavior?.strongExecCount >= Math.max(2, Math.ceil((behavior?.sampleSize || 0) * 0.5))) {
     observations.push("Execution has looked steadier across the recent sim sample.");
   } else if (behavior?.poorExecCount >= 2) {
     observations.push(`Execution has been messy in ${behavior.poorExecCount} of the last ${behavior.sampleSize} sim trades.`);
