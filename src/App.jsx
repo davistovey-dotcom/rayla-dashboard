@@ -29252,30 +29252,32 @@ return (
         {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
       </div>
       <ChartModal open={isPortfolioChartExpanded} onClose={() => setIsPortfolioChartExpanded(false)}>
-        <PortfolioHistoryChart
-          title={homePortfolioViewMode === "portfolio" ? "Your portfolio" : homePortfolioChartLabel}
-          subtitle={null}
-          currentValue={homePortfolioViewMode === "portfolio"
-            ? (Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue)
-            : homePortfolioMarketValue}
-          positionsCount={homePortfolioPositions.length}
-          positionsValue={homePortfolioMarketValue}
-          openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : null}
-          openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : null}
-          statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
-          range={homePortfolioChartRange}
-          onRangeChange={setHomePortfolioChartRange}
-          height={640}
-          timeZone={raylaChartTimeZone}
-          className="homePortfolioHistoryChart"
-          prebuiltPoints={homePortfolioPrebuiltBars}
-          fallbackSnapshots={portfolioSnapshots}
-          snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
-          intentOverrides={positionIntentOverrides}
-          preferPaper={brokerPreferPaper}
-          showRangeHint={false}
-          rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
-        />
+        <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <PortfolioHistoryChart
+            title={homePortfolioViewMode === "portfolio" ? "Your portfolio" : homePortfolioChartLabel}
+            subtitle={null}
+            currentValue={homePortfolioViewMode === "portfolio"
+              ? (Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || homePortfolioMarketValue)
+              : homePortfolioMarketValue}
+            positionsCount={homePortfolioPositions.length}
+            positionsValue={homePortfolioMarketValue}
+            openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : null}
+            openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : null}
+            statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
+            range={homePortfolioChartRange}
+            onRangeChange={setHomePortfolioChartRange}
+            height="fill"
+            timeZone={raylaChartTimeZone}
+            className="homePortfolioHistoryChart"
+            prebuiltPoints={homePortfolioPrebuiltBars}
+            fallbackSnapshots={portfolioSnapshots}
+            snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
+            intentOverrides={positionIntentOverrides}
+            preferPaper={brokerPreferPaper}
+            showRangeHint={false}
+            rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
+          />
+        </div>
       </ChartModal>
       <ChartModal open={isHomeLiveMarketChartExpanded} onClose={() => setIsHomeLiveMarketChartExpanded(false)}>
         <div style={{ height: "100%", paddingLeft: 16, paddingRight: 16, paddingBottom: 24, boxSizing: "border-box" }}>

@@ -302,9 +302,12 @@ function PortfolioHistoryChartInner({
     }));
   }, [rangeOptions]);
   const mobileChartViewport = isMobileChartViewport();
-  const frameHeight = mobileChartViewport
-    ? Math.min(Number(height) || 340, 270)
-    : height;
+  const isFillMode = height === "fill";
+  const frameHeight = isFillMode
+    ? "fill"
+    : mobileChartViewport
+      ? Math.min(Number(height) || 340, 270)
+      : Number(height) || 340;
   const containerRef = useRef(null);
   const endpointRef = useRef(null);
   const chartRef = useRef(null);
@@ -445,7 +448,7 @@ function PortfolioHistoryChartInner({
 
     const chart = createChart(container, {
       autoSize: true,
-      height: frameHeight,
+      height: typeof frameHeight === "number" ? frameHeight : 300,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#8f9aad",
@@ -546,7 +549,9 @@ function PortfolioHistoryChartInner({
   return (
     <div
       className={`portfolioHistoryChart performancePortfolioTrendCard ${compact ? "portfolioHistoryChartCompact" : ""} ${className}`}
-      style={{ "--portfolioHistoryChartHeight": `${frameHeight}px` }}
+      style={isFillMode
+        ? { flex: 1, minHeight: 0, overflow: "hidden" }
+        : { "--portfolioHistoryChartHeight": `${frameHeight}px` }}
     >
       <div className="portfolioHistoryHeader">
         <div className="portfolioHistoryTitleBlock">
@@ -596,7 +601,7 @@ function PortfolioHistoryChartInner({
       </div>
       {showRangeHint ? <div className="portfolioHistoryHint">Range buttons control this chart view.</div> : null}
       {rangeNote ? <div className="portfolioHistoryCoverage" style={{ marginTop: 8, marginLeft: 2 }}>{rangeNote}</div> : null}
-      <div className="portfolioHistoryChartFrame" style={{ height: frameHeight }}>
+      <div className="portfolioHistoryChartFrame" style={isFillMode ? { flex: 1, minHeight: 0, overflow: "hidden" } : { height: frameHeight }}>
         <div ref={containerRef} className="portfolioHistoryChartCanvas" style={hasChart ? undefined : { display: "none" }} />
         {hasChart ? <div ref={endpointRef} className="portfolioHistoryLiveMarker" aria-hidden="true" /> : null}
         {!hasChart && (
