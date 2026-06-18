@@ -13021,7 +13021,7 @@ function ChartPricePill({ price, change }) {
     : null;
   return (
     <div style={{
-      position: "absolute", top: 52, right: 10, zIndex: 9999,
+      position: "absolute", top: 10, left: 10, zIndex: 9999,
       pointerEvents: "none",
     }}>
       <div style={{
