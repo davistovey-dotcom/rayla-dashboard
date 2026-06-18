@@ -13004,6 +13004,45 @@ function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDel
   );
 }
 
+function ChartPricePill({ price, change }) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return null;
+  const c = Number(change);
+  const hasChange = Number.isFinite(c);
+  const isPositive = !hasChange || c >= 0;
+  const accentColor = isPositive ? "#4ade80" : "#f87171";
+  const formattedPrice = p >= 1
+    ? `$${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : p >= 0.01
+      ? `$${p.toFixed(4)}`
+      : `$${p.toFixed(6)}`;
+  const formattedChange = hasChange
+    ? `${c >= 0 ? "+" : ""}${c.toFixed(2)}%`
+    : null;
+  return (
+    <div style={{
+      position: "absolute", top: 52, right: 10, zIndex: 9999,
+      pointerEvents: "none",
+    }}>
+      <div style={{
+        display: "inline-flex", alignItems: "baseline", gap: 6,
+        background: "rgba(6,12,22,0.88)", backdropFilter: "blur(6px)",
+        border: `1px solid ${accentColor}44`,
+        borderRadius: 8, padding: "5px 10px",
+      }}>
+        <span style={{ color: "#f0f6ff", fontSize: 13, fontWeight: 850, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+          {formattedPrice}
+        </span>
+        {formattedChange && (
+          <span style={{ color: accentColor, fontSize: 11, fontWeight: 750, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+            {formattedChange}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ChartStyleToggle({ value, onChange }) {
   return (
     <div style={{
@@ -23621,6 +23660,10 @@ return (
                             chartType="home_live"
                           />
                           <ChartStyleToggle value={homeMarketTvStyle} onChange={setHomeMarketTvStyle} />
+                          <ChartPricePill
+                            price={homeMarketSelectedDisplayPrice}
+                            change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null}
+                          />
                           {(() => {
                             const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
                             const entryPrice = Number(homeEntryPos?.avgEntryPrice);
@@ -24993,6 +25036,9 @@ return (
                                     )}
                                     {!tradeChartAssetExplicitlyUnsupported && (
                                       <ChartStyleToggle value={tradeTvStyle} onChange={setTradeTvStyle} />
+                                    )}
+                                    {!tradeChartAssetExplicitlyUnsupported && (
+                                      <ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />
                                     )}
                                     <ChartEntryOverlay
                                       yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
@@ -26980,6 +27026,12 @@ return (
                         )}
                         {!selectedSimulationAssetExplicitlyUnsupported && (
                           <ChartStyleToggle value={simulationLiveTvStyle} onChange={setSimulationLiveTvStyle} />
+                        )}
+                        {!selectedSimulationAssetExplicitlyUnsupported && (
+                          <ChartPricePill
+                            price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.price ?? null}
+                            change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.change ?? null}
+                          />
                         )}
                         </div>
                       </div>
@@ -29330,6 +29382,10 @@ return (
             chartType="home_live"
           />
           <ChartStyleToggle value={homeMarketTvStyle} onChange={setHomeMarketTvStyle} />
+          <ChartPricePill
+            price={homeMarketSelectedDisplayPrice}
+            change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem?.id, homeMarketSelectedItem?.type, homeMarketSelectedItem?.tvSymbol)?.change ?? null}
+          />
         </div>
       </ChartModal>
       <ChartModal open={isTradesChartExpanded} onClose={() => setIsTradesChartExpanded(false)}>
@@ -29342,6 +29398,7 @@ return (
             chartType="trades_live"
           />
           <ChartStyleToggle value={tradeTvStyle} onChange={setTradeTvStyle} />
+          <ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />
         </div>
       </ChartModal>
       <ChartModal open={isSimulationChartExpanded} onClose={() => setIsSimulationChartExpanded(false)}>
@@ -29354,6 +29411,10 @@ return (
             chartType="simulation_live"
           />
           <ChartStyleToggle value={simulationLiveTvStyle} onChange={setSimulationLiveTvStyle} />
+          <ChartPricePill
+            price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem?.id, selectedSimulationItem?.type, selectedSimulationItem?.tvSymbol)?.price ?? null}
+            change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem?.id, selectedSimulationItem?.type, selectedSimulationItem?.tvSymbol)?.change ?? null}
+          />
         </div>
       </ChartModal>
 
