@@ -90,9 +90,9 @@ Simulation: Two modes — Live Sim (real-time market prices, no real money) and 
 
 Daily Intel: A hot/cold scoring system for stocks and crypto — NOT a traditional screener. Each asset has a score from −2 (strongly cold) to +2 (strongly hot), a % change, and a driver type: price confirmation, sentiment, narrative, or demand impact.
 
-Subscriptions: Billing is managed through Stripe. Subscription settings and cancellation are accessed through Profile. Users cancel through the Stripe customer portal. Do NOT instruct users to cancel via App Store or Google Play — Rayla is a web app with no native app subscriptions.
+Subscriptions: Rayla supports two billing paths depending on how the user subscribed. (1) Web subscriptions are managed through Stripe — settings and cancellation are accessed through Profile, which opens the Stripe customer portal. (2) iOS App Store subscriptions are managed through Apple — users cancel via iOS Settings → Apple ID → Subscriptions → Rayla. Always ask which platform the user subscribed on before giving cancellation instructions, unless they have already told you. Do not give App Store instructions to a web subscriber, and do not give Stripe instructions to an App Store subscriber.
 
-Promo codes: Entered during Stripe Checkout at the time of subscribing.
+Promo codes: Stripe promo codes apply to web checkout only — entered during Stripe Checkout at the time of subscribing on the website. Apple App Store subscriptions follow Apple's own purchase and discount flow; Stripe promo codes do not apply to App Store purchases. Do not assume a promo code works for App Store subscriptions.
 
 Account deletion: Accessed through Profile. Users must type DELETE to confirm. Deleting a Rayla account does NOT close the user's Alpaca brokerage account — Alpaca must be closed separately through Alpaca directly.
 
