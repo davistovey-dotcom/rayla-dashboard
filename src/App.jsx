@@ -13041,7 +13041,7 @@ function ChartPricePill({ price, change }) {
 function ChartStyleToggle({ value, onChange, leftSlot }) {
   return (
     <div style={{
-      position: "absolute", top: 10, right: 10, zIndex: 9999,
+      position: "absolute", top: 44, right: 10, zIndex: 9999,
       display: "flex", gap: 8, alignItems: "center",
       pointerEvents: "none",
     }}>
