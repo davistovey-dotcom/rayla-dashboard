@@ -102,6 +102,7 @@ export async function syncSubscriptionForUser(userId: string, summary: StripeSub
     .from("user_subscriptions")
     .upsert({
       user_id: userId,
+      billing_provider: "stripe",
       stripe_customer_id: summary.stripe_customer_id,
       stripe_subscription_id: summary.stripe_subscription_id,
       status: summary.status,

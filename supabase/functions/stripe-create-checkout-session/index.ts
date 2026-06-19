@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
       .from("user_subscriptions")
       .upsert({
         user_id: user.id,
+        billing_provider: "stripe",
         stripe_customer_id: customerId,
         status: "checkout_started",
         plan_key: "rayla_base",
