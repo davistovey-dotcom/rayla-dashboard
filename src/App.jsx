@@ -21139,7 +21139,7 @@ function buildSimulationAssetFromPosition(position) {
   const simulationChartViewportHeight = isMobileView
     ? "min(420px, 52vh)"
     : simulationMode === "scenario"
-      ? "clamp(300px, 36vh, 380px)"
+      ? "clamp(380px, 48vh, 500px)"
       : 560;
   const useScenarioDesktopLayout = !isMobileView && simulationMode === "scenario";
   const simulationActiveTradeContext = simulationCoachPosition
