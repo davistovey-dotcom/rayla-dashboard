@@ -102,3 +102,18 @@ entrypoint = "./functions/redeem-discount-code/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/stripe-webhook/index.ts"
+
+[functions.apple-verify-purchase]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/apple-verify-purchase/index.ts"
+
+[functions.apple-restore-purchase]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/apple-restore-purchase/index.ts"
+
+[functions.apple-app-store-notifications]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/apple-app-store-notifications/index.ts"
