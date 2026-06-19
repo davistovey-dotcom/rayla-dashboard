@@ -26117,7 +26117,7 @@ return (
                   )}
                   <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(0, 1fr) 300px", gap: isMobileView ? 14 : 18, alignItems: "stretch", width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
+                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 560 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
                     {simulationMode === "scenario" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>Scenario Setup</div>
@@ -26601,7 +26601,7 @@ return (
                   </div>
                   )}
                   {(!isMobileView || simMobileTab === 1) && (
-                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined }}>
+                  <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined, minHeight: useScenarioDesktopLayout ? 560 : undefined }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
@@ -26710,7 +26710,7 @@ return (
                     </div>
                   )}
 
-                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0, order: isMobileView ? 1 : 0 })}>
+                  <div ref={setSimulationSectionRef("chart")} style={getSimulationSectionStyle("chart", { display: "flex", flexDirection: "column", gap: 12, marginBottom: simulationMode === "scenario" ? 12 : 0, order: isMobileView ? 1 : 0, flex: useScenarioDesktopLayout ? 1 : undefined, minHeight: useScenarioDesktopLayout ? 0 : undefined })}>
                     <div className="scenarioChartHeaderRow" style={{ display: "flex", alignItems: isMobileView ? "stretch" : "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={simulationQuietLabelStyle}>
                         {simulationMode === "scenario" ? "Scenario Chart" : "Live Chart"}
@@ -26961,9 +26961,9 @@ return (
                         )}
                       </div>
                     </div>
-                  <div className="tradingviewFrameWrapFull simulationChartFrame" style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "visible" }}>
+                  <div className="tradingviewFrameWrapFull simulationChartFrame" style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "visible", flex: useScenarioDesktopLayout ? 1 : undefined, display: useScenarioDesktopLayout ? "flex" : undefined, flexDirection: useScenarioDesktopLayout ? "column" : undefined, minHeight: useScenarioDesktopLayout ? 0 : undefined }}>
                     {simulationMode === "scenario" ? (
-                      <div style={{ background: "#0d1117", paddingBottom: 10 }}>
+                      <div style={{ background: "#0d1117", paddingBottom: 10, flex: useScenarioDesktopLayout ? 1 : undefined, display: useScenarioDesktopLayout ? "flex" : undefined, flexDirection: useScenarioDesktopLayout ? "column" : undefined, minHeight: useScenarioDesktopLayout ? 0 : undefined }}>
                         {showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage && (
                           <div style={{ margin: "14px 16px 0", maxWidth: 420, padding: 12, borderRadius: 12, background: "rgba(124,196,255,0.08)", border: "1px solid rgba(124,196,255,0.18)", boxShadow: "0 12px 24px rgba(8,12,18,0.18)", display: "flex", alignItems: "flex-start", gap: 8 }}>
                             <div style={{ flex: 1 }}>
@@ -26977,9 +26977,9 @@ return (
                             <button type="button" onClick={() => setGuidedScenarioMessage("")} style={{ background: "none", border: "none", color: "#7f8ea3", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
                           </div>
                         )}
-                        <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, padding: showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
+                        <div style={{ flex: useScenarioDesktopLayout ? 1 : undefined, height: useScenarioDesktopLayout ? undefined : simulationChartViewportHeight, minHeight: useScenarioDesktopLayout ? 300 : simulationChartViewportHeight, padding: showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage ? "12px 16px 0" : 0 }}>
                           {scenarioChartBars.length < 2 ? (
-                            <div style={{ minHeight: simulationChartViewportHeight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
+                            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                               Scenario chart will appear once the generated move has enough data points.
                             </div>
                           ) : (
@@ -27416,7 +27416,7 @@ return (
                     </div>
                   )}
 
-                    <div ref={setSimulationSectionRef("history")} data-tour-id="sim-history" style={getSimulationSectionStyle("history", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
+                    {(!useScenarioDesktopLayout || visibleSimulationTradeHistory.length > 0 || simHistorySearch.trim()) && <div ref={setSimulationSectionRef("history")} data-tour-id="sim-history" style={getSimulationSectionStyle("history", { ...simulationSecondaryPanelStyle, padding: 16, borderRadius: 14, display: "flex", flexDirection: "column", gap: 14 })}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>
                         Trade History
@@ -27497,7 +27497,7 @@ return (
                             : "Try an Intel asset in Simulation, then close the trade to review it."}
                       </div>
                     )}
-                    </div>
+                    </div>}
                   </div>
 	            </div>
 	          </div>
