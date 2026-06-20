@@ -16,6 +16,10 @@ import { tourSteps } from "./components/tourSteps";
 import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen, Sparkles } from "lucide-react";
 import PersonalPicksTab from "./components/PersonalPicksTab";
 import { Tutorial } from "./Login";
+import { Capacitor } from '@capacitor/core';
+import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
+
+const isNativeIOS = Capacitor.getPlatform() === 'ios';
 
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
 const DEFAULT_POSITION_TYPE = "day_trade";
@@ -11936,10 +11940,15 @@ function UnlockRaylaPage({
   error,
   onStartCheckout,
   onOpenPortal,
+  onApplePurchase,
+  onAppleRestore,
+  onManageAppleSubscription,
   onSignOut,
 }) {
   const presentation = getSubscriptionPresentation(subscription);
-  const canManage = Boolean(subscription?.stripe_customer_id)
+  const isAppleBilling = subscription?.billing_provider === "apple";
+  const canManage = !isAppleBilling
+    && Boolean(subscription?.stripe_customer_id)
     && ["past_due", "unpaid", "incomplete", "incomplete_expired", "checkout_started", "canceled"].includes(String(subscription?.status || ""));
   const capabilities = [
     "AI trading + investing operating system",
@@ -11976,15 +11985,34 @@ function UnlockRaylaPage({
             <div className="unlockMobilePricing">$30/month after a free 14-day trial · cancel anytime</div>
           </div>
           <div className="unlockMobileBottom">
-            <button type="button" className="unlockPrimaryButton unlockMobileCta" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
-              {action === "checkout" ? "Opening Stripe..." : "Start 14-day trial"}
-            </button>
-            {canManage ? (
-              <button type="button" className="unlockSecondaryButton unlockMobileCta" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
-                {action === "portal" ? "Opening billing..." : "Manage billing"}
-              </button>
-            ) : null}
-            <div className="unlockMobileTrust">Stripe handles billing securely.</div>
+            {isNativeIOS ? (
+              <>
+                <button type="button" className="unlockPrimaryButton unlockMobileCta" onClick={onApplePurchase} disabled={!!action || isLoading}>
+                  {action === "apple_purchase" ? "Opening..." : "Subscribe"}
+                </button>
+                <button type="button" className="unlockSecondaryButton unlockMobileCta" onClick={onAppleRestore} disabled={!!action || isLoading}>
+                  {action === "apple_restore" ? "Restoring..." : "Restore Purchase"}
+                </button>
+                {isAppleBilling && (
+                  <button type="button" className="unlockSecondaryButton unlockMobileCta" onClick={onManageAppleSubscription} disabled={!!action}>
+                    Manage in App Store
+                  </button>
+                )}
+                <div className="unlockMobileTrust">Billed through Apple. Manage in App Store settings.</div>
+              </>
+            ) : (
+              <>
+                <button type="button" className="unlockPrimaryButton unlockMobileCta" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
+                  {action === "checkout" ? "Opening Stripe..." : "Start 14-day trial"}
+                </button>
+                {canManage ? (
+                  <button type="button" className="unlockSecondaryButton unlockMobileCta" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
+                    {action === "portal" ? "Opening billing..." : "Manage billing"}
+                  </button>
+                ) : null}
+                <div className="unlockMobileTrust">Stripe handles billing securely.</div>
+              </>
+            )}
             {error ? <div className="unlockError" style={{ marginTop: 6 }}>{error}</div> : null}
           </div>
         </div>
@@ -12001,16 +12029,34 @@ function UnlockRaylaPage({
             and let Rayla turn market data, performance, and decisions into one calm operating system.
           </p>
           <div className="unlockActions">
-            <button type="button" className="unlockPrimaryButton" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
-              {action === "checkout" ? "Opening Stripe..." : "Start 14-day trial"}
-            </button>
-            {canManage ? (
-              <button type="button" className="unlockSecondaryButton" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
-                {action === "portal" ? "Opening billing..." : "Manage billing"}
-              </button>
-            ) : null}
+            {isNativeIOS ? (
+              <>
+                <button type="button" className="unlockPrimaryButton" onClick={onApplePurchase} disabled={!!action || isLoading}>
+                  {action === "apple_purchase" ? "Opening..." : "Subscribe"}
+                </button>
+                <button type="button" className="unlockSecondaryButton" onClick={onAppleRestore} disabled={!!action || isLoading}>
+                  {action === "apple_restore" ? "Restoring..." : "Restore Purchase"}
+                </button>
+                {isAppleBilling && (
+                  <button type="button" className="unlockSecondaryButton" onClick={onManageAppleSubscription} disabled={!!action}>
+                    Manage in App Store
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <button type="button" className="unlockPrimaryButton" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
+                  {action === "checkout" ? "Opening Stripe..." : "Start 14-day trial"}
+                </button>
+                {canManage ? (
+                  <button type="button" className="unlockSecondaryButton" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
+                    {action === "portal" ? "Opening billing..." : "Manage billing"}
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
-          <div className="unlockPromise">Cancel anytime. Stripe handles billing securely after your trial.</div>
+          <div className="unlockPromise">{isNativeIOS ? "Cancel anytime in App Store settings." : "Cancel anytime. Stripe handles billing securely after your trial."}</div>
           {error ? <div className="unlockError">{error}</div> : null}
         </div>
 
@@ -15486,6 +15532,63 @@ useEffect(() => {
       setBillingAction("");
     }
   }
+
+  async function handleApplePurchase() {
+    if (billingAction) return;
+    setBillingAction("apple_purchase");
+    setBillingError("");
+    try {
+      const transaction = await NativePurchases.purchaseProduct({
+        productIdentifier: "rayla.monthly",
+        productType: PURCHASE_TYPE.SUBS,
+      });
+      const { data, error } = await supabase.functions.invoke("apple-verify-purchase", {
+        body: { transactionId: transaction.transactionId },
+      });
+      if (error || !data?.ok) throw new Error(data?.error || error?.message || "Purchase verification failed.");
+      await fetchBillingSubscription({ silent: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (!msg.toLowerCase().includes("cancel")) {
+        setBillingError(msg || "Purchase failed. Please try again.");
+      }
+    } finally {
+      setBillingAction("");
+    }
+  }
+
+  async function handleAppleRestore() {
+    if (billingAction) return;
+    setBillingAction("apple_restore");
+    setBillingError("");
+    try {
+      await NativePurchases.restorePurchases();
+      const { purchases } = await NativePurchases.getPurchases({ onlyCurrentEntitlements: true });
+      const sub = purchases.find((p) => p.productIdentifier === "rayla.monthly");
+      if (!sub) {
+        setBillingError("No active Rayla subscription found. If you subscribed recently, wait a moment and try again.");
+        return;
+      }
+      const { data, error } = await supabase.functions.invoke("apple-restore-purchase", {
+        body: { transactionId: sub.transactionId },
+      });
+      if (error || !data?.ok) throw new Error(data?.error || error?.message || "Restore failed.");
+      await fetchBillingSubscription({ silent: true });
+    } catch (err) {
+      setBillingError(err instanceof Error ? err.message : "Restore failed. Please try again.");
+    } finally {
+      setBillingAction("");
+    }
+  }
+
+  async function handleManageAppleSubscription() {
+    try {
+      await NativePurchases.manageSubscriptions();
+    } catch {
+      // no-op — silently fails if App Store is unavailable
+    }
+  }
+
 
   async function handleConnectAlpaca(isPaper = false) {
     try {
@@ -22067,6 +22170,9 @@ if (!hasRaylaAccess) {
       error={billingError}
       onStartCheckout={handleStartStripeCheckout}
       onOpenPortal={handleOpenStripePortal}
+      onApplePurchase={handleApplePurchase}
+      onAppleRestore={handleAppleRestore}
+      onManageAppleSubscription={handleManageAppleSubscription}
       onSignOut={handleSignOut}
     />
   );
