@@ -24,9 +24,29 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, reason: "invalid_product", message: "Product ID mismatch." }, 403);
     }
 
+    // Protect rows granted via discount/founder code — never overwrite them
+    // with an Apple restore.
+    const { data: existing } = await supabase
+      .from("user_subscriptions")
+      .select("plan_key, status, billing_provider")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (existing?.plan_key === "rayla_discount" && existing?.status === "active") {
+      return jsonResponse(
+        {
+          ok: false,
+          reason: "discount_active",
+          message: "An active Rayla discount plan is already on this account.",
+        },
+        409
+      );
+    }
+
     const expiresDate = typeof transaction.expiresDate === "number" ? transaction.expiresDate : null;
     const status = expiresDateToStatus(expiresDate);
     const currentPeriodEnd = expiresDate ? new Date(expiresDate).toISOString() : null;
+    const appleStatus = expiresDate == null ? null : (expiresDate > Date.now() ? "ACTIVE" : "EXPIRED");
 
     const { data, error } = await supabase
       .from("user_subscriptions")
@@ -35,8 +55,12 @@ Deno.serve(async (req) => {
           user_id: user.id,
           billing_provider: "apple",
           apple_original_transaction_id: String(transaction.originalTransactionId),
+          apple_transaction_id: String(transaction.transactionId),
           apple_product_id: String(transaction.productId),
           apple_bundle_id: String(transaction.bundleId),
+          apple_environment: transaction.environment ? String(transaction.environment) : null,
+          apple_expires_at: currentPeriodEnd,
+          apple_status: appleStatus,
           status,
           plan_key: "rayla_base",
           price_id: null,
@@ -44,8 +68,6 @@ Deno.serve(async (req) => {
           cancel_at_period_end: false,
           trial_ends_at: null,
           metadata: {
-            apple_transaction_id: String(transaction.transactionId),
-            apple_environment: transaction.environment,
             restored_at: new Date().toISOString(),
           },
         },

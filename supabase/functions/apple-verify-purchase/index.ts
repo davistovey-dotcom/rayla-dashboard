@@ -48,6 +48,7 @@ Deno.serve(async (req) => {
     const expiresDate = typeof transaction.expiresDate === "number" ? transaction.expiresDate : null;
     const status = expiresDateToStatus(expiresDate);
     const currentPeriodEnd = expiresDate ? new Date(expiresDate).toISOString() : null;
+    const appleStatus = expiresDate == null ? null : (expiresDate > Date.now() ? "ACTIVE" : "EXPIRED");
 
     const { data, error } = await supabase
       .from("user_subscriptions")
@@ -56,8 +57,12 @@ Deno.serve(async (req) => {
           user_id: user.id,
           billing_provider: "apple",
           apple_original_transaction_id: String(transaction.originalTransactionId),
+          apple_transaction_id: String(transaction.transactionId),
           apple_product_id: String(transaction.productId),
           apple_bundle_id: String(transaction.bundleId),
+          apple_environment: transaction.environment ? String(transaction.environment) : null,
+          apple_expires_at: currentPeriodEnd,
+          apple_status: appleStatus,
           status,
           plan_key: "rayla_base",
           price_id: null,
@@ -65,8 +70,6 @@ Deno.serve(async (req) => {
           cancel_at_period_end: false,
           trial_ends_at: null,
           metadata: {
-            apple_transaction_id: String(transaction.transactionId),
-            apple_environment: transaction.environment,
             verified_at: new Date().toISOString(),
           },
         },

@@ -83,15 +83,20 @@ Deno.serve(async (req) => {
 
     if (!row?.user_id) return ok(); // unknown transaction — no action
 
+    const txnId = transaction.transactionId ? String(transaction.transactionId) : null;
+    const env = data.environment ? String(data.environment) : null;
+
     await supabase
       .from("user_subscriptions")
       .update({
         status: newStatus,
-        ...(currentPeriodEnd ? { current_period_end: currentPeriodEnd } : {}),
+        apple_status: notificationType,
+        ...(currentPeriodEnd ? { current_period_end: currentPeriodEnd, apple_expires_at: currentPeriodEnd } : {}),
+        ...(env ? { apple_environment: env } : {}),
+        ...(txnId ? { apple_transaction_id: txnId } : {}),
         metadata: {
           apple_notification_type: notificationType,
           apple_subtype: subtype,
-          apple_environment: data.environment,
           last_notification_at: new Date().toISOString(),
         },
       })
