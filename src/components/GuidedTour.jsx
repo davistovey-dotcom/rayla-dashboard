@@ -25,15 +25,17 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-export default function GuidedTour({ steps = [], onDone }) {
+export default function GuidedTour({ steps = [], onDone, onStepChange }) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState(null);
 
   const timerRef = useRef(null);
   const skipForIndexRef = useRef(-1);
   const onDoneRef = useRef(onDone);
+  const onStepChangeRef = useRef(onStepChange);
   const stepsRef = useRef(steps);
   onDoneRef.current = onDone;
+  onStepChangeRef.current = onStepChange;
   stepsRef.current = steps;
 
   const step = steps[index] || null;
@@ -109,31 +111,47 @@ export default function GuidedTour({ steps = [], onDone }) {
 
   useEffect(() => {
     if (!step) return;
-    scrollIntoViewIfNeeded(step.tourId);
     skipForIndexRef.current = index;
 
-    const t = setTimeout(() => {
-      timerRef.current = null;
-      if (skipForIndexRef.current !== index) return;
+    // Let the host (e.g. App.jsx) react to step changes — e.g. switch a mobile
+    // tab so the anchor's DOM exists before we measure. Done synchronously so
+    // any setState fires immediately; the two rAFs below wait for React to
+    // commit and the browser to lay out before we scroll + measure.
+    try { onStepChangeRef.current?.(step, index); } catch (err) {
+      console.error("[tour] onStepChange handler threw", err);
+    }
 
-      const measured = getTargetRect(step.tourId);
-      setRect(measured);
+    let timer = null;
+    let raf2 = null;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        scrollIntoViewIfNeeded(step.tourId);
+        timer = setTimeout(() => {
+          timerRef.current = null;
+          if (skipForIndexRef.current !== index) return;
 
-      if (!measured && step.tourId) {
-        skipForIndexRef.current = -1;
-        const total = stepsRef.current.length;
-        if (index < total - 1) {
-          console.log(`[tour] action=skip from=${index} to=${index + 1} (target not found: ${step.tourId})`);
-          setIndex(index + 1);
-        } else {
-          onDoneRef.current();
-        }
-      }
-    }, 350);
+          const measured = getTargetRect(step.tourId);
+          setRect(measured);
 
-    timerRef.current = t;
+          if (!measured && step.tourId) {
+            skipForIndexRef.current = -1;
+            const total = stepsRef.current.length;
+            if (index < total - 1) {
+              console.log(`[tour] action=skip from=${index} to=${index + 1} (target not found: ${step.tourId})`);
+              setIndex(index + 1);
+            } else {
+              onDoneRef.current();
+            }
+          }
+        }, 350);
+        timerRef.current = timer;
+      });
+    });
+
     return () => {
-      clearTimeout(t);
+      cancelAnimationFrame(raf1);
+      if (raf2 != null) cancelAnimationFrame(raf2);
+      if (timer != null) clearTimeout(timer);
       timerRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,7 +173,6 @@ export default function GuidedTour({ steps = [], onDone }) {
 
   const vh = window.innerHeight;
   const vw = window.innerWidth;
-  const isMobileVp = vw <= 480;
   const popupWidth = Math.min(POPUP_W, vw - 32);
 
   const highlight = rect ? {
@@ -178,26 +195,29 @@ export default function GuidedTour({ steps = [], onDone }) {
     zIndex: 2147483643,
   } : null;
 
-  const topSafe = POPUP_MARGIN;
-  const bottomSafe = POPUP_MARGIN;
-
+  // Same placement on every viewport: prefer below, then above, then pin to
+  // whichever side has more room. Never centers the popup over the target.
   let popupTop;
-  if (isMobileVp) {
-    popupTop = clamp(vh - POPUP_H_EST - bottomSafe, topSafe, vh - POPUP_H_EST - bottomSafe);
-  } else if (rect) {
+  if (rect) {
     const spaceBelow = vh - (rect.bottom + PAD + POPUP_MARGIN);
     if (spaceBelow >= POPUP_H_EST) {
       popupTop = rect.bottom + PAD + POPUP_MARGIN;
     } else {
       const aboveTop = rect.top - PAD - POPUP_MARGIN - POPUP_H_EST;
-      popupTop = aboveTop > POPUP_MARGIN
-        ? aboveTop
-        : Math.max(POPUP_MARGIN, vh / 2 - POPUP_H_EST / 2);
+      if (aboveTop > POPUP_MARGIN) {
+        popupTop = aboveTop;
+      } else if (spaceBelow >= rect.top - PAD - POPUP_MARGIN) {
+        // Below has more room — pin to viewport bottom (rare: rect spans most of vh)
+        popupTop = vh - POPUP_H_EST - POPUP_MARGIN;
+      } else {
+        // Above has more room — pin to viewport top
+        popupTop = POPUP_MARGIN;
+      }
     }
-    popupTop = clamp(popupTop, topSafe, vh - POPUP_H_EST - bottomSafe);
   } else {
-    popupTop = clamp(vh / 2 - POPUP_H_EST / 2, topSafe, vh - POPUP_H_EST - bottomSafe);
+    popupTop = vh / 2 - POPUP_H_EST / 2;
   }
+  popupTop = clamp(popupTop, POPUP_MARGIN, Math.max(POPUP_MARGIN, vh - POPUP_H_EST - POPUP_MARGIN));
 
   const isLast = index === steps.length - 1;
 

@@ -22431,7 +22431,22 @@ return (
       )}
 
                   {showBeginnerGuidance && activeTour && (tourSteps[activeTour] || []).length > 0 && (
-                    <GuidedTour steps={tourSteps[activeTour]} onDone={() => setActiveTour(null)} />
+                    <GuidedTour
+                      steps={tourSteps[activeTour]}
+                      onDone={() => setActiveTour(null)}
+                      onStepChange={(step) => {
+                        // On mobile, simulator anchors live behind a Setup/Chart
+                        // tab switcher — only one tab's DOM is mounted at a time.
+                        // Switch tabs before the tour measures the anchor so the
+                        // step never auto-skips.
+                        if (activeTour !== "simulation" || !isMobileView) return;
+                        if (step?.tourId === "sim-controls" || step?.tourId === "sim-risk") {
+                          setSimMobileTab(0);
+                        } else if (step?.tourId === "sim-stats" || step?.tourId === "sim-chart") {
+                          setSimMobileTab(1);
+                        }
+                      }}
+                    />
                   )}
 
                   {showBeginnerGuidance && showBeginnerTutorial && (
