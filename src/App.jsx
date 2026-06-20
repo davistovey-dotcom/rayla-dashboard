@@ -26148,7 +26148,7 @@ return (
                   </div>
                 </div>
               </div>
-              <div className="card">
+              <div className="card" style={isMobileView ? { padding: 0, border: "none", background: "transparent", boxShadow: "none", borderRadius: 0 } : undefined}>
                 <div ref={simulationTutorialContainerRef} className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 18, position: "relative" }}>
                   {showBeginnerGuidance && isSimulationTutorialOpen && (
                     <div
