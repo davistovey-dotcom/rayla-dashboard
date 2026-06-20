@@ -21861,8 +21861,10 @@ function buildSimulationAssetFromPosition(position) {
   function openSimulationWalkthrough() {
     setHasAttemptedFirstTradeOnboardingAutoStart(true);
     setSelectedSimulationInfoKey(null);
-    setIsSimulationTutorialOpen(true);
-    setActiveSimulationTutorialStep(0);
+    // Old slideshow overlay replaced by the real product tour (spotlights the
+    // anchored element, dims the rest, auto-scrolls, positions popup off the
+    // target). Step list lives in tourSteps.simulation.
+    setActiveTour("simulation");
   }
 
   function closeSimulationWalkthrough() {
@@ -26699,7 +26701,7 @@ return (
                                 );
                               })}
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <div data-tour-id="sim-risk" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                               <div>
                                 <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4 }}>
                                   {simulationExitMode === "pnl" ? "Max Loss ($)" : "Stop Price"}
@@ -26858,6 +26860,7 @@ return (
                   {!isBeginner && (
                     <div
                       ref={setSimulationSectionRef("account")}
+                      data-tour-id="sim-stats"
                       style={getSimulationSectionStyle("account", {
                         background: "transparent",
                         border: "1px solid rgba(255,255,255,0.025)",

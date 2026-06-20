@@ -91,29 +91,24 @@ export const tourSteps = {
 
   simulation: [
     {
-      tourId: "sim-mode",
-      title: "Simulation Mode",
-      description: "Live Simulation uses real-time market prices so you practice on actual movement without risking money. Scenario mode creates structured market conditions — trending up, down, or sideways — for focused training.",
-    },
-    {
       tourId: "sim-controls",
       title: "Trade Controls",
-      description: "Enter your simulated position here. Pick an asset, set your direction and size, then add a stop loss and profit target. Rayla treats each rep like a real trade and grades your execution afterward.",
+      description: "Set up each simulated trade here. Pick the asset, choose Long or Short, and size the position. This panel mirrors the real Trade tab so reps build the same muscle memory.",
+    },
+    {
+      tourId: "sim-risk",
+      title: "Risk Inputs",
+      description: "Define your stop and target before you enter — never after. The stop is where the trade is wrong; the target is where you get paid. Rayla scores the R multiple from these two numbers.",
+    },
+    {
+      tourId: "sim-stats",
+      title: "Simulator Stats",
+      description: "Live and Scenario P/L tracked separately, plus win rate and average R. Watch R multiple over time, not just dollar swings — that is the signal a strategy actually has edge.",
     },
     {
       tourId: "sim-chart",
-      title: "Simulation Chart",
-      description: "Watch the price action in real time as your simulation position runs. In Scenario mode, use Play to advance the market bar-by-bar and practice reading price as it develops.",
-    },
-    {
-      tourId: "sim-open-position",
-      title: "Open Trades",
-      description: "Your active simulation positions and their current P/L. You can add to a position, adjust your exit levels, or close it here. Rayla scores your execution once you close.",
-    },
-    {
-      tourId: "sim-summary",
-      title: "Trade Outcome",
-      description: "After you close a simulation trade, Rayla shows your result, execution grade, and a coaching note. This is where you learn what you did well and what to tighten up on the next rep.",
+      title: "Chart & Controls",
+      description: "The price chart and its controls — timeframe, pause/play, candles vs. line. In Scenario mode, use Play to advance the market bar-by-bar so you can practice reading price as it develops.",
     },
     {
       tourId: "sim-history",
