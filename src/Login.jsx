@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { getAuthRedirectUrl, getResetPasswordRedirectUrl } from "./urls";
 
 function getCalmAuthErrorMessage(error, fallback) {
   const message = String(error?.message || "").trim();
@@ -14,10 +15,6 @@ function getCalmAuthErrorMessage(error, fallback) {
   return "Something went wrong. Please try again.";
 }
 
-function getAuthRedirectUrl() {
-  if (typeof window === "undefined") return undefined;
-  return `${window.location.origin}/`;
-}
 
 const TUTORIAL_SLIDES = [
   { title: "Welcome to Rayla", desc: "Rayla is your AI-powered trading workspace. Connect your broker, track your portfolio, simulate trades, and use live market intelligence in one place." },
@@ -277,7 +274,7 @@ export default function Login({ onLogin }) {
     setLoading(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
+        redirectTo: getResetPasswordRedirectUrl(),
       });
       if (error) {
         setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not send reset email.") });
