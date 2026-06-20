@@ -7045,6 +7045,7 @@ function PortfolioTrendCard({
   openPnl = null,
   openPct = null,
   preferPaper = false,
+  intentOverrides = null,
 }) {
   const allPositions = Array.isArray(positions) ? positions : [];
   const totalMarketValue = allPositions.reduce((s, p) => s + (Number(p?.marketValue) || 0), 0);
@@ -7077,6 +7078,7 @@ function PortfolioTrendCard({
       openPnl={openPnl}
       openPct={openPct}
       preferPaper={preferPaper}
+      intentOverrides={intentOverrides}
     />
   );
 }
@@ -7439,6 +7441,7 @@ function HoldingsPerformancePanel({
           openPnl={summary.totalUnrealizedPl}
           openPct={summary.unrealizedPct}
           rangeNote={buildPortfolioRangeNote(portfolioRange, portfolioInceptionMs)}
+          intentOverrides={intentOverrides}
         />
       </div>
 
