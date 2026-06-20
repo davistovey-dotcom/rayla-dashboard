@@ -13084,7 +13084,49 @@ function ChartPricePill({ price, change }) {
   );
 }
 
-function ChartStyleToggle({ value, onChange, leftSlot }) {
+function ChartStyleToggle({ value, onChange, leftSlot, mobile = false }) {
+  const buttonGroup = (
+    <div style={{
+      display: "flex", gap: 2, padding: 3,
+      background: "rgba(6,12,22,0.85)", backdropFilter: "blur(6px)",
+      border: "1px solid rgba(124,196,255,0.12)", borderRadius: 999,
+      pointerEvents: "auto",
+    }}>
+      {[["1", "Candles"], ["2", "Line"]].map(([style, label]) => (
+        <button
+          key={style}
+          type="button"
+          onClick={() => onChange(style)}
+          style={{
+            border: 0, borderRadius: 999, fontSize: 11, fontWeight: 850,
+            padding: "4px 10px", minHeight: 26, cursor: "pointer",
+            background: value === style ? "linear-gradient(180deg,#9bd4ff,#6bbcff)" : "transparent",
+            color: value === style ? "#07111d" : "#8fa0b7",
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (mobile) {
+    // Inline row above the chart — doesn't overlap candles or the right-side
+    // price axis. Caller places this BEFORE the chart container in JSX.
+    return (
+      <div style={{
+        display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between",
+        padding: "4px 2px 8px", flexWrap: "wrap",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {leftSlot}
+        </div>
+        {buttonGroup}
+      </div>
+    );
+  }
+
+  // Desktop: absolute overlay anchored top-right inside the chart container.
   return (
     <div style={{
       position: "absolute", top: 44, right: 10, zIndex: 9999,
@@ -13092,28 +13134,7 @@ function ChartStyleToggle({ value, onChange, leftSlot }) {
       pointerEvents: "none",
     }}>
       {leftSlot}
-      <div style={{
-        display: "flex", gap: 2, padding: 3,
-        background: "rgba(6,12,22,0.85)", backdropFilter: "blur(6px)",
-        border: "1px solid rgba(124,196,255,0.12)", borderRadius: 999,
-        pointerEvents: "auto",
-      }}>
-        {[["1", "Candles"], ["2", "Line"]].map(([style, label]) => (
-          <button
-            key={style}
-            type="button"
-            onClick={() => onChange(style)}
-            style={{
-              border: 0, borderRadius: 999, fontSize: 11, fontWeight: 850,
-              padding: "4px 10px", minHeight: 26, cursor: "pointer",
-              background: value === style ? "linear-gradient(180deg,#9bd4ff,#6bbcff)" : "transparent",
-              color: value === style ? "#07111d" : "#8fa0b7",
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {buttonGroup}
     </div>
   );
 }
@@ -23909,27 +23930,39 @@ return (
                           <div>This asset is not currently tradable through your connected broker.</div>
                         </div>
                       ) : homeMarketSelectedItem ? (
-                        <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
-                          <TradingViewLiveChart
-                            key={homeMarketLiveChartKey}
-                            asset={homeMarketSelectedItem}
-                            height="100%"
-                            interval={homeMarketChartRange}
-                            chartStyle={homeMarketTvStyle}
-                            chartType="home_live"
-                          />
-                          <ChartStyleToggle
-                            value={homeMarketTvStyle}
-                            onChange={setHomeMarketTvStyle}
-                            leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
-                          />
-                          {(() => {
-                            const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
-                            const entryPrice = Number(homeEntryPos?.avgEntryPrice);
-                            const yPct = computeEntryOverlayYPct(homeMarketVisibleBars, entryPrice);
-                            return <ChartEntryOverlay yPct={yPct} entryPrice={entryPrice} />;
-                          })()}
-                        </div>
+                        <>
+                          {isMobileView && (
+                            <ChartStyleToggle
+                              mobile
+                              value={homeMarketTvStyle}
+                              onChange={setHomeMarketTvStyle}
+                              leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
+                            />
+                          )}
+                          <div style={{ position: "relative", flex: isMobileView ? undefined : 1, height: isMobileView ? "min(420px, 52vh)" : undefined, overflow: "hidden" }}>
+                            <TradingViewLiveChart
+                              key={homeMarketLiveChartKey}
+                              asset={homeMarketSelectedItem}
+                              height="100%"
+                              interval={homeMarketChartRange}
+                              chartStyle={homeMarketTvStyle}
+                              chartType="home_live"
+                            />
+                            {!isMobileView && (
+                              <ChartStyleToggle
+                                value={homeMarketTvStyle}
+                                onChange={setHomeMarketTvStyle}
+                                leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
+                              />
+                            )}
+                            {(() => {
+                              const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
+                              const entryPrice = Number(homeEntryPos?.avgEntryPrice);
+                              const yPct = computeEntryOverlayYPct(homeMarketVisibleBars, entryPrice);
+                              return <ChartEntryOverlay yPct={yPct} entryPrice={entryPrice} />;
+                            })()}
+                          </div>
+                        </>
                       ) : null}
                     </>
                   ) : homePortfolioViewMode === "active" && activeBrokerPositions.length === 0 ? (
@@ -25278,7 +25311,15 @@ return (
                               })() : (
                                 <div>
                                   <MarketClosedBanner assetType={tradeChartAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: 560, borderRadius: 12, overflow: "hidden", position: "relative", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                  {isMobileView && !tradeChartAssetExplicitlyUnsupported && (
+                                    <ChartStyleToggle
+                                      mobile
+                                      value={tradeTvStyle}
+                                      onChange={setTradeTvStyle}
+                                      leftSlot={<ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />}
+                                    />
+                                  )}
+                                  <div className="tradeLiveChartBox tradeLiveChartViewport" style={{ height: isMobileView ? "min(420px, 52vh)" : 560, borderRadius: 12, overflow: "hidden", position: "relative", background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)" }}>
                                     {tradeChartAssetExplicitlyUnsupported ? (
                                       <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
                                         <div>Live chart unavailable</div>
@@ -25293,7 +25334,7 @@ return (
                                         chartType="trades_live"
                                       />
                                     )}
-                                    {!tradeChartAssetExplicitlyUnsupported && (
+                                    {!isMobileView && !tradeChartAssetExplicitlyUnsupported && (
                                       <ChartStyleToggle
                                         value={tradeTvStyle}
                                         onChange={setTradeTvStyle}
@@ -27272,6 +27313,19 @@ return (
                     ) : selectedSimulationItem ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         <MarketClosedBanner assetType={selectedSimulationItem.type} updatedLabel={simulationLiveChartUpdatedLabel} />
+                        {isMobileView && !selectedSimulationAssetExplicitlyUnsupported && (
+                          <div style={{ padding: "0 12px" }}>
+                            <ChartStyleToggle
+                              mobile
+                              value={simulationLiveTvStyle}
+                              onChange={setSimulationLiveTvStyle}
+                              leftSlot={<ChartPricePill
+                                price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.price ?? null}
+                                change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.change ?? null}
+                              />}
+                            />
+                          </div>
+                        )}
                         <div style={{ height: simulationChartViewportHeight, minHeight: simulationChartViewportHeight, position: "relative" }}>
                         {selectedSimulationAssetExplicitlyUnsupported ? (
                           <div style={{ minHeight: simulationChartViewportHeight, display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0 24px" }}>
@@ -27287,7 +27341,7 @@ return (
                             chartType="simulation_live"
                           />
                         )}
-                        {!selectedSimulationAssetExplicitlyUnsupported && (
+                        {!isMobileView && !selectedSimulationAssetExplicitlyUnsupported && (
                           <ChartStyleToggle
                             value={simulationLiveTvStyle}
                             onChange={setSimulationLiveTvStyle}
