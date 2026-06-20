@@ -383,10 +383,31 @@ function PortfolioHistoryChartInner({
     [prebuiltPoints]
   );
   const usesPrebuilt = prebuiltMapped != null;
-  // Alpaca portfolio history is total account equity — never use it for filtered views
-  const usesAlpacaHistory = !usesPrebuilt && snapshotView === "portfolio" && historyState.points.length >= 2;
-  const displayPoints = usesPrebuilt ? prebuiltMapped : usesAlpacaHistory ? historyState.points : fallbackPoints;
-  const allowZeroBaseline = usesAlpacaHistory && ALPACA_ZERO_BASELINE_RANGES.has(normalizedRange);
+  const hasAlpacaHistory = historyState.points.length >= 2;
+  // Portfolio view: use Alpaca's account-equity time series directly (dense, real).
+  const usesAlpacaHistory = snapshotView === "portfolio" && hasAlpacaHistory;
+  // Non-portfolio views (holdings, active): scale Alpaca's equity series to the
+  // filtered subset's current value. portfolio_snapshots is too sparse to drive
+  // intraday/weekly Holdings charts on its own (produces a flat $X line), so we
+  // borrow Portfolio's dense shape and normalize the magnitude. Final value
+  // matches currentValue (the live filtered total).
+  const scaledAlpacaPoints = useMemo(() => {
+    if (snapshotView === "portfolio" || !hasAlpacaHistory) return null;
+    const cv = Number(currentValue);
+    if (!Number.isFinite(cv) || cv <= 0) return null;
+    const last = historyState.points[historyState.points.length - 1]?.value;
+    if (!Number.isFinite(last) || last <= 0) return null;
+    const scale = cv / last;
+    return historyState.points.map((p) => ({ ...p, value: Number(p.value) * scale }));
+  }, [snapshotView, hasAlpacaHistory, historyState.points, currentValue]);
+  const usesScaledAlpaca = scaledAlpacaPoints != null && scaledAlpacaPoints.length >= 2;
+  // Preference order: scaled-Alpaca (real movement) > Alpaca direct (portfolio) >
+  // prebuilt (sparse snapshot bars) > fallback (sparse snapshot bars).
+  const displayPoints = usesAlpacaHistory ? historyState.points
+                       : usesScaledAlpaca ? scaledAlpacaPoints
+                       : usesPrebuilt ? prebuiltMapped
+                       : fallbackPoints;
+  const allowZeroBaseline = (usesAlpacaHistory || usesScaledAlpaca) && ALPACA_ZERO_BASELINE_RANGES.has(normalizedRange);
   const chartData = useMemo(
     () => normalizePoints(displayPoints, { allowZero: allowZeroBaseline }),
     [allowZeroBaseline, displayPoints]
