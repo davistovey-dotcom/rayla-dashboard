@@ -266,6 +266,31 @@ export default function Login({ onLogin }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  async function handleForgotPassword() {
+    if (loading) return;
+    setAuthMessage(null);
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setAuthMessage({ type: "error", text: "Enter your email above first." });
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: getAuthRedirectUrl(),
+      });
+      if (error) {
+        setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not send reset email.") });
+        return;
+      }
+      setAuthMessage({ type: "success", text: "Password reset link sent. Check your inbox and spam folder." });
+    } catch (err) {
+      setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(err, "Could not send reset email.") });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSignUp() {
     if (loading) return;
     setAuthMessage(null);
@@ -525,6 +550,16 @@ export default function Login({ onLogin }) {
             <p style={{ margin: "4px 0 6px", fontSize: 11, color: "#64748b", lineHeight: 1.4 }}>
               8+ characters, uppercase letter, number, and special character required.
             </p>
+          )}
+          {!isCreatingAccount && (
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={loading}
+              style={{ alignSelf: "flex-end", background: "transparent", border: "none", color: "#7cc4ff", fontSize: 12, fontWeight: 500, cursor: loading ? "default" : "pointer", padding: 0, marginTop: 2, opacity: loading ? 0.5 : 1 }}
+            >
+              Forgot password?
+            </button>
           )}
           {isCreatingAccount && (
             <>

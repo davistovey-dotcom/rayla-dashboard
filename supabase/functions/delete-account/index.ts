@@ -178,6 +178,48 @@ serve(async (req) => {
       deletedCount: deletedProfileCount,
     });
 
+    // Cancel an active Stripe subscription before wiping user_subscriptions so
+    // the customer is not billed after deletion. Apple IAP rows are skipped —
+    // Apple subscriptions can only be canceled by the user in the App Store.
+    try {
+      const { data: subRow, error: subErr } = await supabase
+        .from("user_subscriptions")
+        .select("billing_provider, stripe_subscription_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (subErr) {
+        console.error("[delete-account] stripe_lookup_failed", { message: subErr.message });
+      } else if (subRow?.billing_provider === "stripe" && subRow?.stripe_subscription_id) {
+        const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+        if (!stripeKey) {
+          console.error("[delete-account] stripe_cancel_skipped", { reason: "missing_STRIPE_SECRET_KEY" });
+        } else {
+          const subscriptionId = subRow.stripe_subscription_id;
+          const cancelRes = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${stripeKey}` },
+          });
+          const cancelPayload = await cancelRes.json().catch(() => ({}));
+          if (!cancelRes.ok) {
+            console.error("[delete-account] stripe_cancel_failed", {
+              subscriptionId,
+              status: cancelRes.status,
+              error: cancelPayload?.error?.message || null,
+            });
+          } else {
+            console.log("[delete-account] stripe_cancel_success", {
+              subscriptionId,
+              cancelStatus: cancelPayload?.status || null,
+            });
+          }
+        }
+      }
+    } catch (stripeErr) {
+      console.error("[delete-account] stripe_cancel_threw", {
+        message: stripeErr instanceof Error ? stripeErr.message : String(stripeErr),
+      });
+    }
+
     // Clean up remaining user-scoped rows — log errors and continue so a single
     // missing table never blocks the auth.users deletion.
     const softDeletes: Array<{ table: string; column: string }> = [

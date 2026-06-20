@@ -13238,6 +13238,11 @@ useEffect(() => {
   const [isSimulationChartExpanded, setIsSimulationChartExpanded] = useState(false);
   const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
   const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordModalMode, setPasswordModalMode] = useState("change"); // "change" | "recovery"
+  const [passwordModalNew, setPasswordModalNew] = useState("");
+  const [passwordModalConfirm, setPasswordModalConfirm] = useState("");
+  const [passwordModalSaving, setPasswordModalSaving] = useState(false);
   const [deleteTradeModalOpen, setDeleteTradeModalOpen] = useState(false);
   const [deleteTradeModalPending, setDeleteTradeModalPending] = useState(null);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
@@ -16571,6 +16576,12 @@ useEffect(() => {
     });
     if (event === "SIGNED_OUT") {
       clearSignedOutWorkspaceState();
+    }
+    if (event === "PASSWORD_RECOVERY") {
+      setPasswordModalMode("recovery");
+      setPasswordModalNew("");
+      setPasswordModalConfirm("");
+      setPasswordModalOpen(true);
     }
     setSession(sessionData);
     setAuthLoading(false);
@@ -22215,6 +22226,41 @@ if (shouldShowBrokerOnboarding) {
       onSignOut={handleSignOut}
     />
   );
+}
+
+async function handleChangePasswordSubmit() {
+  if (passwordModalSaving) return;
+  const newPw = passwordModalNew;
+  const confirmPw = passwordModalConfirm;
+  const missing = [];
+  if (newPw.length < 8) missing.push("at least 8 characters");
+  if (!/[A-Z]/.test(newPw)) missing.push("an uppercase letter");
+  if (!/[0-9]/.test(newPw)) missing.push("a number");
+  if (!/[^A-Za-z0-9]/.test(newPw)) missing.push("a special character");
+  if (missing.length > 0) {
+    showToast(`Password must include ${missing.join(", ")}.`, "error");
+    return;
+  }
+  if (newPw !== confirmPw) {
+    showToast("Passwords do not match.", "error");
+    return;
+  }
+  setPasswordModalSaving(true);
+  try {
+    const { error } = await supabase.auth.updateUser({ password: newPw });
+    if (error) {
+      showToast(error.message || "Could not update password.", "error");
+      return;
+    }
+    setPasswordModalOpen(false);
+    setPasswordModalNew("");
+    setPasswordModalConfirm("");
+    showToast("Password updated.", "success");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Could not update password.", "error");
+  } finally {
+    setPasswordModalSaving(false);
+  }
 }
 
 async function handleDeleteAccount() {
@@ -28595,6 +28641,26 @@ return (
           </div>
 
           <div className="profilePanel">
+            <div className="listTitle">Security</div>
+            <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 8, lineHeight: 1.5 }}>
+              Update the password used to sign in to Rayla.
+            </div>
+            <button
+              type="button"
+              className="ghostButton"
+              onClick={() => {
+                setPasswordModalMode("change");
+                setPasswordModalNew("");
+                setPasswordModalConfirm("");
+                setPasswordModalOpen(true);
+              }}
+              style={{ marginTop: 12 }}
+            >
+              Change password
+            </button>
+          </div>
+
+          <div className="profilePanel">
             <div className="listTitle">Legal</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
               <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
@@ -29569,6 +29635,73 @@ return (
                 style={{ flex: 1, background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.35)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 700, color: "#fff", cursor: "pointer" }}
               >
                 Delete trade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {passwordModalOpen && (
+        <div
+          onClick={() => {
+            if (passwordModalSaving) return;
+            setPasswordModalOpen(false);
+            setPasswordModalNew("");
+            setPasswordModalConfirm("");
+          }}
+          style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 420, background: "rgba(15,22,32,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "28px 28px 24px", boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}
+          >
+            <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", marginBottom: 8, letterSpacing: "-0.3px" }}>
+              {passwordModalMode === "recovery" ? "Set a new password" : "Change password"}
+            </div>
+            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 18, lineHeight: 1.5 }}>
+              {passwordModalMode === "recovery"
+                ? "You arrived here from a password reset link. Choose a new password to finish."
+                : "Enter a new password. You will stay signed in on this device."}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+              <input
+                type="password"
+                value={passwordModalNew}
+                onChange={(e) => setPasswordModalNew(e.target.value)}
+                placeholder="New password"
+                autoComplete="new-password"
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "10px 12px", fontSize: 14, color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+              />
+              <input
+                type="password"
+                value={passwordModalConfirm}
+                onChange={(e) => setPasswordModalConfirm(e.target.value)}
+                placeholder="Confirm new password"
+                autoComplete="new-password"
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "10px 12px", fontSize: 14, color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+              />
+              <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
+                8+ characters, uppercase letter, number, and special character required.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => { setPasswordModalOpen(false); setPasswordModalNew(""); setPasswordModalConfirm(""); }}
+                disabled={passwordModalSaving}
+                style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 600, color: "#94a3b8", cursor: passwordModalSaving ? "default" : "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleChangePasswordSubmit}
+                disabled={passwordModalSaving || !passwordModalNew || !passwordModalConfirm}
+                style={{ flex: 1, background: passwordModalSaving || !passwordModalNew || !passwordModalConfirm ? "rgba(124,196,255,0.25)" : "rgba(124,196,255,0.9)", border: "1px solid rgba(124,196,255,0.35)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 700, color: passwordModalSaving || !passwordModalNew || !passwordModalConfirm ? "rgba(255,255,255,0.4)" : "#0b1017", cursor: passwordModalSaving || !passwordModalNew || !passwordModalConfirm ? "not-allowed" : "pointer", transition: "background 0.15s, color 0.15s" }}
+              >
+                {passwordModalSaving ? "Saving..." : "Update password"}
               </button>
             </div>
           </div>
