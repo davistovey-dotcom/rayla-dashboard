@@ -4,7 +4,11 @@ import "./index.css";
 import App from "./App";
 import ResetPassword from "./ResetPassword";
 
-const isResetPasswordRoute = typeof window !== "undefined" && window.location.pathname === "/reset-password";
+const isResetPasswordRoute = typeof window !== "undefined" && (
+  window.location.pathname === "/reset-password" ||
+  (window.location.hash || "").includes("type=recovery") ||
+  (window.location.search || "").includes("type=recovery")
+);
 
 function RaylaCrashProbe() {
   throw new Error("Rayla test crash probe");
