@@ -23619,10 +23619,10 @@ return (
                   padding: 0 !important;
                   border-radius: 16px;
                 }
-                .homeChartStage[data-mode="asset"] {
-                  height: 720px !important;
-                  min-height: 720px !important;
-                }
+                /* Asset mode previously forced 720px to fit the old overlay
+                   chart layout. The new mobile inline controls + 420px chart
+                   no longer need it, and the fixed height left a large empty
+                   gap below the chart. Let the card size to content. */
                 .homeUtilityRail {
                   display: flex;
                   height: auto;
