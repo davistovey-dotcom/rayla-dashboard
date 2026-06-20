@@ -13088,7 +13088,7 @@ function ChartStyleToggle({ value, onChange, leftSlot }) {
   return (
     <div style={{
       position: "absolute", top: 44, right: 10, zIndex: 9999,
-      display: "flex", gap: 8, alignItems: "center",
+      display: "flex", gap: 12, alignItems: "center",
       pointerEvents: "none",
     }}>
       {leftSlot}
@@ -16187,10 +16187,11 @@ useEffect(() => {
       return;
     }
 
-    if (!alpacaAssetSearchOpen) {
-      setAlpacaAssetSearchLoading(false);
-      return;
-    }
+    // Search runs whenever the query changes, regardless of dropdown open
+    // state. Previously this effect was gated on alpacaAssetSearchOpen, which
+    // caused the first keystroke (sometimes typed before React commits the
+    // open=true setter from onChange) to no-op and required a second search
+    // to populate results.
 
     let isCancelled = false;
     setAlpacaAssetSearchLoading(true);
@@ -16234,7 +16235,7 @@ useEffect(() => {
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [alpacaAccount, alpacaOrderForm.symbol, alpacaAssetSearchOpen]);
+  }, [alpacaAccount, alpacaOrderForm.symbol, brokerPreferPaper]);
 
   useEffect(() => {
     if (!alpacaAccount) return;
@@ -23882,7 +23883,7 @@ return (
                           options={LIVE_WIDGET_INTERVAL_OPTIONS}
                           width={88}
                         />
-                        {homeMarketSelectedItem && !homeMarketAssetExplicitlyUnsupported ? (
+                        {!isMobileView && homeMarketSelectedItem && !homeMarketAssetExplicitlyUnsupported ? (
                           <button
                             type="button"
                             className="chartExpandBtn"
@@ -23955,7 +23956,7 @@ return (
                         statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
                         range={homePortfolioChartRange}
                         onRangeChange={setHomePortfolioChartRange}
-                        height={520}
+                        height={isMobileView ? 360 : 520}
                         timeZone={raylaChartTimeZone}
                         emptyMessage={portfolioSnapshotsLoading
                           ? "Loading portfolio history..."
@@ -23972,7 +23973,7 @@ return (
                         preferPaper={brokerPreferPaper}
                         showRangeHint={false}
                         rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
-                        onExpand={() => setIsPortfolioChartExpanded(true)}
+                        onExpand={isMobileView ? undefined : () => setIsPortfolioChartExpanded(true)}
                       />
                     </div>
                   )}
@@ -24989,7 +24990,7 @@ return (
                               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7f8ea3" }}>
                                 Live Market
                               </div>
-                              {(tradeIsComparisonMode || tradeChartSymbol) ? (
+                              {!isMobileView && (tradeIsComparisonMode || tradeChartSymbol) ? (
                                 <button
                                   type="button"
                                   className="chartExpandBtn"
@@ -25473,11 +25474,13 @@ return (
                                     <button
                                       key={asset.symbol}
                                       type="button"
+                                      onMouseDown={(e) => e.preventDefault()}
                                       onClick={() => {
                                         setAlpacaOrderForm((prev) => ({ ...prev, symbol: asset.symbol }));
                                         setAlpacaSelectedAssetMeta(asset);
                                         setAlpacaAssetSearchResults([]);
                                         setAlpacaAssetSearchError("");
+                                        setAlpacaAssetSearchLoading(false);
                                         setAlpacaAssetSearchOpen(false);
                                         setTradeLogChartSymbol(asset.symbol);
                                       }}
@@ -27202,7 +27205,7 @@ return (
                                 Return to Live
                               </button>
                             ) : null}
-                            {selectedSimulationItem && !selectedSimulationAssetExplicitlyUnsupported ? (
+                            {!isMobileView && selectedSimulationItem && !selectedSimulationAssetExplicitlyUnsupported ? (
                               <button
                                 type="button"
                                 className="chartExpandBtn"
