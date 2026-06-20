@@ -55,8 +55,8 @@ export default function ResetPassword() {
   const submitDisabled = saving || !newPw || !confirmPw;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#0b1017", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: '"Satoshi", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', color: "#e2e8f0" }}>
-      <div style={{ width: "100%", maxWidth: 420, background: "rgba(15,22,32,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "28px 28px 24px", boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+    <div style={{ minHeight: "100dvh", width: "100%", background: "#0b1017", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left))", boxSizing: "border-box", overflowY: "auto", WebkitOverflowScrolling: "touch", fontFamily: '"Satoshi", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', color: "#e2e8f0" }}>
+      <div style={{ width: "100%", maxWidth: 420, marginTop: "max(24px, 8vh)", marginBottom: 24, background: "rgba(15,22,32,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "28px 28px 24px", boxShadow: "0 24px 60px rgba(0,0,0,0.6)", boxSizing: "border-box" }}>
         {screen === "form" ? (
           <>
             <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", marginBottom: 8, letterSpacing: "-0.3px" }}>Set a new password</div>
