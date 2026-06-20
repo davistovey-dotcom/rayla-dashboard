@@ -27282,7 +27282,7 @@ return (
                         )}
                       </div>
                     </div>
-                  <div className="tradingviewFrameWrapFull simulationChartFrame" style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "visible", flex: useScenarioDesktopLayout ? 1 : undefined, display: useScenarioDesktopLayout ? "flex" : undefined, flexDirection: useScenarioDesktopLayout ? "column" : undefined, minHeight: useScenarioDesktopLayout ? 0 : undefined }}>
+                  <div className="tradingviewFrameWrapFull simulationChartFrame" style={{ border: isMobileView ? "none" : "1px solid rgba(255,255,255,0.06)", borderRadius: isMobileView ? 0 : 16, overflow: "visible", flex: useScenarioDesktopLayout ? 1 : undefined, display: useScenarioDesktopLayout ? "flex" : undefined, flexDirection: useScenarioDesktopLayout ? "column" : undefined, minHeight: useScenarioDesktopLayout ? 0 : undefined }}>
                     {simulationMode === "scenario" ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10, flex: useScenarioDesktopLayout ? 1 : undefined, display: useScenarioDesktopLayout ? "flex" : undefined, flexDirection: useScenarioDesktopLayout ? "column" : undefined, minHeight: useScenarioDesktopLayout ? 0 : undefined }}>
                         {showBeginnerGuidance && guidedScenarioActive && guidedScenarioMessage && (
