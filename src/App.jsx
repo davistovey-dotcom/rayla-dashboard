@@ -26086,7 +26086,26 @@ return (
         )}
 
         {activeTab === "simulation" && (
-          <div className="mainGrid">
+          <>
+            <style>{`
+              @media (max-width: 600px) {
+                /* iPhone-only: match Home's edge-to-edge width. The base
+                   .mainGrid rule pins width: 100% of parent's content area
+                   (.appShellInner = 100vw - 28) and clips overflow, so
+                   negative margins alone shift position without expanding
+                   the box. width: auto lets the box stretch into the
+                   cancelled margins. Verified to produce the same 12-px
+                   gutter as .homeLayout + .homeRight (100vw - 24 content). */
+                .mainGrid.simulationMobileLayout {
+                  width: auto;
+                  max-width: none;
+                  overflow: visible;
+                  margin: 0 -14px;
+                  padding: 0 12px;
+                }
+              }
+            `}</style>
+          <div className="mainGrid simulationMobileLayout">
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
                 <div className="raylaPageTitle mobilePageTitle">Simulation</div>
@@ -27818,6 +27837,7 @@ return (
 	          </div>
 	        </div>
           </div>
+          </>
         )}
 
         {activeTab === "ai" && (
