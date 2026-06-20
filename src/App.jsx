@@ -26086,15 +26086,20 @@ return (
         )}
 
         {activeTab === "simulation" && (
-          <div
-            className="mainGrid"
-            style={isMobileView ? {
-              marginLeft: -14,
-              marginRight: -14,
-              paddingLeft: 12,
-              paddingRight: 12,
-            } : undefined}
-          >
+          <>
+            <style>{`
+              @media (max-width: 600px) {
+                .mainGrid.simulationMobileLayout {
+                  margin-left: -14px;
+                  margin-right: -14px;
+                  padding-left: 12px;
+                  padding-right: 12px;
+                  max-width: none;
+                  overflow: visible;
+                }
+              }
+            `}</style>
+          <div className="mainGrid simulationMobileLayout">
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
                 <div className="raylaPageTitle mobilePageTitle">Simulation</div>
@@ -27826,6 +27831,7 @@ return (
 	          </div>
 	        </div>
           </div>
+          </>
         )}
 
         {activeTab === "ai" && (
