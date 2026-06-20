@@ -241,6 +241,8 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [screen, setScreen] = useState("splash"); // "splash" | "login" | "verify"
   const [authMessage, setAuthMessage] = useState(null);
@@ -267,6 +269,10 @@ export default function Login({ onLogin }) {
   async function handleSignUp() {
     if (loading) return;
     setAuthMessage(null);
+    if (!agreedToTerms || !agreedToPrivacy) {
+      setAuthMessage({ type: "error", text: "You must agree to the Terms of Service and acknowledge the Privacy Policy to create an account." });
+      return;
+    }
     if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
       setAuthMessage({ type: "error", text: "Enter your email and password first." });
       return;
@@ -530,12 +536,32 @@ export default function Login({ onLogin }) {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    style={{ marginTop: 2, accentColor: "#7cc4ff", flexShrink: 0 }}
+                  />
+                  <span>I agree to the <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Terms of Service</a></span>
+                </label>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={agreedToPrivacy}
+                    onChange={(e) => setAgreedToPrivacy(e.target.checked)}
+                    style={{ marginTop: 2, accentColor: "#7cc4ff", flexShrink: 0 }}
+                  />
+                  <span>I acknowledge the <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Privacy Policy</a></span>
+                </label>
+              </div>
             </>
           )}
           <button
             className="authPrimaryButton"
             onClick={isCreatingAccount ? handleSignUp : handleSignIn}
-            disabled={loading}
+            disabled={loading || (isCreatingAccount && (!agreedToTerms || !agreedToPrivacy))}
           >
             {loading
               ? (isCreatingAccount ? "Sending code..." : "Signing in...")
@@ -545,6 +571,8 @@ export default function Login({ onLogin }) {
             className="authSecondaryButton"
             onClick={() => {
               setAuthMessage(null);
+              setAgreedToTerms(false);
+              setAgreedToPrivacy(false);
               if (isCreatingAccount) {
                 setIsCreatingAccount(false);
                 setPassword("");
@@ -565,6 +593,11 @@ export default function Login({ onLogin }) {
               {authMessage.text}
             </div>
           ) : null}
+          <div style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 4 }}>
+            <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Terms of Service</a>
+            {" · "}
+            <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Privacy Policy</a>
+          </div>
         </div>
       </div>
     </div>

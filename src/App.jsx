@@ -28593,6 +28593,15 @@ return (
               <div><span>Avg R</span><strong>{avgR}</strong></div>
             </div>
           </div>
+
+          <div className="profilePanel">
+            <div className="listTitle">Legal</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+              <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
+              <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Privacy Policy ↗</a>
+              <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>Effective June 4, 2026 · Rayla LLC</div>
+            </div>
+          </div>
         </div>
         <div className="profileActions">
           <button className="ghostButton dangerButton" type="button" onClick={() => { setDeleteAccountConfirmText(""); setDeleteAccountModalOpen(true); }}>
