@@ -23452,10 +23452,10 @@ return (
                 .homeLayout {
                   flex-direction: column;
                   height: auto;
-                  min-height: 100dvh;
+                  min-height: 0;
                   overflow: visible;
                   margin: calc(-18px - env(safe-area-inset-top)) -14px 0;
-                  padding-bottom: calc(128px + env(safe-area-inset-bottom));
+                  padding-bottom: 0;
                   background: #050d1f;
                 }
                 .homeLeft { min-height: 420px; overflow: visible; }
@@ -26086,7 +26086,15 @@ return (
         )}
 
         {activeTab === "simulation" && (
-          <div className="mainGrid">
+          <div
+            className="mainGrid"
+            style={isMobileView ? {
+              marginLeft: -14,
+              marginRight: -14,
+              paddingLeft: 12,
+              paddingRight: 12,
+            } : undefined}
+          >
             <div className="span12">
               <div className="simulationPageHeader mobilePageHeader" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 16 }}>
                 <div className="raylaPageTitle mobilePageTitle">Simulation</div>
