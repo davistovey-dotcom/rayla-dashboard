@@ -277,7 +277,7 @@ export default function Login({ onLogin }) {
     setLoading(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: getAuthRedirectUrl(),
+        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
       });
       if (error) {
         setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not send reset email.") });

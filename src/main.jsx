@@ -2,6 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import ResetPassword from "./ResetPassword";
+
+const isResetPasswordRoute = typeof window !== "undefined" && window.location.pathname === "/reset-password";
 
 function RaylaCrashProbe() {
   throw new Error("Rayla test crash probe");
@@ -92,8 +95,10 @@ class RaylaErrorBoundary extends React.Component {
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <RaylaErrorBoundary>
-    {import.meta.env.DEV && window.location.search.includes("__rayla_test_crash=1")
-      ? <RaylaCrashProbe />
-      : <App />}
+    {isResetPasswordRoute
+      ? <ResetPassword />
+      : import.meta.env.DEV && window.location.search.includes("__rayla_test_crash=1")
+        ? <RaylaCrashProbe />
+        : <App />}
   </RaylaErrorBoundary>
 );
