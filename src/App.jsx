@@ -13243,6 +13243,7 @@ useEffect(() => {
   const [passwordModalNew, setPasswordModalNew] = useState("");
   const [passwordModalConfirm, setPasswordModalConfirm] = useState("");
   const [passwordModalSaving, setPasswordModalSaving] = useState(false);
+  const [recoveryScreen, setRecoveryScreen] = useState(null); // null | "form" | "success"
   const [deleteTradeModalOpen, setDeleteTradeModalOpen] = useState(false);
   const [deleteTradeModalPending, setDeleteTradeModalPending] = useState(null);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
@@ -16578,10 +16579,9 @@ useEffect(() => {
       clearSignedOutWorkspaceState();
     }
     if (event === "PASSWORD_RECOVERY") {
-      setPasswordModalMode("recovery");
       setPasswordModalNew("");
       setPasswordModalConfirm("");
-      setPasswordModalOpen(true);
+      setRecoveryScreen("form");
     }
     setSession(sessionData);
     setAuthLoading(false);
@@ -22116,6 +22116,59 @@ function buildSimulationAssetFromPosition(position) {
 
   
 
+if (recoveryScreen) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#0b1017", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 99999 }}>
+      <div style={{ width: "100%", maxWidth: 420, background: "rgba(15,22,32,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "28px 28px 24px", boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+        {recoveryScreen === "form" ? (
+          <>
+            <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", marginBottom: 8, letterSpacing: "-0.3px" }}>Set a new password</div>
+            <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 18, lineHeight: 1.5 }}>
+              You arrived here from a password reset link. Choose a new password to finish.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+              <input
+                type="password"
+                value={passwordModalNew}
+                onChange={(e) => setPasswordModalNew(e.target.value)}
+                placeholder="New password"
+                autoComplete="new-password"
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "10px 12px", fontSize: 14, color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+              />
+              <input
+                type="password"
+                value={passwordModalConfirm}
+                onChange={(e) => setPasswordModalConfirm(e.target.value)}
+                placeholder="Confirm new password"
+                autoComplete="new-password"
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "10px 12px", fontSize: 14, color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+              />
+              <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
+                8+ characters, uppercase letter, number, and special character required.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleChangePasswordSubmit}
+              disabled={passwordModalSaving || !passwordModalNew || !passwordModalConfirm}
+              style={{ width: "100%", background: passwordModalSaving || !passwordModalNew || !passwordModalConfirm ? "rgba(124,196,255,0.25)" : "rgba(124,196,255,0.9)", border: "1px solid rgba(124,196,255,0.35)", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 700, color: passwordModalSaving || !passwordModalNew || !passwordModalConfirm ? "rgba(255,255,255,0.4)" : "#0b1017", cursor: passwordModalSaving || !passwordModalNew || !passwordModalConfirm ? "not-allowed" : "pointer", transition: "background 0.15s, color 0.15s" }}
+            >
+              {passwordModalSaving ? "Saving..." : "Update password"}
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", marginBottom: 12, letterSpacing: "-0.3px" }}>Password updated</div>
+            <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.65 }}>
+              Return to the device or app where you were using Rayla and sign in again.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 if (authLoading) {
   return (
     <div className="authPage">
@@ -22250,6 +22303,15 @@ async function handleChangePasswordSubmit() {
     const { error } = await supabase.auth.updateUser({ password: newPw });
     if (error) {
       showToast(error.message || "Could not update password.", "error");
+      return;
+    }
+    if (recoveryScreen === "form") {
+      setRecoveryScreen("success");
+      setPasswordModalNew("");
+      setPasswordModalConfirm("");
+      supabase.auth.signOut({ scope: "global" }).catch((err) => {
+        console.error("[recovery] sign_out_after_update_failed", err?.message || err);
+      });
       return;
     }
     setPasswordModalOpen(false);
