@@ -9,10 +9,61 @@ export default function ResetPassword() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Backstop: if PASSWORD_RECOVERY fires after mount, ignore it — the page
-    // already renders the form. supabase-js consumes the URL hash on its own
-    // schedule; we do not depend on the event for routing.
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {});
+    const href = window.location.href;
+    const pathname = window.location.pathname;
+    const hash = window.location.hash || "";
+    const search = window.location.search || "";
+
+    const hashParams = {};
+    const trimmedHash = hash.startsWith("#") ? hash.slice(1) : hash;
+    if (trimmedHash) {
+      new URLSearchParams(trimmedHash).forEach((v, k) => {
+        hashParams[k] = k.includes("token") ? `${v.slice(0, 12)}…(${v.length} chars)` : v;
+      });
+    }
+
+    const searchParams = {};
+    if (search) {
+      new URLSearchParams(search).forEach((v, k) => {
+        searchParams[k] = k.includes("token") ? `${v.slice(0, 12)}…(${v.length} chars)` : v;
+      });
+    }
+
+    const hasAccessTokenInHash = trimmedHash.includes("access_token=");
+    const hasAccessTokenInSearch = search.includes("access_token=");
+    const hasRecoveryTypeInHash = trimmedHash.includes("type=recovery");
+    const hasRecoveryTypeInSearch = search.includes("type=recovery");
+
+    console.log("[reset-password-diag] mount", {
+      href,
+      pathname,
+      hash,
+      search,
+      hashParams,
+      searchParams,
+      tokenLocation: hasAccessTokenInHash ? "hash" : hasAccessTokenInSearch ? "search" : "neither",
+      recoveryFlagLocation: hasRecoveryTypeInHash ? "hash" : hasRecoveryTypeInSearch ? "search" : "neither",
+    });
+
+    supabase.auth.getSession().then(({ data, error: sessionErr }) => {
+      console.log("[reset-password-diag] getSession", {
+        hasSession: Boolean(data?.session),
+        userId: data?.session?.user?.id || null,
+        userEmail: data?.session?.user?.email || null,
+        expiresAt: data?.session?.expires_at || null,
+        error: sessionErr?.message || null,
+      });
+    }).catch((err) => {
+      console.log("[reset-password-diag] getSession_threw", err?.message || err);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("[reset-password-diag] auth_event", {
+        event,
+        hasSession: Boolean(session),
+        userId: session?.user?.id || null,
+      });
+    });
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
