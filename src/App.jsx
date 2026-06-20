@@ -13243,7 +13243,33 @@ useEffect(() => {
   const [passwordModalNew, setPasswordModalNew] = useState("");
   const [passwordModalConfirm, setPasswordModalConfirm] = useState("");
   const [passwordModalSaving, setPasswordModalSaving] = useState(false);
-  const [recoveryScreen, setRecoveryScreen] = useState(null); // null | "form" | "success"
+  const [recoveryScreen, setRecoveryScreen] = useState(() => {
+    // Detect recovery flow synchronously on first render so the standalone
+    // screen can short-circuit all other UI before supabase-js consumes the
+    // hash and fires PASSWORD_RECOVERY asynchronously.
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = window.sessionStorage.getItem("rayla_password_recovery_state");
+      if (stored === "form" || stored === "success") return stored;
+    } catch {}
+    const hash = window.location.hash || "";
+    const search = window.location.search || "";
+    if (hash.includes("type=recovery") || search.includes("type=recovery")) {
+      try { window.sessionStorage.setItem("rayla_password_recovery_state", "form"); } catch {}
+      return "form";
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    try {
+      if (recoveryScreen) {
+        window.sessionStorage.setItem("rayla_password_recovery_state", recoveryScreen);
+      } else {
+        window.sessionStorage.removeItem("rayla_password_recovery_state");
+      }
+    } catch {}
+  }, [recoveryScreen]);
   const [deleteTradeModalOpen, setDeleteTradeModalOpen] = useState(false);
   const [deleteTradeModalPending, setDeleteTradeModalPending] = useState(null);
   const [homeUtilityTab, setHomeUtilityTab] = useState("overview");
