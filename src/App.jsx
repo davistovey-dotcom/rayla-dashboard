@@ -21305,7 +21305,7 @@ function buildSimulationAssetFromPosition(position) {
     ? "min(420px, 52vh)"
     : simulationMode === "scenario"
       ? "clamp(380px, 48vh, 500px)"
-      : 560;
+      : 420;
   const useScenarioDesktopLayout = !isMobileView && simulationMode === "scenario";
   const simulationActiveTradeContext = simulationCoachPosition
     ? buildSimulationActiveTradeContext({
@@ -26440,7 +26440,7 @@ return (
                   )}
                   <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(0, 1fr) 300px", gap: isMobileView ? 14 : 18, alignItems: "stretch", width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 560 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
+                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 620 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
                     {simulationMode === "scenario" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>Scenario Setup</div>
