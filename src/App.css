@@ -1890,7 +1890,11 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 24px 16px 16px;
+    padding:
+      calc(20px + env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      calc(16px + env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
   }
 
   .unlockMobileTop {
@@ -1911,17 +1915,17 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   /* (1) Headline */
   .unlockMobileHeadline {
     margin: 0 0 10px;
-    font-size: 24px;
+    font-size: 21px;
     font-weight: 600;
-    line-height: 1.22;
+    line-height: 1.25;
     letter-spacing: -0.01em;
     color: #f8fbff;
   }
 
   /* (2) Subcopy */
   .unlockMobileSubcopy {
-    margin: 0 0 20px;
-    font-size: 14px;
+    margin: 0 0 18px;
+    font-size: 13px;
     color: #7f8ea3;
     line-height: 1.55;
   }
