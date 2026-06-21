@@ -15611,7 +15611,7 @@ useEffect(() => {
     setBillingError("");
     try {
       const transaction = await NativePurchases.purchaseProduct({
-        productIdentifier: "rayla.monthly",
+        productIdentifier: "raylasubmonthly",
         productType: PURCHASE_TYPE.SUBS,
       });
       const { data, error } = await supabase.functions.invoke("apple-verify-purchase", {
@@ -15636,7 +15636,7 @@ useEffect(() => {
     try {
       await NativePurchases.restorePurchases();
       const { purchases } = await NativePurchases.getPurchases({ onlyCurrentEntitlements: true });
-      const sub = purchases.find((p) => p.productIdentifier === "rayla.monthly");
+      const sub = purchases.find((p) => p.productIdentifier === "raylasubmonthly");
       if (!sub) {
         setBillingError("No active Rayla subscription found. If you subscribed recently, wait a moment and try again.");
         return;
