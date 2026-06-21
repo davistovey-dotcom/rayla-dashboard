@@ -656,6 +656,14 @@ const LOCAL_SUPABASE_FUNCTIONS_BASE_URL = "http://localhost:54321/functions/v1";
 const SHOULD_USE_LOCAL_SUPABASE_FUNCTIONS = import.meta.env.VITE_USE_LOCAL_SUPABASE_FUNCTIONS === "true";
 const DAILY_INTEL_URL = `${PRODUCT_SUPABASE_FUNCTIONS_BASE_URL}/daily-intel`;
 const ASK_RAYLA_URL = `${(SHOULD_USE_LOCAL_SUPABASE_FUNCTIONS ? LOCAL_SUPABASE_FUNCTIONS_BASE_URL : PRODUCT_SUPABASE_FUNCTIONS_BASE_URL)}/ask-rayla`;
+async function getRaylaAuthToken() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
+  } catch {
+    return import.meta.env.VITE_SUPABASE_ANON_KEY;
+  }
+}
 const RAYLA_LOADING_MESSAGES = [
   "On it...",
   "Pulling the data...",
@@ -18100,7 +18108,7 @@ Rules: 4-6 picks total, percentages sum to exactly 100, use real tickers (VOO/QQ
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+              "Authorization": `Bearer ${await getRaylaAuthToken()}`,
             },
             body: JSON.stringify({ question: llmPrompt, context: "" }),
           },
@@ -18240,7 +18248,7 @@ Rules: set any field to null if the message gives no clear signal; "ready" is tr
       try {
         const extractRes = await fetchWithTimeout(ASK_RAYLA_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${await getRaylaAuthToken()}` },
           body: JSON.stringify({ question: extractPrompt, context: "" }),
         }, 15000);
 
@@ -18372,7 +18380,7 @@ Respond in strict JSON only — no markdown, no extra text:
           ASK_RAYLA_URL,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${await getRaylaAuthToken()}` },
             body: JSON.stringify({ question: prompt, context: "" }),
           },
           30000
@@ -18571,7 +18579,7 @@ Respond in strict JSON only — no markdown, no extra text:
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          "Authorization": `Bearer ${await getRaylaAuthToken()}`,
         },
         body: JSON.stringify(askRaylaRequestPayload),
       },
@@ -18673,7 +18681,7 @@ Respond in strict JSON only — no markdown, no extra text:
         ASK_RAYLA_URL,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${await getRaylaAuthToken()}` },
           body: JSON.stringify({ question: extractionPrompt, context: { extractionMode: true } }),
         },
         40000

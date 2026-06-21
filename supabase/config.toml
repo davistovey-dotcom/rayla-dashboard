@@ -17,7 +17,7 @@ entrypoint = "./functions/daily-intel/index.ts"
 
 [functions.ask-rayla]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/ask-rayla/deno.json"
 entrypoint = "./functions/ask-rayla/index.ts"
 

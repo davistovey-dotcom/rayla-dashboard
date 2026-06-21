@@ -20,12 +20,7 @@ const GROQ_FALLBACK_TIMEOUT_MS = 8000;
 const OPENROUTER_CLASSIFIER_MAX_TOKENS = 120;
 const OPENROUTER_ANSWER_MAX_TOKENS = 1800;
 
-// Prefer Supabase secret GEMINI_API_KEY
-// For local testing only, paste key in the placeholder
-// Do not commit a real key
-const GEMINI_API_KEY =
-  Deno.env.get("GEMINI_API_KEY") ||
-  "PASTE_GEMINI_API_KEY_HERE";
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") || "";
 
 const OPENROUTER_API_KEY =
   Deno.env.get("OPENROUTER_API_KEY") || "";
@@ -63,6 +58,14 @@ Decisiveness:
 
 Risk and advice framing:
 - When giving concrete buy/sell/allocation guidance, state risk plainly as part of the answer and close with one brief line that this is guidance only, not financial advice. Do not add this disclaimer on general questions, explanations, or coaching.
+
+Response discipline:
+- Specific public companies must be described with observable facts (market position, revenue mix, recent results, valuation, current setup) — not with absolute positive judgments. Forbidden endorsement vocabulary: 'exceptional', 'no-brainer', 'guaranteed', 'obvious buy', 'can't lose', 'dominant' as a recommendation. 'Dominant' is allowed when stating a market-share fact (e.g. 'dominant in data-center GPUs') but never as the reason to buy.
+- When the user has no portfolio, no holdings, no picks profile, and no Rayla Picks context, and asks a generic 'what should I buy / what should I trade today' question: do not name specific tickers as picks. Explain the kinds of setups Rayla looks for (momentum, breakout, pullback, etc.) and direct them to the Daily Intel tab or to building their Picks Profile. Once they have any portfolio, picks, or watchlist context, normal pick-naming applies.
+- You do NOT have live macro, news, rates, earnings, CPI, jobs reports, Fed decisions, or any time-sensitive market events. When asked about recent macro events, current interest rates, this week's Fed decision, today's CPI print, recent earnings, or any "what happened today / this week" question that would require live data, say plainly that Ask Rayla does not have live macro or news data and direct the user to the Daily Intel tab or a primary source. Do not quote specific numeric rates, dates, or event outcomes from training data as if they were current.
+- When the user's context contains structured numeric values — Intel scores, P&L, portfolio value, position size, risk score, % gain/loss, share count, entry/exit prices — repeat the EXACT value provided. Do not round, re-bucket, or rephrase (e.g. do not turn '+1.8' into '+1', do not turn 'extreme bull' into 'leaning hot'). If you want to add interpretation, quote the exact value first and then comment.
+- Disclaimer-then-pivot is forbidden. If you've refused to provide a guarantee, refused a get-rich-quick deadline, or warned against a high-risk speculation, do NOT then provide the substantive how-to-do-it answer in the same response with 'that said' or 'however'. Specifically: 'guarantee me X% return', 'make $X by Friday', 'turn $1k into $10k this week', or any specific dollar-on-specific-short-deadline framing — answer that the framing itself is gambling, point to Simulation for risk-free practice, and stop. Do not provide weekly-option math, leverage math, or '10x' option-play setups for these prompts even with caveats.
+- If the user cites a non-financial authority (therapist, doctor, friend, family member, influencer, podcaster, etc.) as the basis for an investment decision, do not validate or rank the source. Note plainly that the source is outside investment authority, then offer to evaluate the underlying trade idea on its own merits if they want.
 
 Grounding and honesty rules:
 - Behave like a normal frontier AI assistant, not a router
@@ -158,8 +161,34 @@ function buildTechnicalFallbackResponse() {
   });
 }
 
+async function validateAuthenticatedRequest(req: Request) {
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return { ok: false as const, response: jsonResponse({ ok: false, error: "Authentication required." }, 401) };
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return { ok: false as const, response: jsonResponse({ ok: false, error: "Auth is not configured." }, 500) };
+  }
+
+  try {
+    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { Authorization: authHeader, apikey: supabaseAnonKey },
+    });
+    if (!authResponse.ok) {
+      return { ok: false as const, response: jsonResponse({ ok: false, error: "Authentication required." }, 401) };
+    }
+    return { ok: true as const };
+  } catch (error) {
+    console.error("ask-rayla auth verification failed", error instanceof Error ? error.message : error);
+    return { ok: false as const, response: jsonResponse({ ok: false, error: "Authentication verification failed." }, 401) };
+  }
+}
+
 function hasGeminiKey() {
-  return Boolean(GEMINI_API_KEY) && GEMINI_API_KEY !== "PASTE_GEMINI_API_KEY_HERE";
+  return Boolean(GEMINI_API_KEY);
 }
 
 function buildMarketIntelSummary(context: any) {
@@ -1689,6 +1718,9 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ ok: false, error: "Method not allowed." }, 405);
   }
+
+  const authCheck = await validateAuthenticatedRequest(req);
+  if (!authCheck.ok) return authCheck.response;
 
   try {
     const body = await req.json();
