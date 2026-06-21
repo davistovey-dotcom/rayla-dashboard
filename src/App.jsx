@@ -26440,7 +26440,7 @@ return (
                   )}
                   <div className="simulationWorkspaceGrid" style={{ display: "grid", gridTemplateColumns: isMobileView ? "1fr" : "minmax(0, 1fr) 300px", gap: isMobileView ? 14 : 18, alignItems: "stretch", width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden" }}>
                   {(!isMobileView || simMobileTab === 0) && (
-                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, maxHeight: !isMobileView ? 620 : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
+                  <div className="simulationControlsPanel" data-tour-id="sim-controls" ref={setSimulationSectionRef("controls")} style={getSimulationSectionStyle("controls", { ...simulationSecondaryPanelStyle, padding: 14, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12, gridColumn: isMobileView ? undefined : "2", gridRow: !isMobileView ? "1" : undefined, height: !isMobileView ? "100%" : undefined, overflowY: !isMobileView ? "auto" : undefined, boxSizing: "border-box" })}>
                     {simulationMode === "scenario" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#7CC4FF", letterSpacing: "0.8px", textTransform: "uppercase" }}>Scenario Setup</div>
@@ -27237,6 +27237,32 @@ return (
                                   ))}
                                 </div>
                               )}
+                              {!isMobileView && (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 3, borderRadius: 999, border: "1px solid rgba(124,196,255,0.12)", background: "rgba(6,12,22,0.68)" }}>
+                                  {[["1", "Candles"], ["2", "Line"]].map(([style, label]) => (
+                                    <button
+                                      key={style}
+                                      type="button"
+                                      onClick={() => setSimulationLiveTvStyle(style)}
+                                      style={{
+                                        minHeight: 28,
+                                        border: 0,
+                                        borderRadius: 999,
+                                        background: simulationLiveTvStyle === style ? "linear-gradient(180deg, #9bd4ff, #6bbcff)" : "transparent",
+                                        color: simulationLiveTvStyle === style ? "#07111d" : "#8fa0b7",
+                                        font: "inherit",
+                                        fontSize: 11,
+                                        fontWeight: 850,
+                                        padding: "5px 10px",
+                                        cursor: "pointer",
+                                        boxShadow: simulationLiveTvStyle === style ? "0 8px 22px rgba(124,196,255,0.16)" : "none",
+                                      }}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               {simulationLivePaused ? (
                                 <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.4 }}>
                                   Simulation paused
@@ -27363,16 +27389,10 @@ return (
                             chartType="simulation_live"
                           />
                         )}
-                        {!isMobileView && !selectedSimulationAssetExplicitlyUnsupported && (
-                          <ChartStyleToggle
-                            value={simulationLiveTvStyle}
-                            onChange={setSimulationLiveTvStyle}
-                            leftSlot={<ChartPricePill
-                              price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.price ?? null}
-                              change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.change ?? null}
-                            />}
-                          />
-                        )}
+                        {/* Desktop Candles/Line lives in the chart header above
+                            the chart (mirrors mobile/iPhone organization). The
+                            overlay is intentionally removed for live mode so
+                            the chart plot area is clean. */}
                         </div>
                       </div>
                     ) : null}
