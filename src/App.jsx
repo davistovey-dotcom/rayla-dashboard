@@ -12341,23 +12341,31 @@ function SubscriptionCard({ subscription, isLoading, action, error, onStartCheck
           </div>
           <div style={{ fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 999, whiteSpace: "nowrap", ...getBillingBadgeStyle(presentation.tone) }}>{presentation.label}</div>
         </div>
-        <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.07)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc" }}>$20 / month</div>
-              <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>Moderate AI usage included. Stripe confirms final terms at checkout.</div>
+        {isNativeIOS ? (
+          <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55 }}>
+              Manage your subscription in the App Store (Settings → Apple ID → Subscriptions).
             </div>
-            {canManage ? (
-              <button type="button" className="ghostButton" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
-                {action === "portal" ? "Opening..." : "Manage billing"}
-              </button>
-            ) : (
-              <button type="button" className="ghostButton" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
-                {action === "checkout" ? "Opening..." : "Start checkout"}
-              </button>
-            )}
           </div>
-        </div>
+        ) : (
+          <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc" }}>$20 / month</div>
+                <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4 }}>Moderate AI usage included. Stripe confirms final terms at checkout.</div>
+              </div>
+              {canManage ? (
+                <button type="button" className="ghostButton" onClick={onOpenPortal} disabled={action === "portal" || isLoading}>
+                  {action === "portal" ? "Opening..." : "Manage billing"}
+                </button>
+              ) : (
+                <button type="button" className="ghostButton" onClick={onStartCheckout} disabled={action === "checkout" || isLoading}>
+                  {action === "checkout" ? "Opening..." : "Start checkout"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {error ? (
           <div style={{ fontSize: 12, color: "#fecaca", lineHeight: 1.5, padding: "9px 10px", borderRadius: 10, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.16)" }}>
             {error}
