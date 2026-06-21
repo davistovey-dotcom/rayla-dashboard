@@ -23934,14 +23934,12 @@ return (
                         </div>
                       ) : homeMarketSelectedItem ? (
                         <>
-                          {(isMobileView || isTabletView) && (
-                            <ChartStyleToggle
-                              mobile
-                              value={homeMarketTvStyle}
-                              onChange={setHomeMarketTvStyle}
-                              leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
-                            />
-                          )}
+                          <ChartStyleToggle
+                            mobile
+                            value={homeMarketTvStyle}
+                            onChange={setHomeMarketTvStyle}
+                            leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
+                          />
                           <div style={{ position: "relative", flex: isMobileView ? undefined : 1, height: isMobileView ? "min(420px, 52vh)" : undefined, overflow: "hidden" }}>
                             <TradingViewLiveChart
                               key={homeMarketLiveChartKey}
@@ -23951,13 +23949,7 @@ return (
                               chartStyle={homeMarketTvStyle}
                               chartType="home_live"
                             />
-                            {!isMobileView && !isTabletView && (
-                              <ChartStyleToggle
-                                value={homeMarketTvStyle}
-                                onChange={setHomeMarketTvStyle}
-                                leftSlot={<ChartPricePill price={homeMarketSelectedDisplayPrice} change={getLiveQuoteByAssetId(homeMarketQuotes, homeMarketSelectedItem.id, homeMarketSelectedItem.type, homeMarketSelectedItem.tvSymbol)?.change ?? null} />}
-                              />
-                            )}
+                            {/* Desktop overlay removed — Candles/Line + price pill render inline above the chart for every viewport. */}
                             {(() => {
                               const homeEntryPos = findBrokerPositionBySymbol(alpacaPositions, homeMarketSelectedItem.id);
                               const entryPrice = Number(homeEntryPos?.avgEntryPrice);
@@ -25314,7 +25306,7 @@ return (
                               })() : (
                                 <div>
                                   <MarketClosedBanner assetType={tradeChartAssetType} updatedLabel={tradeChartUpdatedLabel} />
-                                  {(isMobileView || isTabletView) && !tradeChartAssetExplicitlyUnsupported && (
+                                  {!tradeChartAssetExplicitlyUnsupported && (
                                     <ChartStyleToggle
                                       mobile
                                       value={tradeTvStyle}
@@ -25337,13 +25329,7 @@ return (
                                         chartType="trades_live"
                                       />
                                     )}
-                                    {!isMobileView && !isTabletView && !tradeChartAssetExplicitlyUnsupported && (
-                                      <ChartStyleToggle
-                                        value={tradeTvStyle}
-                                        onChange={setTradeTvStyle}
-                                        leftSlot={<ChartPricePill price={tradeChartCurrentPrice} change={tradeChartQuote?.change ?? null} />}
-                                      />
-                                    )}
+                                    {/* Desktop overlay removed — Candles/Line + price pill render inline above the chart for every viewport. */}
                                     <ChartEntryOverlay
                                       yPct={computeEntryOverlayYPct(tradeVisibleBars, Number(tradeChartMatchingPosition?.avgEntryPrice))}
                                       entryPrice={Number(tradeChartMatchingPosition?.avgEntryPrice)}
@@ -27335,7 +27321,7 @@ return (
                     ) : selectedSimulationItem ? (
                       <div style={{ background: "#0d1117", paddingBottom: 10 }}>
                         <MarketClosedBanner assetType={selectedSimulationItem.type} updatedLabel={simulationLiveChartUpdatedLabel} />
-                        {(isMobileView || isTabletView) && !selectedSimulationAssetExplicitlyUnsupported && (
+                        {!selectedSimulationAssetExplicitlyUnsupported && (
                           <div style={{ padding: "0 12px" }}>
                             <ChartStyleToggle
                               mobile
@@ -27363,16 +27349,7 @@ return (
                             chartType="simulation_live"
                           />
                         )}
-                        {!isMobileView && !isTabletView && !selectedSimulationAssetExplicitlyUnsupported && (
-                          <ChartStyleToggle
-                            value={simulationLiveTvStyle}
-                            onChange={setSimulationLiveTvStyle}
-                            leftSlot={<ChartPricePill
-                              price={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.price ?? null}
-                              change={getLiveQuoteByAssetId(simulationQuotes, selectedSimulationItem.id, selectedSimulationItem.type, selectedSimulationItem.tvSymbol)?.change ?? null}
-                            />}
-                          />
-                        )}
+                        {/* Desktop overlay removed — Candles/Line + price pill render inline above the chart for every viewport. */}
                         </div>
                       </div>
                     ) : null}
