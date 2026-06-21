@@ -51,11 +51,7 @@ export default function GuidedTour({ steps = [], onDone, onStepChange }) {
       // Use parentElement fallback for text nodes (nodeType 3)
       const el = e.target?.nodeType === 1 ? e.target : e.target?.parentElement;
       const inPortal = el?.closest?.("[data-tour-portal]");
-      if (inPortal) {
-        console.log(`[tour-capture] ALLOW type=${e.type} tag=${el?.tagName}`);
-        return;
-      }
-      console.log(`[tour-block] type=${e.type} tag=${el?.tagName} class="${el?.className}"`);
+      if (inPortal) return;
       e.stopImmediatePropagation();
       if (e.cancelable) e.preventDefault();
     };
@@ -91,21 +87,16 @@ export default function GuidedTour({ steps = [], onDone, onStepChange }) {
     const total = stepsRef.current.length;
     cancelSkip();
     if (fromIndex >= total - 1) {
-      console.log(`[tour-step] action=done from=${fromIndex}`);
       onDoneRef.current();
     } else {
-      const to = fromIndex + 1;
-      console.log(`[tour-step] from=${fromIndex} to=${to}`);
-      setIndex(to);
+      setIndex(fromIndex + 1);
     }
   }, [cancelSkip]);
 
   const goPrev = useCallback((fromIndex) => {
     cancelSkip();
     if (fromIndex > 0) {
-      const to = fromIndex - 1;
-      console.log(`[tour] action=prev from=${fromIndex} to=${to}`);
-      setIndex(to);
+      setIndex(fromIndex - 1);
     }
   }, [cancelSkip]);
 
@@ -137,7 +128,6 @@ export default function GuidedTour({ steps = [], onDone, onStepChange }) {
             skipForIndexRef.current = -1;
             const total = stepsRef.current.length;
             if (index < total - 1) {
-              console.log(`[tour] action=skip from=${index} to=${index + 1} (target not found: ${step.tourId})`);
               setIndex(index + 1);
             } else {
               onDoneRef.current();
@@ -237,8 +227,8 @@ export default function GuidedTour({ steps = [], onDone, onStepChange }) {
           pointerEvents: "all",
           ...(dimStyle || {}),
         }}
-        onTouchEnd={(e) => { console.log("[overlay] onTouchEnd — closing tour (overlay was tapped)"); e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
-        onClick={(e) => { console.log("[overlay] onClick — closing tour"); e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
+        onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDoneRef.current(); }}
       />
 
       {/* Spotlight frame — visual only */}
@@ -315,9 +305,9 @@ export default function GuidedTour({ steps = [], onDone, onStepChange }) {
           )}
           <button
             type="button"
-            onTouchStart={(e) => { console.log("[tour-click] next touchstart"); e.stopPropagation(); }}
-            onTouchEnd={(e) => { console.log("[tour-click] next touchend"); e.stopPropagation(); e.preventDefault(); goNext(index); }}
-            onClick={(e) => { console.log("[tour-click] next click"); e.stopPropagation(); e.preventDefault(); goNext(index); }}
+            onTouchStart={(e) => { e.stopPropagation(); }}
+            onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); goNext(index); }}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); goNext(index); }}
             style={{
               padding: "7px 20px",
               borderRadius: 8,

@@ -330,8 +330,6 @@ export default function Login({ onLogin }) {
         },
       });
 
-      console.log("[signup debug] data:", JSON.stringify(data, null, 2), "error:", JSON.stringify(error, null, 2));
-
       console.info("[auth] signup verification requested", {
         email: normalizedEmail,
         ok: !error,

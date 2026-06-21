@@ -2821,7 +2821,7 @@ function buildBrokerPositionCurveBars({ position, rawBars, entryTimeMs, requeste
 
   const result = [...pointsByTime.values()].sort((a, b) => a.barTime - b.barTime);
 
-  console.log("[buildBrokerPositionCurveBars]", {
+  import.meta.env.DEV && console.log("[buildBrokerPositionCurveBars]", {
     timeframe: debugContext?.timeframe || null,
     symbol,
     mode: "historical",
@@ -7390,7 +7390,7 @@ function HoldingsPerformancePanel({
     ? [{ symbol: "Holdings", color: holdingsLineColor, points: holdingsLinePoints }]
     : [];
 
-  console.log("[HoldingsPerformancePanel]", {
+  import.meta.env.DEV && console.log("[HoldingsPerformancePanel]", {
     timeframe: portfolioRange,
     firstPortfolioValue: holdingsPeriodReturn?.firstValue ?? null,
     lastPortfolioValue: holdingsPeriodReturn?.lastValue ?? null,
@@ -9273,7 +9273,7 @@ function buildPortfolioBenchmarkChart(positionCharts, positions, visibleStart, v
       time: bar.time,
       symbols: Array.isArray(bar.symbols) ? bar.symbols : [],
     }));
-    console.log("[Rayla portfolio timeframe debug]", {
+    import.meta.env.DEV && console.log("[Rayla portfolio timeframe debug]", {
       timeframe: debugContext.timeframe || "MAX",
       view: debugContext.view || "Portfolio",
       positionSymbols: normalizedPositions.map((position) => String(position?.symbol || "").trim().toUpperCase()).filter(Boolean),
@@ -10275,7 +10275,7 @@ function EquityCurveCard({
 
   useEffect(() => {
     if (!import.meta.env.DEV || benchmarkSymbol !== "Portfolio") return;
-    console.log("FINAL BENCHMARK (CARD):", benchmarkPoints?.slice(-1)[0]);
+    import.meta.env.DEV && console.log("FINAL BENCHMARK (CARD):", benchmarkPoints?.slice(-1)[0]);
   }, [benchmarkPoints, benchmarkSymbol]);
 
   const filteredBenchmarkOptions = useMemo(() => {
@@ -11059,7 +11059,7 @@ useEffect(() => {
               className={`marketWatchRow ${item.id === selectedId ? "active" : ""}`}
               style={homeMarketCarouselCardWidth ? { width: homeMarketCarouselCardWidth, minWidth: homeMarketCarouselCardWidth } : undefined}
               onClick={(event) => {
-                console.log("HOME CAROUSEL CLICK", item);
+                import.meta.env.DEV && console.log("HOME CAROUSEL CLICK", item);
                 if (homeMarketCarouselSuppressClickRef.current) {
                   event.preventDefault();
                   event.stopPropagation();
@@ -11387,7 +11387,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
   const displayChange = Number.isFinite(liveChange)
     ? `${liveChange >= 0 ? "+" : ""}${liveChange.toFixed(2)}%`
     : (item.change || "N/A");
-  console.log(`[intel-card] ${item.symbol}: liveChange=${liveChange} item.change=${item.change} displayChange=${displayChange}`);
+  import.meta.env.DEV && console.log(`[intel-card] ${item.symbol}: liveChange=${liveChange} item.change=${item.change} displayChange=${displayChange}`);
   const changePos = !String(displayChange).startsWith("-");
   const article = (item.rawArticles || [])[0];
   const drivers = item.breakdown
@@ -14765,7 +14765,7 @@ useEffect(() => {
       const gridRect = grid.getBoundingClientRect();
       const controlsRect = controlsCol.getBoundingClientRect();
       const overflow = controlsRect.right - gridRect.right;
-      console.log('[GRID MEASURE]', {
+      import.meta.env.DEV && console.log('[GRID MEASURE]', {
         sidebarOffsetWidth: sidebar ? sidebar.offsetWidth : null,
         gridClientWidth: grid.clientWidth,
         gridComputedColumns: getComputedStyle(grid).gridTemplateColumns,
@@ -16311,7 +16311,7 @@ useEffect(() => {
   useEffect(() => {
     if ((activeTab !== "trades" && activeTab !== "ai") || tradeIsComparisonMode || !alpacaAccount || !tradeChartSymbol || !tradeChartAsset || tradeChartAssetExplicitlyUnsupported) {
       if (DEBUG_CHARTS) {
-        console.log("TRADING CHART FETCH RESET", {
+        import.meta.env.DEV && console.log("TRADING CHART FETCH RESET", {
           selectedChartSymbol: tradeChartSymbol || null,
           selectedChartType: tradeChartAssetType,
           chartRange: tradeChartRange,
@@ -16328,7 +16328,7 @@ useEffect(() => {
     setTradeMarketChart(null);
     setTradeMarketChartLoading(true);
     if (DEBUG_CHARTS) {
-      console.log("TRADING CHART FETCH START", {
+      import.meta.env.DEV && console.log("TRADING CHART FETCH START", {
         selectedChartSymbol: tradeChartSymbol,
         selectedChartType: tradeChartAssetType,
         chartRange: tradeChartRange,
@@ -16350,7 +16350,7 @@ useEffect(() => {
         if (isCancelled) return;
         if (error || !data?.ok) {
           if (DEBUG_CHARTS) {
-            console.log("TRADING CHART FETCH ERROR", {
+            import.meta.env.DEV && console.log("TRADING CHART FETCH ERROR", {
               selectedChartSymbol: tradeChartSymbol,
               selectedChartType: tradeChartAssetType,
               chartRange: tradeChartRange,
@@ -16367,7 +16367,7 @@ useEffect(() => {
         if (DEBUG_CHARTS) {
           const firstBarTime = nextBars[0]?.time || nextBars[0]?.t || null;
           const lastBarTime = nextBars[nextBars.length - 1]?.time || nextBars[nextBars.length - 1]?.t || null;
-          console.log("TRADING CHART FETCH RESULT", {
+          import.meta.env.DEV && console.log("TRADING CHART FETCH RESULT", {
             selectedChartSymbol: tradeChartSymbol,
             selectedChartType: tradeChartAssetType,
             chartRange: tradeChartRange,
@@ -16397,7 +16397,7 @@ useEffect(() => {
         });
       } catch {
         if (DEBUG_CHARTS) {
-          console.log("TRADING CHART FETCH EXCEPTION", {
+          import.meta.env.DEV && console.log("TRADING CHART FETCH EXCEPTION", {
             selectedChartSymbol: tradeChartSymbol,
             selectedChartType: tradeChartAssetType,
             chartRange: tradeChartRange,
@@ -16410,7 +16410,7 @@ useEffect(() => {
         if (!isCancelled) {
           setTradeMarketChartLoading(false);
           if (DEBUG_CHARTS) {
-            console.log("TRADING CHART LOADING END", {
+            import.meta.env.DEV && console.log("TRADING CHART LOADING END", {
               selectedChartSymbol: tradeChartSymbol,
               selectedChartType: tradeChartAssetType,
               chartRange: tradeChartRange,
@@ -16571,7 +16571,7 @@ useEffect(() => {
             error: error?.message || data?.error || null,
           };
           if (DEBUG_CHARTS) {
-            console.log("TRADING PORTFOLIO CHART DATA", {
+            import.meta.env.DEV && console.log("TRADING PORTFOLIO CHART DATA", {
               selectedPortfolioAssets: tradePortfolioDisplayedSymbols,
               portfolioRange: tradeChartRange,
               symbol,
@@ -16592,7 +16592,7 @@ useEffect(() => {
         if (!isCancelled) {
           setTradePortfolioCharts({});
           if (DEBUG_CHARTS) {
-            console.log("TRADING PORTFOLIO CHART FETCH ERROR", {
+            import.meta.env.DEV && console.log("TRADING PORTFOLIO CHART FETCH ERROR", {
               selectedPortfolioAssets: tradePortfolioDisplayedSymbols,
               portfolioRange: tradeChartRange,
               errorState: error?.message || "portfolio_fetch_exception",
@@ -17499,7 +17499,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (!import.meta.env.DEV || equityBenchmarkSymbol !== "Portfolio") return;
-    console.log("Portfolio Benchmark Sample:", normalizedBenchmarkPoints.slice(0, 3));
+    import.meta.env.DEV && console.log("Portfolio Benchmark Sample:", normalizedBenchmarkPoints.slice(0, 3));
   }, [equityBenchmarkSymbol, normalizedBenchmarkPoints]);
 
   useEffect(() => {
@@ -22398,7 +22398,7 @@ async function handleDeleteAccount() {
       },
     });
 
-    console.log("[delete-account] invoke_result", {
+    import.meta.env.DEV && console.log("[delete-account] invoke_result", {
       invokeError: error?.message || null,
       data,
     });
@@ -25140,7 +25140,7 @@ return (
                                       }))
                                     : [];
                                   if (DEBUG_CHARTS) {
-                                    console.log("TRADING PORTFOLIO ENTRY CLIP", {
+                                    import.meta.env.DEV && console.log("TRADING PORTFOLIO ENTRY CLIP", {
                                       symbol: pos.symbol,
                                       resolvedEntryOpenTimestamp: formatDebugIso(entryTimeMs),
                                       sourceFieldUsed: entryTimeSource || null,
