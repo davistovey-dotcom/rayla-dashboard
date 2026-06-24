@@ -23438,7 +23438,7 @@ return (
                 display: block;
                 margin-top: 2px;
               }
-              @media (min-width: 768px) and (max-width: 1180px) {
+              @media (min-width: 768px) and (max-width: 1023px) {
                 .homeLayout {
                   height: auto;
                   min-height: 100vh;
@@ -28985,6 +28985,33 @@ return (
                   >
                     Analyze doc
                   </button>
+                  {holdingsSnapshot?.count > 0 && alpacaAccount ? (
+                    <button
+                      type="button"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => {
+                        const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                        const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
+                        handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
+                      }}
+                      title="Analyze my portfolio"
+                      style={{
+                        height: 34,
+                        paddingInline: 10,
+                        borderRadius: 999,
+                        border: "1px solid rgba(124,196,255,0.2)",
+                        background: "rgba(255,255,255,0.04)",
+                        color: "#94a3b8",
+                        cursor: "pointer",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        letterSpacing: "0.1px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Analyze portfolio
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onPointerDown={(event) => event.stopPropagation()}
