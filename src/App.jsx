@@ -24062,12 +24062,12 @@ return (
                           <section className="homeUtilitySection">
                             <div data-tour-id="home-pnl" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
                               <div>
-                                <div className="homeUtilityBig" style={{ color: homeTotalDollarPnl == null ? "#94a3b8" : homeTotalDollarPnl < 0 ? "#f87171" : "#4ade80" }}>{homeTotalPnlDisplay}</div>
-                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Total P/L</div>
+                                <div className="homeUtilityBig" style={{ color: holdingsSnapshot.unrealizedPl < 0 ? "#f87171" : "#4ade80" }}>{`${holdingsSnapshot.unrealizedPl >= 0 ? "+" : ""}${formatCurrency(holdingsSnapshot.unrealizedPl)}`}</div>
+                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Unrealized P/L</div>
                               </div>
                               <div>
-                                <div className="homeUtilityBig" style={{ color: portfolioMovementPercent == null ? "#94a3b8" : portfolioMovementPercent < 0 ? "#f87171" : "#4ade80" }}>{portfolioMovement}</div>
-                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Total Portfolio Return</div>
+                                <div className="homeUtilityBig" style={{ color: holdingsSnapshot.unrealizedPercent == null ? "#94a3b8" : holdingsSnapshot.unrealizedPercent < 0 ? "#f87171" : "#4ade80" }}>{holdingsSnapshot.unrealizedPercent == null ? "--" : `${holdingsSnapshot.unrealizedPercent >= 0 ? "+" : ""}${holdingsSnapshot.unrealizedPercent.toFixed(2)}%`}</div>
+                                <div className="homeUtilityKicker" style={{ marginTop: 5 }}>Unrealized %</div>
                               </div>
                             </div>
                           </section>
@@ -24082,9 +24082,13 @@ return (
                                     <strong>{formatCurrency(holdingsSnapshot.holdingsValue)}</strong>
                                   </div>
                                   <div className="homeUtilityMetric">
-                                    <span>Unrealized P/L</span>
-                                    <strong style={{ color: holdingsSnapshot.unrealizedPl < 0 ? "#f87171" : "#4ade80" }}>
-                                      {holdingsSnapshot.unrealizedPl >= 0 ? "+" : ""}{formatCurrency(holdingsSnapshot.unrealizedPl)}
+                                    <span>Top Holding</span>
+                                    <strong>{holdingsSnapshot.topHoldingSymbol || "--"}</strong>
+                                  </div>
+                                  <div className="homeUtilityMetric">
+                                    <span>Total P/L</span>
+                                    <strong style={{ color: homeTotalDollarPnl == null ? "#94a3b8" : homeTotalDollarPnl < 0 ? "#f87171" : "#4ade80" }}>
+                                      {homeTotalPnlDisplay}
                                     </strong>
                                   </div>
                                   <div className="homeUtilityMetric">
@@ -24092,10 +24096,6 @@ return (
                                     <strong style={{ color: holdingsSnapshot.unrealizedPercent != null && holdingsSnapshot.unrealizedPercent < 0 ? "#f87171" : "#4ade80" }}>
                                       {holdingsSnapshot.unrealizedPercent == null ? "--" : `${holdingsSnapshot.unrealizedPercent >= 0 ? "+" : ""}${holdingsSnapshot.unrealizedPercent.toFixed(2)}%`}
                                     </strong>
-                                  </div>
-                                  <div className="homeUtilityMetric">
-                                    <span>Top Holding</span>
-                                    <strong>{holdingsSnapshot.topHoldingSymbol || "--"}</strong>
                                   </div>
                                   <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
                                     <span>Largest Allocation</span>
