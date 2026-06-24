@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { supabase } from "../supabase";
 
 const PROFILE_STORAGE_KEY = "rayla-picks-profile-v1";
 const PICKS_CACHE_KEY = "rayla-picks-cache-v1";
@@ -549,17 +550,11 @@ export default function PersonalPicksTab({
       const activeProfile = overrideProfile || loadProfile();
       const prompt = buildPicksPrompt({ profile: activeProfile, brokerPositions, alpacaAccount, tradeCount });
 
-      const resp = await fetch(askRaylaUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify({ question: prompt }),
+      const { data, error } = await supabase.functions.invoke("ask-rayla", {
+        body: { question: prompt },
       });
 
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      if (error) throw error;
       const text = data?.answer || "";
       const picks = parsePicks(text);
 
