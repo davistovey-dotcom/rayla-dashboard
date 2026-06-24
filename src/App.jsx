@@ -24080,6 +24080,7 @@ return (
                                   <div className="homeUtilityMetric">
                                     <span>Holdings Value</span>
                                     <strong>{formatCurrency(holdingsSnapshot.holdingsValue)}</strong>
+                                    <div style={{ fontSize: 9, fontWeight: 500, color: "#5a6b80", letterSpacing: "0.05em", marginTop: 3, textTransform: "uppercase" }}>Open Positions Only</div>
                                   </div>
                                   <div className="homeUtilityMetric">
                                     <span>Top Holding</span>
@@ -24203,6 +24204,7 @@ return (
                               <div className="homeUtilityMetric">
                                 <span>Broker Portfolio Value</span>
                                 <strong>{alpacaAccount ? formatCurrency(alpacaAccount.portfolioValue ?? alpacaAccount.equity) : "--"}</strong>
+                                <div style={{ fontSize: 9, fontWeight: 500, color: "#5a6b80", letterSpacing: "0.05em", marginTop: 3, textTransform: "uppercase" }}>Open Positions + Cash</div>
                               </div>
                               <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
                                 <span>Day P/L</span>
@@ -24266,6 +24268,7 @@ return (
                             <div className="homeUtilityMetric">
                               <span>Broker Portfolio Value</span>
                               <strong>{alpacaAccount ? formatCurrency(alpacaAccount.portfolioValue ?? alpacaAccount.equity) : "--"}</strong>
+                              <div style={{ fontSize: 9, fontWeight: 500, color: "#5a6b80", letterSpacing: "0.05em", marginTop: 3, textTransform: "uppercase" }}>Open Positions + Cash</div>
                             </div>
                             <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
                               <span>Day P/L</span>
