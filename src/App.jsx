@@ -24092,9 +24092,9 @@ return (
                                     </strong>
                                   </div>
                                   <div className="homeUtilityMetric">
-                                    <span>Unrealized %</span>
-                                    <strong style={{ color: holdingsSnapshot.unrealizedPercent != null && holdingsSnapshot.unrealizedPercent < 0 ? "#f87171" : "#4ade80" }}>
-                                      {holdingsSnapshot.unrealizedPercent == null ? "--" : `${holdingsSnapshot.unrealizedPercent >= 0 ? "+" : ""}${holdingsSnapshot.unrealizedPercent.toFixed(2)}%`}
+                                    <span>Total %</span>
+                                    <strong style={{ color: portfolioMovementPercent == null ? "#94a3b8" : portfolioMovementPercent < 0 ? "#f87171" : "#4ade80" }}>
+                                      {portfolioMovement}
                                     </strong>
                                   </div>
                                   <div className="homeUtilityMetric" style={{ gridColumn: "1 / -1" }}>
