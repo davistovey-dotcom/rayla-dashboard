@@ -15621,7 +15621,11 @@ useEffect(() => {
       const { data, error } = await supabase.functions.invoke("apple-verify-purchase", {
         body: { transactionId: transaction.transactionId },
       });
-      if (error || !data?.ok) throw new Error(data?.error || error?.message || "Purchase verification failed.");
+      if (error) {
+        const message = await getSupabaseFunctionErrorMessage(error, "Purchase verification failed.");
+        throw new Error(message);
+      }
+      if (!data?.ok) throw new Error(data?.error || data?.message || "Purchase verification failed.");
       await fetchBillingSubscription({ silent: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
@@ -15648,7 +15652,11 @@ useEffect(() => {
       const { data, error } = await supabase.functions.invoke("apple-restore-purchase", {
         body: { transactionId: sub.transactionId },
       });
-      if (error || !data?.ok) throw new Error(data?.error || error?.message || "Restore failed.");
+      if (error) {
+        const message = await getSupabaseFunctionErrorMessage(error, "Restore failed.");
+        throw new Error(message);
+      }
+      if (!data?.ok) throw new Error(data?.error || data?.message || "Restore failed.");
       await fetchBillingSubscription({ silent: true });
     } catch (err) {
       setBillingError(err instanceof Error ? err.message : "Restore failed. Please try again.");
