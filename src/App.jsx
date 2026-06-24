@@ -11993,7 +11993,9 @@ function UnlockRaylaPage({
                 </li>
               ))}
             </ul>
-            <div className="unlockMobilePricing">$30/month after a free 14-day trial · cancel anytime</div>
+            {!isNativeIOS && (
+              <div className="unlockMobilePricing">$30/month after a free 14-day trial · cancel anytime</div>
+            )}
           </div>
           <div className="unlockMobileBottom">
             {isNativeIOS ? (
@@ -12036,7 +12038,7 @@ function UnlockRaylaPage({
           <div className="unlockEyebrow">Unlock Rayla</div>
           <h1>Your trading workspace starts with live intelligence.</h1>
           <p>
-            Start with 14 days free. Connect your broker, bring your portfolio into focus,
+            {!isNativeIOS && "Start with 14 days free. "}Connect your broker, bring your portfolio into focus,
             and let Rayla turn market data, performance, and decisions into one calm operating system.
           </p>
           <div className="unlockActions">
@@ -12076,7 +12078,9 @@ function UnlockRaylaPage({
             <span>Rayla Base</span>
             <strong>{isLoading ? "Checking access" : presentation.label}</strong>
           </div>
-          <div className="unlockPlanPrice">$30<span>/month after trial</span></div>
+          {!isNativeIOS && (
+            <div className="unlockPlanPrice">$30<span>/month after trial</span></div>
+          )}
           <div className="unlockPlanNote">
             {isLoading ? "Syncing your subscription status." : presentation.detail}
           </div>
@@ -17413,8 +17417,12 @@ useEffect(() => {
       }
     }
     if (!pnlCount) return { totalPnl: null, returnPct: null };
-    return { totalPnl, returnPct: (totalPnl / SIMULATION_STARTING_BALANCE) * 100 };
-  }, [combinedTrades]);
+    const portfolioDenominator = Number(alpacaAccount?.equity ?? alpacaAccount?.portfolioValue);
+    const returnPct = Number.isFinite(portfolioDenominator) && portfolioDenominator > 0
+      ? (totalPnl / portfolioDenominator) * 100
+      : null;
+    return { totalPnl, returnPct };
+  }, [combinedTrades, alpacaAccount?.equity, alpacaAccount?.portfolioValue]);
   const portfolioMovementPercent = homePerformance.returnPct;
   const homeTotalDollarPnl = homePerformance.totalPnl;
   const portfolioMovement = portfolioMovementPercent == null
