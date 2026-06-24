@@ -16149,6 +16149,11 @@ useEffect(() => {
         setAlpacaOrderSizeMode("qty");
         setAlpacaOrderAdvancedOpen(false);
         setAlpacaOrderResult(null);
+        setAlpacaOrderPlanMode("price");
+        setAlpacaSelectedAssetMeta(null);
+        setAlpacaAssetSearchResults([]);
+        setAlpacaAssetSearchError("");
+        setAlpacaAssetSearchOpen(false);
       }
       await refreshBrokerStateAfterOrder();
       if (!pendingAlpacaOrderConfirmation.isCloseOrder && data.order.id) {
@@ -16233,6 +16238,16 @@ useEffect(() => {
     // open=true setter from onChange) to no-op and required a second search
     // to populate results.
 
+    // Skip when the typed symbol already matches the asset the user picked.
+    // Otherwise this effect re-fires the search after selection and can
+    // repopulate the dropdown with stale entries when the input is refocused.
+    if (alpacaSelectedAssetMeta?.symbol
+      && normalizeBrokerAssetSearchKey(alpacaSelectedAssetMeta.symbol) === normalizeBrokerAssetSearchKey(query)) {
+      setAlpacaAssetSearchLoading(false);
+      setAlpacaAssetSearchError("");
+      return;
+    }
+
     let isCancelled = false;
     setAlpacaAssetSearchLoading(true);
     setAlpacaAssetSearchError("");
@@ -16275,7 +16290,7 @@ useEffect(() => {
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [alpacaAccount, alpacaOrderForm.symbol, brokerPreferPaper]);
+  }, [alpacaAccount, alpacaOrderForm.symbol, brokerPreferPaper, alpacaSelectedAssetMeta]);
 
   useEffect(() => {
     if (!alpacaAccount) return;
