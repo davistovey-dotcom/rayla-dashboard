@@ -24134,15 +24134,6 @@ return (
                             <InvestorCtaBand
                               actions={[
                                 {
-                                  label: "Analyze my portfolio",
-                                  onClick: () => {
-                                    const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                                    const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
-                                    openGlobalRaylaPopup("Analyze my portfolio");
-                                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
-                                  },
-                                },
-                                {
                                   label: "What should I add?",
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
@@ -28928,23 +28919,13 @@ return (
                 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7cc4ff" }}>
-                    Rayla Coach
-                  </div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fbff", marginTop: 4 }}>
-                    {chartExplainPopupTitle}
-                  </div>
                   {chartExplainPopupContext ? (
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                    <div style={{ fontSize: 12, color: "#94a3b8" }}>
                       {chartExplainPopupContext?.assetName || chartExplainPopupContext?.symbol || "Selected asset"}
                       {chartExplainPopupContext?.timeframe ? ` · ${chartExplainPopupContext.timeframe}` : ""}
                       {Number.isFinite(chartExplainPopupContext?.currentPrice) ? ` · ${formatCurrency(chartExplainPopupContext.currentPrice)}` : ""}
                     </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-                      Ask anything about trades, charts, risk, or strategy.
-                    </div>
-                  )}
+                  ) : null}
                   {documentIntelligence?.documentType && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#7cc4ff", background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.2)", borderRadius: 6, padding: "2px 8px" }}>
