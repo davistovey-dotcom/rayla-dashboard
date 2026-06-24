@@ -24151,6 +24151,15 @@ return (
                             <InvestorCtaBand
                               actions={[
                                 {
+                                  label: "Analyze my portfolio",
+                                  onClick: () => {
+                                    const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                                    const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
+                                    openGlobalRaylaPopup("Analyze my portfolio");
+                                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
+                                  },
+                                },
+                                {
                                   label: "What should I add?",
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
