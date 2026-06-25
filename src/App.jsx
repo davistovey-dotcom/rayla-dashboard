@@ -24122,8 +24122,8 @@ return (
                                     </strong>
                                   </div>
                                 </div>
-                                <div className="homeUtilityRows" style={{ marginTop: 2 }}>
-                                  {brokerPositionsWithIntent.slice(0, 4).map((position) => (
+                                <div className="homeUtilityRows" style={{ marginTop: 2, maxHeight: 180, overflowY: "auto" }}>
+                                  {brokerPositionsWithIntent.map((position) => (
                                     <button
                                       key={`home-holding-${position.symbol}`}
                                       type="button"
