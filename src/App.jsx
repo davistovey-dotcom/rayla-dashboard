@@ -15559,7 +15559,10 @@ useEffect(() => {
         productType: PURCHASE_TYPE.SUBS,
       });
       const { data, error } = await supabase.functions.invoke("apple-verify-purchase", {
-        body: { transactionId: transaction.transactionId },
+        body: {
+          transactionId: transaction.transactionId,
+          jwsRepresentation: transaction.jwsRepresentation,
+        },
       });
       if (error) {
         const message = await getSupabaseFunctionErrorMessage(error, "Purchase verification failed.");
@@ -15590,7 +15593,10 @@ useEffect(() => {
         return;
       }
       const { data, error } = await supabase.functions.invoke("apple-restore-purchase", {
-        body: { transactionId: sub.transactionId },
+        body: {
+          transactionId: sub.transactionId,
+          jwsRepresentation: sub.jwsRepresentation,
+        },
       });
       if (error) {
         const message = await getSupabaseFunctionErrorMessage(error, "Restore failed.");

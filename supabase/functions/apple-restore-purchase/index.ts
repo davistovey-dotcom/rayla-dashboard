@@ -1,5 +1,5 @@
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
-import { verifyTransaction, expiresDateToStatus, APPLE_BUNDLE_ID, APPLE_PRODUCT_ID } from "../_shared/apple.ts";
+import { verifyTransaction, verifyJwsTransaction, expiresDateToStatus, APPLE_BUNDLE_ID, APPLE_PRODUCT_ID } from "../_shared/apple.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -10,12 +10,27 @@ Deno.serve(async (req) => {
     const { supabase, user } = await requireSupabaseUser(req);
     const payload = await req.json().catch(() => ({}));
     const transactionId = String(payload?.transactionId || "").trim();
+    const jwsRepresentation = String(payload?.jwsRepresentation || "").trim();
 
-    if (!transactionId) {
-      return jsonResponse({ ok: false, reason: "missing_transaction_id", message: "transactionId is required." }, 400);
+    if (!transactionId && !jwsRepresentation) {
+      return jsonResponse({ ok: false, reason: "missing_transaction", message: "transactionId or jwsRepresentation is required." }, 400);
     }
 
-    const transaction = await verifyTransaction(transactionId);
+    let transaction: Record<string, unknown>;
+    try {
+      transaction = jwsRepresentation
+        ? verifyJwsTransaction(jwsRepresentation)
+        : await verifyTransaction(transactionId);
+    } catch (verifyError) {
+      console.error("[apple-restore-purchase] verification_failed", {
+        userId: user.id,
+        via: jwsRepresentation ? "jws" : "id_lookup",
+        transactionId: transactionId || null,
+        hasJws: Boolean(jwsRepresentation),
+        error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+      });
+      throw verifyError;
+    }
 
     if (transaction.bundleId !== APPLE_BUNDLE_ID) {
       return jsonResponse({ ok: false, reason: "invalid_bundle", message: "Bundle ID mismatch." }, 403);

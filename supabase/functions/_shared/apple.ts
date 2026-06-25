@@ -71,6 +71,40 @@ export function decodeJws(jws: string): Record<string, unknown> {
   return JSON.parse(base64urlDecode(parts[1]));
 }
 
+// Modern path: StoreKit 2 hands the device-verified JWS payload straight to the
+// client. Decoding it on the server avoids the App Store Server API round-trip
+// (and the per-app In-App Purchase API key scoping required to make that
+// round-trip resolve a transaction).
+export function verifyJwsTransaction(jws: string): Record<string, unknown> {
+  const trimmed = String(jws || "").trim();
+  if (!trimmed) throw new Error("JWS representation is empty.");
+  const payload = decodeJws(trimmed);
+  if (!payload || typeof payload !== "object") {
+    throw new Error("JWS payload is invalid.");
+  }
+  return payload;
+}
+
+async function fetchAppleErrorDetail(res: Response): Promise<{ errorCode: number | null; errorMessage: string | null; bodyPreview: string }> {
+  const bodyText = await res.text().catch(() => "");
+  let parsed: any = null;
+  try { parsed = JSON.parse(bodyText); } catch { /* keep raw text */ }
+  return {
+    errorCode: typeof parsed?.errorCode === "number" ? parsed.errorCode : null,
+    errorMessage: typeof parsed?.errorMessage === "string" ? parsed.errorMessage : null,
+    bodyPreview: bodyText.slice(0, 240),
+  };
+}
+
+function formatAppleError(prefix: string, status: number, detail: { errorCode: number | null; errorMessage: string | null }): string {
+  const parts = [`status ${status}`];
+  if (detail.errorCode != null) parts.push(`errorCode ${detail.errorCode}`);
+  if (detail.errorMessage) parts.push(detail.errorMessage);
+  return `${prefix} (${parts.join(", ")})`;
+}
+
+// Legacy path: look up the transaction by id at Apple's App Store Server API.
+// Kept as a fallback for clients that cannot supply jwsRepresentation.
 export async function verifyTransaction(transactionId: string): Promise<Record<string, unknown>> {
   const jwt = await buildJwt();
 
@@ -92,12 +126,28 @@ export async function verifyTransaction(transactionId: string): Promise<Record<s
       const data = await sandboxRes.json();
       return decodeJws(data.signedTransactionInfo);
     }
-    const err = await sandboxRes.json().catch(() => ({}));
-    throw new Error(`Apple sandbox verification failed: ${(err as any)?.errorMessage ?? sandboxRes.status}`);
+    const detail = await fetchAppleErrorDetail(sandboxRes);
+    console.error("[apple verifyTransaction] sandbox_lookup_failed", {
+      transactionId,
+      jwtBundleId: APPLE_BUNDLE_ID_EXPECTED,
+      status: sandboxRes.status,
+      errorCode: detail.errorCode,
+      errorMessage: detail.errorMessage,
+      bodyPreview: detail.bodyPreview,
+    });
+    throw new Error(formatAppleError("Apple sandbox verification failed", sandboxRes.status, detail));
   }
 
-  const err = await prodRes.json().catch(() => ({}));
-  throw new Error(`Apple verification failed: ${(err as any)?.errorMessage ?? prodRes.status}`);
+  const detail = await fetchAppleErrorDetail(prodRes);
+  console.error("[apple verifyTransaction] production_lookup_failed", {
+    transactionId,
+    jwtBundleId: APPLE_BUNDLE_ID_EXPECTED,
+    status: prodRes.status,
+    errorCode: detail.errorCode,
+    errorMessage: detail.errorMessage,
+    bodyPreview: detail.bodyPreview,
+  });
+  throw new Error(formatAppleError("Apple verification failed", prodRes.status, detail));
 }
 
 // Maps Apple expiresDate (ms timestamp) to subscription status.
