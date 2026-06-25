@@ -1,5 +1,5 @@
-const APPLE_BUNDLE_ID_EXPECTED = "com.davistovey.rayla";
-const APPLE_PRODUCT_ID_EXPECTED = "raylasubmonthly";
+const APPLE_BUNDLE_ID_EXPECTED = "com.raylainc.rayla";
+const APPLE_PRODUCT_ID_EXPECTED = "rayla.sub";
 const STOREKIT_PRODUCTION = "https://api.storekit.itunes.apple.com";
 const STOREKIT_SANDBOX = "https://api.storekit-sandbox.itunes.apple.com";
 
