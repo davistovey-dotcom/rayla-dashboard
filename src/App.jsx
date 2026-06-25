@@ -959,7 +959,6 @@ function isRaylaAdvancedQuestion(question) {
     "liquidity",
     "execution",
     "position sizing",
-    "thesis",
     "probability",
     "correlation",
     "timeframe alignment",
@@ -1354,7 +1353,6 @@ function normalizeSimulationTradeForPerformance(trade) {
     positionTypeLabel: positionIntent.positionTypeLabel,
     positionCategory: positionIntent.positionCategory,
     positionIntent: positionIntent.positionIntent,
-    thesis: positionIntent.thesis,
     entryReason: positionIntent.entryReason,
     entry_reason: positionIntent.entryReason,
     timeHorizon: positionIntent.timeHorizon,
@@ -3430,7 +3428,6 @@ function normalizeTradeForRaylaContext(trade, sourceType) {
     positionTypeLabel: positionIntent.positionTypeLabel,
     positionCategory: positionIntent.positionCategory,
     positionIntent: positionIntent.positionIntent,
-    thesis: positionIntent.thesis,
     entryReason: positionIntent.entryReason,
     timeHorizon: positionIntent.timeHorizon,
     closedAt: trade?.closedAt || trade?.created_at || trade?.exit_time || trade?.entry_time || null,
@@ -3874,7 +3871,6 @@ function formatInvestorContextForAI(packet) {
     `Total Value: ${formatCurrency(packet.totalValue)}`,
     `Unrealized P/L: ${packet.totalUnrealizedPl >= 0 ? "+" : ""}${formatCurrency(packet.totalUnrealizedPl)}${pctStr}`,
   ];
-  if (packet.cash != null) lines.push(`Available Cash: ${formatCurrency(packet.cash)}`);
   if (packet.equity != null) lines.push(`Account Equity: ${formatCurrency(packet.equity)}`);
   lines.push(`Positions: ${packet.count}`);
   if (packet.concentrationLabel && packet.topSymbol) {
@@ -3966,7 +3962,6 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
           positionTypeLabel: intent.positionTypeLabel,
           positionCategory: intent.positionCategory,
           timeHorizon: intent.timeHorizon,
-          thesis: intent.thesis,
           entryReason: intent.entryReason,
         };
       })
@@ -4365,8 +4360,6 @@ Risks identified: [Specific concerns from the document — debt level, margin co
 
 Opportunities identified: [Specific positives — strong FCF, raised guidance, improving margins, catalyst]
 
-Thesis impact: [If a Holding Thesis is in context for this company: "Confirms / Challenges / Neutral — because [specific data point]." If no thesis is stored: "Add a Holding Thesis for [SYMBOL] so I can track this against your conviction."]
-
 What to watch next: [One specific metric, event, or data point to monitor based on what the document revealed]`,
   },
 
@@ -4394,7 +4387,7 @@ For each pick:
 - Entry approach: [general condition or zone, not a price prediction]
 
 Limit to 3 picks unless the user asks for more. If the Picks Profile is incomplete, say so and ask them to complete it for personalized picks. If a Financial Goal is in context, prioritize picks that align with that objective and timeline.
-If [Document Intelligence] is in context with a News Article or Earnings Report: factor the catalyst, sentiment, and thesis impact into the picks recommendation. If the document is about a specific company, consider whether that company belongs in the picks.`,
+If [Document Intelligence] is in context with a News Article or Earnings Report: factor the catalyst and sentiment into the picks recommendation. If the document is about a specific company, consider whether that company belongs in the picks.`,
   },
 
   OpportunityRanking: {
@@ -4432,7 +4425,7 @@ Ranked Opportunities:
 
 Market regime: [Bull/Neutral/Bear — one sentence from SPY momentum in context]
 
-Sizing: [Available cash and any concentration flags — one sentence, factual, no leading warnings]`,
+Concentration: [Any concentration flags — one sentence, factual, no leading warnings]`,
   },
 
   PortfolioAddition: {
@@ -4537,11 +4530,11 @@ If [Document Intelligence] is in context with an Earnings Report: factor guidanc
 Portfolio Snapshot
 
 Strengths:
-• [Specific strength from the data — P&L performance, thesis alignment, healthy diversification]
+• [Specific strength from the data — P&L performance, healthy diversification, sector balance]
 • [Second strength]
 
 Risks:
-• [Specific risk — over-concentration, correlated names, underwater position, no thesis]
+• [Specific risk — over-concentration, correlated names, underwater position]
 • [Second risk if present]
 
 Position status:
@@ -4554,7 +4547,7 @@ Priority actions:
 What to monitor: [concrete catalyst, level, or event worth watching]
 
 If a Financial Goal is in context: assess whether the portfolio's current risk level, concentration, and composition are on track for the stated objective and target date.
-If [Document Intelligence] is in context: reference specific findings from the document that affect the portfolio. If it's an earnings report for a held position, note the result vs. thesis. If it's a balance sheet, flag any debt or liquidity findings that change the risk picture.`,
+If [Document Intelligence] is in context: reference specific findings from the document that affect the portfolio. If it's an earnings report for a held position, note the result and what it changes about the position. If it's a balance sheet, flag any debt or liquidity findings that change the risk picture.`,
   },
 
   RiskAssessment: {
@@ -4586,7 +4579,7 @@ Sizing guidance:
 • Suggested max risk per trade: [% of account if trading context]
 
 Flags:
-⚠ [Specific concern — over-concentration, correlated names, no thesis on large position]
+⚠ [Specific concern — over-concentration, correlated names, oversized single-name exposure]
 ✓ [What looks appropriately sized or healthy]
 
 Bottom line: [One clear sentence — what to do or what to leave alone]
@@ -4678,26 +4671,6 @@ Timing guidance: Deploy Now / Hold / Wait — with one sentence of reasoning tie
 What to watch next: [One specific indicator, level, or event that would change this assessment — e.g. "SPY holding above 200-day MA", "VIX above 25 would signal exit pressure"]`,
   },
 
-  ThesisReview: {
-    label: "Holding Thesis Review",
-    screenBoost: ["Holdings"],
-    patterns: [
-      /review (my )?(thesis|conviction|investment|holding)/i,
-      /is (my |the )?(thesis|investment|holding|case) (still )?(valid|intact|holding up|broken)/i,
-      /should i (hold|sell|reduce|exit|trim|keep) [A-Z]{1,5}/i,
-      /thesis (still )?(valid|intact|broken|holding)/i,
-      /ongoing reasoning/i,
-      /(broken|invalidated|changed) (thesis|case|story)/i,
-      /is [A-Z]{1,5} still (worth holding|a good hold|worth it)/i,
-      /still believe in [A-Z]{1,5}/i,
-    ],
-    instruction: `Use the Ongoing reasoning format for each relevant holding.
-If the user asks about a specific symbol, focus there. If broadly, cover all holdings that have a Holding Thesis.
-For any holding with no Holding Thesis: "I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning."
-If a Financial Goal is in context: assess whether this holding and its thesis support the user's stated objective and target date.
-If [Document Intelligence] is in context: use the specific data — earnings results, balance sheet findings, news catalyst — to directly validate or challenge the Holding Thesis. Reference exact figures. State clearly: "This confirms / challenges / is neutral to your thesis because [specific data point from the document]."`,
-  },
-
   Educational: {
     label: "Educational Explanation",
     screenBoost: [],
@@ -4739,7 +4712,6 @@ const TEMPLATE_PRIORITY = [
   "CashDeployment",
   "MarketSnapshot",
   "RiskAssessment",
-  "ThesisReview",
   "TradeReview",
   "PortfolioReview",
   "MarketIntel",
@@ -4852,10 +4824,6 @@ function buildPortfolioRiskContext({ positions, account }) {
   else if (n <= 3) flags.push(`△ ${n}-position portfolio — highly concentrated`);
   if (n > 15) flags.push(`△ ${n} positions — verify each is a high-conviction holding`);
   if (cashPct > 40) flags.push(`△ ${cashPct.toFixed(0)}% cash — large uninvested balance`);
-  const unthesised = withConc.filter((p) => p.conc >= 10 && !p.thesis);
-  if (unthesised.length) {
-    flags.push(`△ Large positions without a Holding Thesis: ${unthesised.map((p) => p.symbol).join(", ")}`);
-  }
 
   if (flags.length) {
     lines.push("Risk flags:");
@@ -5037,8 +5005,8 @@ Rules: *Trend="expanding"/"contracting"/"stable"/null. operatingLeverage="positi
 Rules: earningsQuality="high"/"adequate"/"low"/"concern". cashConversion="strong"/"adequate"/"weak". Use null for any field not found. Source:`,
 
   NewsArticle: `Analyze this financial news article and return ONLY valid JSON with these exact fields:
-{"symbol":null,"company":null,"headline":null,"publicationDate":null,"source":null,"catalyst":null,"sentiment":null,"priceImpact":null,"thesisImpact":null,"riskIdentified":null,"opportunityIdentified":null,"isTimeSensitive":false,"affectedSectors":[],"keyFacts":[],"summary":null}
-Rules: sentiment="positive"/"negative"/"neutral"/"mixed". thesisImpact="confirms"/"challenges"/"neutral"/"mixed". Use null for any field not found. Source:`,
+{"symbol":null,"company":null,"headline":null,"publicationDate":null,"source":null,"catalyst":null,"sentiment":null,"priceImpact":null,"riskIdentified":null,"opportunityIdentified":null,"isTimeSensitive":false,"affectedSectors":[],"keyFacts":[],"summary":null}
+Rules: sentiment="positive"/"negative"/"neutral"/"mixed". Use null for any field not found. Source:`,
 
   Unknown: `Analyze this financial document and return ONLY valid JSON with these exact fields:
 {"symbol":null,"company":null,"documentDescription":null,"keyFindings":[],"risks":[],"opportunities":[],"summary":null}
@@ -5133,7 +5101,6 @@ function buildDocumentIntelligenceContext(docIntel) {
     if (docIntel.catalyst) lines.push(`Catalyst: ${docIntel.catalyst}`);
     if (docIntel.sentiment) lines.push(`Sentiment: ${docIntel.sentiment}`);
     if (docIntel.priceImpact) lines.push(`Price impact: ${docIntel.priceImpact}`);
-    if (docIntel.thesisImpact) lines.push(`Thesis impact: ${docIntel.thesisImpact}`);
     if (docIntel.riskIdentified) lines.push(`Risk: ${docIntel.riskIdentified}`);
     if (docIntel.opportunityIdentified) lines.push(`Opportunity: ${docIntel.opportunityIdentified}`);
   }
@@ -5377,8 +5344,6 @@ function buildOpportunityRankingContext({ scannerResults, fundamentalsCache, pos
     if (r.riskNote) lines.push(`   Sizing note: ${r.riskNote}`);
   });
   lines.push(`\nMarket regime: ${regimeLabel}${spyROC20 != null ? ` (SPY 20d: ${spyROC20 >= 0 ? "+" : ""}${spyROC20}%)` : ""}`);
-  const cash = Number(account?.cash ?? 0);
-  if (Number.isFinite(cash) && cash > 0) lines.push(`Available cash: $${cash.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
   return lines.join("\n");
 }
 
@@ -5467,7 +5432,6 @@ function buildUniversalScreenContext({
         objectsIncluded.push("account");
         lines.push(`Account equity: ${fmtMoney(totalEquity)}`);
       }
-      let anyThesis = false;
       if (positions.length) {
         objectsIncluded.push("holdings_positions");
         lines.push(`Holdings (${positions.length}):`);
@@ -5483,33 +5447,9 @@ function buildUniversalScreenContext({
           if (concentration) posLine += ` | ${concentration}% of portfolio`;
           if (Number.isFinite(avgEntry) && avgEntry > 0) posLine += ` | Avg entry: ${fmtMoney(avgEntry)}`;
           lines.push(posLine);
-          const holdingThesis = p.thesis || "";
-          if (holdingThesis) {
-            lines.push(`    Holding Thesis: ${String(holdingThesis).slice(0, 200)}`);
-            anyThesis = true;
-          }
         });
       } else {
         lines.push("No long-term holdings classified yet.");
-      }
-      if (anyThesis) {
-        objectsIncluded.push("thesis_review_enabled");
-        lines.push("");
-        lines.push("[Ongoing reasoning — one or more holdings have a Holding Thesis]");
-        lines.push("When the user asks about any of these holdings or requests a portfolio/holdings review, respond using this structure for each holding that has a Holding Thesis:");
-        lines.push("");
-        lines.push("Ongoing reasoning: [SYMBOL]");
-        lines.push("- Holding Thesis: [repeat the user's stated Holding Thesis from above]");
-        lines.push("- Status: Intact / Needs Review / Broken / Not enough data");
-        lines.push("- Why: [your reasoning — base this on P&L%, concentration, avg entry vs current market value, time horizon]");
-        lines.push("- What changed: [observable shifts in the data above — P&L direction, concentration drift, price vs entry]");
-        lines.push("- What to watch next: [concrete, specific criteria — a price level, a concentration threshold, a time horizon checkpoint]");
-        lines.push("- Decision framing: Hold / Review / Reduce / Exit consideration");
-        lines.push("");
-        lines.push("Rules for ongoing reasoning:");
-        lines.push("- Use only data in this context. Do not invent fundamentals, news, earnings, or macro events.");
-        lines.push("- If data is insufficient for a judgment, say exactly that and name what data would change your answer.");
-        lines.push("- For any holding in this list with no Holding Thesis, respond: \"I don't have your Holding Thesis for [SYMBOL] yet. Add it in the Holdings view so I can start ongoing reasoning.\"");
       }
       const holdingsRiskCtx = buildPortfolioRiskContext({ positions, account: alpacaAccount });
       if (holdingsRiskCtx) { objectsIncluded.push("risk_engine"); lines.push(""); lines.push(holdingsRiskCtx); }
@@ -5571,7 +5511,7 @@ function buildUniversalScreenContext({
         if (trade.result_r != null) lines.push(`Result: ${fmt(trade.result_r)}R`);
         if (trade.entry_time) lines.push(`Entry: ${fmt(trade.entry_time)}`);
         const tradeEntryReason = trade.entryReason || trade.entry_reason || "";
-        if (tradeEntryReason) lines.push(`Trade Thesis: ${String(tradeEntryReason).slice(0, 200)}`);
+        if (tradeEntryReason) lines.push(`Trade entry reason: ${String(tradeEntryReason).slice(0, 200)}`);
         if (trade.notes) lines.push(`Notes: ${String(trade.notes).slice(0, 120)}`);
       }
       contextText = lines.join("\n");
