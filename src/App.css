@@ -49,10 +49,12 @@
 }
 
 html, body, #root {
-  width: 100%;
-  max-width: 100%;
+  width: 100vw;
+  max-width: 100vw;
+  min-height: 100dvh;
   overflow-x: hidden;
   overscroll-behavior-x: none;
+  box-sizing: border-box;
   background: #0b1017;
   font-family: var(--font-sans);
   font-synthesis: none;
@@ -1872,8 +1874,8 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .unlockMobile {
     display: flex;
     flex-direction: column;
-    width: 100%;
-    max-width: 100%;
+    width: 100vw;
+    max-width: 100vw;
     min-height: 100dvh;
     overflow-x: hidden;
     box-sizing: border-box;
@@ -1884,6 +1886,8 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   /* ── Page: flat dark surface, no nested cards ── */
   .unlockPage {
+    width: 100vw;
+    max-width: 100vw;
     min-height: 100dvh;
     padding: 0;
     align-items: flex-start;
@@ -1891,8 +1895,6 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    width: 100%;
-    max-width: 100%;
     box-sizing: border-box;
   }
 
@@ -2067,14 +2069,38 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     letter-spacing: 0.02em;
   }
 
-  /* ── Broker onboarding — keep existing behavior, tighten sizing ── */
+  /* ── Broker onboarding — outer page locked to viewport; shell is the
+        single inner vertical-scroll container. ── */
+  .unlockPage.brokerOnboardingPage {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    padding:
+      max(env(safe-area-inset-top), 0px)
+      max(env(safe-area-inset-right), 0px)
+      max(env(safe-area-inset-bottom), 0px)
+      max(env(safe-area-inset-left), 0px);
+  }
+
   .brokerOnboardingShell {
     border-radius: 16px;
     padding: 16px;
     width: 100%;
     max-width: 100%;
-    box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
   }
 
   .brokerOnboardingHero h1 {
@@ -2496,28 +2522,40 @@ body.tour-active .mobileNav {
 @media (max-width: 700px) {
   .statsGrid { grid-template-columns: 1fr; }
   .authPage {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
     min-height: 100dvh;
     max-height: 100dvh;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
     padding:
-      max(env(safe-area-inset-top), 16px)
-      max(env(safe-area-inset-right), 18px)
-      max(env(safe-area-inset-bottom), 16px)
-      max(env(safe-area-inset-left), 18px);
-    align-items: stretch;
+      max(env(safe-area-inset-top), 12px)
+      max(env(safe-area-inset-right), 16px)
+      max(env(safe-area-inset-bottom), 12px)
+      max(env(safe-area-inset-left), 16px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     box-sizing: border-box;
   }
   .authCard {
-    margin: auto 0;
-    padding: 22px 20px;
-    border-radius: 18px;
     width: 100%;
     max-width: 100%;
+    max-height: 100%;
+    margin: 0 auto;
+    padding: 18px 16px;
+    border-radius: 16px;
     box-sizing: border-box;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    min-width: 0;
   }
-  .authIdentity { margin-bottom: 22px; }
-  .authTitle { font-size: 22px; margin-bottom: 18px; }
+  .authIdentity { margin-bottom: 14px; gap: 10px; }
+  .authBadge { width: 28px; height: 28px; }
+  .authLogo { height: 18px; }
+  .authBrand { font-size: 12px; margin-bottom: 8px; }
+  .authTitle { font-size: 20px; margin-bottom: 14px; line-height: 1.1; overflow-wrap: anywhere; }
   .authSplash { padding: 28px; gap: 30px; }
   .authSplashBadge { width: 48px; height: 48px; }
   .profileHeader { flex-direction: column; }

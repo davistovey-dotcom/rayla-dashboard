@@ -14524,6 +14524,44 @@ useEffect(() => {
     setSession(null);
   }
 
+  // Dedicated sign-out path for every visible Sign Out button on the
+  // pre-dashboard screens (UnlockRaylaPage paywall + BrokerOnboardingPage all
+  // step variants). Routes the user back to <Login /> the same render tick
+  // the button is tapped — no Supabase round-trip gates the UI transition.
+  function forcePreAppSignOut(event) {
+    // Defuse anything that might swallow the click (wrapping form submit,
+    // anchor navigation, click delegation, etc.).
+    try { event?.preventDefault?.(); } catch { /* ignore */ }
+    try { event?.stopPropagation?.(); } catch { /* ignore */ }
+
+    // Immediate React state clear. The !session render guard at the top of
+    // the component body returns <Login /> on the very next render — before
+    // any of the Supabase calls below have a chance to resolve, fail, or
+    // hang on a broken session lock.
+    clearSignedOutWorkspaceState();
+    setSession(null);
+
+    // Background Supabase cleanup. Local scope first (network-free, wipes
+    // localStorage so the auth listener can't restore stale tokens); global
+    // scope second for server-side token invalidation. Neither awaited;
+    // neither blocks the UI; neither failure path bounces the user back to
+    // a signed-in screen because session is already null in React state.
+    try {
+      supabase.auth.signOut({ scope: "local" }).catch((err) => {
+        console.error("[forcePreAppSignOut] local sign out (ignored):", err);
+      });
+    } catch (err) {
+      console.error("[forcePreAppSignOut] local sign out threw (ignored):", err);
+    }
+    try {
+      supabase.auth.signOut().catch((err) => {
+        console.error("[forcePreAppSignOut] global sign out (ignored):", err);
+      });
+    } catch (err) {
+      console.error("[forcePreAppSignOut] global sign out threw (ignored):", err);
+    }
+  }
+
   const normalizedBrokerTrades = useMemo(
     () => buildNormalizedBrokerTrades(brokerTradeLog),
     [brokerTradeLog]
@@ -22291,7 +22329,7 @@ if (!hasRaylaAccess) {
       onApplePurchase={handleApplePurchase}
       onAppleRestore={handleAppleRestore}
       onManageAppleSubscription={handleManageAppleSubscription}
-      onSignOut={handleSignOut}
+      onSignOut={forcePreAppSignOut}
     />
   );
 }
@@ -22330,7 +22368,7 @@ if (shouldShowBrokerOnboarding) {
       onConnectAlpaca={() => handleConnectAlpaca(false)}
       onCreateAlpaca={handleCreateAlpacaAccount}
       onSkip={handleSkipBrokerOnboarding}
-      onSignOut={handleSignOut}
+      onSignOut={forcePreAppSignOut}
     />
   );
 }
