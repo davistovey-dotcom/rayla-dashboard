@@ -11969,7 +11969,6 @@ function UnlockRaylaPage({
             {error ? <div className="unlockError" style={{ marginTop: 6 }}>{error}</div> : null}
           </div>
         </div>
-        <button type="button" className="unlockMobileSignOut" onClick={onSignOut}>Sign out</button>
       </div>
 
       {/* ── Desktop layout (≥600px) — hidden on mobile via CSS ── */}
@@ -12034,7 +12033,6 @@ function UnlockRaylaPage({
           </div>
         </div>
       </div>
-      <button type="button" className="unlockSignOut" onClick={onSignOut}>Sign out</button>
 
     </div>
   );
@@ -12096,7 +12094,6 @@ function BrokerOnboardingPage({
 
           <div className="brokerOnboardingFooter">
             <button type="button" className="unlockSecondaryButton" onClick={() => setStep("choose")}>Back</button>
-            <button type="button" className="unlockSignOut inline" onClick={onSignOut}>Sign out</button>
           </div>
         </div>
       </div>
@@ -12142,7 +12139,6 @@ function BrokerOnboardingPage({
 
           <div className="brokerOnboardingFooter" style={{ marginTop: 16 }}>
             <button type="button" className="unlockSecondaryButton" onClick={() => setStep("choose")}>Back</button>
-            <button type="button" className="unlockSignOut inline" onClick={onSignOut}>Sign out</button>
           </div>
         </div>
       </div>
@@ -12204,7 +12200,6 @@ function BrokerOnboardingPage({
 
         <div className="brokerOnboardingFooter">
           <button type="button" className="unlockSecondaryButton" onClick={onSkip}>Skip for now</button>
-          <button type="button" className="unlockSignOut inline" onClick={onSignOut}>Sign out</button>
         </div>
       </div>
     </div>
