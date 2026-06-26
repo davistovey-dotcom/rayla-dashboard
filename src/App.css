@@ -67,6 +67,19 @@ html, body {
   touch-action: pan-y pinch-zoom;
 }
 
+/* Pre-dashboard root lock. The `raylaPreApp` class is toggled on
+   <body> and <#root> by an effect in App.jsx whenever a pre-dashboard
+   screen (auth splash / login / paywall / onboarding / loaders) is being
+   rendered. The dashboard never has this class so its normal vertical
+   scroll is untouched. Deterministic — no :has() dependency. */
+body.raylaPreApp,
+body.raylaPreApp #root,
+#root.raylaPreApp {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -2564,7 +2577,20 @@ body.tour-active .mobileNav {
   .authLogo { height: 18px; }
   .authBrand { font-size: 12px; margin-bottom: 8px; }
   .authTitle { font-size: 20px; margin-bottom: 14px; line-height: 1.1; overflow-wrap: anywhere; }
-  .authSplash { padding: 28px; gap: 30px; }
+  .authSplash {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    padding:
+      max(env(safe-area-inset-top), 16px)
+      max(env(safe-area-inset-right), 18px)
+      max(env(safe-area-inset-bottom), 16px)
+      max(env(safe-area-inset-left), 18px);
+    gap: 24px;
+    box-sizing: border-box;
+  }
   .authSplashBadge { width: 48px; height: 48px; }
   .profileHeader { flex-direction: column; }
   .profileGrid { grid-template-columns: 1fr; }

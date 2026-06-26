@@ -13349,6 +13349,11 @@ useEffect(() => {
   const [submittedCloseOrder, setSubmittedCloseOrder] = useState(null);
   const alpacaOrderSubmittingRef = useRef(false);
   const orderTicketRef = useRef(null);
+  // Set true by handleSignOut / forcePreAppSignOut so the auth listener can
+  // distinguish an intentional manual sign-out from a stale auth event that
+  // arrives mid-flight. Cleared by the listener on confirmation events
+  // (SIGNED_OUT / null session) or on a genuine SIGNED_IN.
+  const intentionallySignedOutRef = useRef(false);
   const [alpacaAssetSearchResults, setAlpacaAssetSearchResults] = useState([]);
   const [alpacaAssetSearchLoading, setAlpacaAssetSearchLoading] = useState(false);
   const [alpacaAssetSearchError, setAlpacaAssetSearchError] = useState("");
@@ -14510,6 +14515,11 @@ useEffect(() => {
   }
 
   function handleSignOut() {
+    // Mark this sign-out as intentional so the auth listener cannot bounce
+    // the user back to a signed-in screen if a stale TOKEN_REFRESHED /
+    // USER_UPDATED / late INITIAL_SESSION event lands during the race
+    // window between supabase.auth.signOut() and SIGNED_OUT propagation.
+    intentionallySignedOutRef.current = true;
     // Local sign-out first — no network, can't hang, and guarantees the
     // Supabase SDK's localStorage session is wiped immediately. Without this,
     // a broken session lock could leave stale tokens that the auth listener
@@ -14537,6 +14547,9 @@ useEffect(() => {
     // anchor navigation, click delegation, etc.).
     try { event?.preventDefault?.(); } catch { /* ignore */ }
     try { event?.stopPropagation?.(); } catch { /* ignore */ }
+
+    // Mark this sign-out as intentional — see auth listener guard below.
+    intentionallySignedOutRef.current = true;
 
     // Immediate React state clear. The !session render guard at the top of
     // the component body returns <Login /> on the very next render — before
@@ -16665,6 +16678,30 @@ useEffect(() => {
       email: sessionData?.user?.email || null,
       emailConfirmedAt: sessionData?.user?.email_confirmed_at || null,
     });
+
+    // Manual sign-out is in flight. Suppress any stale event that would
+    // restore a non-null session (queued TOKEN_REFRESHED / USER_UPDATED /
+    // late INITIAL_SESSION). Only SIGNED_OUT, a null-session event, or an
+    // explicit SIGNED_IN clears the flag.
+    if (intentionallySignedOutRef.current) {
+      if (event === "SIGNED_OUT" || !sessionData) {
+        intentionallySignedOutRef.current = false;
+        clearSignedOutWorkspaceState();
+        setSession(null);
+        setAuthLoading(false);
+        return;
+      }
+      if (event === "SIGNED_IN") {
+        intentionallySignedOutRef.current = false;
+        setSession(sessionData);
+        setAuthLoading(false);
+        return;
+      }
+      // Stale restore attempt — drop it.
+      console.info("[auth] suppressing stale session restore after manual sign-out", { event });
+      return;
+    }
+
     if (event === "SIGNED_OUT") {
       clearSignedOutWorkspaceState();
     }
@@ -16681,6 +16718,49 @@ useEffect(() => {
     listener.subscription.unsubscribe();
   };
 }, []);
+
+  // Pre-dashboard root scroll-lock: mirror the same render-guard conditions
+  // used at the top of the JSX return to decide which pre-app screen
+  // renders. When any of them is active, add the `raylaPreApp` class to
+  // body + #root so the App.css class-based rule locks the document to
+  // 100dvh with overflow:hidden. Removed automatically once the dashboard
+  // renders. Deterministic; no CSS :has() dependency.
+  useEffect(() => {
+    const hasRayla = hasActiveRaylaSubscription(billingSubscription);
+    const waitingAccess = !billingLoaded || billingLoading;
+    const showBrokerOnboardingScreen = hasRayla
+      && alpacaConnectionLoaded
+      && !alpacaAccount
+      && !brokerOnboardingSkipped;
+    const showBrokerConfirmScreen = hasRayla
+      && alpacaConnectionLoaded
+      && Boolean(alpacaAccount)
+      && pendingBrokerConfirm;
+    const isPreApp = authLoading
+      || !session
+      || (session && emailJustVerified)
+      || waitingAccess
+      || !hasRayla
+      || !alpacaConnectionLoaded
+      || showBrokerConfirmScreen
+      || showBrokerOnboardingScreen;
+    const body = typeof document !== "undefined" ? document.body : null;
+    const root = typeof document !== "undefined" ? document.getElementById("root") : null;
+    if (!body) return;
+    body.classList.toggle("raylaPreApp", Boolean(isPreApp));
+    if (root) root.classList.toggle("raylaPreApp", Boolean(isPreApp));
+  }, [
+    session,
+    authLoading,
+    emailJustVerified,
+    billingLoaded,
+    billingLoading,
+    billingSubscription,
+    alpacaConnectionLoaded,
+    alpacaAccount,
+    brokerOnboardingSkipped,
+    pendingBrokerConfirm,
+  ]);
 
   useEffect(() => {
     const userId = session?.user?.id;
