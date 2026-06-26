@@ -64,38 +64,78 @@ Deno.serve(async (req) => {
     const status = expiresDateToStatus(expiresDate);
     const currentPeriodEnd = expiresDate ? new Date(expiresDate).toISOString() : null;
     const appleStatus = expiresDate == null ? null : (expiresDate > Date.now() ? "ACTIVE" : "EXPIRED");
+    const appleOriginalTxn = String(transaction.originalTransactionId);
+    const appleTxn = String(transaction.transactionId);
 
-    const { data, error } = await supabase
+    // Idempotency: an Apple original_transaction_id is the stable identifier
+    // for a subscription across renewals. If a row already exists keyed on it
+    // (current user, prior session, or a stale test account), reuse it.
+    const { data: existingApple } = await supabase
       .from("user_subscriptions")
-      .upsert(
+      .select("user_id")
+      .eq("apple_original_transaction_id", appleOriginalTxn)
+      .maybeSingle();
+
+    if (existingApple && existingApple.user_id !== user.id) {
+      return jsonResponse(
         {
-          user_id: user.id,
-          billing_provider: "apple",
-          apple_original_transaction_id: String(transaction.originalTransactionId),
-          apple_transaction_id: String(transaction.transactionId),
-          apple_product_id: String(transaction.productId),
-          apple_bundle_id: String(transaction.bundleId),
-          apple_environment: transaction.environment ? String(transaction.environment) : null,
-          apple_expires_at: currentPeriodEnd,
-          apple_status: appleStatus,
-          status,
-          plan_key: "rayla_base",
-          price_id: null,
-          current_period_end: currentPeriodEnd,
-          cancel_at_period_end: false,
-          trial_ends_at: null,
-          metadata: {
-            verified_at: new Date().toISOString(),
-          },
+          ok: false,
+          reason: "transaction_owned_by_other_user",
+          message: "This Apple subscription is already linked to a different Rayla account.",
         },
-        { onConflict: "user_id" }
-      )
+        409
+      );
+    }
+
+    const upsertRow = {
+      user_id: user.id,
+      billing_provider: "apple",
+      apple_original_transaction_id: appleOriginalTxn,
+      apple_transaction_id: appleTxn,
+      apple_product_id: String(transaction.productId),
+      apple_bundle_id: String(transaction.bundleId),
+      apple_environment: transaction.environment ? String(transaction.environment) : null,
+      apple_expires_at: currentPeriodEnd,
+      apple_status: appleStatus,
+      status,
+      plan_key: "rayla_base",
+      price_id: null,
+      current_period_end: currentPeriodEnd,
+      cancel_at_period_end: false,
+      trial_ends_at: null,
+      metadata: { verified_at: new Date().toISOString() },
+    };
+
+    // Prefer the apple_original_transaction_id unique index when present so a
+    // stale row from the same user with a different prior apple_transaction_id
+    // is refreshed in place instead of triggering a unique-constraint violation.
+    let writeResult = await supabase
+      .from("user_subscriptions")
+      .upsert(upsertRow, { onConflict: "apple_original_transaction_id" })
       .select("*")
       .single();
 
-    if (error) throw new Error(error.message);
+    if (writeResult.error) {
+      // Fallback: legacy schemas may only have the user_id unique index.
+      writeResult = await supabase
+        .from("user_subscriptions")
+        .upsert(upsertRow, { onConflict: "user_id" })
+        .select("*")
+        .single();
+    }
 
-    return jsonResponse({ ok: true, subscription: data });
+    if (writeResult.error) {
+      console.error("[apple-verify-purchase] upsert_failed", {
+        userId: user.id,
+        appleOriginalTxn,
+        appleTxn,
+        message: writeResult.error.message,
+        code: (writeResult.error as any)?.code || null,
+      });
+      throw new Error(writeResult.error.message);
+    }
+
+    return jsonResponse({ ok: true, subscription: writeResult.data });
   } catch (error) {
     return jsonResponse(
       { ok: false, error: error instanceof Error ? error.message : "Unable to verify Apple purchase." },

@@ -1873,7 +1873,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     display: flex;
     flex-direction: column;
     width: 100%;
+    max-width: 100%;
     min-height: 100dvh;
+    overflow-x: hidden;
+    box-sizing: border-box;
   }
 
   .unlockShell { display: none; }
@@ -1885,8 +1888,12 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     padding: 0;
     align-items: flex-start;
     justify-content: flex-start;
+    overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   /* ── Mobile inner content column ── */
@@ -1895,11 +1902,22 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     padding:
       calc(20px + env(safe-area-inset-top))
-      max(14px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-right))
       calc(16px + env(safe-area-inset-bottom))
-      max(14px, env(safe-area-inset-left));
+      max(16px, env(safe-area-inset-left));
+  }
+
+  .unlockMobileInner .unlockEyebrow,
+  .unlockMobileHeadline,
+  .unlockMobileSubcopy {
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
   }
 
   .unlockMobileTop {
@@ -2053,17 +2071,32 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .brokerOnboardingShell {
     border-radius: 16px;
     padding: 16px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
   }
 
   .brokerOnboardingHero h1 {
     font-size: clamp(22px, 6.5vw, 28px);
     line-height: 1.15;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
   }
 
   .brokerOnboardingHero p {
     font-size: 13px;
     line-height: 1.5;
     margin-top: 8px;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+
+  .brokerOnboardingGrid {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
   }
 
   .brokerOnboardingFooter {
@@ -2079,6 +2112,10 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .brokerOnboardingCard {
     min-height: 136px;
     padding: 16px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
   }
 
   .brokerOnboardingBenefits {
@@ -2458,9 +2495,29 @@ body.tour-active .mobileNav {
 /* ── Mobile ── */
 @media (max-width: 700px) {
   .statsGrid { grid-template-columns: 1fr; }
-  .authPage { padding: 18px; align-items: stretch; }
-  .authCard { margin: auto 0; padding: 28px 22px; border-radius: 18px; }
-  .authTitle { font-size: 25px; margin-bottom: 22px; }
+  .authPage {
+    min-height: 100dvh;
+    max-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding:
+      max(env(safe-area-inset-top), 16px)
+      max(env(safe-area-inset-right), 18px)
+      max(env(safe-area-inset-bottom), 16px)
+      max(env(safe-area-inset-left), 18px);
+    align-items: stretch;
+    box-sizing: border-box;
+  }
+  .authCard {
+    margin: auto 0;
+    padding: 22px 20px;
+    border-radius: 18px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .authIdentity { margin-bottom: 22px; }
+  .authTitle { font-size: 22px; margin-bottom: 18px; }
   .authSplash { padding: 28px; gap: 30px; }
   .authSplashBadge { width: 48px; height: 48px; }
   .profileHeader { flex-direction: column; }
