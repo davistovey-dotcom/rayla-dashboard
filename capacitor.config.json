@@ -1,5 +1,8 @@
 {
   "appId": "com.raylainc.rayla",
   "appName": "Rayla",
-  "webDir": "dist"
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never"
+  }
 }
