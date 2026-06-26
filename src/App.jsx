@@ -14506,6 +14506,14 @@ useEffect(() => {
   }
 
   function handleSignOut() {
+    // Local sign-out first — no network, can't hang, and guarantees the
+    // Supabase SDK's localStorage session is wiped immediately. Without this,
+    // a broken session lock could leave stale tokens that the auth listener
+    // restores moments after we clear React state, bouncing the user back to
+    // a logged-in screen.
+    supabase.auth.signOut({ scope: "local" }).catch((err) => {
+      console.error("Local sign out error (ignored):", err);
+    });
     // Fire the network sign-out without awaiting — if the Supabase session
     // lock is broken (AbortError), awaiting hangs forever and the finally
     // never runs. Local cleanup must happen unconditionally.
