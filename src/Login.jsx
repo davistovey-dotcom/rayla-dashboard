@@ -61,7 +61,6 @@ function SplashScreen({ onEnter }) {
 
   return (
     <div className="authSplash">
-      <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
       <div className="authSplashIdentity" style={{ opacity: visible ? 1 : 0, transform: visible ? "translateY(0)" : "translateY(10px)" }}>
         <img className="authSplashBadge" src="/badger.png" alt="" />
         <img className="authSplashLogo" src="/rayla-logo.png" alt="Rayla" />
@@ -149,7 +148,6 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, onConfirm
   if (verified) {
     return (
       <div className="authPage">
-        <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
         <div className="authCard">
           <div className="authIdentity">
             <img className="authBadge" src="/badger.png" alt="" />
@@ -171,7 +169,6 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, onConfirm
 
   return (
     <div className="authPage">
-      <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
       <div className="authCard">
         <div className="authIdentity">
           <img className="authBadge" src="/badger.png" alt="" />
@@ -521,7 +518,6 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="authPage">
-      <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
       <div className="authCard">
         <div className="authIdentity">
           <img className="authBadge" src="/badger.png" alt="" />

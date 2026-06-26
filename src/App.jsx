@@ -11912,7 +11912,6 @@ function UnlockRaylaPage({
 
   return (
     <div className="unlockPage">
-      <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
 
       {/* ── Mobile layout (<600px) — hidden on desktop via CSS ── */}
       <div className="unlockMobile">
@@ -12055,7 +12054,6 @@ function BrokerOnboardingPage({
   if (step === "pre_connect") {
     return (
       <div className="unlockPage brokerOnboardingPage">
-        <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
         <div className="brokerOnboardingShell">
           <div className="brokerOnboardingHero">
             <div className="unlockEyebrow">Before you connect</div>
@@ -12108,7 +12106,6 @@ function BrokerOnboardingPage({
   if (step === "different_account") {
     return (
       <div className="unlockPage brokerOnboardingPage">
-        <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
         <div className="brokerOnboardingShell">
           <div className="brokerOnboardingHero">
             <div className="unlockEyebrow">Use a different Alpaca account</div>
@@ -12155,7 +12152,6 @@ function BrokerOnboardingPage({
   // Default: "choose"
   return (
     <div className="unlockPage brokerOnboardingPage">
-      <div data-rayla-build-marker="2026-06-25-A" style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "max(env(safe-area-inset-top, 0px), 0px) 8px 4px", background: "#7CC4FF", color: "#0b1017", fontSize: 11, fontWeight: 800, textAlign: "center", letterSpacing: "0.08em", zIndex: 99999, pointerEvents: "none" }}>BUILD VERIFY 2026-06-25 A</div>
       <div className="brokerOnboardingShell">
         <div className="brokerOnboardingHero">
           <div className="unlockEyebrow">Connect your portfolio</div>
