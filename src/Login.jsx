@@ -241,7 +241,7 @@ export default function Login({ onLogin }) {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [screen, setScreen] = useState("splash"); // "splash" | "login" | "verify"
+  const [screen, setScreen] = useState("login"); // "splash" | "login" | "verify"
   const [authMessage, setAuthMessage] = useState(null);
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationType, setVerificationType] = useState("signup");
