@@ -7,6 +7,20 @@ function createSecureStateToken() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function sanitizeReturnUri(uri: unknown): string | null {
+  if (typeof uri !== "string" || !uri) return null;
+  if (uri === "rayla://broker-return") return uri;
+  try {
+    const parsed = new URL(uri);
+    if (parsed.protocol === "https:" && (parsed.host === "raylainc.live" || parsed.host === "www.raylainc.live")) {
+      return uri;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: buildCorsHeaders() });
@@ -16,9 +30,11 @@ Deno.serve(async (req) => {
     const { supabase, user } = await requireSupabaseUser(req);
 
     let isPaper = false;
+    let returnUri: string | null = null;
     try {
       const body = await req.json();
       isPaper = body?.isPaper === true;
+      returnUri = sanitizeReturnUri(body?.returnUri);
     } catch {
       // no body or invalid JSON — default to live
     }
@@ -41,6 +57,7 @@ Deno.serve(async (req) => {
       expires_at: expiresAt,
       metadata: {
         scope: "trading",
+        return_uri: returnUri,
       },
     });
 

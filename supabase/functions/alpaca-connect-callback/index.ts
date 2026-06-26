@@ -1,9 +1,23 @@
 import { alpacaBrokerRequest, exchangeAlpacaCode, getAlpacaEnv, normalizeAlpacaAccount } from "../_shared/alpaca.ts";
 import { buildCorsHeaders, getSupabaseAdmin, redirectResponse } from "../_shared/auth.ts";
 
-function buildAppRedirect(status: "connected" | "error", message = "") {
-  const { appBaseUrl } = getAlpacaEnv();
-  const url = new URL(appBaseUrl);
+function sanitizeReturnUri(uri: unknown): string | null {
+  if (typeof uri !== "string" || !uri) return null;
+  if (uri === "rayla://broker-return") return uri;
+  try {
+    const parsed = new URL(uri);
+    if (parsed.protocol === "https:" && (parsed.host === "raylainc.live" || parsed.host === "www.raylainc.live")) {
+      return uri;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+function buildAppRedirect(status: "connected" | "error", message = "", baseOverride: string | null = null) {
+  const baseUrl = baseOverride || getAlpacaEnv().appBaseUrl;
+  const url = new URL(baseUrl);
   url.searchParams.set("broker", "alpaca");
   url.searchParams.set("broker_status", status);
   if (message) {
@@ -40,9 +54,11 @@ Deno.serve(async (req) => {
     }
 
     if (!stateRow || new Date(stateRow.expires_at).getTime() < Date.now()) {
-      return redirectResponse(buildAppRedirect("error", "Alpaca connect session expired. Please try again."));
+      const expiredReturnUri = sanitizeReturnUri((stateRow?.metadata as Record<string, unknown> | null)?.return_uri);
+      return redirectResponse(buildAppRedirect("error", "Alpaca connect session expired. Please try again.", expiredReturnUri));
     }
 
+    const returnUri = sanitizeReturnUri((stateRow.metadata as Record<string, unknown> | null)?.return_uri);
     const isPaper = stateRow.is_paper === true;
 
     const tokenData = await exchangeAlpacaCode(code);
@@ -71,7 +87,7 @@ Deno.serve(async (req) => {
       });
 
     if (upsertError) {
-      return redirectResponse(buildAppRedirect("error", upsertError.message));
+      return redirectResponse(buildAppRedirect("error", upsertError.message, returnUri));
     }
 
     await supabase
@@ -80,7 +96,7 @@ Deno.serve(async (req) => {
       .eq("id", stateRow.id);
 
     const modeLabel = isPaper ? "Paper" : "Live";
-    return redirectResponse(buildAppRedirect("connected", `Alpaca ${modeLabel} account connected.`));
+    return redirectResponse(buildAppRedirect("connected", `Alpaca ${modeLabel} account connected.`, returnUri));
   } catch (error) {
     return redirectResponse(
       buildAppRedirect(

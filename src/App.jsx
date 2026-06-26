@@ -17,6 +17,8 @@ import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepa
 import PersonalPicksTab from "./components/PersonalPicksTab";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+import { App as CapacitorApp } from '@capacitor/app';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 
 const isNativeIOS = Capacitor.getPlatform() === 'ios';
@@ -13327,6 +13329,7 @@ useEffect(() => {
   const [brokerHasPaperConnection, setBrokerHasPaperConnection] = useState(false);
   const [portfolioInceptionMs, setPortfolioInceptionMs] = useState(null);
   const [pendingBrokerConfirm, setPendingBrokerConfirm] = useState(false);
+  const [brokerReturnTick, setBrokerReturnTick] = useState(0);
   const [brokerDisconnecting, setBrokerDisconnecting] = useState(false);
   const brokerSwitchInFlightRef = useRef(false);
   const [alpacaPositions, setAlpacaPositions] = useState([]);
@@ -15681,14 +15684,19 @@ useEffect(() => {
 
   async function handleConnectAlpaca(isPaper = false) {
     try {
-      const { data, error } = await supabase.functions.invoke("alpaca-connect-start", {
-        body: { isPaper },
-      });
+      const body = { isPaper };
+      if (isNativeIOS) body.returnUri = "rayla://broker-return";
+
+      const { data, error } = await supabase.functions.invoke("alpaca-connect-start", { body });
 
       if (error) throw error;
       if (!data?.url) throw new Error("Alpaca connect URL was not returned.");
 
-      window.location.assign(data.url);
+      if (isNativeIOS) {
+        await Browser.open({ url: data.url });
+      } else {
+        window.location.assign(data.url);
+      }
     } catch (error) {
       showToast(error?.message || "Could not start Alpaca connect.", "error");
     }
@@ -16868,7 +16876,30 @@ useEffect(() => {
       fetchAlpacaBrokerData({ silent: brokerStatus !== "connected", snapshotSource: brokerStatus === "connected" ? "broker_connect" : "app_startup" });
       fetchBrokerTradeLog({ sync: true, silent: true });
     }
-  }, [session, positionTradeTypesLoaded]);
+  }, [session, positionTradeTypesLoaded, brokerReturnTick]);
+
+  useEffect(() => {
+    if (!isNativeIOS) return;
+    const subscription = CapacitorApp.addListener("appUrlOpen", ({ url }) => {
+      if (!url || !url.startsWith("rayla://broker-return")) return;
+      try {
+        const parsed = new URL(url);
+        const incoming = parsed.searchParams;
+        const winUrl = new URL(window.location.href);
+        for (const [key, value] of incoming) {
+          winUrl.searchParams.set(key, value);
+        }
+        window.history.replaceState({}, "", winUrl.toString());
+      } catch (err) {
+        console.warn("[broker] failed to parse appUrlOpen URL", err);
+      }
+      Browser.close().catch(() => {});
+      setBrokerReturnTick((tick) => tick + 1);
+    });
+    return () => {
+      subscription.then((handle) => handle.remove()).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     if (hotColdReport !== null) return;
