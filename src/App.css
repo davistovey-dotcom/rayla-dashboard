@@ -2633,6 +2633,7 @@ body.tour-active .mobileNav {
   }
 
   .appShellInner {
+    overflow-x: hidden;
     padding-bottom: calc(26px + env(safe-area-inset-bottom));
   }
 
