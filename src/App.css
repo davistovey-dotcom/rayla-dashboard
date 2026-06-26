@@ -131,6 +131,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 .appShell {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   padding: var(--space-page);
   overflow-x: hidden;
   box-sizing: border-box;
@@ -1905,8 +1906,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   /* ── Page: locked to viewport, no horizontal or page-vertical scroll ── */
   .unlockPage {
-    width: 100vw;
-    max-width: 100vw;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100dvh;
     min-height: 100dvh;
     max-height: 100dvh;
@@ -2093,8 +2095,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   /* ── Broker onboarding — outer page locked to viewport; shell is the
         single inner vertical-scroll container. ── */
   .unlockPage.brokerOnboardingPage {
-    width: 100vw;
-    max-width: 100vw;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100dvh;
     min-height: 100dvh;
     max-height: 100dvh;
@@ -2543,8 +2546,9 @@ body.tour-active .mobileNav {
 @media (max-width: 700px) {
   .statsGrid { grid-template-columns: 1fr; }
   .authPage {
-    width: 100vw;
-    max-width: 100vw;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100dvh;
     min-height: 100dvh;
     max-height: 100dvh;
@@ -2578,8 +2582,9 @@ body.tour-active .mobileNav {
   .authBrand { font-size: 12px; margin-bottom: 8px; }
   .authTitle { font-size: 20px; margin-bottom: 14px; line-height: 1.1; overflow-wrap: anywhere; }
   .authSplash {
-    width: 100vw;
-    max-width: 100vw;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;
@@ -2627,11 +2632,19 @@ body.tour-active .mobileNav {
       calc(18px + env(safe-area-inset-top))
       14px
       calc(136px + env(safe-area-inset-bottom));
-    max-width: 100vw;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     overflow-x: hidden;
+    box-sizing: border-box;
   }
 
   .appShellInner {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    box-sizing: border-box;
     padding-bottom: calc(26px + env(safe-area-inset-bottom));
   }
 
