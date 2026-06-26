@@ -191,14 +191,36 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, onConfirm
             </div>
           ) : null}
 
+          <input
+            className="authInput"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            placeholder="Enter 6-digit code"
+            value={code}
+            onChange={handleCodeInput}
+            onKeyDown={handleKeyDown}
+            disabled={verifying}
+            style={{ textAlign: "center", letterSpacing: "0.3em", fontSize: 18, fontWeight: 700 }}
+          />
+
+          {codeError ? (
+            <div className="authMessage error">{codeError}</div>
+          ) : null}
+
+          <button
+            className="authPrimaryButton"
+            onClick={handleVerify}
+            disabled={verifying || !code}
+          >
+            {verifying ? "Verifying..." : "Verify and continue"}
+          </button>
+
           <div style={{ background: "rgba(124,196,255,0.07)", border: "1px solid rgba(124,196,255,0.15)", borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.7 }}>
-              Check your <strong style={{ color: "#cbd5e1" }}>spam or junk folder</strong> if the email doesn&rsquo;t arrive. Click the verification link inside to confirm your account.
+              Check your <strong style={{ color: "#cbd5e1" }}>spam or junk folder</strong> if the code doesn&rsquo;t arrive.
             </div>
-          </div>
-
-          <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6, textAlign: "center" }}>
-            When you see your email is verified, return to login.
           </div>
 
           <button
