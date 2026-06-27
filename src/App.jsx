@@ -23391,7 +23391,6 @@ return (
                 border: 1px solid rgba(255,255,255,0.07);
                 border-top: 1px solid rgba(124,196,255,0.18);
                 border-radius: 14px;
-                background: linear-gradient(180deg, rgba(10,18,30,0.96) 0%, rgba(5,10,19,0.98) 100%);
                 box-shadow:
                   0 0 0 1px rgba(0,0,0,0.28) inset,
                   0 1px 0 rgba(124,196,255,0.06) inset,
