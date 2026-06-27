@@ -23064,7 +23064,7 @@ return (
       </nav>
 
       <div className="appShellInner">
-        {activeTab !== "home" && activeTab !== "trades" && activeTab !== "simulation" && (
+        {activeTab !== "trades" && activeTab !== "simulation" && (
           <div className="topbar mobilePageHeader">
             <div>
               <p className="raylaPageTitle mobilePageTitle">
@@ -23090,7 +23090,7 @@ return (
                 flex-direction: row;
                 min-height: 100vh;
                 overflow: visible;
-                margin: -24px;
+                margin: 0 -24px -24px;
               }
               .homeLeft {
                 flex: 1;
@@ -23229,7 +23229,6 @@ return (
                 padding: 3px;
                 border: 1px solid rgba(255,255,255,0.07);
                 border-radius: 10px;
-                background: rgba(5,11,19,0.72);
               }
               .homeAdaptiveModeButton {
                 min-height: 28px;
@@ -23543,7 +23542,7 @@ return (
                   height: auto;
                   min-height: 100vh;
                   overflow: visible;
-                  margin: -24px;
+                  margin: 0 -24px -24px;
                 }
                 .homeRight {
                   height: auto;
@@ -23604,7 +23603,7 @@ return (
                   height: auto;
                   min-height: 0;
                   overflow: visible;
-                  margin: calc(-18px - env(safe-area-inset-top)) -14px 0;
+                  margin: 0;
                   padding-bottom: 0;
                 }
                 .homeLeft { min-height: 420px; overflow: visible; }
@@ -23615,7 +23614,7 @@ return (
                   flex-direction: column;
                   position: relative;
                   gap: 8px;
-                  padding: calc(16px + env(safe-area-inset-top)) 12px 0;
+                  padding: 0 12px 0;
                   overflow-y: visible;
                   background: transparent;
                 }
@@ -23918,15 +23917,6 @@ return (
               )}
               {/* RIGHT: Live Market */}
               <div className={`homeRight ${isHomeLiveChartFullscreen ? "homeRightFullscreen" : ""}`}>
-                <div className="homeHeaderRow" style={{ padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
-                  <div className="raylaPageTitle homePageTitle mobilePageTitle" style={{ padding: 0 }}>Home</div>
-                </div>
-                <div className="homeTopActions">
-                  <RaylaLaunchButton
-                    label="Ask Rayla"
-                    onClick={() => openGlobalRaylaPopup("Ask Rayla")}
-                  />
-                </div>
                 <section className="homePortfolioViewSection" aria-label="Home portfolio view">
                   {/* Label */}
                   <div className="homeMarketStatusBar" style={{ padding: "16px 20px 8px", fontSize: 10, letterSpacing: 2, color: "#64748b", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
@@ -24045,12 +24035,30 @@ return (
                     </div>
                     {homePortfolioViewMode === "asset" ? (
                       <>
-                        <ChartTimeframeDropdown
-                          value={homeMarketChartRange}
-                          onChange={setHomeMarketChartRange}
-                          options={LIVE_WIDGET_INTERVAL_OPTIONS}
-                          width={88}
-                        />
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 3, borderRadius: 999, border: "1px solid rgba(124,196,255,0.12)", background: "rgba(6,12,22,0.68)" }}>
+                          {LIVE_WIDGET_INTERVAL_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setHomeMarketChartRange(opt.value)}
+                              style={{
+                                minHeight: 28,
+                                border: 0,
+                                borderRadius: 999,
+                                background: homeMarketChartRange === opt.value ? "linear-gradient(180deg, #9bd4ff, #6bbcff)" : "transparent",
+                                color: homeMarketChartRange === opt.value ? "#07111d" : "#8fa0b7",
+                                font: "inherit",
+                                fontSize: 11,
+                                fontWeight: 850,
+                                padding: "5px 10px",
+                                cursor: "pointer",
+                                boxShadow: homeMarketChartRange === opt.value ? "0 8px 22px rgba(124,196,255,0.16)" : "none",
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
                         {!isMobileView && homeMarketSelectedItem && !homeMarketAssetExplicitlyUnsupported ? (
                           <button
                             type="button"
@@ -26225,19 +26233,11 @@ return (
           <>
             <style>{`
               @media (max-width: 600px) {
-                /* iPhone-only: match Home's edge-to-edge width. The base
-                   .mainGrid rule pins width: 100% of parent's content area
-                   (.appShellInner = 100vw - 28) and clips overflow, so
-                   negative margins alone shift position without expanding
-                   the box. width: auto lets the box stretch into the
-                   cancelled margins. Verified to produce the same 12-px
-                   gutter as .homeLayout + .homeRight (100vw - 24 content). */
+                /* iPhone-only: match Live Trades' .tradeMobileScope pattern —
+                   no negative margin / extra padding; content sits naturally
+                   inside .appShellInner's content area. */
                 .mainGrid.simulationMobileLayout {
-                  width: auto;
-                  max-width: none;
                   overflow: visible;
-                  margin: 0 -14px;
-                  padding: 0 12px;
                 }
               }
             `}</style>
