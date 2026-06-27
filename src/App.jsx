@@ -23621,9 +23621,7 @@ return (
                   gap: 8px;
                   padding: calc(16px + env(safe-area-inset-top)) 12px 0;
                   overflow-y: visible;
-                  background:
-                    radial-gradient(circle at 50% -4%, rgba(124,196,255,0.12), transparent 34%),
-                    linear-gradient(180deg, #071321 0%, #050b14 100%);
+                  background: transparent;
                 }
                 .homeMarketStatusBar,
                 .homeHeaderRow,
