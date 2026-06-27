@@ -23727,7 +23727,7 @@ return (
                   padding-bottom: 2px !important;
                 }
                 .homeMarketCarouselSection .asset-carousel > div {
-                  min-width: 92px !important;
+                  min-width: 80px !important;
                   padding: 8px 10px !important;
                 }
                 .homeMarketControls {
