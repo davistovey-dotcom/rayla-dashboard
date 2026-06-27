@@ -23091,7 +23091,6 @@ return (
                 min-height: 100vh;
                 overflow: visible;
                 margin: -24px;
-                background: #050d1f;
               }
               .homeLeft {
                 flex: 1;
@@ -23609,7 +23608,6 @@ return (
                   overflow: visible;
                   margin: calc(-18px - env(safe-area-inset-top)) -14px 0;
                   padding-bottom: 0;
-                  background: #050d1f;
                 }
                 .homeLeft { min-height: 420px; overflow: visible; }
                 .homeRight {
