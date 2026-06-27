@@ -23255,7 +23255,6 @@ return (
                 border: 1px solid rgba(148,163,184,0.18);
                 border-radius: 18px;
                 overflow: hidden;
-                background: linear-gradient(180deg, rgba(12,18,28,0.96), rgba(7,11,18,0.98));
                 box-shadow:
                   0 18px 50px rgba(0,0,0,0.22),
                   inset 0 1px 0 rgba(255,255,255,0.03);
