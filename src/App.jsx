@@ -23,6 +23,15 @@ import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 
 const isNativeIOS = Capacitor.getPlatform() === 'ios';
 
+// On native iOS the WKWebView drops target="_blank" navigations, so open the
+// hosted Vercel copy of the legal page in an in-app Safari sheet instead.
+function openLegalLink(e, path) {
+  if (isNativeIOS) {
+    e.preventDefault();
+    Browser.open({ url: `https://raylainc.live${path}` });
+  }
+}
+
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
 const DEFAULT_POSITION_TYPE = "day_trade";
 const POSITION_TYPE_DEFINITIONS = [
@@ -28973,8 +28982,8 @@ return (
           <div className="profilePanel">
             <div className="listTitle">Legal</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-              <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
-              <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Privacy Policy ↗</a>
+              <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
+              <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Privacy Policy ↗</a>
               <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>Effective June 4, 2026 · Rayla LLC</div>
             </div>
           </div>

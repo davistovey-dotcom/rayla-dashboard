@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
 import { getAuthRedirectUrl, getResetPasswordRedirectUrl } from "./urls";
+
+// On native iOS the WKWebView drops target="_blank" navigations, so open the
+// hosted Vercel copy of the legal page in an in-app Safari sheet instead.
+function openLegalLink(e, path) {
+  if (Capacitor.getPlatform() === "ios") {
+    e.preventDefault();
+    Browser.open({ url: `https://raylainc.live${path}` });
+  }
+}
 
 function getCalmAuthErrorMessage(error, fallback) {
   const message = String(error?.message || "").trim();
@@ -596,7 +607,7 @@ export default function Login({ onLogin }) {
                     onChange={(e) => setAgreedToTerms(e.target.checked)}
                     style={{ marginTop: 2, accentColor: "#7cc4ff", flexShrink: 0 }}
                   />
-                  <span>I agree to the <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Terms of Service</a></span>
+                  <span>I agree to the <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Terms of Service</a></span>
                 </label>
                 <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
                   <input
@@ -605,7 +616,7 @@ export default function Login({ onLogin }) {
                     onChange={(e) => setAgreedToPrivacy(e.target.checked)}
                     style={{ marginTop: 2, accentColor: "#7cc4ff", flexShrink: 0 }}
                   />
-                  <span>I acknowledge the <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Privacy Policy</a></span>
+                  <span>I acknowledge the <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Privacy Policy</a></span>
                 </label>
               </div>
             </>
@@ -646,9 +657,9 @@ export default function Login({ onLogin }) {
             </div>
           ) : null}
           <div style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 4 }}>
-            <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Terms of Service</a>
+            <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Terms of Service</a>
             {" · "}
-            <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Privacy Policy</a>
+            <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "none" }}>Privacy Policy</a>
           </div>
         </div>
       </div>
