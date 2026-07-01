@@ -6388,6 +6388,7 @@ function PositionPerformanceInsights({
   totalValue = null,
   totalUnrealizedPl = null,
   unrealizedPct = null,
+  onRefresh = null,
 }) {
   const safePositions = Array.isArray(positions) ? positions : [];
   if (!safePositions.length) return null;
@@ -6510,7 +6511,32 @@ function PositionPerformanceInsights({
       <div style={cardBase}>
         <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: "#7CC4FF" }}>Rayla's Position Diagnosis</div>
-          <div style={{ fontSize: 11, color: "#475569" }}>{title}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 11, color: "#475569" }}>{title}</div>
+            {(() => {
+              const disabled = typeof onRefresh !== "function" || !safePositions.length;
+              return (
+                <button
+                  type="button"
+                  onClick={() => { if (!disabled) onRefresh(); }}
+                  disabled={disabled}
+                  style={{
+                    background: disabled ? "rgba(124,196,255,0.04)" : "rgba(124,196,255,0.1)",
+                    border: "1px solid rgba(124,196,255,0.25)",
+                    borderRadius: 8,
+                    padding: "6px 14px",
+                    color: "#7CC4FF",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: disabled ? "not-allowed" : "pointer",
+                    opacity: disabled ? 0.5 : 1,
+                  }}
+                >
+                  Refresh
+                </button>
+              );
+            })()}
+          </div>
         </div>
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
           {concentrationWarning ? (
@@ -7066,6 +7092,7 @@ function PortfolioPerformancePanel({
   timeZone = null,
   positionActions = null,
   portfolioInceptionMs = null,
+  onRefresh = null,
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -7278,6 +7305,7 @@ function PortfolioPerformancePanel({
         totalValue={totalMarketValue}
         totalUnrealizedPl={totalUnrealizedPl}
         unrealizedPct={unrealizedPct}
+        onRefresh={onRefresh}
       />
     </div>
   );
@@ -7298,6 +7326,7 @@ function HoldingsPerformancePanel({
   onSaveThesis = null,
   portfolioInceptionMs = null,
   intentOverrides = null,
+  onRefresh = null,
 }) {
   const holdings = Array.isArray(positions) ? positions : [];
   const rangeOptions = [
@@ -7544,6 +7573,7 @@ function HoldingsPerformancePanel({
         totalValue={summary.totalValue}
         totalUnrealizedPl={summary.totalUnrealizedPl}
         unrealizedPct={summary.unrealizedPct}
+        onRefresh={onRefresh}
       />
     </div>
   );
@@ -7576,6 +7606,7 @@ function ActiveTradesPerformancePanel({
   startingCapital = 0,
   onChangeStartingCapital = null,
   intentOverrides = null,
+  onRefresh = null,
 }) {
   const trades = Array.isArray(positions) ? positions : [];
   const nowMs = Date.now();
@@ -7923,6 +7954,7 @@ function ActiveTradesPerformancePanel({
           totalValue={summary.totalValue}
           totalUnrealizedPl={summary.totalUnrealizedPl}
           unrealizedPct={summary.unrealizedPct}
+          onRefresh={onRefresh}
         />
       )}
 
@@ -28388,6 +28420,7 @@ return (
                     />
                   ) : null}
                   portfolioInceptionMs={portfolioInceptionMs}
+                  onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                 />
                 </>
               ) : isLiveTradesPerformance && performancePositionFilter === "holdings" ? (
@@ -28412,6 +28445,7 @@ return (
                     openGlobalRaylaPopup(`About ${symbol}`);
                     handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: `About my ${symbol} position` });
                   }}
+                  onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                 />
                 {longTermBrokerPositions.length > 0 && alpacaAccount && (
                   <InvestorCtaBand
@@ -28470,6 +28504,7 @@ return (
                   startingCapital={dayTradeStartingCapital}
                   onChangeStartingCapital={saveDayTradeStartingCapital}
                   intentOverrides={positionIntentOverrides}
+                  onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                 />
               ) : (
               <PerformanceRenderBoundary resetKey={`${performanceAnalysisSource}:${performancePositionFilter}`}>
