@@ -8459,7 +8459,7 @@ function PerformanceDashboard({
       {trades.length > 0 && (
         <div data-tour-id="perf-ai" style={cardBase}>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla&apos;s Daily Diagnosis</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla&apos;s Diagnosis</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {effectiveShowNoNewTrades && <span style={{ fontSize: 11, color: "#334155" }}>No new trades since last run</span>}
               {canRunAiAnalysis ? (
@@ -17691,18 +17691,6 @@ useEffect(() => {
     [selectedPerformanceTrades, performancePositionFilter, isLiveTradesPerformance]
   );
 
-  // Rayla's Daily Diagnosis: auto-refresh once per calendar day when the user
-  // has trades to analyze. Stored as an ISO date string in localStorage so the
-  // refresh fires the first time the app is used each day.
-  useEffect(() => {
-    if (!session || !positionFilteredPerformanceTrades.length) return;
-    const today = new Date().toISOString().slice(0, 10);
-    let lastRun = null;
-    try { lastRun = localStorage.getItem("rayla-daily-diagnosis-run"); } catch { /* ignore */ }
-    if (lastRun === today) return;
-    runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource);
-    try { localStorage.setItem("rayla-daily-diagnosis-run", today); } catch { /* ignore */ }
-  }, [session, positionFilteredPerformanceTrades.length, performanceAnalysisSource]);
   const selectedPerformanceEquityPoints = useMemo(
     () => buildLoggedEquityCurvePoints(positionFilteredPerformanceTrades, dayTradeStartingCapital),
     [positionFilteredPerformanceTrades, dayTradeStartingCapital]
