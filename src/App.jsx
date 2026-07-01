@@ -6390,6 +6390,8 @@ function PositionPerformanceInsights({
   unrealizedPct = null,
   onRefresh = null,
 }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const safePositions = Array.isArray(positions) ? positions : [];
   if (!safePositions.length) return null;
 
@@ -6513,12 +6515,27 @@ function PositionPerformanceInsights({
           <div style={{ fontSize: 13, fontWeight: 800, color: "#7CC4FF" }}>Rayla's Position Diagnosis</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ fontSize: 11, color: "#475569" }}>{title}</div>
+            {lastRefreshedAt ? (
+              <div style={{ fontSize: 10, color: "#475569" }}>
+                Updated {lastRefreshedAt.toLocaleTimeString()}
+              </div>
+            ) : null}
             {(() => {
-              const disabled = typeof onRefresh !== "function" || !safePositions.length;
+              const disabled = typeof onRefresh !== "function" || !safePositions.length || isRefreshing;
               return (
                 <button
                   type="button"
-                  onClick={() => { if (!disabled) onRefresh(); }}
+                  onClick={async () => {
+                    if (typeof onRefresh !== "function" || !safePositions.length || isRefreshing) return;
+                    setIsRefreshing(true);
+                    try {
+                      const result = onRefresh();
+                      if (result && typeof result.then === "function") await result;
+                    } finally {
+                      setLastRefreshedAt(new Date());
+                      setIsRefreshing(false);
+                    }
+                  }}
                   disabled={disabled}
                   style={{
                     background: disabled ? "rgba(124,196,255,0.04)" : "rgba(124,196,255,0.1)",
@@ -6530,9 +6547,10 @@ function PositionPerformanceInsights({
                     fontWeight: 600,
                     cursor: disabled ? "not-allowed" : "pointer",
                     opacity: disabled ? 0.5 : 1,
+                    minWidth: 84,
                   }}
                 >
-                  Refresh
+                  {isRefreshing ? "Refreshing…" : "Refresh"}
                 </button>
               );
             })()}
