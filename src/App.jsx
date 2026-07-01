@@ -6450,12 +6450,12 @@ function PositionPerformanceInsights({
     ? `${topPosition.symbol} is ${topAllocation.toFixed(0)}% of this view. That concentration matters more than the number of positions.`
     : null;
   const lossWarning = losingPositions.length
-    ? `${losingPositions.length} ${scopedPositionNoun}${losingPositions.length === 1 ? " is" : " are"} currently underwater. Review whether the original thesis still applies.`
+    ? `${losingPositions.length} ${scopedPositionNoun}${losingPositions.length === 1 ? " is" : " are"} currently underwater. Review whether the original plan still applies.`
     : null;
   const nextAction = concentrationWarning
     ? "Check whether the largest allocation is intentional before adding more exposure."
     : lossWarning
-      ? "Review the underwater positions first; separate temporary drawdown from broken thesis."
+      ? "Review the underwater positions first; separate temporary drawdown from a broken plan."
       : "Keep monitoring allocation, unrealized P/L, and whether each position still matches its intent.";
 
   const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
@@ -8459,7 +8459,7 @@ function PerformanceDashboard({
       {trades.length > 0 && (
         <div data-tour-id="perf-ai" style={cardBase}>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla's Diagnosis</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#7CC4FF" }}>Rayla&apos;s Daily Diagnosis</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {effectiveShowNoNewTrades && <span style={{ fontSize: 11, color: "#334155" }}>No new trades since last run</span>}
               {canRunAiAnalysis ? (
@@ -13353,6 +13353,12 @@ useEffect(() => {
   const [alpacaOrderSubmitting, setAlpacaOrderSubmitting] = useState(false);
   const [alpacaOrderResult, setAlpacaOrderResult] = useState(null);
   const [pendingAlpacaOrderConfirmation, setPendingAlpacaOrderConfirmation] = useState(null);
+  // Add/Trim quantity prompt for open live positions. Non-null when the
+  // Rayla-styled qty modal is showing; contains { position, symbol, currentQty,
+  // mode: "add" | "trim", inputMode: "dollar" | "qty" }.
+  // `positionQtyInput` is the controlled input value (interpreted per inputMode).
+  const [pendingPositionQtyPrompt, setPendingPositionQtyPrompt] = useState(null);
+  const [positionQtyInput, setPositionQtyInput] = useState("");
   const [preparedCloseOrder, setPreparedCloseOrder] = useState(null);
   const [submittedCloseOrder, setSubmittedCloseOrder] = useState(null);
   const alpacaOrderSubmittingRef = useRef(false);
@@ -16255,6 +16261,127 @@ useEffect(() => {
     setTradeLogChartSymbol(symbol);
   }
 
+  // Open the Rayla-styled quantity modal for adding to an existing position.
+  // Confirmation happens in a second modal via submitPositionQtyPrompt.
+  function openAddToAlpacaPosition(position) {
+    const symbol = String(position?.symbol || "").trim().toUpperCase();
+    const currentQty = Math.abs(Number(position?.qty ?? 0));
+    if (!symbol || !Number.isFinite(currentQty) || currentQty <= 0) return;
+    setPositionQtyInput("100");
+    setPendingPositionQtyPrompt({ position, symbol, currentQty, mode: "add", inputMode: "dollar" });
+  }
+
+  // Open the Rayla-styled quantity modal for trimming an existing position.
+  // Guards against duplicate close orders; further validation happens on submit.
+  function openTrimAlpacaPosition(position) {
+    const symbol = String(position?.symbol || "").trim().toUpperCase();
+    const currentQty = Math.abs(Number(position?.qty ?? 0));
+    if (!symbol || !Number.isFinite(currentQty) || currentQty <= 0) return;
+
+    const existingPendingClose = getPendingCloseOrderForPosition(brokerTradeLog, position);
+    if (existingPendingClose) {
+      showToast(`${symbol} already has a pending close order. Wait for broker status before submitting another.`, "warning");
+      return;
+    }
+
+    const halfDefault = Math.round(currentQty * 50) / 100;
+    setPositionQtyInput(String(halfDefault));
+    setPendingPositionQtyPrompt({ position, symbol, currentQty, mode: "trim", inputMode: "qty" });
+  }
+
+  function cancelPositionQtyPrompt() {
+    setPendingPositionQtyPrompt(null);
+    setPositionQtyInput("");
+  }
+
+  // Switch between quantity and dollar input. Converts the current raw input
+  // using the estimated per-unit price so the user doesn't lose context.
+  function switchPositionQtyMode(nextMode) {
+    if (!pendingPositionQtyPrompt) return;
+    if (pendingPositionQtyPrompt.inputMode === nextMode) return;
+    const price = getOrderEstimatePrice(pendingPositionQtyPrompt.symbol, null, pendingPositionQtyPrompt.position);
+    const raw = Number(positionQtyInput);
+    if (Number.isFinite(price) && price > 0 && Number.isFinite(raw) && raw > 0) {
+      const converted = nextMode === "dollar" ? raw * price : raw / price;
+      const precision = nextMode === "dollar" ? 100 : 10000;
+      setPositionQtyInput(String(Math.round(converted * precision) / precision));
+    }
+    setPendingPositionQtyPrompt({ ...pendingPositionQtyPrompt, inputMode: nextMode });
+  }
+
+  // Validate qty input and hand off to the existing pendingAlpacaOrderConfirmation
+  // flow — identical downstream path used by Close, so the submit pipeline,
+  // toast handling, and broker call remain untouched.
+  function submitPositionQtyPrompt() {
+    if (!pendingPositionQtyPrompt) return;
+    const { position, symbol, currentQty, mode, inputMode } = pendingPositionQtyPrompt;
+    const rawInput = Number(positionQtyInput);
+    if (!Number.isFinite(rawInput) || rawInput <= 0) {
+      showToast(`Enter a positive ${inputMode === "dollar" ? "dollar amount" : "quantity"} to ${mode}.`, "warning");
+      return;
+    }
+    const estimatedPrice = getOrderEstimatePrice(symbol, null, position);
+    let qty;
+    if (inputMode === "dollar") {
+      if (!Number.isFinite(estimatedPrice) || estimatedPrice <= 0) {
+        showToast(`No live price for ${symbol}. Switch to quantity mode to ${mode}.`, "warning");
+        return;
+      }
+      qty = rawInput / estimatedPrice;
+    } else {
+      qty = rawInput;
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      showToast(`Enter a positive quantity to ${mode}.`, "warning");
+      return;
+    }
+    if (mode === "trim" && qty >= currentQty) {
+      showToast(`Trim quantity must be less than ${formatBrokerQuantity(currentQty)}. Use Close to exit the full position.`, "warning");
+      return;
+    }
+    const isAdd = mode === "add";
+    const action = isAdd
+      ? (position?.side === "short" ? "short_sell" : "buy")
+      : (position?.side === "short" ? "buy_to_cover" : "sell");
+    // Alpaca rejects fractional qty unless TIF is DAY. Force DAY silently when
+    // the resolved qty isn't a whole share; whole-share orders keep user TIF.
+    const isFractionalQty = Math.abs(qty - Math.round(qty)) > 1e-9;
+    const timeInForce = isFractionalQty
+      ? "day"
+      : String(alpacaOrderForm.timeInForce || "gtc").toLowerCase();
+    const estimatedValue = Number.isFinite(estimatedPrice) ? estimatedPrice * qty : null;
+    setPendingAlpacaOrderConfirmation({
+      symbol,
+      action,
+      side: getAlpacaOrderPayloadSide(action),
+      closeActionLabel: isAdd ? null : getAlpacaCloseActionLabel(action),
+      qty,
+      type: "market",
+      limitPrice: null,
+      stopPrice: null,
+      timeInForce,
+      leverage: "1x",
+      estimatedPrice: Number.isFinite(estimatedPrice) ? estimatedPrice : null,
+      estimatedValue: Number.isFinite(estimatedValue) ? estimatedValue : null,
+      unrealizedPl: Number.isFinite(Number(position?.unrealizedPl)) ? Number(position.unrealizedPl) : null,
+      unrealizedPlpc: Number.isFinite(Number(position?.unrealizedPlpc)) ? Number(position.unrealizedPlpc) : null,
+      positionSide: position?.side || "long",
+      isCloseOrder: !isAdd,
+      insight: isAdd
+        ? `This submits a market order to add ${formatBrokerQuantity(qty)} unit(s) to your ${symbol} broker position.`
+        : `This trims ${formatBrokerQuantity(qty)} unit(s) from your ${symbol} broker position via a market order.`,
+      realityCheck: [],
+    });
+    setPreparedCloseOrder(null);
+    setSubmittedCloseOrder(null);
+    setAlpacaSelectedAssetMeta(null);
+    setAlpacaAssetSearchOpen(false);
+    applyTradeSelection({ mode: "asset", symbols: [symbol] });
+    setTradeLogChartSymbol(symbol);
+    setPendingPositionQtyPrompt(null);
+    setPositionQtyInput("");
+  }
+
   useEffect(() => {
     const query = String(alpacaOrderForm.symbol || "").trim().toUpperCase();
 
@@ -17563,6 +17690,19 @@ useEffect(() => {
     ),
     [selectedPerformanceTrades, performancePositionFilter, isLiveTradesPerformance]
   );
+
+  // Rayla's Daily Diagnosis: auto-refresh once per calendar day when the user
+  // has trades to analyze. Stored as an ISO date string in localStorage so the
+  // refresh fires the first time the app is used each day.
+  useEffect(() => {
+    if (!session || !positionFilteredPerformanceTrades.length) return;
+    const today = new Date().toISOString().slice(0, 10);
+    let lastRun = null;
+    try { lastRun = localStorage.getItem("rayla-daily-diagnosis-run"); } catch { /* ignore */ }
+    if (lastRun === today) return;
+    runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource);
+    try { localStorage.setItem("rayla-daily-diagnosis-run", today); } catch { /* ignore */ }
+  }, [session, positionFilteredPerformanceTrades.length, performanceAnalysisSource]);
   const selectedPerformanceEquityPoints = useMemo(
     () => buildLoggedEquityCurvePoints(positionFilteredPerformanceTrades, dayTradeStartingCapital),
     [positionFilteredPerformanceTrades, dayTradeStartingCapital]
@@ -24861,6 +25001,132 @@ return (
                 </div>
               )}
 
+              {pendingPositionQtyPrompt && (
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999,
+                    padding: 20,
+                  }}
+                  onClick={cancelPositionQtyPrompt}
+                >
+                  <div
+                    className="card tradeConfirmModal"
+                    style={{ maxWidth: 420, width: "100%" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="cardHeader">
+                      <h2>
+                        {pendingPositionQtyPrompt.mode === "add"
+                          ? `Add to ${pendingPositionQtyPrompt.symbol}`
+                          : `Trim ${pendingPositionQtyPrompt.symbol}`}
+                      </h2>
+                    </div>
+                    <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.7px" }}>Symbol</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: "#f8fafc" }}>{pendingPositionQtyPrompt.symbol}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.7px" }}>Current Qty</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>{formatBrokerQuantity(pendingPositionQtyPrompt.currentQty)}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 11, color: "#7f8ea3", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.7px" }}>Action</div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: pendingPositionQtyPrompt.mode === "add" ? "#4ade80" : "#fbbf24" }}>
+                            {pendingPositionQtyPrompt.mode === "add" ? "Add" : "Trim"}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                          <label style={{ fontSize: 11, color: "#7f8ea3", textTransform: "uppercase", letterSpacing: "0.7px" }}>
+                            {pendingPositionQtyPrompt.inputMode === "dollar" ? "Dollar amount" : "Quantity"} to {pendingPositionQtyPrompt.mode === "add" ? "add" : "trim"}
+                          </label>
+                          <div style={{ display: "inline-flex", gap: 2, padding: 2, background: "rgba(255,255,255,0.05)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)" }}>
+                            {["qty", "dollar"].map((opt) => {
+                              const active = pendingPositionQtyPrompt.inputMode === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => switchPositionQtyMode(opt)}
+                                  style={{
+                                    padding: "4px 10px",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    borderRadius: 6,
+                                    border: "none",
+                                    background: active ? "rgba(124,196,255,0.15)" : "transparent",
+                                    color: active ? "#7cc4ff" : "#7f8ea3",
+                                    cursor: "pointer",
+                                    letterSpacing: "0.5px",
+                                  }}
+                                >
+                                  {opt === "qty" ? "QTY" : "$"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="any"
+                          min="0"
+                          value={positionQtyInput}
+                          onChange={(e) => setPositionQtyInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitPositionQtyPrompt(); } }}
+                          className="authInput"
+                          autoFocus
+                        />
+                        {(() => {
+                          const price = getOrderEstimatePrice(pendingPositionQtyPrompt.symbol, null, pendingPositionQtyPrompt.position);
+                          const raw = Number(positionQtyInput);
+                          if (!Number.isFinite(price) || price <= 0) {
+                            return (
+                              <div style={{ fontSize: 11, color: "#7f8ea3", marginTop: 6 }}>
+                                No live price available — will submit as market order using quantity.
+                              </div>
+                            );
+                          }
+                          if (!Number.isFinite(raw) || raw <= 0) {
+                            return (
+                              <div style={{ fontSize: 11, color: "#7f8ea3", marginTop: 6 }}>
+                                Est. price {formatCurrency(price)} per unit.
+                              </div>
+                            );
+                          }
+                          const derivedQty = pendingPositionQtyPrompt.inputMode === "dollar" ? raw / price : raw;
+                          const derivedValue = pendingPositionQtyPrompt.inputMode === "dollar" ? raw : raw * price;
+                          return (
+                            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6, lineHeight: 1.5 }}>
+                              ≈ {formatBrokerQuantity(derivedQty)} shares · ≈ {formatCurrency(derivedValue)}
+                              <span style={{ color: "#7f8ea3" }}> @ {formatCurrency(price)}</span>
+                            </div>
+                          );
+                        })()}
+                        {pendingPositionQtyPrompt.mode === "trim" && (
+                          <div style={{ fontSize: 11, color: "#7f8ea3", marginTop: 6 }}>
+                            Must be less than {formatBrokerQuantity(pendingPositionQtyPrompt.currentQty)}. Use Close to exit the full position.
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                        <button type="button" onClick={cancelPositionQtyPrompt} className="authSecondaryButton" style={{ flex: 1 }}>Cancel</button>
+                        <button type="button" onClick={submitPositionQtyPrompt} className="authPrimaryButton" style={{ flex: 1 }}>Review</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="tradeWorkspaceShell" style={{ marginBottom: 16, overflow: "visible" }}>
                 <div className="cardBody" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   {alpacaAccount ? (() => {
@@ -25097,24 +25363,42 @@ return (
                                         <span style={{ fontSize: 10, fontWeight: 800, color: pendingCloseStatus.color, background: pendingCloseStatus.background, border: `1px solid ${pendingCloseStatus.border}`, borderRadius: 6, padding: "3px 7px", display: "inline-block" }}>
                                           Pending
                                         </span>
-                                      ) : failedCloseOrder ? (
-                                        <button
-                                          className="tradeCloseButton"
-                                          type="button"
-                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); prepareCloseAlpacaPosition(position); }}
-                                          style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid rgba(248,113,113,0.28)", background: "rgba(248,113,113,0.08)", color: "#fca5a5", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
-                                        >
-                                          Retry
-                                        </button>
                                       ) : (
-                                        <button
-                                          className="tradeCloseButton"
-                                          type="button"
-                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); prepareCloseAlpacaPosition(position); }}
-                                          style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid rgba(248,113,113,0.2)", background: "rgba(248,113,113,0.045)", color: "#fecaca", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
-                                        >
-                                          Close
-                                        </button>
+                                        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddToAlpacaPosition(position); }}
+                                            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(74,222,128,0.28)", background: "rgba(74,222,128,0.08)", color: "#4ade80", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
+                                          >
+                                            Add
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openTrimAlpacaPosition(position); }}
+                                            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(251,191,36,0.28)", background: "rgba(251,191,36,0.08)", color: "#fbbf24", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
+                                          >
+                                            Trim
+                                          </button>
+                                          {failedCloseOrder ? (
+                                            <button
+                                              className="tradeCloseButton"
+                                              type="button"
+                                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); prepareCloseAlpacaPosition(position); }}
+                                              style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(248,113,113,0.28)", background: "rgba(248,113,113,0.08)", color: "#fca5a5", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
+                                            >
+                                              Retry
+                                            </button>
+                                          ) : (
+                                            <button
+                                              className="tradeCloseButton"
+                                              type="button"
+                                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); prepareCloseAlpacaPosition(position); }}
+                                              style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(248,113,113,0.2)", background: "rgba(248,113,113,0.045)", color: "#fecaca", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
+                                            >
+                                              Close
+                                            </button>
+                                          )}
+                                        </div>
                                       )}
                                     </td>
                                   </tr>
