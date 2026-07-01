@@ -8468,6 +8468,28 @@ function PerformanceDashboard({
                   Run AI Analysis
                 </button>
               ) : null}
+              {(() => {
+                const disabled = typeof onRunAnalysis !== "function" || !trades.length;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => { if (!disabled) onRunAnalysis(); }}
+                    disabled={disabled}
+                    style={{
+                      background: disabled ? "rgba(124,196,255,0.04)" : "rgba(124,196,255,0.1)",
+                      border: "1px solid rgba(124,196,255,0.25)",
+                      borderRadius: 8,
+                      padding: "6px 14px",
+                      color: "#7CC4FF",
+                      fontSize: 12,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      opacity: disabled ? 0.5 : 1,
+                    }}
+                  >
+                    Refresh
+                  </button>
+                );
+              })()}
             </div>
           </div>
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
