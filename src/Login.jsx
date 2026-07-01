@@ -208,7 +208,7 @@ function VerifyEmailScreen({ email, onVerify, onResend, onChangeEmail, onConfirm
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]*"
-            placeholder="Enter 6-digit code"
+            placeholder="Enter 8-digit code"
             value={code}
             onChange={handleCodeInput}
             onKeyDown={handleKeyDown}
