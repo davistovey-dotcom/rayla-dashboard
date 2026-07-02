@@ -12024,8 +12024,9 @@ function UnlockRaylaPage({
             {isNativeIOS ? (
               <>
                 <div className="unlockMobilePricing" style={{ textAlign: "center", lineHeight: 1.4 }}>
-                  <div style={{ fontWeight: 700, color: "#f8fafc" }}>Rayla Premium</div>
-                  <div>1 Month · $29.99/month</div>
+                  <div style={{ fontWeight: 700, color: "#f8fafc" }}>Rayla</div>
+                  <div>Start your 14-day free trial</div>
+                  <div>Then $29.99/month · Cancel anytime</div>
                 </div>
                 <button type="button" className="unlockPrimaryButton unlockMobileCta" onClick={onApplePurchase} disabled={!!action || isLoading}>
                   {action === "apple_purchase" ? "Opening..." : "Subscribe"}
@@ -12078,8 +12079,9 @@ function UnlockRaylaPage({
             {isNativeIOS ? (
               <>
                 <div style={{ marginBottom: 8, lineHeight: 1.4, color: "#94a3b8", fontSize: 14 }}>
-                  <div style={{ fontWeight: 700, color: "#f8fafc", fontSize: 15 }}>Rayla Premium</div>
-                  <div>1 Month · $29.99/month</div>
+                  <div style={{ fontWeight: 700, color: "#f8fafc", fontSize: 15 }}>Rayla</div>
+                  <div>Start your 14-day free trial</div>
+                  <div>Then $29.99/month · Cancel anytime</div>
                 </div>
                 <button type="button" className="unlockPrimaryButton" onClick={onApplePurchase} disabled={!!action || isLoading}>
                   {action === "apple_purchase" ? "Opening..." : "Subscribe"}
