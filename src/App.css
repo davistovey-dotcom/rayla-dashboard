@@ -2577,6 +2577,21 @@ body.tour-active .mobileNav {
   .authLogo { height: 18px; }
   .authBrand { font-size: 12px; margin-bottom: 8px; }
   .authTitle { font-size: 20px; margin-bottom: 14px; line-height: 1.1; overflow-wrap: anywhere; }
+  /* iOS/mobile safeguard: any text-entry input, select, or textarea whose
+     computed font-size is below 16px triggers WKWebView auto-zoom on focus.
+     That zoomed visual viewport state persists after sign-in and causes the
+     dashboard side-scroll and bottom-nav drift. Force 16px on all text-entry
+     controls inside auth screens on mobile only. Excludes checkbox/radio/
+     button/submit which don't render text and don't trigger zoom. */
+  .authInput,
+  .authForm input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
+  .authForm select,
+  .authForm textarea,
+  .authPage input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
+  .authPage select,
+  .authPage textarea {
+    font-size: 16px;
+  }
   .authSplash {
     width: 100vw;
     max-width: 100vw;
