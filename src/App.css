@@ -1929,9 +1929,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     max-width: 100%;
     box-sizing: border-box;
     padding:
-      calc(20px + env(safe-area-inset-top))
+      calc(12px + env(safe-area-inset-top))
       max(16px, env(safe-area-inset-right))
-      calc(16px + env(safe-area-inset-bottom))
+      calc(8px + env(safe-area-inset-bottom))
       max(16px, env(safe-area-inset-left));
   }
 
@@ -1970,7 +1970,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
 
   /* (2) Subcopy */
   .unlockMobileSubcopy {
-    margin: 0 0 18px;
+    margin: 0 0 10px;
     font-size: 13px;
     color: #7f8ea3;
     line-height: 1.55;
@@ -1979,11 +1979,11 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   /* (3) Checklist */
   .unlockMobileChecklist {
     list-style: none;
-    margin: 0 0 22px;
+    margin: 0 0 12px;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
   }
 
   .unlockMobileCheckItem {
@@ -2005,7 +2005,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     font-size: 13px;
     color: #7f8ea3;
     line-height: 1.4;
-    margin-bottom: 18px;
+    margin-bottom: 10px;
   }
 
   /* (5) CTA buttons */
@@ -2013,7 +2013,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     width: 100%;
     min-height: 50px;
     font-size: 15px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }
 
   /* (6) Discount form — inline, reduced visual weight */
