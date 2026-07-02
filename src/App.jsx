@@ -12023,6 +12023,10 @@ function UnlockRaylaPage({
           <div className="unlockMobileBottom">
             {isNativeIOS ? (
               <>
+                <div className="unlockMobilePricing" style={{ textAlign: "center", lineHeight: 1.4 }}>
+                  <div style={{ fontWeight: 700, color: "#f8fafc" }}>Rayla Premium</div>
+                  <div>1 Month · $29.99/month</div>
+                </div>
                 <button type="button" className="unlockPrimaryButton unlockMobileCta" onClick={onApplePurchase} disabled={!!action || isLoading}>
                   {action === "apple_purchase" ? "Opening..." : "Subscribe"}
                 </button>
@@ -12034,6 +12038,12 @@ function UnlockRaylaPage({
                     Manage in App Store
                   </button>
                 )}
+                <div className="unlockMobileTrust" style={{ textAlign: "center" }}>
+                  By subscribing, you agree to the{" "}
+                  <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "underline" }}>Terms of Use</a>
+                  {" "}and{" "}
+                  <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "underline" }}>Privacy Policy</a>.
+                </div>
                 <div className="unlockMobileTrust">Billed through Apple. Manage in App Store settings.</div>
               </>
             ) : (
@@ -12067,6 +12077,10 @@ function UnlockRaylaPage({
           <div className="unlockActions">
             {isNativeIOS ? (
               <>
+                <div style={{ marginBottom: 8, lineHeight: 1.4, color: "#94a3b8", fontSize: 14 }}>
+                  <div style={{ fontWeight: 700, color: "#f8fafc", fontSize: 15 }}>Rayla Premium</div>
+                  <div>1 Month · $29.99/month</div>
+                </div>
                 <button type="button" className="unlockPrimaryButton" onClick={onApplePurchase} disabled={!!action || isLoading}>
                   {action === "apple_purchase" ? "Opening..." : "Subscribe"}
                 </button>
@@ -12078,6 +12092,12 @@ function UnlockRaylaPage({
                     Manage in App Store
                   </button>
                 )}
+                <div style={{ marginTop: 10, fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+                  By subscribing, you agree to the{" "}
+                  <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "underline" }}>Terms of Use</a>
+                  {" "}and{" "}
+                  <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ color: "#7cc4ff", textDecoration: "underline" }}>Privacy Policy</a>.
+                </div>
               </>
             ) : (
               <>
