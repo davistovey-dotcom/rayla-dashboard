@@ -1929,9 +1929,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     max-width: 100%;
     box-sizing: border-box;
     padding:
-      calc(12px + env(safe-area-inset-top))
+      calc(8px + env(safe-area-inset-top))
       max(16px, env(safe-area-inset-right))
-      calc(8px + env(safe-area-inset-bottom))
+      calc(4px + env(safe-area-inset-bottom))
       max(16px, env(safe-area-inset-left));
   }
 
@@ -1951,39 +1951,39 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .unlockMobileBottom {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
   }
 
   .unlockMobileInner .unlockEyebrow {
-    margin-bottom: 12px;
+    margin-bottom: 6px;
   }
 
   /* (1) Headline */
   .unlockMobileHeadline {
-    margin: 0 0 10px;
-    font-size: 21px;
+    margin: 0 0 6px;
+    font-size: 20px;
     font-weight: 600;
-    line-height: 1.25;
+    line-height: 1.22;
     letter-spacing: -0.01em;
     color: #f8fbff;
   }
 
   /* (2) Subcopy */
   .unlockMobileSubcopy {
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     font-size: 13px;
     color: #7f8ea3;
-    line-height: 1.55;
+    line-height: 1.5;
   }
 
   /* (3) Checklist */
   .unlockMobileChecklist {
     list-style: none;
-    margin: 0 0 12px;
+    margin: 0 0 8px;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
   }
 
   .unlockMobileCheckItem {
@@ -1993,7 +1993,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     font-size: 14px;
     font-weight: 500;
     color: #d8e4f0;
-    line-height: 1.3;
+    line-height: 1.25;
   }
 
   .unlockMobileCheckItem svg {
@@ -2011,9 +2011,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   /* (5) CTA buttons */
   .unlockMobileCta {
     width: 100%;
-    min-height: 50px;
+    min-height: 46px;
     font-size: 15px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   /* (6) Discount form — inline, reduced visual weight */
@@ -2077,7 +2077,7 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   .unlockMobileSignOut {
     display: block;
     width: 100%;
-    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
     font-size: 12px;
     font-weight: 600;
     color: #3d4f63;
