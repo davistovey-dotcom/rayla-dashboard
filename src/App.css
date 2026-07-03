@@ -1798,6 +1798,46 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
   gap: 14px;
 }
 
+/* Desktop / tablet broker-onboarding fix — >600px only.
+   Mobile ≤600px is intentionally excluded so the mobile @media block
+   (which locks the page to calc(100dvh - safe-areas) + overflow: hidden)
+   remains the sole authority for mobile computed layout. */
+@media (min-width: 601px) {
+  .unlockPage.brokerOnboardingPage {
+    min-height: 100dvh;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: clamp(16px, 3vw, 40px);
+    box-sizing: border-box;
+  }
+
+  .brokerOnboardingShell {
+    width: min(100%, calc(100vw - 32px));
+    max-width: 960px;
+    margin: 0 auto;
+    padding: clamp(20px, 3.5vw, 40px);
+    box-sizing: border-box;
+  }
+
+  .brokerOnboardingHero h1 {
+    font-size: clamp(24px, 4vw, 44px);
+  }
+
+  .brokerOnboardingGrid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    min-width: 0;
+  }
+
+  .brokerOnboardingBenefits {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    min-width: 0;
+  }
+}
+
 .brokerOnboardingCard {
   border: 1px solid rgba(255,255,255,0.085);
   background: rgba(255,255,255,0.035);
@@ -2073,7 +2113,11 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     line-height: 1.4;
   }
 
-  /* (8) Sign out — pinned at bottom, unobtrusive */
+  /* (8) Sign out — pinned at bottom, unobtrusive.
+     iOS Safari swallows taps on elements sitting at the bottom edge of a
+     -webkit-overflow-scrolling: touch scroll container (which .unlockMobile
+     is) unless touch-action / pointer-events are declared explicitly. Same
+     treatment as .mobileNav button (see comment at .mobileNav rule). */
   .unlockMobileSignOut {
     display: block;
     width: 100%;
@@ -2088,6 +2132,9 @@ h1 { margin: 6px 0 8px 0; font-size: 32px; line-height: 1.05; }
     font-family: var(--font-sans);
     text-align: center;
     letter-spacing: 0.02em;
+    pointer-events: auto;
+    touch-action: manipulation;
+    user-select: none;
   }
 
   /* ── Broker onboarding — outer page locked to viewport; shell is the
