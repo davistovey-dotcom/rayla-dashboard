@@ -12063,7 +12063,23 @@ function UnlockRaylaPage({
             {error ? <div className="unlockError" style={{ marginTop: 6 }}>{error}</div> : null}
           </div>
         </div>
-        <button type="button" className="unlockMobileSignOut" onClick={onSignOut}>Sign out</button>
+        <button
+          type="button"
+          className="unlockMobileSignOut"
+          onPointerDown={(event) => {
+            // iOS Safari swallows onClick for elements sitting at the bottom
+            // edge of a -webkit-overflow-scrolling: touch scroll container
+            // (which .unlockMobile is). Same defensive touch handling as
+            // .mobileNav button — see App.jsx mobileNav render.
+            if (event.pointerType === "touch") {
+              event.preventDefault();
+              onSignOut?.(event);
+            }
+          }}
+          onClick={onSignOut}
+        >
+          Sign out
+        </button>
       </div>
 
       {/* ── Desktop layout (≥600px) — hidden on mobile via CSS ── */}
@@ -15692,7 +15708,15 @@ useEffect(() => {
         body: {},
       });
 
-      if (error) throw new Error(data?.error || error.message || "Unable to start checkout.");
+      if (error) {
+        // Supabase's FunctionsHttpError swallows the response body behind
+        // "Edge Function returned a non-2xx status code". Read the actual
+        // {error} payload the edge function returns on failure so users see
+        // the real reason (missing session, Stripe misconfig, etc.).
+        const message = await getSupabaseFunctionErrorMessage(error, "Unable to start checkout.");
+        console.error("[stripe-checkout] edge function error:", message, error);
+        throw new Error(message);
+      }
       if (!data?.ok || !data?.url) throw new Error(data?.message || data?.error || "Unable to start checkout.");
       window.location.assign(data.url);
     } catch (error) {
@@ -15711,7 +15735,11 @@ useEffect(() => {
         body: {},
       });
 
-      if (error) throw new Error(data?.error || error.message || "Unable to open billing.");
+      if (error) {
+        const message = await getSupabaseFunctionErrorMessage(error, "Unable to open billing.");
+        console.error("[stripe-portal] edge function error:", message, error);
+        throw new Error(message);
+      }
       if (!data?.ok || !data?.url) throw new Error(data?.message || data?.error || "Unable to open billing.");
       window.location.assign(data.url);
     } catch (error) {
