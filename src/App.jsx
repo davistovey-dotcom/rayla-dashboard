@@ -17478,6 +17478,20 @@ useEffect(() => {
   const homePortfolioDisplayReturnPct = Number.isFinite(homePortfolioPeriodReturn?.returnPct)
     ? homePortfolioPeriodReturn.returnPct
     : homePortfolioReturnPct;
+
+  // Broker source-of-truth Day P/L for the Home Portfolio view. Uses
+  // calculateBrokerDayPnL — the same helper Live Trades uses — so both
+  // screens display identical numbers after every broker refresh. Falls
+  // back to the chart-derived value inside PortfolioHistoryChart when
+  // Alpaca has no intraday data yet (pre-market, brand-new account, etc.).
+  const homePortfolioDayPnL = calculateBrokerDayPnL(alpacaPositions, alpacaAccount);
+  const homePortfolioDayPnLBaseline = homePortfolioDayPnL != null
+    ? (Number(alpacaAccount?.equity ?? alpacaAccount?.portfolioValue) || 0) - homePortfolioDayPnL
+    : null;
+  const homePortfolioDayPnLPct = Number.isFinite(homePortfolioDayPnL) && Number.isFinite(homePortfolioDayPnLBaseline) && homePortfolioDayPnLBaseline > 0
+    ? (homePortfolioDayPnL / homePortfolioDayPnLBaseline) * 100
+    : null;
+
   const holdingsSnapshot = useMemo(() => {
     const positions = longTermBrokerPositions;
     const holdingsValue = positions.reduce((sum, position) => sum + (Number(position?.marketValue) || 0), 0);
@@ -24390,8 +24404,8 @@ return (
                           : homePortfolioMarketValue}
                         positionsCount={homePortfolioPositions.length}
                         positionsValue={homePortfolioMarketValue}
-                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : null}
-                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : null}
+                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : homePortfolioDayPnL}
+                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : homePortfolioDayPnLPct}
                         statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
                         range={homePortfolioChartRange}
                         onRangeChange={setHomePortfolioChartRange}
@@ -30271,8 +30285,8 @@ return (
               : homePortfolioMarketValue}
             positionsCount={homePortfolioPositions.length}
             positionsValue={homePortfolioMarketValue}
-            openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : null}
-            openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : null}
+            openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : homePortfolioDayPnL}
+            openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : homePortfolioDayPnLPct}
             statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
             range={homePortfolioChartRange}
             onRangeChange={setHomePortfolioChartRange}
