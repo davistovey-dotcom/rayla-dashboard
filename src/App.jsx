@@ -24404,8 +24404,8 @@ return (
                           : homePortfolioMarketValue}
                         positionsCount={homePortfolioPositions.length}
                         positionsValue={homePortfolioMarketValue}
-                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : homePortfolioDayPnL}
-                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : homePortfolioDayPnLPct}
+                        openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : (homePortfolioChartRange === "1D" ? homePortfolioDayPnL : null)}
+                        openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : (homePortfolioChartRange === "1D" ? homePortfolioDayPnLPct : null)}
                         statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
                         range={homePortfolioChartRange}
                         onRangeChange={setHomePortfolioChartRange}
@@ -30285,8 +30285,8 @@ return (
               : homePortfolioMarketValue}
             positionsCount={homePortfolioPositions.length}
             positionsValue={homePortfolioMarketValue}
-            openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : homePortfolioDayPnL}
-            openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : homePortfolioDayPnLPct}
+            openPnl={homePortfolioViewMode !== "portfolio" ? homePortfolioUnrealizedPl : (homePortfolioChartRange === "1D" ? homePortfolioDayPnL : null)}
+            openPct={homePortfolioViewMode !== "portfolio" ? homePortfolioReturnPct : (homePortfolioChartRange === "1D" ? homePortfolioDayPnLPct : null)}
             statusLabel={alpacaAccount?.isPaper ? "Paper" : "Live"}
             range={homePortfolioChartRange}
             onRangeChange={setHomePortfolioChartRange}
