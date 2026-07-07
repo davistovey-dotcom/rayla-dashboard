@@ -1792,6 +1792,19 @@ async function getSupabaseFunctionErrorMessage(error, fallback = "Request failed
   return error?.message || fallback;
 }
 
+// Web Locks contention thrown by supabase-js's default navigatorLock during concurrent
+// auth-token access. processLock in src/supabase.js prevents this at the source, but we
+// still defensively filter it in billing-flow catches so a stray lock error never renders
+// as a user-facing "Unable to start checkout" banner.
+function isSupabaseAuthLockError(error) {
+  if (!error) return false;
+  const name = String(error.name || "").toLowerCase();
+  const message = String(error.message || error).toLowerCase();
+  return name === "aborterror"
+    || message.includes("lock was stolen")
+    || message.includes("lock broken");
+}
+
 function getAlpacaOrderTypeLabel(type) {
   if (type === "stop_limit") return "Stop Limit";
   if (type === "stop") return "Stop";
@@ -15724,7 +15737,11 @@ useEffect(() => {
       if (error) throw new Error(error.message);
       setBillingSubscription(data || null);
     } catch (error) {
-      setBillingError(error instanceof Error ? error.message : "Billing status is unavailable.");
+      if (isSupabaseAuthLockError(error)) {
+        console.warn("[billing] transient auth-lock error while loading subscription; skipping banner", error);
+      } else {
+        setBillingError(error instanceof Error ? error.message : "Billing status is unavailable.");
+      }
     } finally {
       setBillingLoaded(true);
       if (!silent) setBillingLoading(false);
@@ -15753,7 +15770,11 @@ useEffect(() => {
       if (!data?.ok || !data?.url) throw new Error(data?.message || data?.error || "Unable to start checkout.");
       window.location.assign(data.url);
     } catch (error) {
-      setBillingError(error instanceof Error ? error.message : "Unable to start checkout.");
+      if (isSupabaseAuthLockError(error)) {
+        console.warn("[stripe-checkout] transient auth-lock error; button re-enabled for retry", error);
+      } else {
+        setBillingError(error instanceof Error ? error.message : "Unable to start checkout.");
+      }
       setBillingAction("");
     }
   }
@@ -15776,7 +15797,11 @@ useEffect(() => {
       if (!data?.ok || !data?.url) throw new Error(data?.message || data?.error || "Unable to open billing.");
       window.location.assign(data.url);
     } catch (error) {
-      setBillingError(error instanceof Error ? error.message : "Unable to open billing.");
+      if (isSupabaseAuthLockError(error)) {
+        console.warn("[stripe-portal] transient auth-lock error; button re-enabled for retry", error);
+      } else {
+        setBillingError(error instanceof Error ? error.message : "Unable to open billing.");
+      }
       setBillingAction("");
     }
   }
