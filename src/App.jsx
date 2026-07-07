@@ -13457,6 +13457,10 @@ useEffect(() => {
   const [positionTradeTypesLoaded, setPositionTradeTypesLoaded] = useState(false);
   const [portfolioSnapshots, setPortfolioSnapshots] = useState([]);
   const [portfolioSnapshotsLoading, setPortfolioSnapshotsLoading] = useState(false);
+  // Alpaca's native 1D portfolio history (period=intraday) — used for the Home Portfolio
+  // 1D chart so its window matches Alpaca's own web dashboard 1D chart. Falls back to
+  // portfolio_snapshots on error/empty.
+  const [home1DPortfolioHistory, setHome1DPortfolioHistory] = useState({ points: [], loading: false, error: null });
   const [brokerTradeLog, setBrokerTradeLog] = useState([]);
   const [brokerTradeLogLoading, setBrokerTradeLogLoading] = useState(false);
   const [brokerTradeLogLoaded, setBrokerTradeLogLoaded] = useState(false);
@@ -13898,6 +13902,35 @@ useEffect(() => {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [alpacaAccount?.id]);
+
+  // Fetch Alpaca's native 1D portfolio history whenever the Home Portfolio view is on 1D.
+  // Refetches on every broker refresh (alpacaAccount.equity changes) so the historical
+  // series stays current; between fetches, the memo below still overlays a live-equity
+  // terminal point from alpacaAccount.equity for near-real-time responsiveness.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    if (!alpacaAccount?.id) return;
+    if (homePortfolioViewMode !== "portfolio") return;
+    if (homePortfolioChartRange !== "1D") return;
+
+    let cancelled = false;
+    setHome1DPortfolioHistory((prev) => ({ ...prev, loading: true }));
+    supabase.functions
+      .invoke("alpaca-portfolio-history", { body: { range: "1D", preferPaper: brokerPreferPaper } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data?.ok) {
+          setHome1DPortfolioHistory({ points: [], loading: false, error: error?.message || data?.error || "unknown" });
+          return;
+        }
+        setHome1DPortfolioHistory({ points: Array.isArray(data.points) ? data.points : [], loading: false, error: null });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setHome1DPortfolioHistory({ points: [], loading: false, error: err?.message || "network" });
+      });
+    return () => { cancelled = true; };
+  }, [session?.user?.id, alpacaAccount?.id, alpacaAccount?.equity, homePortfolioViewMode, homePortfolioChartRange, brokerPreferPaper]);
 
   const [profile, setProfile] = useState(null);
   const [userLevel, setUserLevel] = useState("beginner");
@@ -17406,17 +17439,65 @@ useEffect(() => {
     : homePortfolioViewMode === "holdings"
       ? "holdings"
       : "portfolio";
-  const homePortfolioBenchmarkChart = useMemo(
-    () => buildPortfolioChartFromSnapshots(
+  const homePortfolioBenchmarkChart = useMemo(() => {
+    // 1D Portfolio view: use Alpaca's native 1D portfolio history (period=intraday, the
+    // same request Alpaca's web dashboard makes). Overlay a client-side live-equity
+    // terminal point from alpacaAccount.equity so the chart stays fresh between server
+    // refetches. Falls back to the local snapshot-based chart on error or empty response.
+    if (
+      homePortfolioViewMode === "portfolio"
+      && homePortfolioChartRange === "1D"
+      && Array.isArray(home1DPortfolioHistory.points)
+      && home1DPortfolioHistory.points.length > 0
+    ) {
+      const bars = home1DPortfolioHistory.points
+        .map((point) => {
+          const timeMs = Number(point?.timeMs);
+          const close = Number(point?.value);
+          if (!Number.isFinite(timeMs) || !Number.isFinite(close) || close <= 0) return null;
+          return { time: new Date(timeMs).toISOString(), timeMs, close, costBasis: close, symbols: [] };
+        })
+        .filter(Boolean);
+      const liveEquity = Number(alpacaAccount?.equity);
+      if (Number.isFinite(liveEquity) && liveEquity > 0 && bars.length > 0) {
+        const last = bars[bars.length - 1];
+        const nowMs = homePortfolioNowMs;
+        const livePoint = {
+          time: new Date(nowMs).toISOString(),
+          timeMs: nowMs,
+          close: liveEquity,
+          costBasis: liveEquity,
+          symbols: [],
+        };
+        if (nowMs - last.timeMs < 60_000) {
+          bars[bars.length - 1] = livePoint;
+        } else if (nowMs > last.timeMs) {
+          bars.push(livePoint);
+        }
+      }
+      if (bars.length >= 2) {
+        return {
+          symbol: "Alpaca 1D Portfolio History",
+          rangeMode: "alpaca_portfolio_history",
+          returnMode: "account_equity",
+          bars,
+        };
+      }
+    }
+    return buildPortfolioChartFromSnapshots(
       portfolioSnapshots,
       homePortfolioRequestedStartMs,
       homePortfolioNowMs,
       homePortfolioSnapshotView,
       `Home ${homePortfolioChartLabel}`,
       positionIntentOverrides
-    ),
-    [portfolioSnapshots, homePortfolioRequestedStartMs, homePortfolioNowMs, homePortfolioSnapshotView, positionIntentOverrides]
-  );
+    );
+  }, [
+    portfolioSnapshots, homePortfolioRequestedStartMs, homePortfolioNowMs,
+    homePortfolioSnapshotView, positionIntentOverrides,
+    homePortfolioViewMode, homePortfolioChartRange,
+    home1DPortfolioHistory.points, alpacaAccount?.equity,
+  ]);
   const homePortfolioPrebuiltBars = useMemo(() => {
     if (homePortfolioViewMode === "portfolio") return null;
     const bars = extractChartBars(homePortfolioBenchmarkChart).map((bar) => {

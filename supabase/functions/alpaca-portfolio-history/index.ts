@@ -2,7 +2,9 @@ import { alpacaBrokerRequest, resolveBrokerConnection } from "../_shared/alpaca.
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 const RANGE_CONFIG: Record<string, { period: string; timeframe: string; intradayReporting?: string }> = {
-  "1D": { period: "1D", timeframe: "5Min", intradayReporting: "continuous" },
+  // Undocumented but SDK-published: period=intraday matches Alpaca's web dashboard 1D chart.
+  // Omitting intradayReporting to mirror alpaca-trade-api-js's default behavior for this period.
+  "1D": { period: "intraday", timeframe: "5Min" },
   "1W": { period: "1W", timeframe: "15Min", intradayReporting: "continuous" },
   "1M": { period: "1M", timeframe: "1D" },
   "3M": { period: "3M", timeframe: "1D" },
