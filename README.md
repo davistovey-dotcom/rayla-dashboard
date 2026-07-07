@@ -33,24 +33,22 @@ Intentionally not covered yet:
 
 Those require external accounts, credentials, or image fixtures and should be handled in a separate controlled QA pass.
 
-## Alpaca Paper Trading V1
+## Alpaca Trading Integration
 
-This project now includes a first-pass Alpaca Paper Trading integration for stocks only.
+Rayla connects to Alpaca via OAuth for both live and paper trading.
 
 Current scope:
-- Connect an existing Alpaca Paper account with OAuth
-- Store the returned Alpaca access token in Supabase
-- Fetch Alpaca account summary
-- Fetch Alpaca positions
-- Submit one simple user-confirmed paper stock order
+- Connect an Alpaca live or paper account with OAuth
+- Store the returned Alpaca access token in Supabase (`user_broker_connections`)
+- Fetch Alpaca account summary and positions
+- Submit user-confirmed live or paper stock and crypto orders through the Live Trades tab
 - Persist Rayla-placed and Alpaca-imported brokerage orders in a broker trade log
+- Sync intraday and historical portfolio equity from Alpaca's portfolio history endpoint (1D chart mirrors Alpaca web dashboard's 20:00 ET session-close anchor)
 
-Out of scope in this version:
-- Live trading
-- Crypto orders
+Not supported:
 - Options
 - Auto trading
-- Broker account creation
+- Broker account creation (users bring their own Alpaca account)
 
 ### Required environment variables
 
@@ -79,11 +77,9 @@ Register the exact callback function URL in Alpaca:
 That same value should be stored in:
 - `ALPACA_REDIRECT_URI`
 
-`APP_BASE_URL` should point to the Rayla app itself, for example:
-
-`http://localhost:5173`
-
-or your deployed app URL.
+`APP_BASE_URL` should point to the Rayla app itself. For example:
+- Production: `https://raylainc.live`
+- Local: the port `npm run dev` reports (Vite auto-picks in the 5000–5005 range)
 
 ### Database setup
 
@@ -196,13 +192,21 @@ npm run dev
 - selecting a stock loads an Alpaca chart and stock news
 - selecting a crypto symbol loads an Alpaca chart and a graceful news fallback message if no symbol news is available
 
-### Follow-up TODOs before live trading
+## Subscriptions & Billing
 
-- Encrypt Alpaca access and refresh tokens at rest
-- Add token refresh handling if Alpaca returns refresh tokens in your app setup
-- Add disconnect/revoke flow
-- Add stronger order validation and confirmation UX
-- Add audit logging for brokerage actions
-- Add symbol validation against supported US equities
-- Add live-trading environment separation and approvals
-- Add backend-side order preview / preflight checks
+Rayla supports two billing paths depending on how the user subscribed:
+
+- **Web (Stripe):** checkout via `stripe-create-checkout-session` edge function, billing management via `stripe-create-portal-session`, webhook events at `stripe-webhook`. Users cancel through their account or the Stripe customer portal.
+- **iOS App Store (Apple In-App Purchase):** verify via `apple-verify-purchase`, restore via `apple-restore-purchase`, App Store server notifications at `apple-app-store-notifications`. Users cancel through their Apple ID subscription settings. Design notes at `docs/apple-iap-design.md`.
+
+Terms of Service (`public/terms.html`) sections 7.3, 7.4, and 11.1 cover the billing-provider-neutral language required by Apple App Review.
+
+## Deliverability
+
+Transactional email (signup verification, password reset) is sent through Brevo. `raylainc.live` DNS must be configured with:
+
+- SPF including `spf.brevo.com` alongside any existing includes
+- Two Brevo DKIM CNAMEs (`brevo1._domainkey`, `brevo2._domainkey`) resolving to 2048-bit RSA keys
+- DMARC at `_dmarc.raylainc.live` (minimum `v=DMARC1; p=none; rua=...`)
+
+Verify with `dig TXT raylainc.live`, `dig TXT _dmarc.raylainc.live`, and `dig TXT brevo1._domainkey.raylainc.live`.
