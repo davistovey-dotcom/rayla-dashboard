@@ -56,7 +56,9 @@ function formatChartDate(timeMs, range, timeZone, compact = false) {
   const normalizedRange = normalizeRange(range);
   const options = compact
     ? normalizedRange === "1D"
-      ? { hour: "numeric", timeZone: safeTimeZone }
+      // Include minutes so intraday ticks within the same hour don't collapse to the
+      // same text and get dropped by the dedup pass in buildXAxisLabels.
+      ? { hour: "numeric", minute: "2-digit", timeZone: safeTimeZone }
       : { month: "short", day: "numeric", timeZone: safeTimeZone }
     : normalizedRange === "1D"
       ? { hour: "numeric", minute: "2-digit", timeZone: safeTimeZone }
