@@ -7141,6 +7141,15 @@ function PortfolioPerformancePanel({
   const totalCostBasis = getOpenPositionCostBasis(allPositions);
   const unrealizedPct = totalCostBasis > 0 ? (totalUnrealizedPl / totalCostBasis) * 100 : null;
   const dayPnL = calculateBrokerDayPnL(allPositions, alpacaAccount);
+  // Broker source-of-truth Day P/L pct for the Performance Portfolio 1D headline.
+  // Mirrors the Home-page pattern (App.jsx homePortfolioDayPnLPct) so Performance,
+  // Home, and Live Trades all show identical Day P/L. Only used when range === "1D".
+  const dayPnLBaseline = Number.isFinite(dayPnL) && dayPnL != null
+    ? (Number(alpacaAccount?.equity ?? alpacaAccount?.portfolioValue) || 0) - dayPnL
+    : null;
+  const dayPnLPct = Number.isFinite(dayPnL) && Number.isFinite(dayPnLBaseline) && dayPnLBaseline > 0
+    ? (dayPnL / dayPnLBaseline) * 100
+    : null;
   const portfolioValue = Number(alpacaAccount?.portfolioValue ?? alpacaAccount?.equity) || totalMarketValue || 0;
   const cash = alpacaAccount ? (Number(alpacaAccount.cash) || 0) : null;
   const plPos = totalUnrealizedPl >= 0;
@@ -7207,6 +7216,8 @@ function PortfolioPerformancePanel({
           chartHeight={520}
           timeZone={timeZone}
           rangeNote={buildPortfolioRangeNote(portfolioRange, portfolioInceptionMs)}
+          openPnl={portfolioRange === "1D" ? dayPnL : null}
+          openPct={portfolioRange === "1D" ? dayPnLPct : null}
         />
       </div>
 
