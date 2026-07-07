@@ -2,15 +2,53 @@ import { alpacaBrokerRequest, resolveBrokerConnection } from "../_shared/alpaca.
 import { buildCorsHeaders, jsonResponse, requireSupabaseUser } from "../_shared/auth.ts";
 
 const RANGE_CONFIG: Record<string, { period: string; timeframe: string; intradayReporting?: string }> = {
-  // Undocumented but SDK-published: period=intraday matches Alpaca's web dashboard 1D chart.
-  // Omitting intradayReporting to mirror alpaca-trade-api-js's default behavior for this period.
-  "1D": { period: "intraday", timeframe: "5Min" },
+  // Matches Alpaca's web dashboard 1D chart request: period=1D + timeframe=1Min +
+  // intraday_reporting=continuous, anchored via an explicit `start` at the most recent
+  // past 20:00 America/New_York (extended-hours close). See getMostRecent20EtIso() below.
+  "1D": { period: "1D", timeframe: "1Min", intradayReporting: "continuous" },
   "1W": { period: "1W", timeframe: "15Min", intradayReporting: "continuous" },
   "1M": { period: "1M", timeframe: "1D" },
   "3M": { period: "3M", timeframe: "1D" },
   "1Y": { period: "1A", timeframe: "1D" },
   ALL: { period: "all", timeframe: "1D" },
 };
+
+// Returns an ISO-8601 UTC string representing the most recent past 20:00 America/New_York
+// timestamp. If we're at or after 20:00 ET today, returns today's 20:00 ET. Otherwise
+// returns yesterday's 20:00 ET. DST-safe via iterative correction.
+// This is the same session-close anchor Alpaca's web dashboard uses for its 1D chart.
+function getMostRecent20EtIso(nowMs: number = Date.now()): string {
+  const etFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+    hour12: false,
+  });
+  const partsFor = (ms: number) => Object.fromEntries(
+    etFormatter.formatToParts(new Date(ms)).map((p) => [p.type, p.value])
+  );
+
+  const nowParts = partsFor(nowMs);
+  const nowMins = parseInt(nowParts.hour, 10) * 60 + parseInt(nowParts.minute, 10);
+  const rollbackDays = nowMins < 20 * 60 ? 1 : 0;
+  const anchorParts = partsFor(nowMs - rollbackDays * 24 * 60 * 60 * 1000);
+
+  // Start guess assumes EDT (UTC-4) → 20:00 ET = 00:00 UTC next day.
+  // During EST the correction loop bumps it forward 60 min.
+  let guess = Date.UTC(
+    parseInt(anchorParts.year, 10),
+    parseInt(anchorParts.month, 10) - 1,
+    parseInt(anchorParts.day, 10) + 1,
+    0, 0, 0,
+  );
+  for (let i = 0; i < 3; i++) {
+    const g = partsFor(guess);
+    const diffMins = (20 * 60) - (parseInt(g.hour, 10) * 60 + parseInt(g.minute, 10));
+    if (diffMins === 0 && g.day === anchorParts.day) break;
+    guess += diffMins * 60 * 1000;
+  }
+  return new Date(guess).toISOString();
+}
 
 const ZERO_BASELINE_RANGES = new Set(["1M", "ALL"]);
 
@@ -101,6 +139,12 @@ Deno.serve(async (req) => {
     });
     if (config.intradayReporting) {
       params.set("intraday_reporting", config.intradayReporting);
+    }
+    // 1D chart: pin `start` to the most recent past 20:00 ET session-close anchor to
+    // match Alpaca's web dashboard behavior. Other ranges leave `start` unset so
+    // Alpaca uses its default period-relative window.
+    if (range === "1D") {
+      params.set("start", getMostRecent20EtIso());
     }
 
     const history = await alpacaBrokerRequest(
