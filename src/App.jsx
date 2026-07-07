@@ -1,4 +1,4 @@
-import React, { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import Login from "./Login";
@@ -13,7 +13,7 @@ import AssetCarousel from "./components/AssetCarousel";
 import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import GuidedTour from "./components/GuidedTour";
 import { tourSteps } from "./components/tourSteps";
-import { LayoutDashboard, PlusSquare, Brain, User, ClipboardList, Target, Gamepad2, BookOpen, Sparkles } from "lucide-react";
+import { LayoutDashboard, PlusSquare, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import PersonalPicksTab from "./components/PersonalPicksTab";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
