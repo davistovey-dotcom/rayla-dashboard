@@ -27,6 +27,13 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
   const scrollAtInteractStartRef = useRef(0);
   const draggedRef = useRef(false);
   const DRAG_THRESHOLD_PX = 8;
+  // Fractional scroll accumulator. Mobile browsers (Chrome Android, Chrome
+  // responsive mode, iOS Safari) round `scrollLeft` to an integer when written,
+  // so `scrollLeft += 0.5` is a no-op there and the auto-scroll never advances.
+  // We accumulate the sub-pixel delta here and only assign an integer to
+  // scrollLeft when we've crossed a whole pixel, keeping the same intended
+  // 30 px/s speed on every platform.
+  const scrollFractionalRef = useRef(0);
 
   // Deduplicate by id/symbol
   const visibleAssets = [];
@@ -89,8 +96,13 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
       if (!isSmoothScrollingRef.current && !isPausedRef.current) {
         const halfWidth = container.scrollWidth / 2;
         if (halfWidth > 0 && container.clientWidth < container.scrollWidth) {
-          const next = container.scrollLeft + SCROLL_SPEED;
-          container.scrollLeft = next >= halfWidth ? 0 : next;
+          scrollFractionalRef.current += SCROLL_SPEED;
+          if (scrollFractionalRef.current >= 1) {
+            const advance = Math.floor(scrollFractionalRef.current);
+            scrollFractionalRef.current -= advance;
+            const next = container.scrollLeft + advance;
+            container.scrollLeft = next >= halfWidth ? 0 : next;
+          }
         }
       }
       animationFrameRef.current = requestAnimationFrame(tick);
