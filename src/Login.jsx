@@ -30,7 +30,7 @@ function getCalmAuthErrorMessage(error, fallback) {
 const TUTORIAL_SLIDES = [
   { title: "Welcome to Rayla", desc: "Rayla is your AI-powered trading workspace. Connect your broker, track your portfolio, simulate trades, and use live market intelligence in one place." },
   { title: "Build conviction before you trade", desc: "Use Rayla's simulations, market intelligence, portfolio analytics, and AI guidance to pressure-test ideas before risking capital." },
-  { title: "Practice before risking capital", desc: "Use Simulation to test ideas, scenarios, entries, exits, and strategy plans before placing real trades." },
+  { title: "Practice before risking capital", desc: "Use Simulation to test ideas, scenarios, entries, exits, and setups before placing real trades." },
   { title: "Track your performance", desc: "Review live trades, completed simulations, portfolio history, and patterns so you can understand what is working." },
   { title: "Daily market intel", desc: "Rayla scans stocks and crypto to show what is hot, what is cold, and the news driving each move." },
   { title: "Ask Rayla", desc: "Ask Rayla about your portfolio, market opportunities, simulations, or a ticker you are watching." },

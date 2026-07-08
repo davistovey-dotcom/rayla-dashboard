@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
       return jsonResponse({
         ok: false,
         reason: "no_customer",
-        message: "Start a Rayla plan before opening billing management.",
+        message: "Start a Rayla subscription before opening billing management.",
       }, 404);
     }
 

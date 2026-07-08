@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
         {
           ok: false,
           reason: "discount_active",
-          message: "An active Rayla discount plan is already on this account.",
+          message: "An active Rayla discount is already on this account.",
         },
         409
       );

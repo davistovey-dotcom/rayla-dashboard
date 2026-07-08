@@ -69,8 +69,8 @@ export const tourSteps = {
     },
     {
       tourId: "trades-exit-plan",
-      title: "Exit Plan",
-      description: "Set a stop loss (max loss) and profit target before you enter. This is planning only — it's not submitted to the broker. Knowing your exit before entry is one of the most important habits in trading.",
+      title: "Stop & Target",
+      description: "Set a stop loss (max loss) and profit target before you enter. These are for your reference only — they are not submitted to the broker. Knowing your exit before entry is one of the most important habits in trading.",
     },
     {
       tourId: "trades-ticket",

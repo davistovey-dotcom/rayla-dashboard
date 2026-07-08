@@ -160,7 +160,10 @@ function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITIO
   const meta = getPositionTypeMeta(positionType);
   const entryReason = String(record.entryReason || record.entry_reason || record.positionIntent?.entryReason || "").trim();
   const timeHorizon = String(record.timeHorizon || record.time_horizon || record.positionIntent?.timeHorizon || meta.defaultTimeHorizon || "").trim();
-  const thesis = String(record.thesis || record.positionIntent?.thesis || "").trim();
+  // Trader-provided free-text rationale. Read from legacy `thesis` field for backward
+  // compatibility with existing stored data, but renamed to `traderReason` on the
+  // returned object so it never reaches the LLM as a field labelled "thesis".
+  const traderReason = String(record.thesis || record.reason || record.positionIntent?.thesis || record.positionIntent?.reason || "").trim();
   return {
     positionType,
     position_type: positionType,
@@ -169,7 +172,7 @@ function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITIO
     positionTypeLabel: meta.label,
     positionCategory: meta.category,
     isLongTermHolding: meta.category === "holding",
-    thesis,
+    traderReason,
     entryReason,
     entry_reason: entryReason,
     timeHorizon,
@@ -179,7 +182,7 @@ function buildPositionIntentMetadata(record = {}, fallbackType = DEFAULT_POSITIO
       label: meta.label,
       category: meta.category,
       timeHorizon,
-      thesis,
+      reason: traderReason,
       entryReason,
     },
   };
@@ -852,7 +855,7 @@ const SIMULATION_TUTORIAL_SECTIONS = [
   {
     key: "controls",
     title: "Trade Controls",
-    description: "Pick asset, direction, and size. Set your exit plan before you start.",
+    description: "Pick asset, direction, and size. Set your stop and target before you start.",
   },
   {
     key: "risk",
@@ -872,7 +875,7 @@ const SIMULATION_TUTORIAL_SECTIONS = [
   {
     key: "open-position",
     title: "Open Position Panel",
-    description: "Tracks current price, P/L, R multiple, and time in trade against your original plan.",
+    description: "Tracks current price, P/L, R multiple, and time in trade against the stop and target you set.",
   },
   {
     key: "summary",
@@ -1889,7 +1892,7 @@ function getAvailableLeverageOptions(multiplier) {
 
 function getSimulationCoachMessage(position, currentPrice, metrics) {
   if (!position) return "Ready for your next setup.";
-  if (!Number.isFinite(currentPrice)) return "Trade is open. Stick to the plan.";
+  if (!Number.isFinite(currentPrice)) return "Trade is open. Watch how price behaves.";
 
   if (position.exitMode === "pnl") {
     if (position.stopLoss != null && Number.isFinite(metrics?.profitLoss) && metrics.profitLoss < 0) {
@@ -1925,7 +1928,7 @@ function getSimulationCoachMessage(position, currentPrice, metrics) {
     return "In profit. Stay patient.";
   }
 
-  return "Trade is open. Stick to the plan.";
+  return "Trade is open. Watch how price behaves.";
 }
 
 function didLiveSimulationStopWiden(position, nextStopLoss) {
@@ -2110,7 +2113,7 @@ function buildIntelSimulationSetupSteps({ assetSymbol, directionLabel }) {
     },
     {
       title: "Step 5: Open Trade",
-      body: "Plan is clear? Open the trade.",
+      body: "Setup clear? Open the trade.",
     },
   ];
 }
@@ -3724,12 +3727,12 @@ function buildSimulationOpeningMessage(simulationContext, { beginnerMode = false
   const rVal = Number(unrealizedR);
   const rStr = Number.isFinite(rVal) ? ` at ${rVal > 0 ? "+" : ""}${rVal.toFixed(2)}R` : "";
   const planStr = isInsidePlan
-    ? "inside plan"
+    ? "between your levels"
     : nearestLevelKey === "stop"
       ? "approaching your stop"
       : nearestLevelKey === "target"
         ? "near your target"
-        : "outside the plan range";
+        : "outside your stop-and-target range";
 
   return `You're ${dirLabel} ${symbol}${rStr} — ${planStr}. What do you want to work through?`;
 }
@@ -3759,7 +3762,7 @@ function buildDirectSimulationRaylaAnswer(question, simulationContext) {
     const nearestLevelText = activeTrade.nearestLevel === "entry"
       ? "between stop and target"
       : `near your ${activeTrade.nearestLevel}`;
-    const planLine = activeTrade.isInsidePlan ? "inside plan" : "outside the plan range";
+    const planLine = activeTrade.isInsidePlan ? "between your levels" : "outside your stop-and-target range";
     const stopLine = activeTrade.stopPrice != null
       ? `Keep the ${stopLabel} where it is unless something about the setup has actually changed.`
       : "Define a stop if you haven't — one bad move shouldn't be open-ended.";
@@ -3796,7 +3799,7 @@ function buildDirectSimulationRaylaAnswer(question, simulationContext) {
   if (asksAboutStatus) {
     const rVal = Number(activeTrade.unrealizedR);
     const rStr = Number.isFinite(rVal) ? `${rVal > 0 ? "+" : ""}${rVal.toFixed(2)}R` : "unknown R";
-    const planStr = activeTrade.isInsidePlan ? "inside your plan" : "outside your plan range";
+    const planStr = activeTrade.isInsidePlan ? "between your levels" : "outside your stop-and-target range";
     const levelCue = activeTrade.nearestLevelKey === "stop"
       ? "Getting closer to your stop — keep watching it."
       : activeTrade.nearestLevelKey === "target"
@@ -4517,13 +4520,13 @@ Confidence: [1–10] — [one sentence: what made this high or low]
       /\bdca\b/i,
       /how (should|do) i invest \$[\d,]+/i,
     ],
-    instruction: `Cash Deployment Plan
+    instruction: `Cash Deployment
 
 Current Situation: [Summarize deployment amount, current portfolio size, cash %, and key concentration risk if any — pull from Cash Deployment Context block if present]
 
 Goal Alignment: [If a Financial Goal is in context, explicitly map this deployment to the target amount, target date, and objective. If no goal is set, note what deployment strategy best fits their apparent objective.]
 
-Allocation Plan: [Recommend lump sum vs. staged entry with clear reasoning. If staged, give specific splits — e.g. "3 tranches over 3 weeks." If lump sum, explain why timing works.]
+Allocation: [Recommend lump sum vs. staged entry with clear reasoning. If staged, give specific splits — e.g. "3 tranches over 3 weeks." If lump sum, explain why timing works.]
 
 Position Sizing: [Exact dollar amounts per position based on the max-per-position guidance from context. Show the math: "$X at max Y% concentration = $Z per position." List 2–3 specific allocation targets tied to their profile or existing holdings.]
 
@@ -4815,7 +4818,6 @@ function buildPortfolioRiskContext({ positions, account }) {
     .map((p) => ({
       symbol: String(p.symbol || ""),
       mv: Number(p.market_value ?? p.marketValue ?? 0),
-      thesis: p.thesis || "",
       assetClass: p.assetClass || p.asset_class || "",
     }))
     .filter((p) => p.symbol && Number.isFinite(p.mv) && p.mv > 0)
@@ -6221,8 +6223,8 @@ const MY_TRADES_HELP = {
     body: "DAY fills during market hours and cancels at close — required for fractional and dollar-amount equity orders. GTC stays open until filled or canceled. IOC fills immediately and cancels any remainder. FOK fills the whole order immediately or cancels.",
   },
   exits: {
-    title: "Exit Plan",
-    body: "In Price mode, stop and target are submitted to Alpaca as bracket order legs alongside your entry. In P&L mode, the dollar amounts are for planning only and are not sent to the broker.",
+    title: "Stop & Target",
+    body: "In Price mode, stop and target are submitted to Alpaca as bracket order legs alongside your entry. In P&L mode, the dollar amounts are for your reference only and are not sent to the broker.",
   },
   riskReward: {
     title: "R/R Ratio",
@@ -6466,12 +6468,12 @@ function PositionPerformanceInsights({
     ? `${topPosition.symbol} is ${topAllocation.toFixed(0)}% of this view. That concentration matters more than the number of positions.`
     : null;
   const lossWarning = losingPositions.length
-    ? `${losingPositions.length} ${scopedPositionNoun}${losingPositions.length === 1 ? " is" : " are"} currently underwater. Review whether the original plan still applies.`
+    ? `${losingPositions.length} ${scopedPositionNoun}${losingPositions.length === 1 ? " is" : " are"} currently underwater. Check whether the reason you bought still holds.`
     : null;
   const nextAction = concentrationWarning
     ? "Check whether the largest allocation is intentional before adding more exposure."
     : lossWarning
-      ? "Review the underwater positions first; separate temporary drawdown from a broken plan."
+      ? "Review the underwater positions first; separate temporary drawdown from evidence the setup broke down."
       : "Keep monitoring allocation, unrealized P/L, and whether each position still matches its intent.";
 
   const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
@@ -7589,7 +7591,7 @@ function HoldingsPerformancePanel({
                   {onSaveThesis && (
                     <div style={{ marginTop: 8 }}>
                       <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontWeight: 500, letterSpacing: "0.03em" }}>
-                        Holding Thesis <span style={{ color: "#334155", fontWeight: 400 }}>optional · used by Rayla</span>
+                        Why I Own It <span style={{ color: "#334155", fontWeight: 400 }}>optional · used by Rayla</span>
                       </div>
                       <textarea
                         defaultValue={pos.thesis || ""}
@@ -11966,11 +11968,11 @@ function formatBillingDate(value) {
 function getSubscriptionPresentation(subscription) {
   const status = String(subscription?.status || "inactive");
   if (subscription?.plan_key === "rayla_discount" && status === "active") return { label: "Discount", tone: "blue", detail: "Discount access is active." };
-  if (status === "active") return { label: "Active", tone: "green", detail: "Your Rayla plan is active." };
+  if (status === "active") return { label: "Active", tone: "green", detail: "Your Rayla subscription is active." };
   if (status === "trialing") return { label: "Trial", tone: "blue", detail: subscription?.trial_ends_at ? `Trial ends ${formatBillingDate(subscription.trial_ends_at)}.` : "Your Rayla trial is active." };
   if (status === "past_due") return { label: "Past due", tone: "amber", detail: "Update billing in Stripe to keep access current." };
   if (status === "checkout_started") return { label: "Checkout started", tone: "blue", detail: "Finish checkout in Stripe to activate billing." };
-  if (status === "canceled") return { label: "Canceled", tone: "neutral", detail: "Your previous Rayla plan is canceled." };
+  if (status === "canceled") return { label: "Canceled", tone: "neutral", detail: "Your previous Rayla subscription is canceled." };
   if (status === "incomplete" || status === "incomplete_expired" || status === "unpaid") return { label: "Needs attention", tone: "amber", detail: "Open billing to complete or update payment." };
   return { label: "Not subscribed", tone: "neutral", detail: "Start checkout when you are ready." };
 }
@@ -18480,7 +18482,7 @@ useEffect(() => {
         }
 
         if (simulationProfile.strongExecutionCount >= Math.ceil(Math.max(1, simulationProfile.totalTrades) * 0.5)) {
-          notes.push("Your simulator history suggests you are more comfortable when the plan is structured and clear.");
+          notes.push("Your simulator history suggests you are more comfortable when the setup is structured and the rules are clear.");
         } else if (simulationProfile.poorManagementCount >= 2 || simulationProfile.heldLosersTooLongCount >= 2) {
           notes.push("Your simulator history suggests simpler, rules-based approaches may fit better than constant high-speed decision-making.");
         }
@@ -21609,7 +21611,7 @@ function buildSimulationAssetFromPosition(position) {
       guidedSimulationTips.push(simulationExitMode === "pnl" ? "Add a profit target if you want the rep to auto-pay you once that dollar goal is reached." : "Add a take profit so you define where you want to get paid.");
     }
     if (simulationStopLoss && simulationTakeProfit) {
-      guidedSimulationTips.push("Good — you now have a defined risk plan.");
+      guidedSimulationTips.push("Good — you now have defined risk parameters.");
     }
     if (simulationMode === "scenario") {
       guidedSimulationTips.push(
@@ -21631,7 +21633,7 @@ function buildSimulationAssetFromPosition(position) {
             ? "You are planning a short trade, so your stop should usually be above entry and target below."
             : "You are planning a long trade, so your stop should usually be below entry and target above."
       );
-      guidedSimulationTips.push("The live chart shows the current market. Watch how price behaves after entry, then compare the rep to the plan you entered.");
+      guidedSimulationTips.push("The live chart shows the current market. Watch how price behaves after entry, then compare the rep to the parameters you set.");
     }
     if (simulationMode === "scenario") {
       guidedSimulationTips.push("Scenario mode uses generated training movement, so focus on practicing clean execution instead of reacting to live market noise.");
@@ -22036,7 +22038,7 @@ function buildSimulationAssetFromPosition(position) {
         "1. Search the asset you want to train on",
         "2. Choose Scenario type: Uptrend, Downtrend, Range, or Realistic",
         "3. No Limit runs until you close. Bounded ends after the full duration.",
-        "4. Set direction, size, and exit plan before pressing Play",
+        "4. Set direction, size, and stop and target before pressing Play",
         "5. Chart projects forward from the Now anchor — make decisions as it unfolds",
         "6. Use the open-trade panel to track entry, price, and P/L",
         "7. Review the summary after close. AI coaching available in Realistic mode.",
@@ -22045,9 +22047,9 @@ function buildSimulationAssetFromPosition(position) {
     : [
         "1. Search the asset you want to practice",
         "2. Choose Long or Short. Set size in dollars or shares.",
-        "3. Define your exit plan: stop and optional target",
+        "3. Define your stop and optional target",
         "4. Open the trade. Market updates the rep in real time.",
-        "5. Compare price behavior against your plan on the chart",
+        "5. Compare price behavior against your levels on the chart",
         "6. Close manually or let the simulator hit your stop or target",
         "7. Review execution grade and session stats after close",
         "8. Repeat reps to sharpen execution, patience, and discipline",
@@ -22069,7 +22071,7 @@ function buildSimulationAssetFromPosition(position) {
         : "Shares = number of units. Dollars = total cash committed.",
     },
     {
-      title: "3. Define your risk plan",
+      title: "3. Define your risk parameters",
       text: simulationExitMode === "price"
         ? "Stop = where you're wrong. Target = where you get paid."
         : "Max loss closes the trade at that dollar loss. Profit target closes it when you hit that gain.",
@@ -25125,7 +25127,7 @@ return (
                           </div>
                         </div>
                         {!pendingAlpacaOrderConfirmation.isCloseOrder && <div>
-                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Leverage Plan</div>
+                          <div style={{ fontSize: 12, color: "#7f8ea3", marginBottom: 4 }}>Leverage Setup</div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                             {pendingAlpacaOrderConfirmation.leverage || "1x"}
                           </div>
@@ -25145,10 +25147,10 @@ return (
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.16)", display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#4ade80" }}>
-                              Exit Plan
+                              Stop & Target
                             </div>
                             <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>
-                              {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "P&L mode · planning only" : "Price mode · bracket order"}
+                              {pendingAlpacaOrderConfirmation.planMode === "pnl" ? "P&L mode · reference only" : "Price mode · bracket order"}
                             </div>
                           </div>
                           <div style={{ fontSize: 11, color: "#86efac", lineHeight: 1.5 }}>
@@ -26465,8 +26467,8 @@ return (
                                   ) : (
                                     <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
                                       {alpacaOrderPlanMode === "pnl"
-                                        ? "Switch Exit Plan to Price mode and set a stop price to size from risk."
-                                        : "Set a stop price in Exit Plan (Price mode) to size from planned risk."}
+                                        ? "Switch Stop & Target to Price mode and set a stop price to size from risk."
+                                        : "Set a stop price in Stop & Target (Price mode) to size from planned risk."}
                                     </div>
                                   )}
                                 </>
@@ -26591,7 +26593,7 @@ return (
                                 onClick={() => setAlpacaOrderPlanOpen((prev) => !prev)}
                                 style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, flex: 1, minWidth: 0 }}
                               >
-                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Exit Plan</div>
+                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "#7f8ea3" }}>Stop & Target</div>
                                 <div style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{alpacaOrderPlanOpen ? "▲" : "▼"}</div>
                               </button>
                             </div>
@@ -27364,12 +27366,12 @@ return (
 
                       <div style={simControlSectionStyle}>
                         <div style={simControlLabelStyle}>
-                          Trade Thesis <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11, textTransform: "none", letterSpacing: 0 }}>optional</span>
+                          Reason for Trade <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11, textTransform: "none", letterSpacing: 0 }}>optional</span>
                         </div>
                         <textarea
                           value={simulationEntryReason}
                           onChange={(e) => setSimulationEntryReason(e.target.value)}
-                          placeholder="EMA pullback, breakout, momentum continuation, earnings, long-term thesis…"
+                          placeholder="EMA pullback, breakout, momentum continuation, earnings, long-term hold…"
                           rows={2}
                           style={{ width: "100%", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 11px", color: "#e2e8f0", fontSize: 12, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.55 }}
                         />
@@ -27416,7 +27418,7 @@ return (
 
 {!useScenarioDesktopLayout || simulationMode === "scenario" ? (
                       <div style={simControlSectionStyle}>
-                        <div style={simControlLabelStyle}>Exit Plan</div>
+                        <div style={simControlLabelStyle}>Stop & Target</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button
                             type="button"
@@ -27550,8 +27552,8 @@ return (
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Ready to open</div>
                           <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.6 }}>
                             {simulationMode === "scenario"
-                              ? "Check the asset, size, and exit plan."
-                              : "Check the asset, size, and exit plan."}
+                              ? "Check the asset, size, and exit levels."
+                              : "Check the asset, size, and exit levels."}
                           </div>
                         </div>
                         <button
@@ -28246,7 +28248,7 @@ return (
                       </div>
                       {showBeginnerGuidance && activeGuidedSimulation && (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, flex: 1 }}>Guided trade is live — manage it according to your plan.</span>
+                          <span style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, flex: 1 }}>Guided trade is live — manage it against the levels you set.</span>
                           <button type="button" onClick={() => setActiveGuidedSimulation(null)} style={{ background: "none", border: "none", color: "#7f8ea3", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
                         </div>
                       )}

@@ -61,7 +61,7 @@ const QUESTIONS = {
     options: [
       { value: "sell", label: "Sell", desc: "A 30% loss is too much — cut it." },
       { value: "hold", label: "Hold", desc: "Stay the course and wait for recovery." },
-      { value: "buy_more", label: "Buy More", desc: "Double down — I believe in the thesis." },
+      { value: "buy_more", label: "Buy More", desc: "Double down — the reasons I bought still hold." },
     ],
   },
   portfolioSize: {
