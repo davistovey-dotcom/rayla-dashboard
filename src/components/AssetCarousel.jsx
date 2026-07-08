@@ -20,6 +20,13 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
   const isSmoothScrollingRef = useRef(false);
   const resumeTimerRef = useRef(null);
   const cardRefs = useRef(new Map());
+  // Drag detection: tracks scrollLeft at touch/pointer down. If the user moves the
+  // container more than DRAG_THRESHOLD_PX before releasing, the ensuing click is
+  // treated as a scroll gesture and suppressed so accidental swipes don't select
+  // a card.
+  const scrollAtInteractStartRef = useRef(0);
+  const draggedRef = useRef(false);
+  const DRAG_THRESHOLD_PX = 8;
 
   // Deduplicate by id/symbol
   const visibleAssets = [];
@@ -113,26 +120,60 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
     };
   }, []);
 
-  // Touch pause/auto-resume — mobile and touch tablets
+  // Touch pause/auto-resume — mobile and touch tablets. Also seeds drag detection
+  // so that a horizontal swipe of the container doesn't accidentally fire a click
+  // on the underlying card at pointer release.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const onTouchStart = () => {
       isPausedRef.current = true;
+      scrollAtInteractStartRef.current = container.scrollLeft;
+      draggedRef.current = false;
       if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    };
+    const onTouchMove = () => {
+      if (Math.abs(container.scrollLeft - scrollAtInteractStartRef.current) > DRAG_THRESHOLD_PX) {
+        draggedRef.current = true;
+      }
     };
     const onTouchEnd = () => { scheduleResume(); };
 
     container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
     container.addEventListener("touchend", onTouchEnd, { passive: true });
     container.addEventListener("touchcancel", onTouchEnd, { passive: true });
     return () => {
       container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("touchend", onTouchEnd);
       container.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [scheduleResume]);
+
+  // Mouse drag detection on fine pointers — same idea as the touch handler above.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!window.matchMedia("(pointer: fine)").matches) return;
+
+    const onPointerDown = () => {
+      scrollAtInteractStartRef.current = container.scrollLeft;
+      draggedRef.current = false;
+    };
+    const onPointerMove = () => {
+      if (Math.abs(container.scrollLeft - scrollAtInteractStartRef.current) > DRAG_THRESHOLD_PX) {
+        draggedRef.current = true;
+      }
+    };
+    container.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointermove", onPointerMove);
+    return () => {
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointermove", onPointerMove);
+    };
+  }, []);
 
   // Resume when clicking/tapping outside carousel
   useEffect(() => {
@@ -147,6 +188,17 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
   }, []);
 
   const handleClick = useCallback((asset) => {
+    // Guard: if this "click" is really the end of a drag/swipe, do nothing.
+    if (draggedRef.current) {
+      draggedRef.current = false;
+      return;
+    }
+    // Guard: don't fire selection for malformed asset objects.
+    if (!asset || (!asset.id && !asset.symbol)) {
+      console.warn("[AssetCarousel] ignoring click on asset with no id/symbol", asset);
+      return;
+    }
+
     isPausedRef.current = true;
     isSmoothScrollingRef.current = true;
     onSelect?.(asset);
@@ -182,7 +234,11 @@ export default function AssetCarousel({ assets = [], selectedId, onSelect }) {
           gap: 12,
           padding: "4px 0 8px",
           boxSizing: "border-box",
-          WebkitOverflowScrolling: "touch",
+          // NOTE: WebkitOverflowScrolling: "touch" was removed here. On iOS Safari
+          // the legacy "touch" value delegates horizontal scroll to a native
+          // subsystem that overrides JS-driven `container.scrollLeft` assignments,
+          // which stopped the rAF auto-scroll from advancing. Modern iOS supports
+          // horizontal swipe/pan on `overflow-x: auto` natively without it.
         }}
       >
         {renderList.map((asset, globalIndex) => {

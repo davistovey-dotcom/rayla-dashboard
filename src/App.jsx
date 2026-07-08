@@ -24403,7 +24403,24 @@ return (
                         return [...positionAssets, ...fillAssets];
                       })()}
                       selectedId={selectedMarketId}
-                      onSelect={(asset) => { setSelectedMarketId(asset.id); setHomeMarketActiveAsset(null); setHomePortfolioViewMode("asset"); }}
+                      onSelect={(asset) => {
+                        // Delegate to the same handler the search-select flow uses.
+                        // buildMarketAsset() populates tvSymbol via exchangeMap (BTC ->
+                        // BINANCE:BTCUSDT, NVDA -> NASDAQ:NVDA, etc.) and getEquityTvSymbol,
+                        // which is what TradingViewLiveChart's resolveXWidgetSymbol needs
+                        // to render the correct chart. Hand-rolling a partial synthetic
+                        // here fell through to the BTC fallback when tvSymbol was missing.
+                        const rawSymbol = String(asset?.symbol || asset?.id || "").trim();
+                        if (!rawSymbol) {
+                          console.warn("[Home carousel] click ignored: missing id/symbol", asset);
+                          return;
+                        }
+                        handleSelectHomeAsset({
+                          symbol: rawSymbol,
+                          description: asset.name || rawSymbol,
+                          type: asset.type === "crypto" ? "crypto" : "stock",
+                        });
+                      }}
                     />
                   </div>
                   {/* Range + Mode toggles */}
