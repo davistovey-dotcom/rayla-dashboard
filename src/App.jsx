@@ -7125,6 +7125,7 @@ function PortfolioPerformancePanel({
   timeZone = null,
   positionActions = null,
   portfolioInceptionMs = null,
+  preferPaper = false,
   onRefresh = null,
 }) {
   const portfolioRanges = [
@@ -7220,6 +7221,7 @@ function PortfolioPerformancePanel({
           rangeNote={buildPortfolioRangeNote(portfolioRange, portfolioInceptionMs)}
           openPnl={portfolioRange === "1D" ? dayPnL : null}
           openPct={portfolioRange === "1D" ? dayPnLPct : null}
+          preferPaper={preferPaper}
         />
       </div>
 
@@ -7370,6 +7372,7 @@ function HoldingsPerformancePanel({
   onSaveThesis = null,
   portfolioInceptionMs = null,
   intentOverrides = null,
+  preferPaper = false,
   onRefresh = null,
 }) {
   const holdings = Array.isArray(positions) ? positions : [];
@@ -7474,6 +7477,7 @@ function HoldingsPerformancePanel({
           openPct={summary.unrealizedPct}
           rangeNote={buildPortfolioRangeNote(portfolioRange, portfolioInceptionMs)}
           intentOverrides={intentOverrides}
+          preferPaper={preferPaper}
         />
       </div>
 
@@ -7650,6 +7654,7 @@ function ActiveTradesPerformancePanel({
   startingCapital = 0,
   onChangeStartingCapital = null,
   intentOverrides = null,
+  preferPaper = false,
   onRefresh = null,
 }) {
   const trades = Array.isArray(positions) ? positions : [];
@@ -7766,6 +7771,7 @@ function ActiveTradesPerformancePanel({
             chartHeight={420}
             useAccountValue={false}
             timeZone={timeZone}
+            preferPaper={preferPaper}
           />
         ) : hasClosedTrades ? (
           <div className="performancePortfolioTrendCard" style={{
@@ -8406,6 +8412,7 @@ function PerformanceDashboard({
           statusLabel={alpacaConnected ? "Open" : null}
           useAccountValue={false}
           timeZone={timeZone}
+          preferPaper={preferPaper}
         />
       ) : null}
 
@@ -28638,6 +28645,7 @@ return (
                     />
                   ) : null}
                   portfolioInceptionMs={portfolioInceptionMs}
+                  preferPaper={brokerPreferPaper}
                   onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                 />
                 </>
@@ -28655,6 +28663,7 @@ return (
                   setPortfolioRange={setPerformanceHoldingsRange}
                   timeZone={raylaChartTimeZone}
                   portfolioInceptionMs={portfolioInceptionMs}
+                  preferPaper={brokerPreferPaper}
                   onSaveThesis={saveHoldingThesis}
                   intentOverrides={positionIntentOverrides}
                   onAskRayla={(symbol) => {
@@ -28722,6 +28731,7 @@ return (
                   startingCapital={dayTradeStartingCapital}
                   onChangeStartingCapital={saveDayTradeStartingCapital}
                   intentOverrides={positionIntentOverrides}
+                  preferPaper={brokerPreferPaper}
                   onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                 />
               ) : (
