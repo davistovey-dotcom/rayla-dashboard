@@ -7074,6 +7074,14 @@ function PortfolioTrendCard({
     ? accountPortfolioValue
     : totalMarketValue || 0;
   const resolvedStatusLabel = statusLabel ?? (alpacaAccount?.isPaper != null ? (alpacaAccount.isPaper ? "Paper" : "Live") : null);
+  // Prefer the account currently in the UI over the preference flag. Otherwise the
+  // chart can request live history while stats/positions show paper — brokerPreferPaper
+  // is per-origin localStorage that can drift from alpacaAccount when the account was
+  // fetched via an explicit override (Switch-to-Paper button, OAuth callback on a
+  // different origin, etc). alpacaAccount.isPaper is what the rest of the UI displays.
+  const resolvedPreferPaper = alpacaAccount?.isPaper != null
+    ? Boolean(alpacaAccount.isPaper)
+    : preferPaper;
 
   return (
     <PortfolioHistoryChart
@@ -7095,7 +7103,7 @@ function PortfolioTrendCard({
       rangeNote={rangeNote}
       openPnl={openPnl}
       openPct={openPct}
-      preferPaper={preferPaper}
+      preferPaper={resolvedPreferPaper}
       intentOverrides={intentOverrides}
     />
   );
@@ -24566,7 +24574,7 @@ return (
                         fallbackSnapshots={portfolioSnapshots}
                         snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
                         intentOverrides={positionIntentOverrides}
-                        preferPaper={brokerPreferPaper}
+                        preferPaper={alpacaAccount?.isPaper != null ? Boolean(alpacaAccount.isPaper) : brokerPreferPaper}
                         showRangeHint={false}
                         rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
                         onExpand={isMobileView ? undefined : () => setIsPortfolioChartExpanded(true)}
@@ -30443,7 +30451,7 @@ return (
             fallbackSnapshots={portfolioSnapshots}
             snapshotView={homePortfolioViewMode === "holdings" ? "holdings" : homePortfolioViewMode === "active" ? "active" : "portfolio"}
             intentOverrides={positionIntentOverrides}
-            preferPaper={brokerPreferPaper}
+            preferPaper={alpacaAccount?.isPaper != null ? Boolean(alpacaAccount.isPaper) : brokerPreferPaper}
             showRangeHint={false}
             rangeNote={buildPortfolioRangeNote(homePortfolioChartRange, portfolioInceptionMs)}
           />
