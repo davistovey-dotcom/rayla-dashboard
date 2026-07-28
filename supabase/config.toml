@@ -122,3 +122,8 @@ entrypoint = "./functions/apple-restore-purchase/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/apple-app-store-notifications/index.ts"
+
+[functions.weekly-investor-review]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/weekly-investor-review/index.ts"

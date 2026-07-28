@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    await upsertBrokerTradeLogs(supabase, user.id, "alpaca", [order], "rayla");
+    await upsertBrokerTradeLogs(supabase, user.id, "alpaca", [order], "rayla", isPaper);
 
     return jsonResponse({
       ok: true,

@@ -280,7 +280,7 @@ function normalizeRaylaTradeType(value: any) {
   return ["day_trade", "swing_trade", "investment"].includes(normalized) ? normalized : "day_trade";
 }
 
-export function buildBrokerTradeLogRow(userId: string, provider: string, order: any, source = "alpaca_import", existingSource?: string | null, existingTradeType?: string | null) {
+export function buildBrokerTradeLogRow(userId: string, provider: string, order: any, source = "alpaca_import", existingSource?: string | null, existingTradeType?: string | null, isPaper?: boolean) {
   const normalizedOrder = normalizeAlpacaOrder(order);
   return {
     user_id: userId,
@@ -295,13 +295,14 @@ export function buildBrokerTradeLogRow(userId: string, provider: string, order: 
     status: normalizedOrder.status || "new",
     source: existingSource === "rayla" ? "rayla" : source,
     trade_type: normalizeRaylaTradeType(existingTradeType || normalizedOrder.raw?.trade_type),
+    broker_environment: typeof isPaper === "boolean" ? (isPaper ? "paper" : "live") : null,
     submitted_at: normalizedOrder.submittedAt,
     filled_at: normalizedOrder.filledAt,
     raw_payload: normalizedOrder.raw || {},
   };
 }
 
-export async function upsertBrokerTradeLogs(supabase: any, userId: string, provider: string, orders: any[], source = "alpaca_import") {
+export async function upsertBrokerTradeLogs(supabase: any, userId: string, provider: string, orders: any[], source = "alpaca_import", isPaper?: boolean) {
   const validOrders = (orders || []).filter((order) => order?.id);
   if (!validOrders.length) return [];
 
@@ -328,7 +329,8 @@ export async function upsertBrokerTradeLogs(supabase: any, userId: string, provi
       order,
       source,
       existingByOrderId.get(order.id)?.source || null,
-      existingByOrderId.get(order.id)?.trade_type || null
+      existingByOrderId.get(order.id)?.trade_type || null,
+      isPaper
     )
   );
 

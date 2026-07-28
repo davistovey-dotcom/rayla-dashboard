@@ -13,8 +13,9 @@ import AssetCarousel from "./components/AssetCarousel";
 import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import GuidedTour from "./components/GuidedTour";
 import { tourSteps } from "./components/tourSteps";
-import { LayoutDashboard, PlusSquare, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
+import { LayoutDashboard, PlusSquare, User, ClipboardList, Target, Gamepad2, BookOpen, Sparkles } from "lucide-react";
 import PersonalPicksTab from "./components/PersonalPicksTab";
+import InvestorReviewTab from "./components/InvestorReviewTab";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
@@ -894,6 +895,7 @@ const NAV_TABS = [
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
   { id: "ai", icon: <Target size={18} />, label: "Performance" },
   { id: "journal", icon: <BookOpen size={18} />, label: "Journal" },
+  { id: "review", icon: <Sparkles size={18} />, label: "Review" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
 const ACTIVE_TAB_STORAGE_KEY = "rayla-active-tab";
@@ -4799,6 +4801,7 @@ function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveR
   }
   if (activeTab === "simulation") return "Simulation";
   if (activeTab === "trades") return "LiveTrades";
+  if (activeTab === "review") return "InvestorReview";
   return "General";
 }
 
@@ -14124,6 +14127,36 @@ useEffect(() => {
       };
     })
   ), [alpacaPositions, positionIntentOverrides, holdingTheses, brokerTradeLog]);
+
+  // Counts trades that qualify for the "Picks sharpen as you trade" behavioral
+  // personalization engine. Definition:
+  //   - Broker orders: distinct broker_order_id in the CURRENT env with status
+  //     in {filled, partially_filled}. Partial fills count as one intentional
+  //     execution that reached the market; canceled/rejected/pending do not.
+  //     Historical rows were backfilled to paper/live by migration
+  //     20260727003 using raw_payload.account_id and connection metadata;
+  //     any that remain NULL are unattributable and stay excluded.
+  //   - Manual journal trades: one per row in the trades table.
+  // Dedupe is enforced by the (user_id, broker_provider, broker_order_id)
+  // unique key on broker_trade_logs — repeated syncs cannot inflate the count.
+  const eligibleBrokerTradeCount = useMemo(() => {
+    const activeEnv = brokerPreferPaper ? "paper" : "live";
+    const executedStatuses = new Set(["filled", "partially_filled"]);
+    const seen = new Set();
+    let count = 0;
+    for (const row of brokerTradeLog || []) {
+      if (row?.broker_environment !== activeEnv) continue;
+      const status = String(row?.status || "").toLowerCase();
+      if (!executedStatuses.has(status)) continue;
+      const orderId = row?.broker_order_id;
+      if (!orderId || seen.has(orderId)) continue;
+      seen.add(orderId);
+      count += 1;
+    }
+    return count;
+  }, [brokerTradeLog, brokerPreferPaper]);
+
+  const investorTradeCount = trades.length + eligibleBrokerTradeCount;
   const sortedBrokerPositionsWithIntent = useMemo(() => (
     [...brokerPositionsWithIntent].sort((a, b) => Number(a.isLongTermHolding) - Number(b.isLongTermHolding))
   ), [brokerPositionsWithIntent]);
@@ -15721,6 +15754,7 @@ useEffect(() => {
 
     setBrokerTradeLogLoading(true);
     try {
+      const activeEnv = brokerPreferPaper ? "paper" : "live";
       let syncedBrokerOrderIds = null;
       if (sync) {
         const { data: syncData, error } = await supabase.functions.invoke("alpaca-orders", { body: { preferPaper: brokerPreferPaper } });
@@ -15736,9 +15770,15 @@ useEffect(() => {
         }
       }
 
+      // Strict env isolation: only rows explicitly tagged with the active env.
+      // Historical rows were backfilled by migration 20260727003 using
+      // raw_payload.account_id and connection metadata; the tiny minority
+      // that remain NULL are genuinely unattributable and stay excluded to
+      // preserve isolation.
       let query = supabase
         .from("broker_trade_logs")
         .select("*")
+        .eq("broker_environment", activeEnv)
         .order("submitted_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
@@ -15961,7 +16001,23 @@ useEffect(() => {
   function setBrokerPreferPaper(value) {
     try { localStorage.setItem("rayla_broker_prefer_paper", value ? "true" : "false"); } catch { /* ignore */ }
     setBrokerPreferPaperState(value);
+    // Clear cross-env trade log immediately so stale rows never flash while the
+    // env-scoped refetch is in flight. The follow-up sync (driven by the effect
+    // below) backfills env on the active connection's rows via upsert.
+    setBrokerTradeLog([]);
+    setBrokerTradeLogLoaded(false);
   }
+
+  const brokerPreferPaperInitialRef = useRef(true);
+  useEffect(() => {
+    if (brokerPreferPaperInitialRef.current) {
+      brokerPreferPaperInitialRef.current = false;
+      return;
+    }
+    if (!session) return;
+    fetchBrokerTradeLog({ sync: true, silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brokerPreferPaper, session]);
 
   function handleSkipBrokerOnboarding() {
     const userId = session?.user?.id;
@@ -28862,7 +28918,7 @@ return (
                 }}
                 brokerPositions={brokerPositionsWithIntent}
                 alpacaAccount={alpacaAccount}
-                tradeCount={trades.length}
+                tradeCount={investorTradeCount}
                 onProfileComplete={(completedProfile) => {
                   const current = loadCoachProfile() || {};
                   saveCoachProfile({
@@ -28890,6 +28946,14 @@ return (
                 onOpenRaylaPopup={openGlobalRaylaPopup}
                 onDeleteManualTrade={handleDeleteTrade}
               />
+            </div>
+          </div>
+        )}
+
+        {activeTab === "review" && (
+          <div className="mainGrid">
+            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <InvestorReviewTab userId={session?.user?.id || null} getCoachProfile={loadCoachProfile} />
             </div>
           </div>
         )}
@@ -29461,7 +29525,7 @@ return (
                   }}
                   brokerPositions={brokerPositionsWithIntent}
                   alpacaAccount={alpacaAccount}
-                  tradeCount={trades.length}
+                  tradeCount={investorTradeCount}
                   onProfileComplete={(completedProfile) => {
                     const current = loadCoachProfile() || {};
                     saveCoachProfile({

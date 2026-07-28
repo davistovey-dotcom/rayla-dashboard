@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       });
     const orders = [...ordersById.values()];
 
-    await upsertBrokerTradeLogs(supabase, user.id, "alpaca", orders, "alpaca_import");
+    await upsertBrokerTradeLogs(supabase, user.id, "alpaca", orders, "alpaca_import", isPaper);
 
     return jsonResponse({
       ok: true,
