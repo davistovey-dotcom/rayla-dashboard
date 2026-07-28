@@ -103,6 +103,11 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/stripe-webhook/index.ts"
 
+[functions.stripe-sync-subscription]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/stripe-sync-subscription/index.ts"
+
 [functions.apple-verify-purchase]
 enabled = true
 verify_jwt = true

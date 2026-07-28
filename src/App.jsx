@@ -12001,6 +12001,28 @@ function hasActiveRaylaSubscription(subscription) {
   return !Number.isFinite(trialEndMs) || trialEndMs > Date.now();
 }
 
+// Returns true when the locally-cached user_subscriptions row is likely stale
+// relative to Stripe and should be reconciled via stripe-sync-subscription
+// before we decide the paywall gate. Handles the "trial ended weeks ago but
+// row is still trialing" case observed in production when a subscription
+// lifecycle webhook was missed.
+function shouldReconcileStripeSubscription(subscription) {
+  if (!subscription) return false;
+  if (subscription.billing_provider && subscription.billing_provider !== "stripe") return false;
+  if (subscription.plan_key === "rayla_discount") return false;
+  if (!subscription.stripe_subscription_id) return false;
+  const status = String(subscription.status || "").toLowerCase();
+  if (status === "trialing" && subscription.trial_ends_at) {
+    const trialEndMs = new Date(subscription.trial_ends_at).getTime();
+    if (Number.isFinite(trialEndMs) && trialEndMs <= Date.now()) return true;
+  }
+  if (status === "checkout_started") {
+    const updatedMs = new Date(subscription.updated_at || subscription.created_at || 0).getTime();
+    if (Number.isFinite(updatedMs) && Date.now() - updatedMs > 10 * 60 * 1000) return true;
+  }
+  return false;
+}
+
 function getBillingBadgeStyle(tone) {
   if (tone === "green") return { background: "rgba(74,222,128,0.1)", color: "#86efac" };
   if (tone === "blue") return { background: "rgba(124,196,255,0.1)", color: "#bae6fd" };
@@ -15739,7 +15761,7 @@ useEffect(() => {
     }
   }
 
-  async function fetchBillingSubscription({ silent = false } = {}) {
+  async function fetchBillingSubscription({ silent = false, skipReconcile = false } = {}) {
     if (!session) {
       setBillingSubscription(null);
       setBillingError("");
@@ -15763,6 +15785,17 @@ useEffect(() => {
       const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
       if (error) throw new Error(error.message);
+
+      if (!skipReconcile && shouldReconcileStripeSubscription(data)) {
+        try {
+          await supabase.functions.invoke("stripe-sync-subscription", { body: {} });
+        } catch (reconcileError) {
+          console.warn("[billing] stripe-sync-subscription failed; falling back to stored row", reconcileError);
+        }
+        await fetchBillingSubscription({ silent: true, skipReconcile: true });
+        return;
+      }
+
       setBillingSubscription(data || null);
     } catch (error) {
       if (isSupabaseAuthLockError(error)) {
