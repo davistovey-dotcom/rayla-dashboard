@@ -13,7 +13,7 @@ import AssetCarousel from "./components/AssetCarousel";
 import MobileSegmentedPager from "./components/MobileSegmentedPager";
 import GuidedTour from "./components/GuidedTour";
 import { tourSteps } from "./components/tourSteps";
-import { LayoutDashboard, PlusSquare, User, ClipboardList, Target, Gamepad2, BookOpen, Sparkles } from "lucide-react";
+import { LayoutDashboard, PlusSquare, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import PersonalPicksTab from "./components/PersonalPicksTab";
 import InvestorReviewTab from "./components/InvestorReviewTab";
 import { Tutorial } from "./Login";
@@ -895,7 +895,6 @@ const NAV_TABS = [
   { id: "simulation", icon: <Gamepad2 size={18} />, label: "Simulation" },
   { id: "ai", icon: <Target size={18} />, label: "Performance" },
   { id: "journal", icon: <BookOpen size={18} />, label: "Journal" },
-  { id: "review", icon: <Sparkles size={18} />, label: "Review" },
   { id: "intel", icon: <ClipboardList size={18} />, label: "Intel" },
 ];
 const ACTIVE_TAB_STORAGE_KEY = "rayla-active-tab";
@@ -4801,7 +4800,6 @@ function detectScreenSource({ activeTab, performancePositionFilter, raylaActiveR
   }
   if (activeTab === "simulation") return "Simulation";
   if (activeTab === "trades") return "LiveTrades";
-  if (activeTab === "review") return "InvestorReview";
   return "General";
 }
 
@@ -13635,6 +13633,8 @@ useEffect(() => {
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const storedTab = sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+      // Legacy "review" tab was merged into Journal — redirect any stored value.
+      if (storedTab === "review") return "journal";
       return NAV_TABS.some((tab) => tab.id === storedTab) ? storedTab : "home";
     } catch {
       return "home";
@@ -28946,13 +28946,6 @@ return (
                 onOpenRaylaPopup={openGlobalRaylaPopup}
                 onDeleteManualTrade={handleDeleteTrade}
               />
-            </div>
-          </div>
-        )}
-
-        {activeTab === "review" && (
-          <div className="mainGrid">
-            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <InvestorReviewTab userId={session?.user?.id || null} getCoachProfile={loadCoachProfile} />
             </div>
           </div>
