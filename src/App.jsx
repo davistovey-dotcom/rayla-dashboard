@@ -16,6 +16,8 @@ import { tourSteps } from "./components/tourSteps";
 import { LayoutDashboard, PlusSquare, User, ClipboardList, Target, Gamepad2, BookOpen } from "lucide-react";
 import PersonalPicksTab from "./components/PersonalPicksTab";
 import InvestorReviewTab from "./components/InvestorReviewTab";
+import InvestorScoreCard from "./components/InvestorScoreCard";
+import InvestorProgressCard from "./components/InvestorProgressCard";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
@@ -28686,6 +28688,16 @@ return (
                     ? "Long-Term Holdings shows open broker positions classified as investments."
                     : "Day Trades shows day-trade and swing-trade strategy performance, including open positions and closed trade history."}
               </div>
+              <InvestorScoreCard
+                userId={session?.user?.id || null}
+                trades={trades}
+                positions={alpacaPositions}
+              />
+              <InvestorProgressCard
+                userId={session?.user?.id || null}
+                trades={trades}
+                portfolioSnapshots={portfolioSnapshots}
+              />
               <div data-tour-id="perf-panel">
                 {isLiveTradesPerformance && performancePositionFilter === "portfolio" ? (
                 <>
