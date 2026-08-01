@@ -20,6 +20,7 @@ import InvestorScoreCard from "./components/InvestorScoreCard";
 import InvestorProgressCard from "./components/InvestorProgressCard";
 import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistoryDrawer";
 import * as raylaChat from "./services/raylaConversations";
+import { buildAskRaylaWelcome, ASK_RAYLA_WELCOME_STARTERS } from "./services/askRaylaWelcome";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
@@ -4063,7 +4064,7 @@ function buildPicksProfileContext(profile) {
     const expLabels = { brand_new: "Brand New", less_1yr: "Beginner (< 1 year)", "1_3yr": "Intermediate (1–3 years)", "3_10yr": "Experienced (3–10 years)", "10plus": "Expert (10+ years)" };
     const styleLabels = { day_trader: "Day Trader", swing_trader: "Swing Trader", long_term: "Long-Term Investor", options: "Options Trader", mixed: "Mixed" };
     const portfolioLabels = { under_1k: "Under $1k", "1k_10k": "$1k–$10k", "10k_50k": "$10k–$50k", "50k_250k": "$50k–$250k", "250k_plus": "$250k+" };
-    const horizonLabels = { same_day: "Same Day", days: "Days", weeks: "Weeks", months: "Months", years: "Years" };
+    const horizonLabels = { same_day: "Same Day", days: "Days", weeks: "Weeks", months: "Months", years: "Years", mixed: "A mix of time horizons" };
     const activityLabels = { daily: "Daily", few_week: "Few times per week", monthly: "Monthly", set_forget: "Set it and forget it" };
     const goalLabels = { build_wealth: "Build Wealth", generate_income: "Generate Income", preserve_capital: "Preserve Capital", learn_investing: "Learn Investing", beat_market: "Beat the Market" };
     lines.push(`Experience: ${expLabels[profile.experience] || profile.experience}`);
@@ -14557,6 +14558,18 @@ useEffect(() => {
   ]), [watchlist, simulationAsset, simulationPositions]);
   const activeCapitalGuideQuestion = null; // conversational flow — option buttons removed
   const askRaylaHasMessages = raylaChatMessages.length > 0;
+  // First-visit welcome — only render when we have real profile data AND
+  // the user has never started a conversation. Once any conversation exists,
+  // the welcome disappears for good (raylaConversations.length > 0 keeps
+  // this false forever).
+  const raylaWelcome = useMemo(() => (
+    !askRaylaHasMessages
+    && raylaConversations.length === 0
+    && !raylaConversationId
+      ? buildAskRaylaWelcome(loadCoachProfile())
+      : null
+  ), [askRaylaHasMessages, raylaConversations.length, raylaConversationId]);
+  const isFirstAskRaylaVisit = Boolean(raylaWelcome);
   const raylaAdaptiveOnboardingStep = raylaAdaptiveState.onboardingCompleted
     ? -1
     : RAYLA_ADAPTIVE_ONBOARDING_QUESTIONS.findIndex((question) => !raylaAdaptiveState.onboardingAnswers?.[question.key]);
@@ -29242,14 +29255,31 @@ return (
                   padding: "48px 16px 56px 16px",
                 }}
               >
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div className="askRaylaHeadline">
-                    ASK RAYLA ANYTHING
+                {isFirstAskRaylaVisit && raylaWelcome ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14, textAlign: "left", maxWidth: 640, width: "100%" }}>
+                    <div className="askRaylaHeadline" style={{ textAlign: "left" }}>
+                      {raylaWelcome.greeting}
+                    </div>
+                    <div style={{ fontSize: 15, color: "#cbd5e1", lineHeight: 1.65 }}>
+                      {raylaWelcome.context}
+                    </div>
+                    <div style={{ fontSize: 15, color: "#cbd5e1", lineHeight: 1.65 }}>
+                      {raylaWelcome.promise}
+                    </div>
+                    <div style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.65 }}>
+                      {raylaWelcome.future}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 16, color: "#94a3b8", lineHeight: 1.7 }}>
-                    Understand trades, charts, risk, and strategy in seconds.
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div className="askRaylaHeadline">
+                      ASK RAYLA ANYTHING
+                    </div>
+                    <div style={{ fontSize: 16, color: "#94a3b8", lineHeight: 1.7 }}>
+                      Understand trades, charts, risk, and strategy in seconds.
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div
                   style={{
@@ -29335,33 +29365,57 @@ return (
                   </button>
                 </div>
 
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
-                  {ASK_RAYLA_SUGGESTIONS.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      className="ghostButton"
-                      disabled={isRaylaLoading}
-                      onClick={async () => {
-                        try {
-                          await handleAskRaylaQuestion(suggestion, { clearInput: true, useChat: true });
-                        } catch (err) {
-                          console.error("ASK RAYLA SUGGESTION ERROR:", err);
-                        }
-                      }}
-                      style={{
-                        padding: "10px 14px",
-                        borderRadius: 999,
-                        color: "#dbeafe",
-                        background: "rgba(124,196,255,0.08)",
-                        borderColor: "rgba(124,196,255,0.18)",
-                        fontSize: 12,
-                      }}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
+                {isFirstAskRaylaVisit ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+                    {ASK_RAYLA_WELCOME_STARTERS.map((starter) => (
+                      <button
+                        key={starter}
+                        type="button"
+                        className="ghostButton"
+                        disabled={isRaylaLoading}
+                        onClick={() => setAiInput(starter)}
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: 999,
+                          color: "#dbeafe",
+                          background: "rgba(124,196,255,0.08)",
+                          borderColor: "rgba(124,196,255,0.18)",
+                          fontSize: 12,
+                        }}
+                      >
+                        {starter}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+                    {ASK_RAYLA_SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="ghostButton"
+                        disabled={isRaylaLoading}
+                        onClick={async () => {
+                          try {
+                            await handleAskRaylaQuestion(suggestion, { clearInput: true, useChat: true });
+                          } catch (err) {
+                            console.error("ASK RAYLA SUGGESTION ERROR:", err);
+                          }
+                        }}
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: 999,
+                          color: "#dbeafe",
+                          background: "rgba(124,196,255,0.08)",
+                          borderColor: "rgba(124,196,255,0.18)",
+                          fontSize: 12,
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {!raylaAdaptiveState.onboardingCompleted && activeRaylaAdaptiveQuestion ? (
                   <div
