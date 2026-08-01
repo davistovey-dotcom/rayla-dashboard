@@ -18,6 +18,8 @@ import PersonalPicksTab from "./components/PersonalPicksTab";
 import InvestorReviewTab from "./components/InvestorReviewTab";
 import InvestorScoreCard from "./components/InvestorScoreCard";
 import InvestorProgressCard from "./components/InvestorProgressCard";
+import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistoryDrawer";
+import * as raylaChat from "./services/raylaConversations";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
@@ -13477,6 +13479,17 @@ useEffect(() => {
   const [raylaResponse, setRaylaResponse] = useState("");
   const [aiInput, setAiInput] = useState("");
   const [raylaChatMessages, setRaylaChatMessages] = useState([]);
+  // Persistent conversation state — see rayla_conversations / rayla_messages
+  // migration. currentId is mirrored to localStorage so a full page reload
+  // reopens the same conversation; the actual messages come from the DB.
+  const [raylaConversations, setRaylaConversations] = useState([]);
+  const [raylaConversationId, setRaylaConversationIdState] = useState(null);
+  const [raylaHistoryOpen, setRaylaHistoryOpen] = useState(false);
+  const raylaConversationCreateInFlightRef = useRef(null);
+  // Tracks which user id the draft-mirror effect has already fired for.
+  // The very first fire per user id is skipped so we don't overwrite storage
+  // with stale `aiInput` before the load effect has restored the draft.
+  const raylaDraftMirroredUserRef = useRef(null);
   const [raylaActiveReviewedTrade, setRaylaActiveReviewedTrade] = useState(null);
   const [chartExplainPopupOpen, setChartExplainPopupOpen] = useState(false);
   const [chartExplainPopupContext, setChartExplainPopupContext] = useState(null);
@@ -17149,7 +17162,23 @@ useEffect(() => {
       setPasswordModalConfirm("");
       setRecoveryScreen("form");
     }
-    setSession(sessionData);
+    // Only replace the session ref when it MEANINGFULLY changed. TOKEN_REFRESHED
+    // and USER_UPDATED events produce a new session object with the same user
+    // id — if we naively setSession(new object) here, every effect depending on
+    // `session` re-fires, billing re-fetches, and the render gate flashes
+    // "Checking access" mid-conversation. Only fan out when the user id itself
+    // changed (or when we're moving to/from signed-out).
+    setSession((prev) => {
+      const nextUserId = sessionData?.user?.id ?? null;
+      const prevUserId = prev?.user?.id ?? null;
+      if (nextUserId === prevUserId) {
+        // Same user — keep the object identity stable so `[session?.user?.id]`
+        // dependencies don't refire. Supabase's own auth client still holds
+        // the fresh token internally.
+        return prev;
+      }
+      return sessionData;
+    });
     setAuthLoading(false);
   });
 
@@ -17166,7 +17195,9 @@ useEffect(() => {
   // renders. Deterministic; no CSS :has() dependency.
   useEffect(() => {
     const hasRayla = hasActiveRaylaSubscription(billingSubscription);
-    const waitingAccess = !billingLoaded || billingLoading;
+    // Mirror the render-gate: only pre-app on the initial billing load.
+    // Background refreshes must not swap the class or the app will scroll-lock.
+    const waitingAccess = !billingLoaded;
     const showBrokerOnboardingScreen = hasRayla
       && alpacaConnectionLoaded
       && !alpacaAccount
@@ -17250,14 +17281,21 @@ useEffect(() => {
   useEffect(() => { fetchRaylaUserCount(); }, []);
 
   useEffect(() => {
-    if (!session) {
+    // Depend on the USER ID, not the session object identity. Supabase auto-
+    // refreshes tokens every ~55 minutes and emits TOKEN_REFRESHED events
+    // that produce a brand-new session object with the same user. Depending
+    // on `session` used to fan out every one of those refreshes into a full
+    // billing fetch (silent: false → billingLoading → full-screen gate →
+    // remount → Ask Rayla state lost). Depending on user id fires this only
+    // when the user actually changes.
+    if (!session?.user?.id) {
       setPortfolioSnapshots([]);
       setPortfolioSnapshotsLoading(false);
       return;
     }
     fetchBillingSubscription({ silent: false });
     fetchPortfolioSnapshots({ silent: true });
-  }, [session]);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (!session) return;
@@ -17963,6 +18001,8 @@ useEffect(() => {
 
 
 
+  // Depend on session user id (not object identity) so token refreshes don't
+  // re-fetch every user artifact and cascade into remounts.
   useEffect(() => {
     let isCancelled = false;
 
@@ -17989,7 +18029,7 @@ useEffect(() => {
     return () => {
       isCancelled = true;
     };
-  }, [session]);
+  }, [session?.user?.id]);
 
     const recentTrades = trades.slice(0, 5);
     const isBeginner = userLevel === "beginner";
@@ -18417,6 +18457,163 @@ useEffect(() => {
       };
     });
   }
+
+  // ----- Ask Rayla conversation persistence -----
+  //
+  // All database operations, localStorage helpers, and title generation live
+  // in src/services/raylaConversations.js. Everything below is React state
+  // orchestration: useCallback wrappers that call the service and merge
+  // results into local state, and useEffects that load-on-user-change and
+  // mirror the draft input.
+
+  const raylaLocalDraftKey = useMemo(() => (
+    session?.user?.id ? raylaChat.LOCAL_KEYS.draft(session.user.id) : null
+  ), [session?.user?.id]);
+
+  const raylaLocalCurrentConvoKey = useMemo(() => (
+    session?.user?.id ? raylaChat.LOCAL_KEYS.currentConversation(session.user.id) : null
+  ), [session?.user?.id]);
+
+  const setRaylaConversationId = useCallback((id) => {
+    setRaylaConversationIdState(id);
+    raylaChat.persistLocal(raylaLocalCurrentConvoKey, id || "");
+  }, [raylaLocalCurrentConvoKey]);
+
+  const fetchRaylaConversations = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) { setRaylaConversations([]); return []; }
+    try {
+      const list = await raylaChat.fetchConversations(supabase, userId);
+      setRaylaConversations(list);
+      return list;
+    } catch (err) {
+      console.warn("[rayla] fetchConversations failed", err);
+      // Non-blocking: keep current list; NEVER wipe on failure.
+      return null;
+    }
+  }, [session?.user?.id]);
+
+  const loadRaylaConversation = useCallback(async (conversationId) => {
+    const userId = session?.user?.id;
+    if (!userId || !conversationId) { setRaylaChatMessages([]); return; }
+    try {
+      const messages = await raylaChat.loadConversationMessages(supabase, userId, conversationId);
+      setRaylaChatMessages(messages);
+    } catch (err) {
+      // Non-blocking: DO NOT wipe existing UI on load failure.
+      console.warn("[rayla] loadConversation failed", err);
+    }
+  }, [session?.user?.id]);
+
+  const startNewRaylaConversation = useCallback(() => {
+    setRaylaConversationId(null);
+    setRaylaChatMessages([]);
+    setRaylaResponse("");
+    setRaylaHistoryOpen(false);
+  }, [setRaylaConversationId]);
+
+  const deleteRaylaConversation = useCallback(async (conversationId) => {
+    const userId = session?.user?.id;
+    if (!userId || !conversationId) return;
+    try {
+      await raylaChat.deleteConversation(supabase, userId, conversationId);
+      setRaylaConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      if (raylaConversationId === conversationId) {
+        setRaylaConversationId(null);
+        setRaylaChatMessages([]);
+      }
+    } catch (err) {
+      console.warn("[rayla] deleteConversation failed", err);
+    }
+  }, [session?.user?.id, raylaConversationId, setRaylaConversationId]);
+
+  const ensureRaylaConversation = useCallback(async (seedMessage) => {
+    const userId = session?.user?.id;
+    if (!userId) return null;
+    if (raylaConversationId) return raylaConversationId;
+    // Coalesce parallel calls so a rapid double-send doesn't create two rows.
+    if (raylaConversationCreateInFlightRef.current) {
+      return raylaConversationCreateInFlightRef.current;
+    }
+    const p = (async () => {
+      try {
+        const title = raylaChat.conversationTitleFromMessage(seedMessage);
+        const data = await raylaChat.createConversation(supabase, userId, title);
+        setRaylaConversations((prev) => [data, ...prev.filter((c) => c.id !== data.id)]);
+        setRaylaConversationId(data.id);
+        return data.id;
+      } catch (err) {
+        console.warn("[rayla] ensureConversation failed", err);
+        return null;
+      } finally {
+        raylaConversationCreateInFlightRef.current = null;
+      }
+    })();
+    raylaConversationCreateInFlightRef.current = p;
+    return p;
+  }, [session?.user?.id, raylaConversationId, setRaylaConversationId]);
+
+  const persistRaylaMessage = useCallback(async ({ conversationId, role, content }) => {
+    const userId = session?.user?.id;
+    if (!userId || !conversationId || !role) return null;
+    try {
+      const data = await raylaChat.persistMessage(supabase, { userId, conversationId, role, content });
+      // Fire-and-forget bump so the conversation moves to the top of the list.
+      raylaChat.touchConversation(supabase, userId, conversationId)
+        .catch((err) => console.warn("[rayla] bump updated_at failed", err));
+      setRaylaConversations((prev) => {
+        const now = new Date().toISOString();
+        const next = prev.map((c) => (c.id === conversationId ? { ...c, updated_at: now } : c));
+        next.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+        return next;
+      });
+      return data?.id || null;
+    } catch (err) {
+      console.warn("[rayla] persistMessage failed", err);
+      return null;
+    }
+  }, [session?.user?.id]);
+
+  // On user change: load conversation list, restore last-open conversation
+  // (or start fresh), restore draft text. Never wipes React state on failure.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setRaylaConversations([]);
+      setRaylaConversationIdState(null);
+      setRaylaChatMessages([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const list = await fetchRaylaConversations();
+      if (cancelled) return;
+      const storedId = raylaChat.readLocal(raylaLocalCurrentConvoKey);
+      const stillExists = storedId && Array.isArray(list) && list.some((c) => c.id === storedId);
+      if (stillExists) {
+        setRaylaConversationIdState(storedId);
+        await loadRaylaConversation(storedId);
+      } else {
+        setRaylaConversationIdState(null);
+      }
+      const storedDraft = raylaChat.readLocal(raylaLocalDraftKey);
+      if (storedDraft) setAiInput(storedDraft);
+    })();
+    return () => { cancelled = true; };
+  }, [session?.user?.id, fetchRaylaConversations, loadRaylaConversation, raylaLocalCurrentConvoKey, raylaLocalDraftKey]);
+
+  // Mirror the draft input to localStorage as the user types. Skips the
+  // first fire per user id so a fresh mount doesn't wipe the stored draft
+  // before the load-on-user-change effect has restored it.
+  useEffect(() => {
+    if (!raylaLocalDraftKey) return;
+    const userId = session?.user?.id || null;
+    if (raylaDraftMirroredUserRef.current !== userId) {
+      raylaDraftMirroredUserRef.current = userId;
+      return;
+    }
+    raylaChat.persistLocal(raylaLocalDraftKey, aiInput);
+  }, [aiInput, raylaLocalDraftKey, session?.user?.id]);
 
   async function requestRaylaAnswer(question, extraContext = null) {
     const trimmedQuestion = question.trim();
@@ -19240,6 +19437,7 @@ Respond in strict JSON only — no markdown, no extra text:
     if (!question.trim()) return;
 
     const trimmedQuestion = question.trim();
+    const userClientId = createClientId();
     const pendingMessageId = useChat ? createClientId() : null;
     const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory: visibleSimulationTradeHistoryAll });
     const nextActiveReviewedTrade = resolveActiveReviewedTradeForQuestion({
@@ -19252,7 +19450,7 @@ Respond in strict JSON only — no markdown, no extra text:
       setRaylaChatMessages((prev) => [
         ...prev,
         {
-          id: createClientId(),
+          id: userClientId,
           role: "user",
           content: trimmedQuestion,
         },
@@ -19268,6 +19466,19 @@ Respond in strict JSON only — no markdown, no extra text:
     setIsRaylaLoading(true);
     setRaylaResponse("");
 
+    // Ensure a conversation row exists so the user message persists BEFORE
+    // the API returns. If ensureRaylaConversation fails (RLS, network), we
+    // still show the message in UI — persistence retries next send.
+    let convId = null;
+    if (useChat && session?.user?.id) {
+      convId = await ensureRaylaConversation(trimmedQuestion);
+      if (convId) {
+        // Fire-and-await user-message insert so a refresh right after send
+        // still recovers the user's message on next load.
+        await persistRaylaMessage({ conversationId: convId, role: "user", content: trimmedQuestion });
+      }
+    }
+
     try {
       const answer = await requestRaylaAnswer(trimmedQuestion, {
         ...extraContext,
@@ -19282,6 +19493,9 @@ Respond in strict JSON only — no markdown, no extra text:
             ? { ...message, content: answer, loading: false }
             : message
         )));
+        if (convId) {
+          persistRaylaMessage({ conversationId: convId, role: "assistant", content: answer });
+        }
       }
       if (clearInput) setAiInput("");
       return answer;
@@ -19294,6 +19508,9 @@ Respond in strict JSON only — no markdown, no extra text:
             ? { ...item, content: message, loading: false }
             : item
         )));
+        if (convId) {
+          persistRaylaMessage({ conversationId: convId, role: "assistant", content: message });
+        }
       }
       throw error;
     } finally {
@@ -22904,7 +23121,12 @@ if (session && emailJustVerified) {
 }
 
 const hasRaylaAccess = hasActiveRaylaSubscription(billingSubscription);
-const waitingForAccessState = !billingLoaded || billingLoading;
+// Only gate on the INITIAL access load. Once billing has been loaded at
+// least once, subsequent silent-or-not refreshes MUST NOT re-mount the app
+// (they used to remount the whole tree, dropping Ask Rayla state mid-chat).
+// Silent refreshes now happen in the background while the current screen
+// stays mounted.
+const waitingForAccessState = !billingLoaded;
 const shouldShowBrokerOnboarding = hasRaylaAccess
   && alpacaConnectionLoaded
   && !alpacaAccount
@@ -28975,8 +29197,35 @@ return (
               background: askRaylaHasMessages ? undefined : "transparent",
               border: askRaylaHasMessages ? undefined : "none",
               boxShadow: askRaylaHasMessages ? undefined : "none",
+              position: "relative",
             }}
           >
+            <div
+              style={{
+                position: "absolute",
+                top: askRaylaHasMessages ? 14 : 18,
+                right: askRaylaHasMessages ? 14 : 18,
+                zIndex: 2,
+              }}
+            >
+              <RaylaHistoryButton
+                count={raylaConversations.length}
+                onClick={() => setRaylaHistoryOpen(true)}
+              />
+            </div>
+            <RaylaHistoryDrawer
+              open={raylaHistoryOpen}
+              conversations={raylaConversations}
+              currentId={raylaConversationId}
+              onClose={() => setRaylaHistoryOpen(false)}
+              onNew={startNewRaylaConversation}
+              onSelect={async (id) => {
+                setRaylaConversationId(id);
+                setRaylaHistoryOpen(false);
+                await loadRaylaConversation(id);
+              }}
+              onDelete={(id) => deleteRaylaConversation(id)}
+            />
             {!askRaylaHasMessages ? (
               <div
                 style={{
