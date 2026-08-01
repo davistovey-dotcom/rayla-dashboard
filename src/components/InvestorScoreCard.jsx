@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
+import { deriveProfileFromData } from "../utils/adaptiveLearningProfile";
 import { CATEGORY_ORDER, computeInvestorScore, STATUS_BUILDING } from "../utils/investorScore";
 
 const STATUS_COLOR = {
@@ -48,10 +49,15 @@ export default function InvestorScoreCard({ userId, trades = [], positions = [] 
     return () => { cancelled = true; };
   }, [userId]);
 
-  const result = useMemo(
-    () => computeInvestorScore({ ledger, trades, positions }),
-    [ledger, trades, positions],
-  );
+  // Derive the Adaptive Learning Profile from raw data, then let Investor
+  // Score consume it. The profile is the canonical source of behavioral
+  // classification (which emotion tags count, how plan→trade linkage works,
+  // etc.). Positions are passed separately for the state-metric scores that
+  // the profile does not track at fine granularity.
+  const result = useMemo(() => {
+    const profile = deriveProfileFromData({ ledger, trades }, { userId });
+    return computeInvestorScore({ profile, positions });
+  }, [ledger, trades, positions, userId]);
 
   const overallDisplay = !ledgerReady ? "—" : (result.overall == null ? "—" : String(result.overall));
   const overallColor = !ledgerReady ? "#94a3b8" : (result.overall == null ? "#94a3b8" : scoreColor(result.overall));

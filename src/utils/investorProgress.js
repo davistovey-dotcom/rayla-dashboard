@@ -7,6 +7,10 @@
 // happens here; that logic lives in adaptiveLearningProfile.js and is the
 // single source of truth.
 //
+// The Discipline card iterates warning-kind emotional patterns dynamically
+// via getEmotionalPatternKeysByKind, so any new pattern added to the ALP
+// automatically becomes a coaching signal here.
+//
 // Only STATE-metric cards (Diversification, Risk Management) still walk
 // portfolio_snapshots here, because the Adaptive Learning Profile intentionally
 // does not track position-count deltas or top-holding percentage deltas —
@@ -22,8 +26,29 @@
 // Never invents progress. Never criticizes. Never compares returns or account
 // value — only investing behaviors and portfolio state.
 
+import { getEmotionalPatternKeysByKind } from "./adaptiveLearningProfile.js";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 30 * DAY_MS;
+
+// Human-friendly copy for known warning patterns. Any pattern the ALP knows
+// about but that we haven't added copy for falls back to a generic template
+// — the classification still flows through; the phrasing is just less polished.
+const WARNING_TRAIT_IMPROVEMENT_COPY = {
+  fear_of_missing_out: "Fewer FOMO signals recorded than before.",
+  revenge_trading: "Fewer revenge-trading signals recorded than before.",
+  analysis_paralysis: "Less over-planning noise recently — clearer decisions coming through.",
+  fear_response: "Fewer fear-driven decisions recorded than before.",
+  greed_driven: "Fewer greed-driven decisions recorded than before.",
+  impulsive_action: "Fewer impulsive entries recorded than before.",
+  overconfidence: "Fewer overconfident calls recorded than before.",
+};
+
+function improvementStatementForWarningKey(key) {
+  if (WARNING_TRAIT_IMPROVEMENT_COPY[key]) return WARNING_TRAIT_IMPROVEMENT_COPY[key];
+  const label = String(key || "").replace(/_/g, " ");
+  return `Fewer ${label} signals recorded than before.`;
+}
 
 function positionMarketValue(position) {
   if (!position) return 0;
@@ -72,24 +97,27 @@ function hasAnyProfileEvidence(profile) {
 // comes from the profile; no counting or window logic runs here.
 function cardDiscipline(profile) {
   const em = profile?.traits?.emotionalPatterns || {};
+  const improvements = [];
 
-  const warnings = [
-    { key: "fear_of_missing_out", statement: "Fewer FOMO signals recorded than before." },
-    { key: "revenge_trading", statement: "Fewer revenge-trading signals recorded than before." },
-    { key: "analysis_paralysis", statement: "Less over-planning noise recently — clearer decisions coming through." },
-  ];
+  // Warning traits — iterate every warning pattern the ALP knows about.
+  // Adding a new pattern in adaptiveLearningProfile.js automatically flows
+  // through here without editing this file.
+  for (const key of getEmotionalPatternKeysByKind("warning")) {
+    const t = em[key];
+    if (t?.trajectory === "improving") {
+      improvements.push({
+        statement: improvementStatementForWarningKey(key),
+        confidence: Number(t.confidence) || 0,
+      });
+    }
+  }
+
+  // Strength / behavioral traits — kept explicit because their positive
+  // statements are individually crafted and gated on a specific value.
   const strengths = [
     { key: "rule_following", positiveValue: "following", statement: "Rule adherence has been trending up recently." },
     { key: "calm_decision_making", positiveValue: "present", statement: "More calm decision-making recorded than before." },
   ];
-
-  const improvements = [];
-  for (const w of warnings) {
-    const t = em[w.key];
-    if (t?.trajectory === "improving") {
-      improvements.push({ statement: w.statement, confidence: Number(t.confidence) || 0 });
-    }
-  }
   for (const s of strengths) {
     const t = em[s.key];
     if (t?.trajectory === "improving" && t.value === s.positiveValue) {

@@ -56,10 +56,13 @@
 // ---------------------------------------------------------------------------
 
 // v2 added stability, trajectory, distribution, previousValue,
-// previousConfidence, firstObserved, and TRAIT_METADATA. v1 profiles are not
-// upgraded in place — deserializeProfile returns null for v1, forcing a
-// rebuild via deriveProfileFromData.
-export const PROFILE_SCHEMA_VERSION = 2;
+// previousConfidence, firstObserved, and TRAIT_METADATA.
+// v3 expanded EMOTION_TAG_MAP to include panic, fear, anxious, anxiety,
+// greed, impulsive, reckless — routed to three new emotional patterns
+// (fear_response, greed_driven, impulsive_action). Older profiles are not
+// upgraded in place — deserializeProfile returns null for older versions,
+// forcing a rebuild via deriveProfileFromData.
+export const PROFILE_SCHEMA_VERSION = 3;
 
 // Evidence loses ~50% of its weight every 30 days. Older observations still
 // contribute, but new behavior dominates. This is the mechanism by which
@@ -94,6 +97,9 @@ export const TRAIT_KEYS = Object.freeze({
 export const EMOTIONAL_PATTERN_KEYS = Object.freeze({
   FEAR_OF_MISSING_OUT: "fear_of_missing_out",
   REVENGE_TRADING: "revenge_trading",
+  FEAR_RESPONSE: "fear_response",
+  GREED_DRIVEN: "greed_driven",
+  IMPULSIVE_ACTION: "impulsive_action",
   OVERCONFIDENCE: "overconfidence",
   ANALYSIS_PARALYSIS: "analysis_paralysis",
   CALM_DECISION_MAKING: "calm_decision_making",
@@ -191,6 +197,21 @@ export const TRAIT_METADATA = Object.freeze({
     labels: { present: -1 },
     polarity: TRAIT_POLARITIES.DIRECTIONAL,
   },
+  "emotionalPatterns.fear_response": {
+    kind: "warning",
+    labels: { present: -1 },
+    polarity: TRAIT_POLARITIES.DIRECTIONAL,
+  },
+  "emotionalPatterns.greed_driven": {
+    kind: "warning",
+    labels: { present: -1 },
+    polarity: TRAIT_POLARITIES.DIRECTIONAL,
+  },
+  "emotionalPatterns.impulsive_action": {
+    kind: "warning",
+    labels: { present: -1 },
+    polarity: TRAIT_POLARITIES.DIRECTIONAL,
+  },
   "emotionalPatterns.overconfidence": {
     kind: "warning",
     labels: { present: -1 },
@@ -217,11 +238,35 @@ export function getTraitMetadata(path) {
   return TRAIT_METADATA[path] || null;
 }
 
+// Returns the RELATIVE emotional-pattern keys (e.g. "fear_of_missing_out")
+// whose metadata.kind matches the given kind. Consumers use this so they
+// automatically pick up new emotional patterns without hardcoding a list.
+// Example: getEmotionalPatternKeysByKind("warning") returns every negative
+// emotion trait so consumers can iterate warning traits generically.
+export function getEmotionalPatternKeysByKind(kind) {
+  const prefix = "emotionalPatterns.";
+  const out = [];
+  for (const [path, meta] of Object.entries(TRAIT_METADATA)) {
+    if (!path.startsWith(prefix)) continue;
+    if (meta?.kind !== kind) continue;
+    out.push(path.slice(prefix.length));
+  }
+  return out;
+}
+
 // Emotion tag → pattern mapping. Only tags the user actually typed on a
-// decision ledger entry drive these. No inference.
+// decision ledger entry drive these. No inference, no free-text parsing.
+// Each tag is routed to exactly one pattern; a tag string must be listed
+// under a single key to avoid overlapping classifications.
 const EMOTION_TAG_MAP = Object.freeze({
   fear_of_missing_out: new Set(["fomo", "chase", "chasing"]),
   revenge_trading: new Set(["revenge", "anger"]),
+  // Fear/flight cluster — sudden or persistent worry driving the decision.
+  fear_response: new Set(["panic", "fear", "anxious", "anxiety"]),
+  // Desire for excess gain, distinct from FOMO's "missing out" framing.
+  greed_driven: new Set(["greed"]),
+  // Acting without deliberation or disregarding risk, broader than FOMO.
+  impulsive_action: new Set(["impulsive", "reckless"]),
   calm_decision_making: new Set(["calm", "patient", "disciplined", "focused", "steady"]),
 });
 

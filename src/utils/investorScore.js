@@ -6,27 +6,29 @@
 // 0-100 score OR the sentinel "Building" when the user has not yet generated
 // enough recorded evidence for that category to be judged.
 //
-// No inferred data, no invented behaviors. Every explanation references a
-// count that exists in the source data.
+// ARCHITECTURE
+// ------------
+// This module is a THIN CONSUMER of the Adaptive Learning Profile. Any score
+// whose meaning is behavioral (Discipline, Preparation, Reflection) reads
+// counts directly from `profile.traits.*.evidence`. Emotion-tag classification
+// is NOT duplicated here — it lives in the Adaptive Learning Profile's
+// EMOTION_TAG_MAP and flows through automatically. No behavioral counting or
+// window bucketing over raw ledger rows happens here.
+//
+// The set of "warning" emotional patterns is looked up dynamically from the
+// ALP via getEmotionalPatternKeysByKind("warning"), so new patterns added to
+// the ALP flow into Discipline without any change here.
+//
+// Only STATE-metric scores (Risk Management, Diversification) still read raw
+// positions, because the Adaptive Learning Profile stores riskComfort as a
+// categorical value with neutral polarity — that is a different granularity
+// than "top holding is 42% of the book across 6 positions."
+//
+// Every explanation references an actual recorded count. No inferred data.
+
+import { getEmotionalPatternKeysByKind } from "./adaptiveLearningProfile.js";
 
 export const STATUS_BUILDING = "Building";
-
-// Negative emotion tags the user typed themselves on decision_ledger_entries.
-// We only look at values the user actually wrote — no inference.
-export const NEGATIVE_EMOTION_TAGS = new Set([
-  "fomo",
-  "chase",
-  "chasing",
-  "panic",
-  "revenge",
-  "anger",
-  "greed",
-  "fear",
-  "anxious",
-  "anxiety",
-  "impulsive",
-  "reckless",
-]);
 
 const STATUS_THRESHOLDS = [
   { min: 81, label: "Excellent" },
@@ -36,6 +38,7 @@ const STATUS_THRESHOLDS = [
 ];
 
 const SCORE_WINDOW_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function statusForScore(score) {
   if (typeof score !== "number" || Number.isNaN(score)) return STATUS_BUILDING;
@@ -49,41 +52,83 @@ function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
 function positionMarketValue(position) {
   if (!position) return 0;
   return Math.abs(Number(position.marketValue ?? position.market_value ?? 0));
 }
 
-export function filterLedgerToWindow(ledger, days = SCORE_WINDOW_DAYS) {
-  if (!Array.isArray(ledger)) return [];
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  return ledger.filter((entry) => {
-    const t = entry?.created_at ? Date.parse(entry.created_at) : NaN;
-    return Number.isFinite(t) && t >= cutoff;
-  });
+// ---------------------------------------------------------------------------
+// Adaptive Learning Profile evidence readers
+// ---------------------------------------------------------------------------
+// The ALP already applies emotion-tag classification, plan/trade correlation,
+// and reflection-source tagging. These helpers read the classified evidence
+// filtered to the same 30-day window the score reports.
+
+function countRecentEvidenceWithValue(trait, value, { nowMs = Date.now(), windowDays = SCORE_WINDOW_DAYS } = {}) {
+  if (!trait || !Array.isArray(trait.evidence)) return 0;
+  const cutoff = nowMs - windowDays * DAY_MS;
+  let count = 0;
+  for (const ev of trait.evidence) {
+    if (ev.value !== value) continue;
+    const t = Date.parse(ev.observed_at);
+    if (Number.isFinite(t) && t >= cutoff) count += 1;
+  }
+  return count;
+}
+
+function countRecentEvidenceBySource(trait, source, { nowMs = Date.now(), windowDays = SCORE_WINDOW_DAYS } = {}) {
+  if (!trait || !Array.isArray(trait.evidence)) return 0;
+  const cutoff = nowMs - windowDays * DAY_MS;
+  let count = 0;
+  for (const ev of trait.evidence) {
+    if (ev.source !== source) continue;
+    const t = Date.parse(ev.observed_at);
+    if (Number.isFinite(t) && t >= cutoff) count += 1;
+  }
+  return count;
 }
 
 // ---------------------------------------------------------------------------
 // Discipline
 // ---------------------------------------------------------------------------
 // Start at 100; subtract for recorded rule breaks and self-tagged negative
-// emotions. We never infer either signal — they must come from a real ledger
-// row the user wrote.
-export function scoreDiscipline(ledger) {
-  const scoped = filterLedgerToWindow(ledger);
-  const ruleChecks = scoped.filter((e) => e?.entry_type === "rule_check");
-  const brokenCount = ruleChecks.filter((e) => e.rule_followed === false).length;
-  const followedCount = ruleChecks.filter((e) => e.rule_followed === true).length;
-  const emotionEntries = scoped.filter((e) => isNonEmptyString(e?.emotion));
-  const negativeEmotionCount = emotionEntries.filter((e) =>
-    NEGATIVE_EMOTION_TAGS.has(e.emotion.trim().toLowerCase()),
-  ).length;
+// emotions. Reads directly from the Adaptive Learning Profile's warning
+// traits and rule_following trait — no local emotion classifier. The set of
+// tags treated as "negative" is owned by the ALP (EMOTION_TAG_MAP).
+export function scoreDiscipline(profile) {
+  const em = profile?.traits?.emotionalPatterns;
+  if (!em) {
+    return {
+      score: null,
+      status: STATUS_BUILDING,
+      reason: "Log a rule check or tag an emotion on a decision to unlock this score.",
+    };
+  }
 
-  if (ruleChecks.length === 0 && emotionEntries.length === 0) {
+  // Warning-trait evidence in the last 30d = "negative emotion tag" count.
+  // We iterate over every warning-kind emotional pattern the ALP knows about
+  // (fear_of_missing_out, revenge_trading, fear_response, greed_driven,
+  // impulsive_action, analysis_paralysis, overconfidence, ...) and count
+  // observations whose source is a self-tag. Derived signals like
+  // analysis_paralysis (source: ledger.plans_vs_trades) are naturally
+  // excluded by the source filter — this score has always been about tags.
+  const warningKeys = getEmotionalPatternKeysByKind("warning");
+  const negativeEmotionCount = warningKeys.reduce(
+    (sum, key) => sum + countRecentEvidenceBySource(em[key], "ledger.emotion_tag"),
+    0,
+  );
+
+  const brokenCount = countRecentEvidenceWithValue(em.rule_following, "not_following");
+  const followedCount = countRecentEvidenceWithValue(em.rule_following, "following");
+
+  // Any recorded emotion tag (positive or negative) OR any rule check makes
+  // this a scored category. Calm signals count as evidence the user is
+  // engaging with the tag surface even when they don't move the score down.
+  const totalRuleChecks = brokenCount + followedCount;
+  const totalEmotionEvidence = negativeEmotionCount
+    + countRecentEvidenceBySource(em.calm_decision_making, "ledger.emotion_tag");
+
+  if (totalRuleChecks === 0 && totalEmotionEvidence === 0) {
     return {
       score: null,
       status: STATUS_BUILDING,
@@ -104,12 +149,18 @@ export function scoreDiscipline(ledger) {
 }
 
 // ---------------------------------------------------------------------------
-// Risk Management
+// Risk Management  (state metric — NOT in the profile)
 // ---------------------------------------------------------------------------
 // Uses one signal Rayla actually records reliably: portfolio concentration —
 // what share of the book sits in the single largest holding. Per-trade stop
 // prices are not stored, so no stop-discipline signal is emitted (we do not
 // invent a proxy such as R-multiple thresholds).
+//
+// This score is intentionally NOT read from profile.traits.riskComfort:
+// the ALP stores riskComfort as a categorical value (concentrated / balanced
+// / diversified) with neutral polarity. That is coarser than the numeric
+// concentration percentage this score needs, and the profile has no ordering
+// over the categories.
 export function scoreRiskManagement({ positions = [] } = {}) {
   const openPositions = (Array.isArray(positions) ? positions : []).filter(
     (p) => positionMarketValue(p) > 0,
@@ -147,11 +198,15 @@ export function scoreRiskManagement({ positions = [] } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Diversification
+// Diversification  (state metric — NOT in the profile)
 // ---------------------------------------------------------------------------
 // Breadth (count of open positions) with a concentration penalty on the top
 // holding. Does NOT judge whether the holdings are "good" — only whether the
 // book is spread across enough distinct positions.
+//
+// Not read from profile.traits.riskComfort for the same reason as Risk
+// Management: the profile records categorical position mix, not the numeric
+// count-based breadth formula this score uses.
 export function scoreDiversification(positions = []) {
   const list = (Array.isArray(positions) ? positions : []).filter(
     (p) => positionMarketValue(p) > 0,
@@ -181,22 +236,15 @@ export function scoreDiversification(positions = []) {
 // ---------------------------------------------------------------------------
 // Preparation
 // ---------------------------------------------------------------------------
-// Measures the behavior of planning BEFORE trading — the fraction of manual
-// trades in the window that were preceded by a `plan` ledger entry with the
-// same symbol within 72h. Plan entries are used only as a linkage signal,
-// never rewarded standalone. Field length is not scored anywhere.
-// Building if fewer than 3 manual trades exist in the window (we do not
-// invent a preparation signal from unrelated activity).
-export function scorePreparation({ ledger = [], trades = [] } = {}) {
-  const scopedLedger = filterLedgerToWindow(ledger);
-  const plans = scopedLedger.filter((e) => e?.entry_type === "plan");
-  const cutoffMs = Date.now() - SCORE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const scopedTrades = (Array.isArray(trades) ? trades : []).filter((t) => {
-    const ts = t?.entry_time ? Date.parse(t.entry_time) : NaN;
-    return Number.isFinite(ts) && ts >= cutoffMs;
-  });
-
-  if (scopedTrades.length < 3) {
+// Measures the behavior of planning BEFORE trading. Reads directly from
+// profile.traits.preparation.evidence, which the ALP populates with one
+// observation per manual trade in the last 180 days — value "prepared" when
+// a plan entry precedes the trade within 72h, "unprepared" otherwise.
+//
+// Building if fewer than 3 trade observations exist in the last 30 days.
+export function scorePreparation(profile) {
+  const p = profile?.traits?.preparation;
+  if (!p) {
     return {
       score: null,
       status: STATUS_BUILDING,
@@ -204,40 +252,47 @@ export function scorePreparation({ ledger = [], trades = [] } = {}) {
     };
   }
 
-  let plannedCount = 0;
-  for (const trade of scopedTrades) {
-    const asset = String(trade.asset || "").trim().toUpperCase();
-    const tradeMs = Date.parse(trade.entry_time);
-    if (!asset || !Number.isFinite(tradeMs)) continue;
-    const matched = plans.some((plan) => {
-      const planSymbol = String(plan.symbol || "").trim().toUpperCase();
-      if (planSymbol !== asset) return false;
-      const planMs = plan.created_at ? Date.parse(plan.created_at) : NaN;
-      if (!Number.isFinite(planMs)) return false;
-      const dt = tradeMs - planMs;
-      return dt >= 0 && dt <= 72 * 60 * 60 * 1000;
-    });
-    if (matched) plannedCount += 1;
+  const preparedCount = countRecentEvidenceWithValue(p, "prepared");
+  const unpreparedCount = countRecentEvidenceWithValue(p, "unprepared");
+  const totalTrades = preparedCount + unpreparedCount;
+
+  if (totalTrades < 3) {
+    return {
+      score: null,
+      status: STATUS_BUILDING,
+      reason: `Log at least 3 trades in the last ${SCORE_WINDOW_DAYS} days to unlock this score.`,
+    };
   }
 
-  const score = clamp(Math.round((plannedCount / scopedTrades.length) * 100), 0, 100);
-  const reason = `${plannedCount} of ${scopedTrades.length} trade${scopedTrades.length === 1 ? "" : "s"} in the last ${SCORE_WINDOW_DAYS} days had a plan logged within 72 hours before entry.`;
+  const score = clamp(Math.round((preparedCount / totalTrades) * 100), 0, 100);
+  const reason = `${preparedCount} of ${totalTrades} trade${totalTrades === 1 ? "" : "s"} in the last ${SCORE_WINDOW_DAYS} days had a plan logged within 72 hours before entry.`;
   return { score, status: statusForScore(score), reason };
 }
 
 // ---------------------------------------------------------------------------
 // Reflection
 // ---------------------------------------------------------------------------
-// Rewards learning artifacts: reflection entries, recorded lessons, and
-// tracked outcomes. Measures whether the user is closing the loop on past
-// decisions, not whether those decisions were profitable.
-export function scoreReflection(ledger) {
-  const scoped = filterLedgerToWindow(ledger);
-  const reflectionEntries = scoped.filter((e) => e?.entry_type === "reflection").length;
-  const withLesson = scoped.filter((e) => isNonEmptyString(e?.lesson)).length;
-  const withOutcome = scoped.filter((e) => isNonEmptyString(e?.outcome)).length;
+// Rewards learning artifacts recorded in the ledger. Reads directly from
+// profile.traits.reflection.evidence, split by source so the weighting per
+// artifact type is preserved:
+//   - ledger.reflection_entry  (reflection-type ledger entry)  × 12
+//   - ledger.lesson_recorded   (entry with a lesson field)     × 12
+//   - ledger.outcome_tracked   (entry with an outcome field)   × 8
+export function scoreReflection(profile) {
+  const t = profile?.traits?.reflection;
+  if (!t) {
+    return {
+      score: null,
+      status: STATUS_BUILDING,
+      reason: "Write a reflection entry or add a lesson to a decision to unlock this score.",
+    };
+  }
 
-  if (reflectionEntries === 0 && withLesson === 0 && withOutcome === 0) {
+  const reflectionCount = countRecentEvidenceBySource(t, "ledger.reflection_entry");
+  const lessonCount = countRecentEvidenceBySource(t, "ledger.lesson_recorded");
+  const outcomeCount = countRecentEvidenceBySource(t, "ledger.outcome_tracked");
+
+  if (reflectionCount === 0 && lessonCount === 0 && outcomeCount === 0) {
     return {
       score: null,
       status: STATUS_BUILDING,
@@ -246,14 +301,14 @@ export function scoreReflection(ledger) {
   }
 
   const score = clamp(
-    Math.round(reflectionEntries * 12 + withLesson * 12 + withOutcome * 8),
+    Math.round(reflectionCount * 12 + lessonCount * 12 + outcomeCount * 8),
     0,
     100,
   );
   const parts = [];
-  if (reflectionEntries > 0) parts.push(`${reflectionEntries} reflection entr${reflectionEntries === 1 ? "y" : "ies"}`);
-  if (withLesson > 0) parts.push(`${withLesson} lesson${withLesson === 1 ? "" : "s"} recorded`);
-  if (withOutcome > 0) parts.push(`${withOutcome} outcome${withOutcome === 1 ? "" : "s"} tracked`);
+  if (reflectionCount > 0) parts.push(`${reflectionCount} reflection entr${reflectionCount === 1 ? "y" : "ies"}`);
+  if (lessonCount > 0) parts.push(`${lessonCount} lesson${lessonCount === 1 ? "" : "s"} recorded`);
+  if (outcomeCount > 0) parts.push(`${outcomeCount} outcome${outcomeCount === 1 ? "" : "s"} tracked`);
   const reason = `${parts.join(", ")} in the last ${SCORE_WINDOW_DAYS} days.`;
   return { score, status: statusForScore(score), reason };
 }
@@ -261,13 +316,16 @@ export function scoreReflection(ledger) {
 // ---------------------------------------------------------------------------
 // Overall
 // ---------------------------------------------------------------------------
-export function computeInvestorScore({ ledger = [], trades = [], positions = [] } = {}) {
+// `profile` is an Adaptive Learning Profile (see adaptiveLearningProfile.js).
+// `positions` is passed separately because the state-metric scores need raw
+// position arrays at a finer granularity than the profile stores.
+export function computeInvestorScore({ profile = null, positions = [] } = {}) {
   const categories = {
-    discipline: scoreDiscipline(ledger),
+    discipline: scoreDiscipline(profile),
     riskManagement: scoreRiskManagement({ positions }),
     diversification: scoreDiversification(positions),
-    preparation: scorePreparation({ ledger, trades }),
-    reflection: scoreReflection(ledger),
+    preparation: scorePreparation(profile),
+    reflection: scoreReflection(profile),
   };
   const scored = Object.values(categories).filter((c) => typeof c.score === "number");
   if (scored.length === 0) {
