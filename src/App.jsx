@@ -18,7 +18,7 @@ import PersonalPicksTab from "./components/PersonalPicksTab";
 import InvestorReviewTab from "./components/InvestorReviewTab";
 import InvestorScoreCard from "./components/InvestorScoreCard";
 import InvestorProgressCard from "./components/InvestorProgressCard";
-import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistoryDrawer";
+import RaylaHistoryDrawer, { RaylaHistoryButton, RaylaConversationSidebar } from "./components/RaylaHistoryDrawer";
 import * as raylaChat from "./services/raylaConversations";
 import { buildAskRaylaWelcome, ASK_RAYLA_WELCOME_STARTERS } from "./services/askRaylaWelcome";
 import { Tutorial } from "./Login";
@@ -13486,6 +13486,23 @@ useEffect(() => {
   const [raylaConversations, setRaylaConversations] = useState([]);
   const [raylaConversationId, setRaylaConversationIdState] = useState(null);
   const [raylaHistoryOpen, setRaylaHistoryOpen] = useState(false);
+  // Persistent sidebar on desktop, drawer on mobile. Matches the mobileNav
+  // breakpoint already in use elsewhere in the app.
+  const [raylaSidebarInline, setRaylaSidebarInline] = useState(() => (
+    typeof window !== "undefined" && window.matchMedia?.("(min-width: 900px)")?.matches
+  ));
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(min-width: 900px)");
+    const handler = (e) => setRaylaSidebarInline(Boolean(e.matches));
+    handler(mql);
+    if (mql.addEventListener) mql.addEventListener("change", handler);
+    else mql.addListener(handler);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", handler);
+      else mql.removeListener(handler);
+    };
+  }, []);
   const raylaConversationCreateInFlightRef = useRef(null);
   // Tracks which user id the draft-mirror effect has already fired for.
   // The very first fire per user id is skipped so we don't overwrite storage
@@ -14589,6 +14606,14 @@ useEffect(() => {
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
   const askRaylaThreadRef = useRef(null);
+  // Sticky-bottom scroll behavior — see the auto-scroll effect for details.
+  const askRaylaUserAtBottomRef = useRef(true);
+  const handleAskRaylaThreadScroll = useCallback((e) => {
+    const el = e.currentTarget;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    askRaylaUserAtBottomRef.current = distanceFromBottom <= 60;
+  }, []);
   const chartExplainPopupThreadRef = useRef(null);
   const chartExplainPopupWindowRef = useRef(null);
   const chartExplainPopupDragStateRef = useRef(null);
@@ -17561,8 +17586,14 @@ useEffect(() => {
     };
   }, [hotColdReport]);
 
+  // Only auto-scroll to the bottom when the user is ALREADY at (or within
+  // 60px of) the bottom. If they scrolled up to re-read earlier context,
+  // preserve their position — even while a response is streaming in.
+  // `askRaylaUserAtBottomRef` starts true (first render → auto-scroll) and
+  // is flipped by the thread's onScroll handler on user scroll.
   useEffect(() => {
     if (!askRaylaHasMessages || !askRaylaThreadRef.current) return;
+    if (askRaylaUserAtBottomRef.current === false) return;
     askRaylaThreadRef.current.scrollTop = askRaylaThreadRef.current.scrollHeight;
   }, [askRaylaHasMessages, raylaChatMessages, capitalGuideResult, activeCapitalGuideQuestion]);
 
@@ -18606,6 +18637,13 @@ useEffect(() => {
       if (stillExists) {
         setRaylaConversationIdState(storedId);
         await loadRaylaConversation(storedId);
+      } else if (Array.isArray(list) && list.length > 0) {
+        // Never open to a blank chat when the user already has history.
+        // Auto-select the most recent (list is already sorted updated_at desc).
+        const newest = list[0];
+        setRaylaConversationIdState(newest.id);
+        raylaChat.persistLocal(raylaLocalCurrentConvoKey, newest.id);
+        await loadRaylaConversation(newest.id);
       } else {
         setRaylaConversationIdState(null);
       }
@@ -18628,7 +18666,7 @@ useEffect(() => {
     raylaChat.persistLocal(raylaLocalDraftKey, aiInput);
   }, [aiInput, raylaLocalDraftKey, session?.user?.id]);
 
-  async function requestRaylaAnswer(question, extraContext = null) {
+  async function requestRaylaAnswer(question, extraContext = null, { onDelta = null } = {}) {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion) return "Question is required.";
     const nextAdaptiveState = buildNextRaylaAdaptiveState(raylaAdaptiveState, trimmedQuestion);
@@ -19423,6 +19461,11 @@ Respond in strict JSON only — no markdown, no extra text:
       }),
     };
 
+    // Request streaming when the caller provided an onDelta callback. The
+    // edge function returns text/event-stream when it can stream, otherwise
+    // it returns JSON — we detect via Content-Type so both paths remain
+    // supported and the frontend can ship without waiting for edge deploy.
+    const streamRequested = typeof onDelta === "function";
     const response = await fetchWithTimeout(
       ASK_RAYLA_URL,
       {
@@ -19431,10 +19474,51 @@ Respond in strict JSON only — no markdown, no extra text:
           "Content-Type": "application/json",
           "Authorization": `Bearer ${await getRaylaAuthToken()}`,
         },
-        body: JSON.stringify(askRaylaRequestPayload),
+        body: JSON.stringify({ ...askRaylaRequestPayload, stream: streamRequested }),
       },
       40000
     );
+
+    const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+    if (streamRequested && contentType.includes("text/event-stream") && response.body?.getReader) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      let streamError = null;
+      let done = false;
+      try {
+        while (!done) {
+          const { value, done: closed } = await reader.read();
+          if (closed) break;
+          buffer += decoder.decode(value, { stream: true });
+          let sep;
+          while ((sep = buffer.indexOf("\n\n")) !== -1) {
+            const rawEvent = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            for (const line of rawEvent.split("\n")) {
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (!payload) continue;
+              try {
+                const evt = JSON.parse(payload);
+                if (typeof evt?.delta === "string") {
+                  accumulated += evt.delta;
+                  try { onDelta(accumulated); } catch { /* consumer error is non-fatal */ }
+                }
+                if (evt?.error && !accumulated) streamError = String(evt.error);
+                if (evt?.done) { done = true; break; }
+              } catch { /* ignore malformed frame */ }
+            }
+          }
+        }
+      } finally {
+        try { reader.releaseLock?.(); } catch { /* ignore */ }
+      }
+      setRaylaAdaptiveState(nextAdaptiveState);
+      if (accumulated) return accumulated;
+      throw new Error(streamError || "Streamed response was empty.");
+    }
 
     const data = await response.json();
 
@@ -19493,11 +19577,27 @@ Respond in strict JSON only — no markdown, no extra text:
     }
 
     try {
-      const answer = await requestRaylaAnswer(trimmedQuestion, {
-        ...extraContext,
-        activeReviewedTrade: nextActiveReviewedTrade,
-        recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
-      });
+      const answer = await requestRaylaAnswer(
+        trimmedQuestion,
+        {
+          ...extraContext,
+          activeReviewedTrade: nextActiveReviewedTrade,
+          recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
+        },
+        {
+          // Stream real tokens into the pending assistant message. Persistence
+          // happens ONCE with the final content after the stream completes.
+          onDelta: useChat && pendingMessageId
+            ? (partial) => {
+                setRaylaChatMessages((prev) => prev.map((message) => (
+                  message.id === pendingMessageId
+                    ? { ...message, content: partial, loading: true }
+                    : message
+                )));
+              }
+            : null,
+        },
+      );
       setRaylaResponse(answer);
       setRaylaActiveReviewedTrade(nextActiveReviewedTrade);
       if (useChat) {
@@ -24565,7 +24665,7 @@ return (
                       )}
                     </div>
                   ) : (
-                    <div ref={askRaylaThreadRef} style={{ flex: 1, overflowY: "auto", padding: "18px 18px 24px", display: "flex", flexDirection: "column", gap: 14, background: "linear-gradient(180deg, rgba(10,14,20,0.76), rgba(11,16,23,0.94))" }}>
+                    <div ref={askRaylaThreadRef} onScroll={handleAskRaylaThreadScroll} style={{ flex: 1, overflowY: "auto", padding: "18px 18px 24px", display: "flex", flexDirection: "column", gap: 14, background: "linear-gradient(180deg, rgba(10,14,20,0.76), rgba(11,16,23,0.94))" }}>
                       {raylaChatMessages.map((message) => (
                         <div key={message.id} style={{ display: "flex", justifyContent: message.role === "user" ? "flex-end" : "flex-start" }}>
                           <div style={{ maxWidth: "78%", padding: "14px 16px", borderRadius: message.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px", background: message.role === "user" ? "rgba(124,196,255,0.16)" : "rgba(255,255,255,0.04)", border: message.role === "user" ? "1px solid rgba(124,196,255,0.24)" : "1px solid rgba(255,255,255,0.08)", color: "#e2e8f0", boxShadow: "0 12px 28px rgba(0,0,0,0.16)", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -29200,34 +29300,59 @@ return (
 
         {activeTab === "ask" && (
           <div
-            className={askRaylaHasMessages ? "card" : undefined}
             style={{
-              minHeight: askRaylaHasMessages ? "calc(100vh - 170px)" : "calc(100vh - 120px)",
               display: "flex",
-              flexDirection: "column",
-              padding: askRaylaHasMessages ? 0 : 0,
-              overflow: "hidden",
-              background: askRaylaHasMessages ? undefined : "transparent",
-              border: askRaylaHasMessages ? undefined : "none",
-              boxShadow: askRaylaHasMessages ? undefined : "none",
-              position: "relative",
+              flexDirection: "row",
+              alignItems: "stretch",
+              gap: raylaSidebarInline ? 16 : 0,
+              minHeight: "calc(100vh - 120px)",
             }}
           >
+            {raylaSidebarInline ? (
+              <RaylaConversationSidebar
+                conversations={raylaConversations}
+                currentId={raylaConversationId}
+                onNew={startNewRaylaConversation}
+                onSelect={async (id) => {
+                  setRaylaConversationId(id);
+                  await loadRaylaConversation(id);
+                }}
+                onDelete={(id) => deleteRaylaConversation(id)}
+              />
+            ) : null}
             <div
+              className={askRaylaHasMessages ? "card" : undefined}
               style={{
-                position: "absolute",
-                top: askRaylaHasMessages ? 14 : 18,
-                right: askRaylaHasMessages ? 14 : 18,
-                zIndex: 2,
+                flex: 1,
+                minWidth: 0,
+                minHeight: askRaylaHasMessages ? "calc(100vh - 170px)" : "calc(100vh - 120px)",
+                display: "flex",
+                flexDirection: "column",
+                padding: askRaylaHasMessages ? 0 : 0,
+                overflow: "hidden",
+                background: askRaylaHasMessages ? undefined : "transparent",
+                border: askRaylaHasMessages ? undefined : "none",
+                boxShadow: askRaylaHasMessages ? undefined : "none",
+                position: "relative",
               }}
             >
-              <RaylaHistoryButton
-                count={raylaConversations.length}
-                onClick={() => setRaylaHistoryOpen(true)}
-              />
-            </div>
+            {!raylaSidebarInline ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: askRaylaHasMessages ? 14 : 18,
+                  right: askRaylaHasMessages ? 14 : 18,
+                  zIndex: 2,
+                }}
+              >
+                <RaylaHistoryButton
+                  count={raylaConversations.length}
+                  onClick={() => setRaylaHistoryOpen(true)}
+                />
+              </div>
+            ) : null}
             <RaylaHistoryDrawer
-              open={raylaHistoryOpen}
+              open={raylaHistoryOpen && !raylaSidebarInline}
               conversations={raylaConversations}
               currentId={raylaConversationId}
               onClose={() => setRaylaHistoryOpen(false)}
@@ -29468,6 +29593,7 @@ return (
               <>
                 <div
                   ref={askRaylaThreadRef}
+                  onScroll={handleAskRaylaThreadScroll}
                   style={{
                     flex: 1,
                     overflowY: "auto",
@@ -29672,6 +29798,7 @@ return (
                 </div>
               </>
             )}
+          </div>
           </div>
         )}
 

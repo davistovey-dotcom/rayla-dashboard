@@ -1,27 +1,8 @@
 import React from "react";
+import RaylaConversationList from "./RaylaConversationList";
 
-// A compact conversation-history control for Ask Rayla.
-//
-// - Button: shows conversation count and toggles the drawer.
-// - Drawer: overlays the current chat with a scrollable list of past
-//   conversations (most-recent first), a "+ New" button, and per-item
-//   delete. Uses only inline styles + tokens already present elsewhere in
-//   the app so it inherits the Ask Rayla visual language.
-
-function formatRelative(iso) {
-  const ts = iso ? Date.parse(iso) : NaN;
-  if (!Number.isFinite(ts)) return "";
-  const diff = Date.now() - ts;
-  const min = 60 * 1000;
-  const hr = 60 * min;
-  const day = 24 * hr;
-  if (diff < min) return "just now";
-  if (diff < hr) return `${Math.round(diff / min)}m ago`;
-  if (diff < day) return `${Math.round(diff / hr)}h ago`;
-  if (diff < 7 * day) return `${Math.round(diff / day)}d ago`;
-  return new Date(ts).toLocaleDateString();
-}
-
+// Compact history button — used only on mobile (the desktop sidebar is
+// always visible, so no button is needed there).
 export function RaylaHistoryButton({ count = 0, onClick }) {
   return (
     <button
@@ -49,6 +30,9 @@ export function RaylaHistoryButton({ count = 0, onClick }) {
   );
 }
 
+// Mobile drawer — overlay panel that slides in from the left. Wraps the
+// same RaylaConversationList used by the desktop sidebar so the two views
+// stay in sync.
 export default function RaylaHistoryDrawer({
   open,
   conversations = [],
@@ -137,85 +121,81 @@ export default function RaylaHistoryDrawer({
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px 16px" }}>
-          {conversations.length === 0 ? (
-            <div style={{ padding: "16px", color: "#64748b", fontSize: 13, fontStyle: "italic" }}>
-              No previous conversations yet.
-            </div>
-          ) : (
-            conversations.map((c) => {
-              const active = c.id === currentId;
-              const title = c.title && c.title.trim() ? c.title : "New conversation";
-              return (
-                <div
-                  key={c.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    background: active ? "rgba(124,196,255,0.10)" : "transparent",
-                    border: active ? "1px solid rgba(124,196,255,0.22)" : "1px solid transparent",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSelect?.(c.id)}
-                    style={{
-                      flex: 1,
-                      background: "transparent",
-                      border: "none",
-                      color: active ? "#e2f0ff" : "#cbd5e1",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      padding: 0,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 4,
-                      minWidth: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: active ? 700 : 600,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={title}
-                    >
-                      {title}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>{formatRelative(c.updated_at)}</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ok = typeof window !== "undefined"
-                        ? window.confirm(`Delete "${title}"? This cannot be undone.`)
-                        : true;
-                      if (ok) onDelete?.(c.id);
-                    }}
-                    aria-label={`Delete conversation ${title}`}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "#7f8ea3",
-                      fontSize: 14,
-                      cursor: "pointer",
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              );
-            })
-          )}
+          <RaylaConversationList
+            conversations={conversations}
+            currentId={currentId}
+            onSelect={(id) => { onSelect?.(id); onClose?.(); }}
+            onDelete={onDelete}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+// Desktop sidebar — always visible next to the chat surface. Same list
+// component as the drawer.
+export function RaylaConversationSidebar({
+  conversations = [],
+  currentId = null,
+  onSelect,
+  onNew,
+  onDelete,
+}) {
+  return (
+    <aside
+      aria-label="Rayla conversation history"
+      style={{
+        width: 260,
+        minWidth: 260,
+        display: "flex",
+        flexDirection: "column",
+        background: "rgba(10,14,20,0.6)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          padding: "12px 14px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#7f8ea3", letterSpacing: "0.6px", textTransform: "uppercase" }}>
+          Conversations
+        </div>
+      </div>
+      <div style={{ padding: "10px 12px" }}>
+        <button
+          type="button"
+          onClick={onNew}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(124,196,255,0.28)",
+            background: "rgba(124,196,255,0.14)",
+            color: "#7CC4FF",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          + New conversation
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "2px 6px 10px" }}>
+        <RaylaConversationList
+          conversations={conversations}
+          currentId={currentId}
+          onSelect={onSelect}
+          onDelete={onDelete}
+        />
+      </div>
+    </aside>
   );
 }

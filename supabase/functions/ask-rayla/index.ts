@@ -1485,6 +1485,106 @@ async function callGeminiVision(visualContext: any) {
   }
 }
 
+// Streams an OpenRouter completion as an SSE ReadableStream. Vendor stream
+// format (OpenAI-compatible) is parsed on the fly and re-emitted as Rayla's
+// simpler client-facing format:
+//   data: {"delta":"..."}\n\n      — one per token/chunk
+//   data: {"done":true}\n\n         — final marker (also on abort/error)
+//   data: {"error":"..."}\n\n       — non-fatal, precedes done
+async function callOpenRouterStream(
+  apiKey: string,
+  model: string,
+  messages: any[],
+  timeoutMs = OPENROUTER_ANSWER_TIMEOUT_MS,
+  maxTokens = OPENROUTER_ANSWER_MAX_TOKENS,
+): Promise<ReadableStream<Uint8Array>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  const vendorResponse = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://rayla.local",
+      "X-OpenRouter-Title": "Rayla Ask",
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.35,
+      max_tokens: maxTokens,
+      stream: true,
+    }),
+    signal: controller.signal,
+  });
+
+  if (!vendorResponse.ok || !vendorResponse.body) {
+    clearTimeout(timeout);
+    const errText = await vendorResponse.text().catch(() => "");
+    throw new Error(`OpenRouter stream failed ${vendorResponse.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  return new ReadableStream<Uint8Array>({
+    async start(streamCtl) {
+      const reader = vendorResponse.body!.getReader();
+      let buffered = "";
+      const emit = (obj: any) => streamCtl.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+
+          // OpenAI-compatible SSE: events separated by blank lines. Each
+          // event has one or more "data:" lines. Terminal payload is
+          // literally `data: [DONE]`.
+          let sepIdx: number;
+          while ((sepIdx = buffered.indexOf("\n\n")) !== -1) {
+            const rawEvent = buffered.slice(0, sepIdx);
+            buffered = buffered.slice(sepIdx + 2);
+            const dataLines = rawEvent
+              .split("\n")
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trim());
+            for (const payload of dataLines) {
+              if (!payload) continue;
+              if (payload === "[DONE]") {
+                emit({ done: true });
+                streamCtl.close();
+                clearTimeout(timeout);
+                return;
+              }
+              try {
+                const parsed = JSON.parse(payload);
+                const delta = parsed?.choices?.[0]?.delta?.content;
+                if (typeof delta === "string" && delta.length > 0) emit({ delta });
+              } catch {
+                // Ignore malformed keepalive/comments.
+              }
+            }
+          }
+        }
+        emit({ done: true });
+        streamCtl.close();
+      } catch (err) {
+        try { emit({ error: String((err as any)?.message || err), done: true }); } catch { /* stream may already be closed */ }
+        try { streamCtl.close(); } catch { /* ignore */ }
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    cancel() {
+      controller.abort();
+      clearTimeout(timeout);
+    },
+  });
+}
+
 async function callOpenRouter(
   apiKey: string,
   model: string,
@@ -1735,6 +1835,9 @@ serve(async (req) => {
     const body = await req.json();
     const question = String(body?.question || "").trim();
     const requestContext = body?.context ?? {};
+    // Opt-in per-request. Old clients that omit `stream` continue to receive
+    // the JSON `{ ok, answer }` response — no breaking change.
+    const wantsStream = body?.stream === true;
 
     if (!question) {
       return jsonResponse({ ok: false, error: "Question is required." }, 400);
@@ -1780,7 +1883,40 @@ serve(async (req) => {
           model,
           hasOpenRouterKey: Boolean(OPENROUTER_API_KEY),
           hasGroqKey: Boolean(GROQ_API_KEY),
+          stream: wantsStream,
         });
+
+        if (wantsStream) {
+          const systemPrompt = buildSystemPrompt(unifiedContext, intent);
+          const recentTurns = Array.isArray(unifiedContext?.recentConversation)
+            ? unifiedContext.recentConversation
+                .filter((m: any) => (m.role === "user" || m.role === "assistant") && String(m.content || "").trim())
+                .slice(-10)
+            : [];
+          const messages = [
+            { role: "system", content: systemPrompt },
+            ...recentTurns,
+            { role: "user", content: question },
+          ];
+          const stream = await callOpenRouterStream(
+            OPENROUTER_API_KEY,
+            model,
+            messages,
+            OPENROUTER_ANSWER_TIMEOUT_MS,
+            OPENROUTER_ANSWER_MAX_TOKENS,
+          );
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              "Connection": "keep-alive",
+              "X-Accel-Buffering": "no",
+            },
+          });
+        }
+
         const rawAnswer = await generateOpenRouterAnswer(OPENROUTER_API_KEY, model, question, unifiedContext, intent);
         const answer = cleanupAnswerText(rawAnswer);
 
