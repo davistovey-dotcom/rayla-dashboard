@@ -35,19 +35,19 @@ const WINDOW_MS = 30 * DAY_MS;
 // about but that we haven't added copy for falls back to a generic template
 // — the classification still flows through; the phrasing is just less polished.
 const WARNING_TRAIT_IMPROVEMENT_COPY = {
-  fear_of_missing_out: "Fewer FOMO signals recorded than before.",
-  revenge_trading: "Fewer revenge-trading signals recorded than before.",
-  analysis_paralysis: "Less over-planning noise recently — clearer decisions coming through.",
-  fear_response: "Fewer fear-driven decisions recorded than before.",
-  greed_driven: "Fewer greed-driven decisions recorded than before.",
-  impulsive_action: "Fewer impulsive entries recorded than before.",
-  overconfidence: "Fewer overconfident calls recorded than before.",
+  fear_of_missing_out: "You're becoming more patient. You've been chasing fewer moves recently. More of your decisions are happening because the opportunity fits instead of because the market moved first.",
+  revenge_trading: "You've stopped chasing losses. The frustration that used to follow a bad trade isn't showing up in your entries as often.",
+  analysis_paralysis: "You're spending less time weighing the same trade over and over. More of the plans you're logging are turning into actual trades.",
+  fear_response: "Fewer of your recent decisions came from a place of worry. The tags that used to signal that mindset aren't showing up as often in your entries.",
+  greed_driven: "You've been reaching for less than you used to. Fewer of your recent decisions are carrying the greed tag.",
+  impulsive_action: "Fewer of your recent entries were snap decisions. The impulsive and reckless tags that used to appear more often are quieter now.",
+  overconfidence: "Overconfident tags have been showing up less often in your recent decisions. The pattern that used to be there is quieter now.",
 };
 
 function improvementStatementForWarningKey(key) {
   if (WARNING_TRAIT_IMPROVEMENT_COPY[key]) return WARNING_TRAIT_IMPROVEMENT_COPY[key];
   const label = String(key || "").replace(/_/g, " ");
-  return `Fewer ${label} signals recorded than before.`;
+  return `You've been showing fewer ${label} signals lately. The pattern that used to be there is quieter than it was.`;
 }
 
 function positionMarketValue(position) {
@@ -115,8 +115,8 @@ function cardDiscipline(profile) {
   // Strength / behavioral traits — kept explicit because their positive
   // statements are individually crafted and gated on a specific value.
   const strengths = [
-    { key: "rule_following", positiveValue: "following", statement: "Rule adherence has been trending up recently." },
-    { key: "calm_decision_making", positiveValue: "present", statement: "More calm decision-making recorded than before." },
+    { key: "rule_following", positiveValue: "following", statement: "You've been following your rules more consistently. The moments that used to pull you away from your plan are showing up less often." },
+    { key: "calm_decision_making", positiveValue: "present", statement: "You've been tagging more of your recent decisions as calm. That's a shift from what your entries used to look like." },
   ];
   for (const s of strengths) {
     const t = em[s.key];
@@ -132,7 +132,7 @@ function cardDiscipline(profile) {
   return {
     type: "opportunity",
     category: "Discipline",
-    statement: "Tag emotions on your next trade to notice patterns in your entries.",
+    statement: "Try tagging how you're feeling on your next trade. Once a few tags are in, this card starts showing what it sees.",
   };
 }
 
@@ -144,23 +144,25 @@ function cardPreparation(profile) {
   if (t?.trajectory === "improving") {
     const preparedShare = Number(t.distribution?.prepared);
     if (Number.isFinite(preparedShare) && preparedShare > 0) {
-      const pct = Math.round(preparedShare * 100);
+      // Distribution-present guard remains so this branch fires only when
+      // there's real recent evidence to lean on; the copy itself never
+      // references the exact share.
       return {
         type: "improvement",
         category: "Preparation",
-        statement: `You planned ${pct}% of your recent trades — trending up.`,
+        statement: "You're planning before acting more often. More of your recent trades had a plan behind them before execution.",
       };
     }
     return {
       type: "improvement",
       category: "Preparation",
-      statement: "You've been planning more trades ahead than before.",
+      statement: "You're planning before acting more often. The plan is showing up before the trade now, not after.",
     };
   }
   return {
     type: "opportunity",
     category: "Preparation",
-    statement: "Log a plan before your next trade to build the habit.",
+    statement: "Try writing a short plan before your next trade. Even one line about what you're expecting is enough for this card to start tracking.",
   };
 }
 
@@ -171,13 +173,13 @@ function cardReflection(profile) {
     return {
       type: "improvement",
       category: "Reflection",
-      statement: "You've reflected on more decisions this month than before.",
+      statement: "You've been going back to your decisions more often. More of them have a lesson or outcome on them than they used to.",
     };
   }
   return {
     type: "opportunity",
     category: "Reflection",
-    statement: "Add a lesson or outcome to a past decision to unlock personalized coaching.",
+    statement: "Add a lesson or outcome to one of your recent decisions. Anything you write shows up here as your reflection habit takes shape.",
   };
 }
 
@@ -195,14 +197,14 @@ function cardDiversification(currentSnap, priorSnap) {
       return {
         type: "improvement",
         category: "Diversification",
-        statement: `You expanded your book from ${priorPositions.length} to ${currentPositions.length} positions.`,
+        statement: `Your book grew from ${priorPositions.length} to ${currentPositions.length} positions over the last month. The weight of any single position on the total is smaller than it was.`,
       };
     }
   }
   return {
     type: "opportunity",
     category: "Diversification",
-    statement: "As you spread across more positions, this card will track your growth.",
+    statement: "As you add positions and build a broader book, you'll start to see the shape of that here.",
   };
 }
 
@@ -222,7 +224,7 @@ function cardRiskManagement(currentSnap, priorSnap) {
         return {
           type: "improvement",
           category: "Risk Management",
-          statement: `Your top position eased from ${pPct.toFixed(0)}% to ${cPct.toFixed(0)}% of the book — more balanced sizing.`,
+          statement: "Your largest holding takes up less of the book than it did a month ago. The rest of your positions are carrying more of the total than they were.",
         };
       }
     }
@@ -230,7 +232,7 @@ function cardRiskManagement(currentSnap, priorSnap) {
   return {
     type: "opportunity",
     category: "Risk Management",
-    statement: "As your position sizing evens out, this card will track your progress.",
+    statement: "As your sizing evens out across positions, you'll see that pattern reflected here.",
   };
 }
 
@@ -250,7 +252,7 @@ export function computeInvestorProgress(
   if (!hasProfileEvidence && !hasSnapshots) {
     return {
       empty: true,
-      emptyMessage: "You're just getting started. As you invest and journal, Rayla will begin tracking your growth as an investor.",
+      emptyMessage: "You're just getting started. As you invest and journal, patterns start showing up in the way you make decisions. This is where you'll see them.",
       cards: [],
     };
   }

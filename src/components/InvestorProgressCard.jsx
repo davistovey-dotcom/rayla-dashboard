@@ -60,7 +60,7 @@ export default function InvestorProgressCard({
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={eyebrowStyle}>Investor Progress</div>
         <div style={subtitleStyle}>How you&apos;ve grown over the last 30 days.</div>
-        <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>Loading your growth…</div>
+        <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>Looking at your recent decisions…</div>
       </div>
     );
   }
@@ -73,7 +73,7 @@ export default function InvestorProgressCard({
           You&apos;re just getting started.
         </div>
         <div style={subtitleStyle}>
-          As you invest and journal, Rayla will begin tracking your growth as an investor.
+          As you invest and journal, patterns start showing up in the way you make decisions. This is where you&apos;ll see them.
         </div>
       </div>
     );
