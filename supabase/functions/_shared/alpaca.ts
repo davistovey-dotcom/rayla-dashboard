@@ -238,7 +238,7 @@ export function normalizeAlpacaSnapshot(symbol: string, snapshot: any, assetType
   return {
     symbol,
     price: latestTradePrice,
-    change: Number(change.toFixed(2)),
+    change: change !== null ? Number(change.toFixed(2)) : null,
     previousClose: prevClose || null,
     updatedAt,
     bid: normalizedBid,

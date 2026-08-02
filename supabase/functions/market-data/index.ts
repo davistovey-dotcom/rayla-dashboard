@@ -262,18 +262,29 @@ async function fetchSnapshots(items: any[]) {
   const cryptoSymbols = items.filter((item) => item.assetType === "crypto").map((item) => item.symbol);
 
   if (stockSymbols.length) {
-    const data = await alpacaMarketDataRequest(`/v2/stocks/snapshots?symbols=${encodeURIComponent(stockSymbols.join(","))}&feed=${stockFeed}`);
+    let data: any = null;
+    try {
+      data = await alpacaMarketDataRequest(`/v2/stocks/snapshots?symbols=${encodeURIComponent(stockSymbols.join(","))}&feed=${stockFeed}`);
+    } catch (e) {
+      console.error(`[market-data] stock snapshots request failed for ${stockSymbols.join(",")}:`, e);
+    }
     stockSymbols.forEach((symbol) => {
-      const normalized = normalizeAlpacaSnapshot(symbol, data?.snapshots?.[symbol], "stock");
-      if (normalized) {
-        quotes[symbol] = {
-          price: normalized.price,
-          change: normalized.change,
-          updatedAt: normalized.updatedAt || null,
-          bid: normalized.bid ?? null,
-          ask: normalized.ask ?? null,
-          lastTradePrice: normalized.lastTradePrice ?? normalized.price,
-        };
+      try {
+        const normalized = normalizeAlpacaSnapshot(symbol, data?.snapshots?.[symbol], "stock");
+        if (normalized) {
+          quotes[symbol] = {
+            price: normalized.price,
+            change: normalized.change,
+            updatedAt: normalized.updatedAt || null,
+            bid: normalized.bid ?? null,
+            ask: normalized.ask ?? null,
+            lastTradePrice: normalized.lastTradePrice ?? normalized.price,
+          };
+        } else {
+          console.log(`[market-data] stock snapshot ${symbol}: no valid data, snapshot=${JSON.stringify(data?.snapshots?.[symbol])?.slice(0, 200)}`);
+        }
+      } catch (e) {
+        console.error(`[market-data] stock snapshot normalize failed for ${symbol}:`, e);
       }
     });
   }
@@ -281,19 +292,28 @@ async function fetchSnapshots(items: any[]) {
   if (cryptoSymbols.length) {
     // Step 1: Alpaca snapshot
     const cryptoPairs = cryptoSymbols.map(buildCryptoPair);
-    const data = await alpacaMarketDataRequest(`/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(cryptoPairs.join(","))}`);
+    let data: any = null;
+    try {
+      data = await alpacaMarketDataRequest(`/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(cryptoPairs.join(","))}`);
+    } catch (e) {
+      console.error(`[market-data] crypto snapshots request failed for ${cryptoPairs.join(",")}:`, e);
+    }
     cryptoSymbols.forEach((symbol) => {
-      const normalized = normalizeAlpacaSnapshot(symbol, data?.snapshots?.[buildCryptoPair(symbol)], "crypto");
-      console.log(`[market-data] crypto snapshot ${symbol}: price=${normalized?.price} change=${normalized?.change}`);
-      if (normalized) {
-        quotes[symbol] = {
-          price: normalized.price,
-          change: normalized.change,
-          updatedAt: normalized.updatedAt || null,
-          bid: normalized.bid ?? null,
-          ask: normalized.ask ?? null,
-          lastTradePrice: normalized.lastTradePrice ?? normalized.price,
-        };
+      try {
+        const normalized = normalizeAlpacaSnapshot(symbol, data?.snapshots?.[buildCryptoPair(symbol)], "crypto");
+        console.log(`[market-data] crypto snapshot ${symbol}: price=${normalized?.price} change=${normalized?.change}`);
+        if (normalized) {
+          quotes[symbol] = {
+            price: normalized.price,
+            change: normalized.change,
+            updatedAt: normalized.updatedAt || null,
+            bid: normalized.bid ?? null,
+            ask: normalized.ask ?? null,
+            lastTradePrice: normalized.lastTradePrice ?? normalized.price,
+          };
+        }
+      } catch (e) {
+        console.error(`[market-data] crypto snapshot normalize failed for ${symbol}:`, e);
       }
     });
 
