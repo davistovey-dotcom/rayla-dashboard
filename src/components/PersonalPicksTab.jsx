@@ -107,6 +107,7 @@ const QUESTIONS = {
       { value: "weeks", label: "Weeks" },
       { value: "months", label: "Months" },
       { value: "years", label: "Years" },
+      { value: "mixed", label: "A mix of time horizons" },
     ],
   },
   activityFrequency: {
@@ -203,6 +204,7 @@ const HORIZON_LABELS = {
   weeks: "Weeks",
   months: "Months",
   years: "Years",
+  mixed: "A mix of time horizons",
 };
 
 const GOAL_LABELS = {
