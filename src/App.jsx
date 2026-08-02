@@ -329,15 +329,38 @@ function mergeBrokerAssetSearchResults(query, backendAssets) {
     results.push(isCrypto ? { ...asset, symbol: baseKey } : asset);
   }
 
+  // Five-tier ranking so exact ticker always wins over prefix/fuzzy on either
+  // ticker or company name. Ties inside a tier broken alphabetically by symbol
+  // so ordering is deterministic across renders.
+  //   0 → exact ticker    (GOOG for query "GOOG")
+  //   1 → exact company   ("Alphabet" for query "ALPHABET")
+  //   2 → prefix ticker   (GOOGL for query "GOOG")
+  //   3 → prefix company  ("Alphabet Inc." for query "ALPH")
+  //   4 → fuzzy / substring match anywhere in ticker or name
   const q = normalizeBrokerAssetSearchKey(query);
+  const qCompact = String(query || "").trim().toUpperCase();
+  function normalizeName(name) {
+    return String(name || "").trim().toUpperCase();
+  }
+  function rankAsset(asset) {
+    const sym = normalizeBrokerAssetSearchKey(asset?.symbol);
+    const nameUpper = normalizeName(asset?.name ?? asset?.description);
+    if (sym === q) return 0;
+    if (nameUpper && nameUpper === qCompact) return 1;
+    if (q && sym.startsWith(q)) return 2;
+    if (nameUpper && qCompact && nameUpper.startsWith(qCompact)) return 3;
+    if ((q && sym.includes(q)) || (qCompact && nameUpper && nameUpper.includes(qCompact))) return 4;
+    return 5;
+  }
   results.sort((a, b) => {
-    const rank = (asset) => {
-      const sym = normalizeBrokerAssetSearchKey(asset?.symbol);
-      if (sym === q) return 0;
-      if (sym.startsWith(q)) return 1;
-      return 2;
-    };
-    return rank(a) - rank(b);
+    const r = rankAsset(a) - rankAsset(b);
+    if (r !== 0) return r;
+    // Deterministic tie-break: shorter symbol first (GOOG before GOOGL),
+    // then alphabetical.
+    const symA = normalizeBrokerAssetSearchKey(a?.symbol);
+    const symB = normalizeBrokerAssetSearchKey(b?.symbol);
+    if (symA.length !== symB.length) return symA.length - symB.length;
+    return symA.localeCompare(symB);
   });
 
   return results;
@@ -14453,6 +14476,10 @@ useEffect(() => {
   const [simulationSearchResults, setSimulationSearchResults] = useState([]);
   const simulationSearchTimeoutRef = useRef(null);
   const [simulationScenarioQuotes, setSimulationScenarioQuotes] = useState({});
+  // Per-symbol boolean: true when the last market-data fetch didn't return a
+  // usable live price for that asset. Powers the simulation recovery banner
+  // so live-mode never dead-ends without a next step (switch to Scenario).
+  const [simulationQuoteFailures, setSimulationQuoteFailures] = useState({});
   const [simulationScenarioSeries, setSimulationScenarioSeries] = useState({});
   const [simulationScenarioBarsByAsset, setSimulationScenarioBarsByAsset] = useState({});
   const [simulationScenarioAnchors, setSimulationScenarioAnchors] = useState({});
@@ -15134,10 +15161,39 @@ useEffect(() => {
           body: { symbols },
         });
 
-        if (error || !data?.ok) return;
-        syncSharedQuoteCaches(data.quotes || {});
+        if (error || !data?.ok) {
+          // Flag the whole batch as unavailable so the recovery banner can
+          // render. Previous quotes stay in cache; nothing is wiped.
+          setSimulationQuoteFailures((prev) => {
+            const next = { ...prev };
+            for (const item of simulationTrackedAssets) next[item.id] = true;
+            return next;
+          });
+          return;
+        }
+
+        const returnedQuotes = data.quotes || {};
+        syncSharedQuoteCaches(returnedQuotes);
+        // Per-symbol failure tracking: mark any requested asset that came
+        // back without a usable price. Clears the flag as soon as a fresh
+        // quote arrives so transient outages self-heal.
+        setSimulationQuoteFailures((prev) => {
+          const next = { ...prev };
+          for (const item of simulationTrackedAssets) {
+            const q = returnedQuotes[item.id];
+            const price = Number(q?.price ?? q?.lastTradePrice);
+            if (Number.isFinite(price) && price > 0) delete next[item.id];
+            else next[item.id] = true;
+          }
+          return next;
+        });
       } catch (error) {
         console.error("simulation quote fetch failed:", error);
+        setSimulationQuoteFailures((prev) => {
+          const next = { ...prev };
+          for (const item of simulationTrackedAssets) next[item.id] = true;
+          return next;
+        });
       }
     }
 
@@ -28052,6 +28108,48 @@ return (
                   )}
                   {(!isMobileView || simMobileTab === 1) && (
                   <div className="simulationChartPanel" data-tour-id="sim-chart" style={{ display: "flex", flexDirection: "column", gap: useScenarioDesktopLayout ? 14 : 18, minWidth: 0, gridColumn: isMobileView ? undefined : "1", gridRow: !isMobileView ? "1" : undefined, minHeight: useScenarioDesktopLayout ? 560 : undefined }}>
+                  {simulationMode === "live"
+                    && selectedSimulationItem
+                    && simulationQuoteFailures[selectedSimulationItem.id] ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        padding: "10px 14px",
+                        borderRadius: 12,
+                        background: "rgba(250,204,21,0.08)",
+                        border: "1px solid rgba(250,204,21,0.28)",
+                        color: "#e2f0ff",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        flexWrap: "wrap",
+                      }}
+                      role="status"
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        Live price for <b>{selectedSimulationItem.label || selectedSimulationItem.id}</b> is temporarily unavailable. You can keep training in Scenario Simulation instead.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSimulationMode("scenario")}
+                        style={{
+                          padding: "8px 14px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(124,196,255,0.35)",
+                          background: "rgba(124,196,255,0.14)",
+                          color: "#7CC4FF",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Switch to Scenario Simulation
+                      </button>
+                    </div>
+                  ) : null}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "0 2px" }}>
                     <div style={{ fontSize: 13, color: "#e2e8f0" }}>
                       {selectedSimulationItem ? `${selectedSimulationItem.label} (${selectedSimulationItem.id})` : "No asset selected"}
