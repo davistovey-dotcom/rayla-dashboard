@@ -14612,6 +14612,11 @@ useEffect(() => {
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
   const askRaylaThreadRef = useRef(null);
+  // Points at whichever Ask Rayla input textarea is currently mounted (the
+  // empty-state input and the with-messages input are separate DOM nodes,
+  // but only one is on the page at a time). Used to restore focus after Send
+  // so the user can keep typing without picking up the mouse.
+  const askRaylaInputRef = useRef(null);
   // Sticky-bottom scroll behavior — see the auto-scroll effect for details.
   const askRaylaUserAtBottomRef = useRef(true);
   const handleAskRaylaThreadScroll = useCallback((e) => {
@@ -19690,6 +19695,14 @@ Respond in strict JSON only — no markdown, no extra text:
       ]);
     }
 
+    // Clear the textbox and restore focus BEFORE the network round-trip so
+    // the user can start composing their next message immediately, ChatGPT-
+    // style. The response itself streams into the pending assistant bubble.
+    if (clearInput) {
+      setAiInput("");
+      askRaylaInputRef.current?.focus?.();
+    }
+
     setIsRaylaLoading(true);
     setRaylaResponse("");
 
@@ -19717,13 +19730,16 @@ Respond in strict JSON only — no markdown, no extra text:
           recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
         },
         {
-          // Stream real tokens into the pending assistant message. Persistence
-          // happens ONCE with the final content after the stream completes.
+          // Stream real tokens into the pending assistant message. Flip
+          // loading:false on first delta so the message-bubble renderer stops
+          // showing the badger placeholder and starts painting streamed text
+          // instead. Persistence still happens ONCE with the final content
+          // after the stream completes.
           onDelta: useChat && pendingMessageId
             ? (partial) => {
                 setRaylaChatMessages((prev) => prev.map((message) => (
                   message.id === pendingMessageId
-                    ? { ...message, content: partial, loading: true }
+                    ? { ...message, content: partial, loading: false }
                     : message
                 )));
               }
@@ -19742,7 +19758,6 @@ Respond in strict JSON only — no markdown, no extra text:
           persistRaylaMessage({ conversationId: convId, role: "assistant", content: answer });
         }
       }
-      if (clearInput) setAiInput("");
       return answer;
     } catch (error) {
       const message = `API error: ${error?.message || "unknown error"}`;
@@ -29994,6 +30009,7 @@ return (
                     <PlusSquare size={16} />
                   </div>
                   <textarea
+                    ref={askRaylaInputRef}
                     value={aiInput}
                     onChange={(e) => setAiInput(e.target.value)}
                     onKeyDown={async (e) => {
@@ -30353,6 +30369,7 @@ return (
                     }}
                   >
                     <textarea
+                      ref={askRaylaInputRef}
                       value={aiInput}
                       onChange={(e) => setAiInput(e.target.value)}
                       onKeyDown={async (e) => {
