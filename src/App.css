@@ -3073,6 +3073,15 @@ body.tour-active .mobileNav {
   }
 }
 
+@keyframes raylaOverlaySlideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 @keyframes tradeChartPulse {
   0% {
     transform: translate(-50%, -50%) scale(0.9);

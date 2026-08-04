@@ -18,7 +18,8 @@ import PersonalPicksTab from "./components/PersonalPicksTab";
 import InvestorReviewTab from "./components/InvestorReviewTab";
 import InvestorScoreCard from "./components/InvestorScoreCard";
 import InvestorProgressCard from "./components/InvestorProgressCard";
-import RaylaHistoryDrawer, { RaylaHistoryButton, RaylaConversationSidebar } from "./components/RaylaHistoryDrawer";
+import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistoryDrawer";
+import IntelSimulationSetupOverlay from "./components/IntelSimulationSetupOverlay";
 import * as raylaChat from "./services/raylaConversations";
 import { buildAskRaylaWelcome, ASK_RAYLA_WELCOME_STARTERS } from "./services/askRaylaWelcome";
 import { Tutorial } from "./Login";
@@ -8105,7 +8106,6 @@ function PerformanceDashboard({
   coachSummary,
   showNoNewTrades,
   onRunAnalysis,
-  onOpenRaylaPopup,
   alpacaPositions,
   activeBrokerPositions = [],
   performanceLiveAppliedSelection,
@@ -12608,7 +12608,7 @@ function JournalTradeTable({ trades, rCol, tradeDuration, onDeleteManualTrade })
 
 const JOURNAL_MISTAKE_TAGS = ["FOMO", "Oversized", "Rule break", "Chased entry", "Early exit", "Missed target", "Emotional"];
 
-function JournalTab({ trades, liveSimulationTrades = [], onOpenRaylaPopup, onDeleteManualTrade }) {
+function JournalTab({ trades, liveSimulationTrades = [], onDeleteManualTrade }) {
   const [journalSource, setJournalSource] = useState("live_trades");
   const [search, setSearch] = useState("");
   const [filterDir, setFilterDir] = useState("all");
@@ -13509,37 +13509,16 @@ useEffect(() => {
   const [raylaConversations, setRaylaConversations] = useState([]);
   const [raylaConversationId, setRaylaConversationIdState] = useState(null);
   const [raylaHistoryOpen, setRaylaHistoryOpen] = useState(false);
-  // Persistent sidebar on desktop, drawer on mobile. Matches the mobileNav
-  // breakpoint already in use elsewhere in the app.
-  const [raylaSidebarInline, setRaylaSidebarInline] = useState(() => (
-    typeof window !== "undefined" && window.matchMedia?.("(min-width: 900px)")?.matches
-  ));
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mql = window.matchMedia("(min-width: 900px)");
-    const handler = (e) => setRaylaSidebarInline(Boolean(e.matches));
-    handler(mql);
-    if (mql.addEventListener) mql.addEventListener("change", handler);
-    else mql.addListener(handler);
-    return () => {
-      if (mql.removeEventListener) mql.removeEventListener("change", handler);
-      else mql.removeListener(handler);
-    };
-  }, []);
+  // Ask Rayla renders as a right-side slide-in overlay on top of whatever tab
+  // the user is on — it never replaces navigation. This flag toggles the
+  // overlay open/closed; underlying tab state is untouched.
+  const [askRaylaOverlayOpen, setAskRaylaOverlayOpen] = useState(false);
   const raylaConversationCreateInFlightRef = useRef(null);
   // Tracks which user id the draft-mirror effect has already fired for.
   // The very first fire per user id is skipped so we don't overwrite storage
   // with stale `aiInput` before the load effect has restored the draft.
   const raylaDraftMirroredUserRef = useRef(null);
   const [raylaActiveReviewedTrade, setRaylaActiveReviewedTrade] = useState(null);
-  const [chartExplainPopupOpen, setChartExplainPopupOpen] = useState(false);
-  const [chartExplainPopupContext, setChartExplainPopupContext] = useState(null);
-  const [chartExplainPopupMessages, setChartExplainPopupMessages] = useState([]);
-  const [chartExplainPopupInput, setChartExplainPopupInput] = useState("");
-  const [chartExplainPopupLoading, setChartExplainPopupLoading] = useState(false);
-  const [chartExplainPopupTitle, setChartExplainPopupTitle] = useState("Ask Rayla");
-  const [chartExplainPopupPosition, setChartExplainPopupPosition] = useState({ x: 24, y: 96 });
-  const [chartExplainPopupIsMobile, setChartExplainPopupIsMobile] = useState(() => window.innerWidth < 768);
   const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= 600);
   const [isTabletView, setIsTabletView] = useState(() => window.innerWidth >= 768 && window.innerWidth <= 1180);
   const [simulationRaylaGuidanceStateByTrade, setSimulationRaylaGuidanceStateByTrade] = useState({});
@@ -14641,9 +14620,36 @@ useEffect(() => {
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     askRaylaUserAtBottomRef.current = distanceFromBottom <= 60;
   }, []);
-  const chartExplainPopupThreadRef = useRef(null);
-  const chartExplainPopupWindowRef = useRef(null);
-  const chartExplainPopupDragStateRef = useRef(null);
+  // Context that the current Ask Rayla conversation was launched with — a
+  // chart, a trade review, a simulation position, etc. Consumed by
+  // handleAskRaylaQuestion on every send in this conversation so follow-ups
+  // stay grounded in the same context. Cleared when the user starts a new
+  // conversation from the sidebar.
+  const raylaPendingContextRef = useRef(null);
+  // Title override for the next conversation that ensureRaylaConversation
+  // creates — populated by openAskRayla so context-derived titles ("AAPL 1D
+  // chart", "GOOG trade review") win over the user's raw first message.
+  const raylaPendingConversationTitleRef = useRef(null);
+  const closeAskRaylaOverlay = useCallback(() => {
+    setAskRaylaOverlayOpen(false);
+    setRaylaHistoryOpen(false);
+  }, []);
+  // Body scroll lock + Escape to dismiss while the overlay is open. The
+  // underlying page stays visually present (see overlay JSX below) but its
+  // scroll is frozen so the user isn't secretly scrolling behind the surface.
+  useEffect(() => {
+    if (!askRaylaOverlayOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => {
+      if (e.key === "Escape") closeAskRaylaOverlay();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [askRaylaOverlayOpen, closeAskRaylaOverlay]);
   const [showTooltip, setShowTooltip] = useState(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tradeView, setTradeView] = useState("recent");
@@ -18038,65 +18044,13 @@ useEffect(() => {
   }, [activeTab, homePortfolioViewMode, homePortfolioPositionsKey, homeMarketChartRange, brokerTradeLog]);
 
   useEffect(() => {
-    if (!chartExplainPopupOpen || !chartExplainPopupThreadRef.current) return;
-    chartExplainPopupThreadRef.current.scrollTop = chartExplainPopupThreadRef.current.scrollHeight;
-  }, [chartExplainPopupOpen, chartExplainPopupMessages]);
-
-  useEffect(() => {
     function handleResize() {
-      setChartExplainPopupIsMobile(window.innerWidth < 768);
       setIsMobileView(window.innerWidth <= 600);
       setIsTabletView(window.innerWidth >= 768 && window.innerWidth <= 1180);
-      if (!chartExplainPopupWindowRef.current) return;
-      const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
-      const maxX = Math.max(12, window.innerWidth - rect.width - 12);
-      const maxY = Math.max(12, window.innerHeight - rect.height - 12);
-      setChartExplainPopupPosition((prev) => ({
-        x: Math.min(Math.max(12, prev.x), maxX),
-        y: Math.min(Math.max(12, prev.y), maxY),
-      }));
     }
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  useEffect(() => {
-    if (!chartExplainPopupOpen || !chartExplainPopupWindowRef.current) return;
-    const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
-    const maxX = Math.max(12, window.innerWidth - rect.width - 12);
-    const maxY = Math.max(12, window.innerHeight - rect.height - 12);
-    setChartExplainPopupPosition((prev) => ({
-      x: Math.min(Math.max(12, prev.x), maxX),
-      y: Math.min(Math.max(12, prev.y), maxY),
-    }));
-  }, [chartExplainPopupOpen, chartExplainPopupIsMobile]);
-
-  useEffect(() => {
-    function handlePointerMove(event) {
-      const dragState = chartExplainPopupDragStateRef.current;
-      if (!dragState || !chartExplainPopupWindowRef.current) return;
-      const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
-      const nextX = event.clientX - dragState.offsetX;
-      const nextY = event.clientY - dragState.offsetY;
-      const maxX = Math.max(12, window.innerWidth - rect.width - 12);
-      const maxY = Math.max(12, window.innerHeight - rect.height - 12);
-      setChartExplainPopupPosition({
-        x: Math.min(Math.max(12, nextX), maxX),
-        y: Math.min(Math.max(12, nextY), maxY),
-      });
-    }
-
-    function handlePointerUp() {
-      chartExplainPopupDragStateRef.current = null;
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
   }, []);
 
 
@@ -18599,6 +18553,10 @@ useEffect(() => {
     try {
       const messages = await raylaChat.loadConversationMessages(supabase, userId, conversationId);
       setRaylaChatMessages(messages);
+      // Loading an old conversation from the sidebar clears launcher-provided
+      // context — an archived chart-tap thread doesn't inherit today's chart.
+      raylaPendingContextRef.current = null;
+      raylaPendingConversationTitleRef.current = null;
     } catch (err) {
       // Non-blocking: DO NOT wipe existing UI on load failure.
       console.warn("[rayla] loadConversation failed", err);
@@ -18610,6 +18568,11 @@ useEffect(() => {
     setRaylaChatMessages([]);
     setRaylaResponse("");
     setRaylaHistoryOpen(false);
+    // A blank new conversation has no context — wipe any launcher-supplied
+    // context so we don't leak, say, a chart context into a fresh chat the
+    // user started manually from the sidebar.
+    raylaPendingContextRef.current = null;
+    raylaPendingConversationTitleRef.current = null;
   }, [setRaylaConversationId]);
 
   const deleteRaylaConversation = useCallback(async (conversationId) => {
@@ -18637,7 +18600,11 @@ useEffect(() => {
     }
     const p = (async () => {
       try {
-        const title = raylaChat.conversationTitleFromMessage(seedMessage);
+        // Launcher-supplied title (e.g. "AAPL 1D chart", "GOOG trade review")
+        // wins over the raw user message. Consumed once and then cleared.
+        const overrideTitle = raylaPendingConversationTitleRef.current;
+        raylaPendingConversationTitleRef.current = null;
+        const title = overrideTitle || raylaChat.conversationTitleFromMessage(seedMessage);
         const data = await raylaChat.createConversation(supabase, userId, title);
         setRaylaConversations((prev) => [data, ...prev.filter((c) => c.id !== data.id)]);
         setRaylaConversationId(data.id);
@@ -18673,6 +18640,98 @@ useEffect(() => {
       return null;
     }
   }, [session?.user?.id]);
+
+  // Creates a fresh conversation immediately (used when a launcher wants to
+  // seed an assistant intro before the user has typed anything). Returns the
+  // new conversation id, or null when there is no signed-in user.
+  const createFreshRaylaConversation = useCallback(async ({ title, seedAssistantMessage = null } = {}) => {
+    const userId = session?.user?.id;
+    if (!userId) return null;
+    try {
+      const data = await raylaChat.createConversation(supabase, userId, title || "");
+      setRaylaConversations((prev) => [data, ...prev.filter((c) => c.id !== data.id)]);
+      setRaylaConversationId(data.id);
+      setRaylaChatMessages([]);
+      if (seedAssistantMessage) {
+        const id = createClientId();
+        setRaylaChatMessages([{ id, role: "assistant", content: seedAssistantMessage }]);
+        persistRaylaMessage({ conversationId: data.id, role: "assistant", content: seedAssistantMessage });
+      }
+      return data.id;
+    } catch (err) {
+      console.warn("[rayla] createFreshConversation failed", err);
+      return null;
+    }
+  }, [session?.user?.id, setRaylaConversationId, persistRaylaMessage]);
+
+  // Single Ask Rayla launcher — every "Ask Rayla" surface across the app funnels
+  // through this. Preserves whatever context launched the conversation (chart,
+  // sim position, trade review, etc.) so follow-ups stay grounded.
+  //
+  //   context                → attached as extraContext to every message in this
+  //                            conversation (kept in a ref, not React state)
+  //   initialQuestion        → question text
+  //   autoSend               → true: fire immediately; false: prefill the input
+  //   seedAssistantMessage   → assistant-authored intro that appears BEFORE the
+  //                            user's first message (used by sim helper /
+  //                            intel intro flows)
+  //   resetToNewConversation → create a fresh conversation row (otherwise reuse
+  //                            the currently-selected one)
+  //   conversationTitle      → context-derived title for the sidebar row
+  const openAskRayla = useCallback(async ({
+    context = null,
+    initialQuestion = null,
+    initialDisplayText = null,
+    autoSend = false,
+    seedAssistantMessage = null,
+    resetToNewConversation = false,
+    conversationTitle = null,
+  } = {}) => {
+    // Open the right-side overlay — do NOT change activeTab. The user stays
+    // on whatever page they launched from; the overlay slides in beside it.
+    setAskRaylaOverlayOpen(true);
+    setRaylaHistoryOpen(false);
+    // Stash context so handleAskRaylaQuestion can pick it up on every send in
+    // this conversation. Explicit null means "no context" — different from
+    // "leave the previous context alone".
+    raylaPendingContextRef.current = context || null;
+
+    if (resetToNewConversation) {
+      raylaPendingConversationTitleRef.current = conversationTitle || null;
+      if (seedAssistantMessage) {
+        // Create the row up front so the seeded intro can persist even if the
+        // user closes the tab before asking a follow-up.
+        await createFreshRaylaConversation({
+          title: conversationTitle || (initialQuestion ? raylaChat.conversationTitleFromMessage(initialQuestion) : ""),
+          seedAssistantMessage,
+        });
+      } else {
+        // Defer row creation to the first send. This keeps sidebar noise down
+        // when a user opens a launcher and closes it without asking anything.
+        setRaylaConversationId(null);
+        setRaylaChatMessages([]);
+        setRaylaResponse("");
+      }
+    }
+
+    if (initialQuestion) {
+      if (autoSend) {
+        try {
+          await handleAskRaylaQuestion(initialQuestion, {
+            clearInput: true,
+            useChat: true,
+            displayText: initialDisplayText,
+          });
+        } catch (err) {
+          console.error("openAskRayla auto-send failed", err);
+        }
+      } else {
+        // Prefill mode: what the user sees in the input is the display text
+        // (if any), otherwise the raw question.
+        setAiInput(initialDisplayText || initialQuestion);
+      }
+    }
+  }, [createFreshRaylaConversation, setRaylaConversationId]);
 
   // On user change: load conversation list, restore last-open conversation
   // (or start fresh), restore draft text. Never wipes React state on failure.
@@ -19586,17 +19645,32 @@ Respond in strict JSON only — no markdown, no extra text:
     return data?.answer || data?.error || "No response.";
   }
 
-  async function handleAskRaylaQuestion(question, { clearInput = false, useChat = false, extraContext = null } = {}) {
+  async function handleAskRaylaQuestion(question, { clearInput = false, useChat = false, extraContext = null, displayText = null } = {}) {
     if (!question.trim()) return;
 
+    // Merge launcher-supplied context (chart tap, sim position, trade review)
+    // with any per-call extraContext. Per-call values win so callers can
+    // override, but the launcher context stays attached to every follow-up in
+    // the same conversation until the user starts a new one.
+    const pendingContext = raylaPendingContextRef.current;
+    const mergedExtraContext = pendingContext || extraContext
+      ? { ...(pendingContext || {}), ...(extraContext || {}) }
+      : null;
+
     const trimmedQuestion = question.trim();
+    // displayText — when a launcher smushes an instruction prompt + a big
+    // context blob into `question` (e.g. "Analyze my portfolio\n\n<packet>"),
+    // the chat bubble + sidebar title should show only the human-readable
+    // label. Persistence stores displayText so a reload preserves the clean
+    // label. The full `question` still goes to the LLM.
+    const chatDisplayText = (displayText && displayText.trim()) || trimmedQuestion;
     const userClientId = createClientId();
     const pendingMessageId = useChat ? createClientId() : null;
     const tradeSourceSummary = buildTradeSourceSummary({ trades, simulationTradeHistory: visibleSimulationTradeHistoryAll });
     const nextActiveReviewedTrade = resolveActiveReviewedTradeForQuestion({
       question: trimmedQuestion,
       tradeSourceSummary,
-      fallbackTrade: extraContext?.activeReviewedTrade || raylaActiveReviewedTrade,
+      fallbackTrade: mergedExtraContext?.activeReviewedTrade || raylaActiveReviewedTrade,
     });
 
     if (useChat) {
@@ -19605,7 +19679,7 @@ Respond in strict JSON only — no markdown, no extra text:
         {
           id: userClientId,
           role: "user",
-          content: trimmedQuestion,
+          content: chatDisplayText,
         },
         {
           id: pendingMessageId,
@@ -19624,11 +19698,13 @@ Respond in strict JSON only — no markdown, no extra text:
     // still show the message in UI — persistence retries next send.
     let convId = null;
     if (useChat && session?.user?.id) {
-      convId = await ensureRaylaConversation(trimmedQuestion);
+      // Title fallback uses the clean display text so sidebar rows are readable
+      // even when the LLM prompt smashes in a context blob.
+      convId = await ensureRaylaConversation(chatDisplayText);
       if (convId) {
-        // Fire-and-await user-message insert so a refresh right after send
-        // still recovers the user's message on next load.
-        await persistRaylaMessage({ conversationId: convId, role: "user", content: trimmedQuestion });
+        // Persist the clean display text — that's what the user actually said
+        // and what should show up on reload.
+        await persistRaylaMessage({ conversationId: convId, role: "user", content: chatDisplayText });
       }
     }
 
@@ -19636,7 +19712,7 @@ Respond in strict JSON only — no markdown, no extra text:
       const answer = await requestRaylaAnswer(
         trimmedQuestion,
         {
-          ...extraContext,
+          ...(mergedExtraContext || {}),
           activeReviewedTrade: nextActiveReviewedTrade,
           recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
         },
@@ -19724,85 +19800,17 @@ Respond in strict JSON only — no markdown, no extra text:
       setDocUploadOpen(false);
       setDocUploadText("");
       const typeName = DOCUMENT_TYPES[docType] || "Document";
-      openGlobalRaylaPopup(`Analyze this ${typeName}`);
-      handleChartExplainPopupQuestion(
-        `Analyze this ${typeName} and tell me the most important findings and what they mean for my portfolio.`,
-        null,
-        { resetThread: true }
-      );
+      openAskRayla({
+        initialQuestion: `Analyze this ${typeName} and tell me the most important findings and what they mean for my portfolio.`,
+        initialDisplayText: `Analyze this ${typeName}`,
+        autoSend: true,
+        resetToNewConversation: true,
+        conversationTitle: `${typeName} analysis${intel?.symbol ? ` — ${intel.symbol}` : ""}`,
+      });
     } catch (error) {
       setDocUploadError(error?.message || "Analysis failed. Please try again.");
     } finally {
       setDocUploadLoading(false);
-    }
-  }
-
-  async function handleChartExplainPopupQuestion(question, chartContext, { resetThread = false, displayQuestion = null } = {}) {
-    const trimmedQuestion = String(question || "").trim();
-    if (!trimmedQuestion) return;
-    const chatDisplayQuestion = String(displayQuestion || trimmedQuestion).trim();
-
-    if (intelSimulationSetupPrompt) {
-      const normalized = trimmedQuestion.toLowerCase();
-      if (["yes", "yes please", "y", "yeah", "sure", "ok", "okay"].includes(normalized)) {
-        handleAcceptIntelSimulationSetupPrompt();
-        return;
-      }
-      if (["no", "no thanks", "n", "i'm good", "im good", "no i'm good", "no im good"].includes(normalized)) {
-        handleDismissIntelSimulationSetupPrompt();
-        return;
-      }
-    }
-
-    const nextContext = chartContext || chartExplainPopupContext;
-
-    const pendingMessageId = createClientId();
-    const nextUserMessage = {
-      id: createClientId(),
-      role: "user",
-      content: chatDisplayQuestion,
-    };
-    const loadingMessage = {
-      id: pendingMessageId,
-      role: "assistant",
-      content: "",
-      loading: true,
-    };
-
-    setChartExplainPopupOpen(true);
-    setChartExplainPopupContext(nextContext);
-    setChartExplainPopupLoading(true);
-    setChartExplainPopupInput("");
-    setChartExplainPopupMessages((prev) => resetThread ? [nextUserMessage, loadingMessage] : [...prev, nextUserMessage, loadingMessage]);
-
-    try {
-      const answer = await requestRaylaAnswer(
-        trimmedQuestion,
-        {
-          ...(nextContext
-            ? nextContext.contextType === "simulation"
-              ? { simulationContext: nextContext }
-              : { chartContext: nextContext }
-            : {}),
-          recentConversation: resetThread ? [] : normalizeConversationSlice(chartExplainPopupMessages),
-        }
-      );
-      setChartExplainPopupMessages((prev) => prev.map((message) => (
-        message.id === pendingMessageId
-          ? { ...message, content: answer, loading: false }
-          : message
-      )));
-      return answer;
-    } catch (error) {
-      const message = `API error: ${error?.message || "unknown error"}`;
-      setChartExplainPopupMessages((prev) => prev.map((entry) => (
-        entry.id === pendingMessageId
-          ? { ...entry, content: message, loading: false, error: true }
-          : entry
-      )));
-      return message;
-    } finally {
-      setChartExplainPopupLoading(false);
     }
   }
 
@@ -19840,39 +19848,25 @@ Respond in strict JSON only — no markdown, no extra text:
         relativePosition: relativePos,
       },
     };
-    if (chartExplainPopupOpen) {
-      handleChartExplainPopupQuestion("What about this price level?", enrichedContext);
-      return;
-    }
     if (Date.now() - chartTapCooldownRef.current < 700) return;
-    openChartExplainPopup(enrichedContext, "What's happening at this price level?");
+    // Route chart taps through Ask Rayla with the enriched chart context so the
+    // resulting conversation is grounded and titled by the asset+timeframe.
+    const chartTitle = deriveChartConversationTitle(enrichedContext);
+    openAskRayla({
+      context: { chartContext: enrichedContext },
+      initialQuestion: "What's happening at this price level?",
+      autoSend: true,
+      resetToNewConversation: true,
+      conversationTitle: chartTitle,
+    });
   }
 
-  function openChartExplainPopup(chartContext, initialQuestion = "Explain this chart", { title = null, prefillOnly = false } = {}) {
-    setIntelSimulationSetupPrompt(null);
-    setIntelSimulationSetupChecklist(null);
-    setChartExplainPopupContext(chartContext);
-    setChartExplainPopupMessages([]);
-    setChartExplainPopupTitle(title || initialQuestion || "Ask Rayla");
-    setChartExplainPopupOpen(true);
-    if (prefillOnly) {
-      setChartExplainPopupInput(initialQuestion || "");
-    } else {
-      setChartExplainPopupInput("");
-      if (initialQuestion) {
-        handleChartExplainPopupQuestion(initialQuestion, chartContext, { resetThread: true });
-      }
-    }
-  }
-
-  function openGlobalRaylaPopup(title = "Ask Rayla", context = null) {
-    setIntelSimulationSetupPrompt(null);
-    setIntelSimulationSetupChecklist(null);
-    setChartExplainPopupContext(context || null);
-    setChartExplainPopupMessages([]);
-    setChartExplainPopupInput("");
-    setChartExplainPopupTitle(title || "Ask Rayla");
-    setChartExplainPopupOpen(true);
+  // Short, sidebar-friendly title from a chart-tap context.
+  function deriveChartConversationTitle(chartContext) {
+    if (!chartContext) return "Chart conversation";
+    const asset = chartContext.assetName || chartContext.symbol || "Chart";
+    const tf = chartContext.timeframe ? ` ${chartContext.timeframe}` : "";
+    return `${asset}${tf} chart`;
   }
 
   function buildSimulationRaylaPopupContext(position) {
@@ -19920,29 +19914,27 @@ Respond in strict JSON only — no markdown, no extra text:
     if (!position) return;
 
     const helperContext = buildSimulationRaylaPopupContext(position);
+    const symbol = String(position.asset || "trade").toUpperCase();
+    const modeLabel = position.marketMode === "scenario" ? "scenario" : "live";
+    const seed = buildSimulationOpeningMessage(helperContext, {
+      beginnerMode: raylaAdaptiveProfile?.explanationDepth === "simple" || visibleSimulationTradeHistoryAll.length < 3,
+    });
 
     setIntelSimulationSetupPrompt(null);
     setIntelSimulationSetupChecklist(null);
-    setChartExplainPopupContext(helperContext);
-    setChartExplainPopupMessages([
-      {
-        id: createClientId(),
-        role: "assistant",
-        content: buildSimulationOpeningMessage(helperContext, {
-          beginnerMode: raylaAdaptiveProfile?.explanationDepth === "simple" || visibleSimulationTradeHistoryAll.length < 3,
-        }),
-      },
-    ]);
-    setChartExplainPopupInput("");
-    setChartExplainPopupLoading(false);
-    setChartExplainPopupTitle(position.marketMode === "scenario" ? "Rayla Scenario Help" : "Rayla Live Help");
-    setChartExplainPopupOpen(true);
     setSimulationRaylaGuidanceStateByTrade((prev) => (
       prev[position.id]
         ? prev
         : { ...prev, [position.id]: "pending" }
     ));
     setSimulationRaylaPromptTradeId(position.id);
+
+    openAskRayla({
+      context: { simulationContext: helperContext },
+      seedAssistantMessage: seed,
+      resetToNewConversation: true,
+      conversationTitle: `${symbol} ${modeLabel} sim helper`,
+    });
   }
 
   function openPostTradeRaylaReview(closedTrade) {
@@ -19977,12 +19969,13 @@ Respond in strict JSON only — no markdown, no extra text:
     });
     setIntelSimulationSetupPrompt(null);
     setIntelSimulationSetupChecklist(null);
-    setChartExplainPopupContext(reviewContext);
-    setChartExplainPopupMessages([]);
-    setChartExplainPopupInput("");
-    setChartExplainPopupTitle("Trade Review");
-    setChartExplainPopupOpen(true);
-    handleChartExplainPopupQuestion(question, reviewContext, { resetThread: true });
+    openAskRayla({
+      context: { simulationContext: reviewContext },
+      initialQuestion: question,
+      autoSend: true,
+      resetToNewConversation: true,
+      conversationTitle: `${symbol} trade review`,
+    });
   }
 
   function getIntelLaunchCurrentPrice(intelLaunch, launchMode) {
@@ -20010,7 +20003,7 @@ Respond in strict JSON only — no markdown, no extra text:
     return Number.isFinite(directPrice) ? directPrice : null;
   }
 
-  function openIntelSimulationRaylaPopup(intelLaunch) {
+  function openIntelSimulationAskRayla(intelLaunch) {
     if (!intelLaunch) return;
 
     const launchMode = intelLaunch.mode === "scenario" ? "scenario" : "live";
@@ -20040,23 +20033,22 @@ Respond in strict JSON only — no markdown, no extra text:
       },
     });
 
-    setChartExplainPopupContext(nextContext);
-    setChartExplainPopupMessages([
-      {
-        id: createClientId(),
-        role: "assistant",
-        content: buildIntelSimulationRaylaIntro({
-          ...intelLaunch,
-          mode: launchMode,
-        }),
-      },
-    ]);
-    setChartExplainPopupInput("");
-    setChartExplainPopupLoading(false);
-    setChartExplainPopupTitle(launchMode === "scenario" ? "Rayla Scenario Setup" : "Rayla Live Setup");
-    setChartExplainPopupOpen(true);
+    const introMessage = buildIntelSimulationRaylaIntro({
+      ...intelLaunch,
+      mode: launchMode,
+    });
+    const symbol = String(intelLaunch.asset?.id || "trade").toUpperCase();
+    const modeLabel = launchMode === "scenario" ? "scenario" : "live";
+
     setIntelSimulationSetupChecklist(null);
     setIntelSimulationSetupPrompt(null);
+
+    openAskRayla({
+      context: { simulationContext: nextContext },
+      seedAssistantMessage: introMessage,
+      resetToNewConversation: true,
+      conversationTitle: `${symbol} ${modeLabel} setup`,
+    });
   }
 
   function handleAcceptIntelSimulationSetupPrompt() {
@@ -20064,6 +20056,10 @@ Respond in strict JSON only — no markdown, no extra text:
     const steps = buildIntelSimulationSetupSteps(intelSimulationSetupPrompt);
     if (!steps.length) return;
 
+    // The checklist is now a self-contained overlay: step title + body render
+    // inside it, so we no longer need to seed the step content as chat
+    // messages. The chat still carries the launcher's intro message, but the
+    // step-by-step walkthrough lives entirely in the overlay.
     setIntelSimulationSetupPrompt(null);
     setIntelSimulationSetupChecklist({
       assetSymbol: intelSimulationSetupPrompt.assetSymbol,
@@ -20074,19 +20070,6 @@ Respond in strict JSON only — no markdown, no extra text:
       steps,
       currentStep: 0,
     });
-    setChartExplainPopupMessages((prev) => [
-      ...prev,
-      {
-        id: createClientId(),
-        role: "assistant",
-        content: "One field at a time.",
-      },
-      {
-        id: createClientId(),
-        role: "assistant",
-        content: `${steps[0].title}\n${steps[0].body}`,
-      },
-    ]);
   }
 
   function handleAdvanceIntelSimulationSetupChecklist() {
@@ -20094,31 +20077,12 @@ Respond in strict JSON only — no markdown, no extra text:
       if (!prev) return prev;
       const nextStepIndex = prev.currentStep + 1;
       if (nextStepIndex >= prev.steps.length) {
-        setChartExplainPopupMessages((messages) => [
-          ...messages,
-          {
-            id: createClientId(),
-            role: "assistant",
-            content: "Setup complete. Opening the simulator with this exact Intel setup.",
-          },
-        ]);
         launchIntelPracticeMode(prev.mode, prev.launch && prev.draft ? {
           launch: prev.launch,
           draft: prev.draft,
         } : null);
         return null;
       }
-
-      const nextStep = prev.steps[nextStepIndex];
-      setChartExplainPopupMessages((messages) => [
-        ...messages,
-        {
-          id: createClientId(),
-          role: "assistant",
-          content: `${nextStep.title}\n${nextStep.body}`,
-        },
-      ]);
-
       return {
         ...prev,
         currentStep: nextStepIndex,
@@ -20129,8 +20093,6 @@ Respond in strict JSON only — no markdown, no extra text:
   function handleDismissIntelSimulationSetupPrompt() {
     setIntelSimulationSetupPrompt(null);
     setIntelSimulationSetupChecklist(null);
-    setChartExplainPopupOpen(false);
-    setChartExplainPopupLoading(false);
   }
 
   function handleCancelIntelPracticeModeChoice() {
@@ -20386,7 +20348,10 @@ Respond in strict JSON only — no markdown, no extra text:
 
     setSimulationRaylaGuidanceStateByTrade((prev) => ({ ...prev, [positionId]: "guided" }));
     setSimulationRaylaPromptTradeId((prev) => (prev === positionId ? null : prev));
-    setChartExplainPopupMessages((prev) => [
+    // Append into the currently-open sim helper conversation on the ask tab.
+    // The sim helper's openAskRayla already seeded an intro; we tack on the
+    // watching-line + coach note so the thread reads naturally.
+    setRaylaChatMessages((prev) => [
       ...prev,
       {
         id: createClientId(),
@@ -20401,6 +20366,13 @@ Respond in strict JSON only — no markdown, no extra text:
           }]
         : []),
     ]);
+    // Persist the appended messages so a page reload preserves them.
+    if (raylaConversationId) {
+      persistRaylaMessage({ conversationId: raylaConversationId, role: "assistant", content: "I'm watching. What do you want to know?" });
+      if (coachNote) {
+        persistRaylaMessage({ conversationId: raylaConversationId, role: "assistant", content: coachNote });
+      }
+    }
   }
 
   function handleDismissSimulationRaylaGuidance(positionId) {
@@ -20408,8 +20380,6 @@ Respond in strict JSON only — no markdown, no extra text:
 
     setSimulationRaylaGuidanceStateByTrade((prev) => ({ ...prev, [positionId]: "dismissed" }));
     setSimulationRaylaPromptTradeId((prev) => (prev === positionId ? null : prev));
-    setChartExplainPopupOpen(false);
-    setChartExplainPopupLoading(false);
   }
 
   function handleTryCapitalGuideInScenario(direction) {
@@ -21963,7 +21933,13 @@ function buildSimulationAssetFromPosition(position) {
       assetName: item.name || symbol,
       assetType: CRYPTO_SYMBOL_SET.has(symbol) ? "crypto" : "stock",
     };
-    openChartExplainPopup(intelContext, question, { title: "Ask Rayla", prefillOnly: true });
+    openAskRayla({
+      context: { chartContext: intelContext },
+      initialQuestion: question,
+      autoSend: false,
+      resetToNewConversation: true,
+      conversationTitle: `${symbol} intel`,
+    });
   }
 
   function handleTryIntelInSimulation(item) {
@@ -22768,7 +22744,7 @@ function buildSimulationAssetFromPosition(position) {
         block: "center",
         inline: "nearest",
       });
-      openIntelSimulationRaylaPopup(pendingIntelSimulationLaunch);
+      openIntelSimulationAskRayla(pendingIntelSimulationLaunch);
       setPendingIntelSimulationLaunch(null);
     });
 
@@ -23962,7 +23938,7 @@ return (
             </div>
             <RaylaLaunchButton
               label="Ask Rayla"
-              onClick={() => openGlobalRaylaPopup("Ask Rayla")}
+              onClick={() => openAskRayla()}
             />
           </div>
         )}
@@ -25166,8 +25142,13 @@ return (
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                                     const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
-                                    openGlobalRaylaPopup("Analyze my portfolio");
-                                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
+                                    openAskRayla({
+                                      initialQuestion: q,
+                                      initialDisplayText: "Analyze my portfolio",
+                                      autoSend: true,
+                                      resetToNewConversation: true,
+                                      conversationTitle: "Portfolio analysis",
+                                    });
                                   },
                                 },
                                 {
@@ -25175,8 +25156,13 @@ return (
                                   onClick: () => {
                                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                                     const q = `Based on my current investment holdings, give me 1-2 specific tickers I should consider adding and why — be direct, not generic.\n\n${formatInvestorContextForAI(p)}`;
-                                    openGlobalRaylaPopup("What should I add?");
-                                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "What should I add?" });
+                                    openAskRayla({
+                                      initialQuestion: q,
+                                      initialDisplayText: "What should I add?",
+                                      autoSend: true,
+                                      resetToNewConversation: true,
+                                      conversationTitle: "Suggested additions",
+                                    });
                                   },
                                 },
                               ]}
@@ -25525,7 +25511,7 @@ return (
                 </div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
-                  onClick={() => openGlobalRaylaPopup("Ask Rayla")}
+                  onClick={() => openAskRayla()}
                 />
               </div>
               {pendingAlpacaOrderConfirmation && (
@@ -27297,7 +27283,7 @@ return (
                 <div className="raylaPageTitle mobilePageTitle">Simulation</div>
                 <RaylaLaunchButton
                   label="Ask Rayla"
-                  onClick={() => openGlobalRaylaPopup("Ask Rayla", simulationRaylaContext)}
+                  onClick={() => openAskRayla({ context: simulationRaylaContext ? { simulationContext: simulationRaylaContext } : null })}
                 />
               </div>
               <div data-tour-id="sim-mode" style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
@@ -29170,8 +29156,13 @@ return (
                           onClick: () => {
                             const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
                             const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
-                            openGlobalRaylaPopup("Analyze my portfolio");
-                            handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
+                            openAskRayla({
+                              initialQuestion: q,
+                              initialDisplayText: "Analyze my portfolio",
+                              autoSend: true,
+                              resetToNewConversation: true,
+                              conversationTitle: "Portfolio analysis",
+                            });
                           },
                         },
                         {
@@ -29179,8 +29170,13 @@ return (
                           onClick: () => {
                             const p = buildInvestorContextPacket(brokerPositionsWithIntent, alpacaAccount, "portfolio");
                             const q = `Based on my current portfolio, give me 1-2 specific tickers I should consider adding and why — be direct, not generic.\n\n${formatInvestorContextForAI(p)}`;
-                            openGlobalRaylaPopup("What should I add?");
-                            handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "What should I add?" });
+                            openAskRayla({
+                              initialQuestion: q,
+                              initialDisplayText: "What should I add?",
+                              autoSend: true,
+                              resetToNewConversation: true,
+                              conversationTitle: "Suggested additions",
+                            });
                           },
                         },
                       ]}
@@ -29211,8 +29207,13 @@ return (
                   onAskRayla={(symbol) => {
                     const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                     const q = `Sharp read on my ${symbol} position — how is it doing and what's the one most important thing to watch right now?\n\n${formatInvestorContextForAI(p)}`;
-                    openGlobalRaylaPopup(`About ${symbol}`);
-                    handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: `About my ${symbol} position` });
+                    openAskRayla({
+                      initialQuestion: q,
+                      initialDisplayText: `About my ${symbol} position`,
+                      autoSend: true,
+                      resetToNewConversation: true,
+                      conversationTitle: `${symbol} position`,
+                    });
                   }}
                   onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
                 />
@@ -29224,8 +29225,13 @@ return (
                         onClick: () => {
                           const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                           const q = `Give me a sharp, direct read on my long-term holdings — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
-                          openGlobalRaylaPopup("Analyze my holdings");
-                          handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my holdings" });
+                          openAskRayla({
+                            initialQuestion: q,
+                            initialDisplayText: "Analyze my holdings",
+                            autoSend: true,
+                            resetToNewConversation: true,
+                            conversationTitle: "Holdings analysis",
+                          });
                         },
                       },
                       {
@@ -29233,8 +29239,13 @@ return (
                         onClick: () => {
                           const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
                           const q = `Based on my current investment holdings, give me 1-2 specific tickers I should consider adding and why — be direct, not generic.\n\n${formatInvestorContextForAI(p)}`;
-                          openGlobalRaylaPopup("What should I add?");
-                          handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "What should I add?" });
+                          openAskRayla({
+                            initialQuestion: q,
+                            initialDisplayText: "What should I add?",
+                            autoSend: true,
+                            resetToNewConversation: true,
+                            conversationTitle: "Suggested additions",
+                          });
                         },
                       },
                     ]}
@@ -29307,7 +29318,6 @@ return (
                   coachSummary={coachSummaries[performanceAnalysisSource] || null}
                   showNoNewTrades={showNoNewTradesBySource[performanceAnalysisSource] || false}
                   onRunAnalysis={() => runAIAnalysis(positionFilteredPerformanceTrades, performanceAnalysisSource)}
-                  onOpenRaylaPopup={openGlobalRaylaPopup}
                   alpacaPositions={alpacaPositions}
                   performanceLiveAppliedSelection={performanceLiveAppliedSelection}
                   setPerformanceLiveAppliedSelection={setPerformanceLiveAppliedSelection}
@@ -29358,8 +29368,13 @@ return (
                 askRaylaUrl={ASK_RAYLA_URL}
                 supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
                 onAskRayla={(title, question) => {
-                  openGlobalRaylaPopup(title);
-                  handleChartExplainPopupQuestion(question, null, { resetThread: true });
+                  openAskRayla({
+                    initialQuestion: question,
+                    initialDisplayText: title,
+                    autoSend: true,
+                    resetToNewConversation: true,
+                    conversationTitle: title,
+                  });
                 }}
                 brokerPositions={brokerPositionsWithIntent}
                 alpacaAccount={alpacaAccount}
@@ -29388,7 +29403,6 @@ return (
               <JournalTab
                 trades={combinedTrades}
                 liveSimulationTrades={liveSimulationJournalTrades}
-                onOpenRaylaPopup={openGlobalRaylaPopup}
                 onDeleteManualTrade={handleDeleteTrade}
               />
               <InvestorReviewTab userId={session?.user?.id || null} getCoachProfile={loadCoachProfile} />
@@ -29396,61 +29410,396 @@ return (
           </div>
         )}
 
-        {activeTab === "ask" && (
+
+        {activeTab === "intel" && (
+          <div className="mainGrid">
+            <style>{`
+              .intelDesktopGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+              .intelDesktopGrid > div { display: flex !important; flex-direction: column; gap: 12px !important; min-width: 0; }
+              .intelDesktopGrid > div > div { min-width: 0; }
+              .intelMarketPanel { display: flex; flex-direction: column; min-width: 0; }
+              .intelMarketPanel .intelAssetCard { height: 244px; min-height: 244px; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px !important; }
+              .intelMarketPanel .intelAssetCard:last-child { margin-bottom: 0 !important; }
+              .intelMarketPanel .intelAssetCardArticle { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+              .intelMarketPanel .intelAssetCardActions { margin-top: auto !important; }
+              .intelMobileGrid  { display: none; width: 100%; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; align-items: start; overflow: hidden; box-sizing: border-box; }
+              .intelMobileGrid > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+              @media (max-width: 600px) {
+                .intelDesktopGrid { display: none; }
+                .intelMobileGrid  { display: grid; }
+              }
+            `}</style>
+            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                {[
+                  { key: "market", label: "Market Intel" },
+                  { key: "picks", label: "Rayla's Picks" },
+                ].map((seg) => {
+                  const active = intelSubTab === seg.key;
+                  return (
+                    <button
+                      key={seg.key}
+                      type="button"
+                      onClick={() => setIntelSubTab(seg.key)}
+                      style={{
+                        border: "none",
+                        borderBottom: active ? "2px solid rgba(220,232,245,0.92)" : "1px solid transparent",
+                        background: "transparent",
+                        color: active ? "#e6f0fa" : "rgba(144,160,178,0.92)",
+                        borderRadius: 0,
+                        padding: "6px 0 8px 0",
+                        fontSize: 13,
+                        fontWeight: active ? 700 : 600,
+                        cursor: "pointer",
+                        opacity: active ? 1 : 0.84,
+                      }}
+                    >
+                      {seg.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {intelSubTab === "market" && (
+              <div className="card">
+                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: "#7f8ea3" }}>
+                        Pick a hot or cold asset, then try the idea in Simulation before risking real capital.
+                      </div>
+                    </div>
+                  </div>
+                  <div data-tour-id="intel-ask-rayla">
+                  <BrokerDisclosureNote>
+                    Market Intel may include assets unavailable through your connected broker. For deeper analysis and broker-aware opportunities, ask Rayla.
+                  </BrokerDisclosureNote>
+                  </div>
+                {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
+                {hotColdReport && (
+                  <MobileSegmentedPager segments={[
+                    {
+                      label: "Market",
+                      content: (() => {
+                        const hotStocks  = getRenderableIntelAssets(hotColdReport.stockHot).slice(0, 3);
+                        const coldStocks = getRenderableIntelAssets(hotColdReport.stockCold).slice(0, 3);
+                        const hotCrypto  = hotColdReport.cryptoHot;
+                        const coldCrypto = hotColdReport.cryptoCold;
+                        const maxStocks  = Math.max(hotStocks.length, coldStocks.length);
+                        const colHeader = (label, color, dot) => (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 6, borderBottom: `1px solid ${dot}33`, marginBottom: 2 }}>
+                            <div style={{ width: 7, height: 7, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color }}>{label}</div>
+                          </div>
+                        );
+                        return (
+                          <>
+                            {/* ── Desktop layout: one column per sentiment ─────────────────── */}
+                            <div className="intelDesktopGrid" data-tour-id="intel-hot-cold">
+                              {[
+                                { stockLabel: "Hottest Stocks / ETFs", stockColor: "#ef4444", stockItems: hotColdReport.stockHot, cryptoLabel: "Hottest Crypto", cryptoColor: "#ef4444", cryptoItem: hotCrypto },
+                                { stockLabel: "Coldest Stocks / ETFs", stockColor: "#7CC4FF", stockItems: hotColdReport.stockCold, cryptoLabel: "Coldest Crypto", cryptoColor: "#7CC4FF", cryptoItem: coldCrypto },
+                              ].map(({ stockLabel, stockColor, stockItems, cryptoLabel, cryptoColor, cryptoItem }) => {
+                                const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
+                                return (
+                                  <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+                                    <div className="intelMarketPanel intelMarketPanelStocks" data-tour-id={stockLabel.includes("Hottest") ? "intel-hot-stocks" : "intel-cold-stocks"} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
+                                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
+                                      </div>
+                                      {visibleStockItems.length ? visibleStockItems.map((item) => (
+                                        <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                      )) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible assets in this bucket yet.</div>}
+                                    </div>
+                                    <div className="intelMarketPanel intelMarketPanelCrypto" data-tour-id={cryptoLabel.includes("Hottest") ? "intel-hot-crypto" : "intel-cold-crypto"} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
+                                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
+                                      </div>
+                                      {cryptoItem ? (
+                                        <IntelAssetCard item={cryptoItem} quoteOverride={intelLiveQuotes[cryptoItem.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                      ) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible crypto asset yet.</div>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* ── Mobile layout: paired hot/cold rows ──────────────────────── */}
+                            <div className="intelMobileGrid">
+                              {/* Stock section headers */}
+                              {colHeader("Hot", "#f87171", "#ef4444")}
+                              {colHeader("Cold", "#7CC4FF", "#7CC4FF")}
+                              {/* Stock paired rows */}
+                              {Array.from({ length: maxStocks }).flatMap((_, i) => [
+                                hotStocks[i]
+                                  ? <IntelAssetCardMini key={`mh-s-${i}`} item={hotStocks[i]} quoteOverride={intelLiveQuotes[hotStocks[i].symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                  : <div key={`mh-empty-s-${i}`} />,
+                                coldStocks[i]
+                                  ? <IntelAssetCardMini key={`mc-s-${i}`} item={coldStocks[i]} quoteOverride={intelLiveQuotes[coldStocks[i].symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                  : <div key={`mc-empty-s-${i}`} />,
+                              ])}
+                              {/* Crypto section headers */}
+                              {colHeader("Hot Crypto", "#f87171", "#ef4444")}
+                              {colHeader("Cold Crypto", "#7CC4FF", "#7CC4FF")}
+                              {/* Crypto paired row */}
+                              {hotCrypto
+                                ? <IntelAssetCardMini key="mh-crypto" item={hotCrypto} quoteOverride={intelLiveQuotes[hotCrypto.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                : <div key="mh-crypto-empty" />}
+                              {coldCrypto
+                                ? <IntelAssetCardMini key="mc-crypto" item={coldCrypto} quoteOverride={intelLiveQuotes[coldCrypto.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
+                                : <div key="mc-crypto-empty" />}
+                            </div>
+                          </>
+                        );
+                      })(),
+                    },
+                  ]} />
+                )}
+                </div>
+              </div>
+              )}
+              {intelSubTab === "picks" && (
+                <PersonalPicksTab
+                  askRaylaUrl={ASK_RAYLA_URL}
+                  supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
+                  onAskRayla={(title, question) => {
+                    openAskRayla({
+                      initialQuestion: question,
+                      initialDisplayText: title,
+                      autoSend: true,
+                      resetToNewConversation: true,
+                      conversationTitle: title,
+                    });
+                  }}
+                  brokerPositions={brokerPositionsWithIntent}
+                  alpacaAccount={alpacaAccount}
+                  tradeCount={investorTradeCount}
+                  onProfileComplete={(completedProfile) => {
+                    const current = loadCoachProfile() || {};
+                    saveCoachProfile({
+                      ...current,
+                      marketApproach: completedProfile.marketApproach,
+                      riskComfort: completedProfile.riskComfort,
+                      setup: completedProfile.setup,
+                      sectors: completedProfile.sectors,
+                      goal: current.goal || normalizeGoal(completedProfile.goal),
+                      risk: normalizeRisk(completedProfile.riskComfort),
+                      picksCompleted: true,
+                    });
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+       {activeTab === "profile" && (
+  <div className="mainGrid">
+    <div className="span12">
+      <div className="card profileCard">
+        <div className="profileHeader">
+          <div>
+            <h3>Account Settings</h3>
+            <div className="listSubtext">{user?.email || "No email found"}</div>
+          </div>
+          <button className="ghostButton" type="button" onClick={handleSignOut}>Sign out</button>
+        </div>
+        <div className="profileGrid">
+          <div className="profilePanel">
+            <div className="listTitle">Adaptive Learning</div>
+            <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, marginTop: 10 }}>
+              Current depth: {raylaAdaptiveProfile.explanationDepth}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              {raylaAdaptiveState.onboardingAnswers.experience ? (
+                <div className="pill">{raylaAdaptiveState.onboardingAnswers.experience}</div>
+              ) : null}
+              {raylaAdaptiveState.onboardingAnswers.familiarity ? (
+                <div className="pill">{raylaAdaptiveState.onboardingAnswers.familiarity}</div>
+              ) : null}
+              {raylaAdaptiveState.onboardingAnswers.goal ? (
+                <div className="pill">{raylaAdaptiveState.onboardingAnswers.goal}</div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="ghostButton"
+              onClick={() => setRaylaAdaptiveState(createDefaultRaylaAdaptiveState())}
+              style={{ marginTop: 12 }}
+            >
+              Reset preferences
+            </button>
+          </div>
+
+          <div className="profilePanel">
+            <div className="listTitle">Trading</div>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginTop: 12 }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#cbd5e1", fontWeight: 500 }}>Advanced Trading Features</div>
+                <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4, lineHeight: 1.5 }}>
+                  Shows Order Type, Time in Force, and limit/stop price controls in Trade Control.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={advancedTradingEnabled}
+                onClick={() => setAdvancedTradingEnabled((prev) => !prev)}
+                style={{
+                  flexShrink: 0, width: 36, height: 20, borderRadius: 999, border: "none", cursor: "pointer", padding: 2,
+                  background: advancedTradingEnabled ? "#7aa8d8" : "rgba(255,255,255,0.12)",
+                  transition: "background 0.15s", display: "flex", alignItems: "center",
+                }}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: "50%", background: "#fff", display: "block",
+                  transform: advancedTradingEnabled ? "translateX(16px)" : "translateX(0)",
+                  transition: "transform 0.15s",
+                }} />
+              </button>
+            </div>
+          </div>
+
+          <div className="profilePanel">
+            <div className="listTitle">Trading Summary</div>
+            <div className="profileStats">
+              <div><span>Trades</span><strong>{trades.length}</strong></div>
+              <div><span>Win rate</span><strong>{winRate}</strong></div>
+              <div><span>Avg R</span><strong>{avgR}</strong></div>
+            </div>
+          </div>
+
+          <div className="profilePanel">
+            <div className="listTitle">Security</div>
+            <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 8, lineHeight: 1.5 }}>
+              Update the password used to sign in to Rayla.
+            </div>
+            <button
+              type="button"
+              className="ghostButton"
+              onClick={() => {
+                setPasswordModalMode("change");
+                setPasswordModalNew("");
+                setPasswordModalConfirm("");
+                setPasswordModalOpen(true);
+              }}
+              style={{ marginTop: 12 }}
+            >
+              Change password
+            </button>
+          </div>
+
+          <div className="profilePanel">
+            <div className="listTitle">Legal</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+              <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
+              <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Privacy Policy ↗</a>
+              <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>Effective June 4, 2026 · Rayla LLC</div>
+            </div>
+          </div>
+        </div>
+        <div className="profileActions">
+          <button className="ghostButton dangerButton" type="button" onClick={() => { setDeleteAccountConfirmText(""); setDeleteAccountModalOpen(true); }}>
+            Delete account
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+        {askRaylaOverlayOpen && (
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ask Rayla"
             style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 11800,
               display: "flex",
-              flexDirection: "row",
-              alignItems: "stretch",
-              gap: raylaSidebarInline ? 16 : 0,
-              minHeight: "calc(100vh - 120px)",
+              justifyContent: "flex-end",
+              pointerEvents: "none",
             }}
           >
-            {raylaSidebarInline ? (
-              <RaylaConversationSidebar
-                conversations={raylaConversations}
-                currentId={raylaConversationId}
-                onNew={startNewRaylaConversation}
-                onSelect={async (id) => {
-                  setRaylaConversationId(id);
-                  await loadRaylaConversation(id);
-                }}
-                onDelete={(id) => deleteRaylaConversation(id)}
-              />
-            ) : null}
+            {/* Transparent-ish backdrop keeps the underlying page visible
+                but blocks interaction with it. Clicking dismisses. */}
             <div
-              className={askRaylaHasMessages ? "card" : undefined}
+              onClick={closeAskRaylaOverlay}
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "rgba(4,8,14,0.28)",
+                pointerEvents: "auto",
+              }}
+            />
+            {/* Right-side slide-in surface. 35-40% of viewport on desktop
+                (min 360 for tablet, max 720 so it never dominates a wide
+                monitor); full width when the viewport is under 720px. */}
+            <div
+              style={{
+                position: "relative",
+                pointerEvents: "auto",
+                width: isMobileView ? "100vw" : "clamp(380px, 40vw, 720px)",
+                height: "100dvh",
+                background: "linear-gradient(180deg, rgba(10,14,20,0.98), rgba(11,16,23,0.99))",
+                borderLeft: "1px solid rgba(124,196,255,0.18)",
+                boxShadow: "-24px 0 60px rgba(0,0,0,0.42)",
+                display: "flex",
+                flexDirection: "column",
+                animation: "raylaOverlaySlideIn 0.2s ease-out",
+              }}
+            >
+            <div
               style={{
                 flex: 1,
                 minWidth: 0,
-                minHeight: askRaylaHasMessages ? "calc(100vh - 170px)" : "calc(100vh - 120px)",
+                minHeight: 0,
                 display: "flex",
                 flexDirection: "column",
-                padding: askRaylaHasMessages ? 0 : 0,
                 overflow: "hidden",
-                background: askRaylaHasMessages ? undefined : "transparent",
-                border: askRaylaHasMessages ? undefined : "none",
-                boxShadow: askRaylaHasMessages ? undefined : "none",
                 position: "relative",
               }}
             >
-            {!raylaSidebarInline ? (
-              <div
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                padding: "10px 12px",
+                borderBottom: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <RaylaHistoryButton
+                count={raylaConversations.length}
+                onClick={() => setRaylaHistoryOpen(true)}
+              />
+              <button
+                type="button"
+                onClick={closeAskRaylaOverlay}
+                aria-label="Close Ask Rayla"
                 style={{
-                  position: "absolute",
-                  top: askRaylaHasMessages ? 14 : 18,
-                  right: askRaylaHasMessages ? 14 : 18,
-                  zIndex: 2,
+                  width: 34,
+                  height: 34,
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#cbd5e1",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                <RaylaHistoryButton
-                  count={raylaConversations.length}
-                  onClick={() => setRaylaHistoryOpen(true)}
-                />
-              </div>
-            ) : null}
+                ×
+              </button>
+            </div>
             <RaylaHistoryDrawer
-              open={raylaHistoryOpen && !raylaSidebarInline}
+              open={raylaHistoryOpen}
               conversations={raylaConversations}
               currentId={raylaConversationId}
               onClose={() => setRaylaHistoryOpen(false)}
@@ -29462,6 +29811,116 @@ return (
               }}
               onDelete={(id) => deleteRaylaConversation(id)}
             />
+
+            {/* Ask Rayla toolbar — preserves the popup-era shortcuts (Analyze
+                doc, Analyze portfolio) and shows a context chip when the
+                current conversation was launched with a chart / sim / trade
+                context. Sits at the top of the surface so it's always
+                visible whether the thread is empty or full. */}
+            {(() => {
+              const activeContext = raylaPendingContextRef.current;
+              const chartCtx = activeContext?.chartContext;
+              const simCtx = activeContext?.simulationContext;
+              const contextAsset = chartCtx?.assetName || chartCtx?.symbol || simCtx?.assetName || simCtx?.symbol;
+              const contextTimeframe = chartCtx?.timeframe || simCtx?.timeframe;
+              const contextPrice = Number.isFinite(chartCtx?.currentPrice) ? chartCtx.currentPrice
+                : Number.isFinite(simCtx?.currentPrice) ? simCtx.currentPrice
+                : null;
+              const canAnalyzePortfolio = holdingsSnapshot?.count > 0 && alpacaAccount;
+              return (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "10px 14px",
+                    borderBottom: askRaylaHasMessages ? "1px solid rgba(255,255,255,0.05)" : "none",
+                    flexWrap: "wrap",
+                    minHeight: 44,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+                    {contextAsset ? (
+                      <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                        {contextAsset}
+                        {contextTimeframe ? ` · ${contextTimeframe}` : ""}
+                        {contextPrice != null ? ` · ${formatCurrency(contextPrice)}` : ""}
+                      </div>
+                    ) : null}
+                    {documentIntelligence?.documentType ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#7cc4ff", background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.2)", borderRadius: 6, padding: "2px 8px" }}>
+                          {DOCUMENT_TYPES[documentIntelligence.documentType] || "Document"}
+                          {documentIntelligence.symbol ? ` · ${documentIntelligence.symbol}` : ""}
+                          {documentIntelligence.company && !documentIntelligence.symbol ? ` · ${String(documentIntelligence.company).slice(0, 22)}` : ""}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { clearDocumentIntelligence(); setDocumentIntelligence(null); }}
+                          style={{ fontSize: 10, color: "#64748b", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                        >
+                          clear
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => { setDocUploadOpen(true); setDocUploadError(null); }}
+                      title="Analyze a document"
+                      style={{
+                        height: 32,
+                        paddingInline: 12,
+                        borderRadius: 999,
+                        border: "1px solid rgba(124,196,255,0.2)",
+                        background: documentIntelligence ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
+                        color: documentIntelligence ? "#7cc4ff" : "#94a3b8",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Analyze doc
+                    </button>
+                    {canAnalyzePortfolio ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                          const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
+                          openAskRayla({
+                            initialQuestion: q,
+                            initialDisplayText: "Analyze my portfolio",
+                            autoSend: true,
+                            resetToNewConversation: true,
+                            conversationTitle: "Portfolio analysis",
+                          });
+                        }}
+                        title="Analyze my portfolio"
+                        style={{
+                          height: 32,
+                          paddingInline: 12,
+                          borderRadius: 999,
+                          border: "1px solid rgba(124,196,255,0.2)",
+                          background: "rgba(255,255,255,0.04)",
+                          color: "#94a3b8",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Analyze portfolio
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })()}
+
             {!askRaylaHasMessages ? (
               <div
                 style={{
@@ -29819,6 +30278,59 @@ return (
                   ) : null}
                 </div>
 
+                {simulationRaylaPromptTradeId
+                  && simulationRaylaGuidanceStateByTrade[simulationRaylaPromptTradeId] === "pending" ? (
+                  <div
+                    style={{
+                      margin: "0 16px 12px",
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      border: "1px solid rgba(124,196,255,0.28)",
+                      background: "rgba(124,196,255,0.06)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 200, fontSize: 13, color: "#dbeafe" }}>
+                      Want me to keep an eye on this trade and coach you through it?
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleEnableSimulationRaylaGuidance(simulationRaylaPromptTradeId)}
+                      style={{
+                        border: "1px solid rgba(124,196,255,0.35)",
+                        background: "#7CC4FF",
+                        color: "#0b1017",
+                        borderRadius: 12,
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Yes, guide me
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDismissSimulationRaylaGuidance(simulationRaylaPromptTradeId)}
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: "rgba(255,255,255,0.04)",
+                        color: "#cbd5e1",
+                        borderRadius: 12,
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      No, I&apos;m good
+                    </button>
+                  </div>
+                ) : null}
+
                 <div
                   style={{
                     position: "sticky",
@@ -29898,690 +30410,17 @@ return (
             )}
           </div>
           </div>
-        )}
-
-        {activeTab === "intel" && (
-          <div className="mainGrid">
-            <style>{`
-              .intelDesktopGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
-              .intelDesktopGrid > div { display: flex !important; flex-direction: column; gap: 12px !important; min-width: 0; }
-              .intelDesktopGrid > div > div { min-width: 0; }
-              .intelMarketPanel { display: flex; flex-direction: column; min-width: 0; }
-              .intelMarketPanel .intelAssetCard { height: 244px; min-height: 244px; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px !important; }
-              .intelMarketPanel .intelAssetCard:last-child { margin-bottom: 0 !important; }
-              .intelMarketPanel .intelAssetCardArticle { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-              .intelMarketPanel .intelAssetCardActions { margin-top: auto !important; }
-              .intelMobileGrid  { display: none; width: 100%; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; align-items: start; overflow: hidden; box-sizing: border-box; }
-              .intelMobileGrid > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
-              @media (max-width: 600px) {
-                .intelDesktopGrid { display: none; }
-                .intelMobileGrid  { display: grid; }
-              }
-            `}</style>
-            <div className="span12" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-                {[
-                  { key: "market", label: "Market Intel" },
-                  { key: "picks", label: "Rayla's Picks" },
-                ].map((seg) => {
-                  const active = intelSubTab === seg.key;
-                  return (
-                    <button
-                      key={seg.key}
-                      type="button"
-                      onClick={() => setIntelSubTab(seg.key)}
-                      style={{
-                        border: "none",
-                        borderBottom: active ? "2px solid rgba(220,232,245,0.92)" : "1px solid transparent",
-                        background: "transparent",
-                        color: active ? "#e6f0fa" : "rgba(144,160,178,0.92)",
-                        borderRadius: 0,
-                        padding: "6px 0 8px 0",
-                        fontSize: 13,
-                        fontWeight: active ? 700 : 600,
-                        cursor: "pointer",
-                        opacity: active ? 1 : 0.84,
-                      }}
-                    >
-                      {seg.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {intelSubTab === "market" && (
-              <div className="card">
-                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ fontSize: 13, color: "#7f8ea3" }}>
-                        Pick a hot or cold asset, then try the idea in Simulation before risking real capital.
-                      </div>
-                    </div>
-                  </div>
-                  <div data-tour-id="intel-ask-rayla">
-                  <BrokerDisclosureNote>
-                    Market Intel may include assets unavailable through your connected broker. For deeper analysis and broker-aware opportunities, ask Rayla.
-                  </BrokerDisclosureNote>
-                  </div>
-                {(intelLoading || !hotColdReport) && <div className="listSubtext" style={{ marginTop: "4px" }}>Loading today&apos;s report...</div>}
-                {hotColdReport && (
-                  <MobileSegmentedPager segments={[
-                    {
-                      label: "Market",
-                      content: (() => {
-                        const hotStocks  = getRenderableIntelAssets(hotColdReport.stockHot).slice(0, 3);
-                        const coldStocks = getRenderableIntelAssets(hotColdReport.stockCold).slice(0, 3);
-                        const hotCrypto  = hotColdReport.cryptoHot;
-                        const coldCrypto = hotColdReport.cryptoCold;
-                        const maxStocks  = Math.max(hotStocks.length, coldStocks.length);
-                        const colHeader = (label, color, dot) => (
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 6, borderBottom: `1px solid ${dot}33`, marginBottom: 2 }}>
-                            <div style={{ width: 7, height: 7, borderRadius: "50%", background: dot, flexShrink: 0 }} />
-                            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color }}>{label}</div>
-                          </div>
-                        );
-                        return (
-                          <>
-                            {/* ── Desktop layout: one column per sentiment ─────────────────── */}
-                            <div className="intelDesktopGrid" data-tour-id="intel-hot-cold">
-                              {[
-                                { stockLabel: "Hottest Stocks / ETFs", stockColor: "#ef4444", stockItems: hotColdReport.stockHot, cryptoLabel: "Hottest Crypto", cryptoColor: "#ef4444", cryptoItem: hotCrypto },
-                                { stockLabel: "Coldest Stocks / ETFs", stockColor: "#7CC4FF", stockItems: hotColdReport.stockCold, cryptoLabel: "Coldest Crypto", cryptoColor: "#7CC4FF", cryptoItem: coldCrypto },
-                              ].map(({ stockLabel, stockColor, stockItems, cryptoLabel, cryptoColor, cryptoItem }) => {
-                                const visibleStockItems = getRenderableIntelAssets(stockItems).slice(0, 3);
-                                return (
-                                  <div key={stockLabel} style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
-                                    <div className="intelMarketPanel intelMarketPanelStocks" data-tour-id={stockLabel.includes("Hottest") ? "intel-hot-stocks" : "intel-cold-stocks"} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor }} />
-                                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{stockLabel}</div>
-                                      </div>
-                                      {visibleStockItems.length ? visibleStockItems.map((item) => (
-                                        <IntelAssetCard key={`${stockLabel}-${item.symbol || item.name}`} item={item} quoteOverride={intelLiveQuotes[item.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                      )) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible assets in this bucket yet.</div>}
-                                    </div>
-                                    <div className="intelMarketPanel intelMarketPanelCrypto" data-tour-id={cryptoLabel.includes("Hottest") ? "intel-hot-crypto" : "intel-cold-crypto"} style={{ background: "rgba(18,26,38,0.6)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 14 }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: cryptoColor }} />
-                                        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "1.2px", textTransform: "uppercase", color: "#7f8ea3" }}>{cryptoLabel}</div>
-                                      </div>
-                                      {cryptoItem ? (
-                                        <IntelAssetCard item={cryptoItem} quoteOverride={intelLiveQuotes[cryptoItem.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                      ) : <div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.55, padding: "10px 2px" }}>No visible crypto asset yet.</div>}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-
-                            {/* ── Mobile layout: paired hot/cold rows ──────────────────────── */}
-                            <div className="intelMobileGrid">
-                              {/* Stock section headers */}
-                              {colHeader("Hot", "#f87171", "#ef4444")}
-                              {colHeader("Cold", "#7CC4FF", "#7CC4FF")}
-                              {/* Stock paired rows */}
-                              {Array.from({ length: maxStocks }).flatMap((_, i) => [
-                                hotStocks[i]
-                                  ? <IntelAssetCardMini key={`mh-s-${i}`} item={hotStocks[i]} quoteOverride={intelLiveQuotes[hotStocks[i].symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                  : <div key={`mh-empty-s-${i}`} />,
-                                coldStocks[i]
-                                  ? <IntelAssetCardMini key={`mc-s-${i}`} item={coldStocks[i]} quoteOverride={intelLiveQuotes[coldStocks[i].symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                  : <div key={`mc-empty-s-${i}`} />,
-                              ])}
-                              {/* Crypto section headers */}
-                              {colHeader("Hot Crypto", "#f87171", "#ef4444")}
-                              {colHeader("Cold Crypto", "#7CC4FF", "#7CC4FF")}
-                              {/* Crypto paired row */}
-                              {hotCrypto
-                                ? <IntelAssetCardMini key="mh-crypto" item={hotCrypto} quoteOverride={intelLiveQuotes[hotCrypto.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                : <div key="mh-crypto-empty" />}
-                              {coldCrypto
-                                ? <IntelAssetCardMini key="mc-crypto" item={coldCrypto} quoteOverride={intelLiveQuotes[coldCrypto.symbol]} onTrySimulation={handleTryIntelInSimulation} onAskRayla={handleBeginnerIntelExplain} />
-                                : <div key="mc-crypto-empty" />}
-                            </div>
-                          </>
-                        );
-                      })(),
-                    },
-                  ]} />
-                )}
-                </div>
-              </div>
-              )}
-              {intelSubTab === "picks" && (
-                <PersonalPicksTab
-                  askRaylaUrl={ASK_RAYLA_URL}
-                  supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
-                  onAskRayla={(title, question) => {
-                    openGlobalRaylaPopup(title);
-                    handleChartExplainPopupQuestion(question, null, { resetThread: true });
-                  }}
-                  brokerPositions={brokerPositionsWithIntent}
-                  alpacaAccount={alpacaAccount}
-                  tradeCount={investorTradeCount}
-                  onProfileComplete={(completedProfile) => {
-                    const current = loadCoachProfile() || {};
-                    saveCoachProfile({
-                      ...current,
-                      marketApproach: completedProfile.marketApproach,
-                      riskComfort: completedProfile.riskComfort,
-                      setup: completedProfile.setup,
-                      sectors: completedProfile.sectors,
-                      goal: current.goal || normalizeGoal(completedProfile.goal),
-                      risk: normalizeRisk(completedProfile.riskComfort),
-                      picksCompleted: true,
-                    });
-                  }}
-                />
-              )}
-            </div>
           </div>
         )}
 
-       {activeTab === "profile" && (
-  <div className="mainGrid">
-    <div className="span12">
-      <div className="card profileCard">
-        <div className="profileHeader">
-          <div>
-            <h3>Account Settings</h3>
-            <div className="listSubtext">{user?.email || "No email found"}</div>
-          </div>
-          <button className="ghostButton" type="button" onClick={handleSignOut}>Sign out</button>
-        </div>
-        <div className="profileGrid">
-          <div className="profilePanel">
-            <div className="listTitle">Adaptive Learning</div>
-            <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6, marginTop: 10 }}>
-              Current depth: {raylaAdaptiveProfile.explanationDepth}
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              {raylaAdaptiveState.onboardingAnswers.experience ? (
-                <div className="pill">{raylaAdaptiveState.onboardingAnswers.experience}</div>
-              ) : null}
-              {raylaAdaptiveState.onboardingAnswers.familiarity ? (
-                <div className="pill">{raylaAdaptiveState.onboardingAnswers.familiarity}</div>
-              ) : null}
-              {raylaAdaptiveState.onboardingAnswers.goal ? (
-                <div className="pill">{raylaAdaptiveState.onboardingAnswers.goal}</div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="ghostButton"
-              onClick={() => setRaylaAdaptiveState(createDefaultRaylaAdaptiveState())}
-              style={{ marginTop: 12 }}
-            >
-              Reset preferences
-            </button>
-          </div>
-
-          <div className="profilePanel">
-            <div className="listTitle">Trading</div>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginTop: 12 }}>
-              <div>
-                <div style={{ fontSize: 13, color: "#cbd5e1", fontWeight: 500 }}>Advanced Trading Features</div>
-                <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 4, lineHeight: 1.5 }}>
-                  Shows Order Type, Time in Force, and limit/stop price controls in Trade Control.
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={advancedTradingEnabled}
-                onClick={() => setAdvancedTradingEnabled((prev) => !prev)}
-                style={{
-                  flexShrink: 0, width: 36, height: 20, borderRadius: 999, border: "none", cursor: "pointer", padding: 2,
-                  background: advancedTradingEnabled ? "#7aa8d8" : "rgba(255,255,255,0.12)",
-                  transition: "background 0.15s", display: "flex", alignItems: "center",
-                }}
-              >
-                <span style={{
-                  width: 16, height: 16, borderRadius: "50%", background: "#fff", display: "block",
-                  transform: advancedTradingEnabled ? "translateX(16px)" : "translateX(0)",
-                  transition: "transform 0.15s",
-                }} />
-              </button>
-            </div>
-          </div>
-
-          <div className="profilePanel">
-            <div className="listTitle">Trading Summary</div>
-            <div className="profileStats">
-              <div><span>Trades</span><strong>{trades.length}</strong></div>
-              <div><span>Win rate</span><strong>{winRate}</strong></div>
-              <div><span>Avg R</span><strong>{avgR}</strong></div>
-            </div>
-          </div>
-
-          <div className="profilePanel">
-            <div className="listTitle">Security</div>
-            <div style={{ fontSize: 12, color: "#7f8ea3", marginTop: 8, lineHeight: 1.5 }}>
-              Update the password used to sign in to Rayla.
-            </div>
-            <button
-              type="button"
-              className="ghostButton"
-              onClick={() => {
-                setPasswordModalMode("change");
-                setPasswordModalNew("");
-                setPasswordModalConfirm("");
-                setPasswordModalOpen(true);
-              }}
-              style={{ marginTop: 12 }}
-            >
-              Change password
-            </button>
-          </div>
-
-          <div className="profilePanel">
-            <div className="listTitle">Legal</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-              <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
-              <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Privacy Policy ↗</a>
-              <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>Effective June 4, 2026 · Rayla LLC</div>
-            </div>
-          </div>
-        </div>
-        <div className="profileActions">
-          <button className="ghostButton dangerButton" type="button" onClick={() => { setDeleteAccountConfirmText(""); setDeleteAccountModalOpen(true); }}>
-            Delete account
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-
-
-        {chartExplainPopupOpen && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 12000,
-              pointerEvents: "none",
-            }}
-          >
-            <div
-              ref={chartExplainPopupWindowRef}
-              className="card"
-              style={{
-                position: "fixed",
-                right: "auto",
-                left: chartExplainPopupPosition.x,
-                top: chartExplainPopupPosition.y,
-                bottom: "auto",
-                width: "min(380px, calc(100vw - 24px))",
-                maxWidth: 420,
-                height: "min(56vh, 560px)",
-                maxHeight: "56vh",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-                border: "1px solid rgba(124,196,255,0.18)",
-                background: "linear-gradient(180deg, rgba(10,16,28,0.98), rgba(7,12,22,0.98))",
-                boxShadow: "0 28px 80px rgba(0,0,0,0.48)",
-                animation: "fadeSlideIn 0.16s ease-out",
-                pointerEvents: "auto",
-              }}
-            >
-              <div
-                onPointerDown={(event) => {
-                  if (event.button !== 0 || !chartExplainPopupWindowRef.current) return;
-                  const rect = chartExplainPopupWindowRef.current.getBoundingClientRect();
-                  chartExplainPopupDragStateRef.current = {
-                    offsetX: event.clientX - rect.left,
-                    offsetY: event.clientY - rect.top,
-                  };
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  padding: "14px 16px 12px 16px",
-                  borderBottom: "1px solid rgba(255,255,255,0.08)",
-                  cursor: "grab",
-                  touchAction: "none",
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  {chartExplainPopupContext ? (
-                    <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                      {chartExplainPopupContext?.assetName || chartExplainPopupContext?.symbol || "Selected asset"}
-                      {chartExplainPopupContext?.timeframe ? ` · ${chartExplainPopupContext.timeframe}` : ""}
-                      {Number.isFinite(chartExplainPopupContext?.currentPrice) ? ` · ${formatCurrency(chartExplainPopupContext.currentPrice)}` : ""}
-                    </div>
-                  ) : null}
-                  {documentIntelligence?.documentType && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#7cc4ff", background: "rgba(124,196,255,0.1)", border: "1px solid rgba(124,196,255,0.2)", borderRadius: 6, padding: "2px 8px" }}>
-                        {DOCUMENT_TYPES[documentIntelligence.documentType] || "Document"}
-                        {documentIntelligence.symbol ? ` · ${documentIntelligence.symbol}` : ""}
-                        {documentIntelligence.company && !documentIntelligence.symbol ? ` · ${String(documentIntelligence.company).slice(0, 22)}` : ""}
-                      </div>
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={() => { clearDocumentIntelligence(); setDocumentIntelligence(null); }}
-                        style={{ fontSize: 10, color: "#64748b", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                      >
-                        clear
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => { setDocUploadOpen(true); setDocUploadError(null); }}
-                    title="Analyze a document"
-                    style={{
-                      height: 34,
-                      paddingInline: 10,
-                      borderRadius: 999,
-                      border: "1px solid rgba(124,196,255,0.2)",
-                      background: documentIntelligence ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
-                      color: documentIntelligence ? "#7cc4ff" : "#94a3b8",
-                      cursor: "pointer",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      letterSpacing: "0.1px",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Analyze doc
-                  </button>
-                  {holdingsSnapshot?.count > 0 && alpacaAccount ? (
-                    <button
-                      type="button"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => {
-                        const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                        const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
-                        handleChartExplainPopupQuestion(q, null, { resetThread: true, displayQuestion: "Analyze my portfolio" });
-                      }}
-                      title="Analyze my portfolio"
-                      style={{
-                        height: 34,
-                        paddingInline: 10,
-                        borderRadius: 999,
-                        border: "1px solid rgba(124,196,255,0.2)",
-                        background: "rgba(255,255,255,0.04)",
-                        color: "#94a3b8",
-                        cursor: "pointer",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        letterSpacing: "0.1px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Analyze portfolio
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => {
-                      setChartExplainPopupOpen(false);
-                      setChartExplainPopupLoading(false);
-                      chartTapCooldownRef.current = Date.now();
-                    }}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 999,
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      background: "rgba(255,255,255,0.04)",
-                      color: "#cbd5e1",
-                      cursor: "pointer",
-                      fontSize: 18,
-                      lineHeight: 1,
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-
-              <div
-                ref={chartExplainPopupThreadRef}
-                style={{
-                  flex: 1,
-                  overflowY: "auto",
-                  padding: "14px 16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 14,
-                  background: "radial-gradient(circle at top, rgba(124,196,255,0.05), transparent 42%)",
-                }}
-              >
-                {chartExplainPopupMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    style={{
-                      alignSelf: message.role === "user" ? "flex-end" : "flex-start",
-                      maxWidth: "85%",
-                      borderRadius: 18,
-                      padding: "12px 14px",
-                      background: message.role === "user" ? "rgba(124,196,255,0.14)" : "rgba(255,255,255,0.05)",
-                      border: message.role === "user" ? "1px solid rgba(124,196,255,0.2)" : "1px solid rgba(255,255,255,0.08)",
-                      color: "#e2e8f0",
-                    }}
-                  >
-                    {message.loading ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                        <img src="/badger.png" alt="" style={{ width: 16, height: 16, objectFit: "contain", animation: "badgerBob 1.5s ease-in-out infinite", flexShrink: 0 }} />
-                        <span style={{ fontSize: 13, color: "#94a3b8" }}>
-                          {pickRaylaLoadingMessage(message.id, chartExplainPopupContext?.contextType === "simulation" ? RAYLA_LOADING_MESSAGES_SIM : RAYLA_LOADING_MESSAGES)}
-                        </span>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 13, lineHeight: 1.7 }}>
-                        {message.role === "assistant" ? renderRaylaMessageContent(message.content) : message.content}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {intelSimulationSetupPrompt && (
-                <div
-                  style={{
-                    borderTop: "1px solid rgba(255,255,255,0.08)",
-                    padding: "12px 16px",
-                    background: "rgba(9,14,24,0.92)",
-                    display: "flex",
-                    gap: 10,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={handleAcceptIntelSimulationSetupPrompt}
-                    style={{
-                      border: "1px solid rgba(124,196,255,0.35)",
-                      background: "#7CC4FF",
-                      color: "#0b1017",
-                      borderRadius: 12,
-                      padding: "10px 14px",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Yes, walk me through it
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDismissIntelSimulationSetupPrompt}
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      background: "rgba(255,255,255,0.04)",
-                      color: "#cbd5e1",
-                      borderRadius: 12,
-                      padding: "10px 14px",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    No, I&apos;ll set it up
-                  </button>
-                </div>
-              )}
-
-              {showBeginnerGuidance && intelSimulationSetupChecklist && (
-                <div
-                  style={{
-                    borderTop: "1px solid rgba(255,255,255,0.08)",
-                    padding: "12px 16px",
-                    background: "rgba(9,14,24,0.92)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                  }}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.1px", textTransform: "uppercase", color: "#7CC4FF" }}>
-                    Guided setup
-                  </div>
-                  <div style={{ fontSize: 13, color: "#dbeafe", lineHeight: 1.55 }}>
-                    {intelSimulationSetupChecklist.steps[intelSimulationSetupChecklist.currentStep]?.title}
-                  </div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <button
-                      type="button"
-                      onClick={handleAdvanceIntelSimulationSetupChecklist}
-                      style={{
-                        border: "1px solid rgba(124,196,255,0.35)",
-                        background: "#7CC4FF",
-                        color: "#0b1017",
-                        borderRadius: 12,
-                        padding: "10px 14px",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {intelSimulationSetupChecklist.currentStep >= intelSimulationSetupChecklist.steps.length - 1 ? "Done" : "Next step"}
-                    </button>
-                    <button type="button" className="ghostButton" onClick={() => setIntelSimulationSetupChecklist(null)}>Skip</button>
-                  </div>
-                </div>
-              )}
-
-              {chartExplainPopupContext?.contextType === "simulation"
-                && simulationRaylaPromptTradeId
-                && simulationRaylaGuidanceStateByTrade[simulationRaylaPromptTradeId] === "pending" && (
-                <div
-                  style={{
-                    borderTop: "1px solid rgba(255,255,255,0.08)",
-                    padding: "12px 16px",
-                    background: "rgba(9,14,24,0.92)",
-                    display: "flex",
-                    gap: 10,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleEnableSimulationRaylaGuidance(simulationRaylaPromptTradeId)}
-                    style={{
-                      border: "1px solid rgba(124,196,255,0.35)",
-                      background: "#7CC4FF",
-                      color: "#0b1017",
-                      borderRadius: 12,
-                      padding: "10px 14px",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Yes, guide me
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDismissSimulationRaylaGuidance(simulationRaylaPromptTradeId)}
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      background: "rgba(255,255,255,0.04)",
-                      color: "#cbd5e1",
-                      borderRadius: 12,
-                      padding: "10px 14px",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    No, I'm good
-                  </button>
-                </div>
-              )}
-
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: 12, background: "rgba(7,12,22,0.92)" }}>
-                <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-                  <textarea
-                    value={chartExplainPopupInput}
-                    onChange={(event) => setChartExplainPopupInput(event.target.value)}
-                    onKeyDown={async (event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        if (!chartExplainPopupInput.trim() || chartExplainPopupLoading) return;
-                        await handleChartExplainPopupQuestion(chartExplainPopupInput, chartExplainPopupContext);
-                      }
-                    }}
-                    placeholder={
-                      chartExplainPopupContext
-                        ? chartExplainPopupContext.contextType === "simulation"
-                          ? "Ask a follow-up about this simulation..."
-                          : "Ask a follow-up about this chart..."
-                        : "Ask Rayla anything..."
-                    }
-                    rows={1}
-                    style={{
-                      flex: 1,
-                      resize: "none",
-                      minHeight: 52,
-                      maxHeight: 140,
-                      borderRadius: 16,
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      background: "rgba(255,255,255,0.04)",
-                      color: "#e2e8f0",
-                      padding: "14px 16px",
-                      outline: "none",
-                      fontSize: 14,
-                      lineHeight: 1.5,
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={!chartExplainPopupInput.trim() || chartExplainPopupLoading}
-                    onClick={async () => {
-                      await handleChartExplainPopupQuestion(chartExplainPopupInput, chartExplainPopupContext);
-                    }}
-                    style={{
-                      alignSelf: "stretch",
-                      minWidth: 94,
-                      borderRadius: 16,
-                      border: "1px solid",
-                      borderColor: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "rgba(255,255,255,0.08)" : "rgba(124,196,255,0.35)",
-                      background: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "rgba(255,255,255,0.06)" : "#7CC4FF",
-                      color: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "#7f8ea3" : "#0b1017",
-                      fontSize: 14,
-                      fontWeight: 700,
-                      cursor: !chartExplainPopupInput.trim() || chartExplainPopupLoading ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <IntelSimulationSetupOverlay
+          prompt={intelSimulationSetupPrompt}
+          checklist={intelSimulationSetupChecklist}
+          onAccept={handleAcceptIntelSimulationSetupPrompt}
+          onDismissPrompt={handleDismissIntelSimulationSetupPrompt}
+          onAdvance={handleAdvanceIntelSimulationSetupChecklist}
+          onSkipChecklist={() => setIntelSimulationSetupChecklist(null)}
+        />
 
         {docUploadOpen && (
           <div
