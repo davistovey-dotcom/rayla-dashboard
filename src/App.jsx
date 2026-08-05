@@ -447,14 +447,43 @@ const MACRO_KEYWORDS = [
   "tariff", "sanction", "trade war", "election",
 ];
 
-// Detects portfolio-analysis "why did this move" style questions so we know
-// when to auto-fetch world context. Only fires on typed questions inside a
-// portfolio-linked conversation — explicit Analyze buttons pass their own
-// trigger flag through openAskRayla.
-const WHY_QUESTION_RE = /\b(why|what happened|what[’']s driving|what is driving|what caused|caused (?:the )?move|reason (?:for|behind)|explain (?:the )?(?:move|drop|jump|rally|sell[- ]?off))\b/i;
+// Signals that mean "the user is asking about current market state, news,
+// catalysts, macro events, or a specific holding's move." Any one of these
+// triggers the world-context fetch — no compound gate, no requirement that
+// the user opened Ask Rayla from a specific launcher. If a reasonable human
+// would read the question as asking for real-world market context, one of
+// these should match. Users should never have to learn trigger phrases.
+//
+// Categories, each fires independently:
+//   1. Cause inquiry — why / what happened / what's driving / news on / etc.
+//   2. News keyword — news / headline / catalyst
+//   3. Macro inquiry — fed / cpi / earnings / geopolitics / etc.
+//   4. Movement word + subject word — "portfolio up", "sector rallying"
+//   5. Movement word + time-current word — "tech up today", "green this week"
+//   6. Held-ticker mention — any $PLTR/PLTR when the user actually holds it
+const CAUSE_INQUIRY_RE = /\b(why|what(?:'|’)?s\s+(?:driving|happening|moving|going\s+on|the\s+news|the\s+catalyst)|what\s+is\s+(?:driving|happening|moving|going\s+on|the\s+news|the\s+catalyst)|what\s+happened|what\s+caused|what(?:'|’)?s\s+up\s+with|any\s+news|news\s+on|update\s+on|updates?\s+on)\b/i;
+const NEWS_KEYWORD_RE = /\b(news|headline|headlines|catalyst|catalysts)\b/i;
+const MACRO_INQUIRY_RE = /\b(fed|fomc|federal\s+reserve|powell|rate\s+cut|rate\s+hike|interest\s+rate|cpi|ppi|inflation|pce|jobs\s+report|payroll|nonfarm|unemployment|jobless|earnings|guidance|beat\s+estimates|missed\s+estimates|opec|tariff|sanction|geopolit|ukraine|russia|china|taiwan|middle\s+east|israel|iran)\b/i;
+const MARKET_MOVEMENT_RE = /\b(up|down|rally|rallying|rallied|sell[-\s]?off|selloff|selling\s+off|sold\s+off|jumped|jumping|surge|surged|surging|dropped|dropping|crash|crashed|crashing|gain(?:s|ing|ed)?|loss(?:es|ing)?|lost|green|red|moving|moved|rebound(?:ed|ing)?|bounce[dr]?|slid|sliding|slipped|higher|lower)\b/i;
+const MARKET_SUBJECT_RE = /\b(market|markets|portfolio|portfolios|holdings|position|positions|stock|stocks|share|shares|sector|sectors|tech|equity|equities|bond|bonds|commodity|commodities|crypto)\b/i;
+const TIME_CURRENT_RE = /\b(today|this\s+week|this\s+morning|this\s+afternoon|right\s+now|currently|premarket|after\s+hours|overnight|yesterday|last\s+night|recent(?:ly)?|lately|this\s+month)\b/i;
 
-function looksLikeWhyQuestion(text) {
-  return WHY_QUESTION_RE.test(String(text || ""));
+function looksLikeWorldContextQuestion(text, heldTickers = []) {
+  const s = String(text || "");
+  if (!s.trim()) return false;
+  if (CAUSE_INQUIRY_RE.test(s)) return true;
+  if (NEWS_KEYWORD_RE.test(s)) return true;
+  if (MACRO_INQUIRY_RE.test(s)) return true;
+  if (MARKET_MOVEMENT_RE.test(s) && MARKET_SUBJECT_RE.test(s)) return true;
+  if (MARKET_MOVEMENT_RE.test(s) && TIME_CURRENT_RE.test(s)) return true;
+  if (heldTickers.length > 0) {
+    const upper = s.toUpperCase();
+    for (const ticker of heldTickers) {
+      if (!ticker) continue;
+      if (new RegExp(`\\b\\$?${ticker}\\b`).test(upper)) return true;
+    }
+  }
+  return false;
 }
 
 // Assembles the world-context payload the ask-rayla system prompt consumes.
@@ -19823,32 +19852,50 @@ Respond in strict JSON only — no markdown, no extra text:
       }
     }
 
-    // World-context assembly. Two triggers:
-    //   (a) Launcher requested it (Analyze portfolio, About $SYM, doc analysis, etc.)
-    //   (b) User typed a "why did X move" question inside a portfolio-linked
-    //       conversation — once we've fetched world context once, keep the
-    //       sticky flag so follow-ups in the same thread stay grounded.
-    // The extra fetch adds ~200–500ms. We do it in parallel with kicking off
-    // the LLM call so streaming isn't gated by the news round-trip.
+    // World-context assembly. Triggers, evaluated in order:
+    //   (a) Launcher explicitly set withWorldContext (Analyze portfolio etc.),
+    //       or the sticky flag from an earlier world-context fetch in this
+    //       same conversation.
+    //   (b) The question reads like it wants current market context — any
+    //       "why/what happened/what's driving/any news/PLTR/etc." phrasing
+    //       (see looksLikeWorldContextQuestion). No pendingContext gate — if
+    //       the user asks a market/news question anywhere in the app, we
+    //       fetch. Never forces the user to learn trigger phrases.
+    // The extra fetch adds ~200–500ms; we await it before the LLM call so
+    // the model actually sees the data.
     let worldContextData = null;
+    // Build the held-tickers allowlist for the ticker-mention trigger. Only
+    // tickers the user actually holds count as signal — avoids false hits on
+    // uppercase words like "CEO" or "AI".
+    const heldTickerList = Array.from(new Set(
+      [
+        ...(Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : []),
+        ...(Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : []),
+      ].map((p) => String(p?.symbol || "").toUpperCase().trim()).filter(Boolean),
+    ));
     const worldTriggered = raylaPendingWorldContextRef.current
-      || (raylaPendingWorldContextRef.current === false && looksLikeWhyQuestion(trimmedQuestion) && pendingContext);
+      || looksLikeWorldContextQuestion(trimmedQuestion, heldTickerList);
     if (worldTriggered) {
       try {
-        // Prefer symbols already named by the context / active positions; fall
-        // back to top brokerage holdings by market value so a bare "why is
-        // everything red today?" still gets per-holding news.
+        // Prefer symbols named by the context / active position / question
+        // itself; fall back to top brokerage holdings so bare questions like
+        // "why is everything red today?" still get per-holding news.
         const symbolsForNews = [];
-        if (pendingContext?.chartContext?.symbol) symbolsForNews.push(pendingContext.chartContext.symbol);
-        if (pendingContext?.simulationContext?.symbol) symbolsForNews.push(pendingContext.simulationContext.symbol);
-        if (nextActiveReviewedTrade?.symbol) symbolsForNews.push(nextActiveReviewedTrade.symbol);
-        const holdingSymbols = (Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : [])
-          .concat(Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [])
-          .map((p) => p?.symbol)
-          .filter(Boolean);
-        for (const sym of holdingSymbols) {
+        if (pendingContext?.chartContext?.symbol) symbolsForNews.push(String(pendingContext.chartContext.symbol).toUpperCase());
+        if (pendingContext?.simulationContext?.symbol) symbolsForNews.push(String(pendingContext.simulationContext.symbol).toUpperCase());
+        if (nextActiveReviewedTrade?.symbol) symbolsForNews.push(String(nextActiveReviewedTrade.symbol).toUpperCase());
+        // Pull any held ticker the user actually named in the question.
+        const upperQuestion = trimmedQuestion.toUpperCase();
+        for (const ticker of heldTickerList) {
           if (symbolsForNews.length >= 6) break;
-          if (!symbolsForNews.includes(sym)) symbolsForNews.push(sym);
+          if (!ticker || symbolsForNews.includes(ticker)) continue;
+          if (new RegExp(`\\b\\$?${ticker}\\b`).test(upperQuestion)) {
+            symbolsForNews.push(ticker);
+          }
+        }
+        for (const ticker of heldTickerList) {
+          if (symbolsForNews.length >= 6) break;
+          if (!symbolsForNews.includes(ticker)) symbolsForNews.push(ticker);
         }
         worldContextData = await buildWorldContextForPortfolio({
           supabaseClient: supabase,
