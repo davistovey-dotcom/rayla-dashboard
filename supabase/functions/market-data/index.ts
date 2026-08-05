@@ -624,6 +624,49 @@ async function fetchChart(symbol: string, assetType: string, range = "1D", timef
   }
 }
 
+// General market news is expensive to hit on every ask (rate-limited upstream)
+// and the same headlines are relevant across many users' portfolio questions.
+// A tiny in-process cache keeps Finnhub load in check while still delivering
+// fresh headlines every 5 minutes.
+const GENERAL_NEWS_TTL_MS = 5 * 60 * 1000;
+let generalNewsCache: { fetchedAt: number; items: any[] } | null = null;
+
+async function fetchGeneralMarketNews(limit = 40): Promise<any[]> {
+  const finnhubKey = Deno.env.get("FINNHUB_API_KEY");
+  if (!finnhubKey) return [];
+  const now = Date.now();
+  if (generalNewsCache && now - generalNewsCache.fetchedAt < GENERAL_NEWS_TTL_MS) {
+    return generalNewsCache.items.slice(0, limit);
+  }
+  try {
+    const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${finnhubKey}`);
+    if (!res.ok) {
+      console.log(`[market-data] general-news HTTP ${res.status}`);
+      return generalNewsCache?.items?.slice(0, limit) || [];
+    }
+    const raw = await res.json();
+    const items = (Array.isArray(raw) ? raw : [])
+      .filter((a: any) => a?.headline)
+      .slice(0, 60)
+      .map((a: any) => ({
+        id: a?.id || a?.url || null,
+        headline: String(a?.headline || "").slice(0, 220),
+        summary: String(a?.summary || "").slice(0, 320),
+        source: a?.source || null,
+        url: a?.url || null,
+        // Finnhub returns unix seconds — normalize to ISO so the LLM can reason
+        // about recency without knowing about epoch time.
+        datetime: a?.datetime ? new Date(a.datetime * 1000).toISOString() : null,
+        related: a?.related || null,
+      }));
+    generalNewsCache = { fetchedAt: now, items };
+    return items.slice(0, limit);
+  } catch (e) {
+    console.error("[market-data] general-news fetch failed:", e);
+    return generalNewsCache?.items?.slice(0, limit) || [];
+  }
+}
+
 async function fetchSymbolNews(symbol: string, assetType: string) {
   const finnhubKey = Deno.env.get("FINNHUB_API_KEY");
   const newsDataKey = Deno.env.get("NEWSDATA_API_KEY");
@@ -695,7 +738,7 @@ serve(async (req) => {
   }
 
   try {
-    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType, fundamentalsSymbols, scannerSymbols } = await req.json();
+    const { symbols = [], chartSymbol, chartType, chartRange, chartTimeframe, newsSymbol, newsType, fundamentalsSymbols, scannerSymbols, includeGeneralNews, generalNewsLimit } = await req.json();
     const normalizedItems = Array.isArray(symbols)
       ? symbols.map(normalizeSymbolInput).filter((item) => item.symbol)
       : [];
@@ -747,7 +790,15 @@ serve(async (req) => {
       scannerResults = await resolveScanner(scannerSymbols);
     }
 
-    return new Response(JSON.stringify({ ok: true, quotes, chart, news, fundamentals, scannerResults }), {
+    let generalNews: any[] = [];
+    if (includeGeneralNews) {
+      const limit = Number.isFinite(Number(generalNewsLimit)) && Number(generalNewsLimit) > 0
+        ? Math.min(Number(generalNewsLimit), 40)
+        : 20;
+      generalNews = await fetchGeneralMarketNews(limit);
+    }
+
+    return new Response(JSON.stringify({ ok: true, quotes, chart, news, fundamentals, scannerResults, generalNews }), {
       headers: FALLBACK_CORS_JSON_HEADERS,
       status: 200,
     });

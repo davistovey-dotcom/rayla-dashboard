@@ -431,6 +431,96 @@ function normalizeCryptoAssetId(rawSymbol) {
   return normalized;
 }
 
+// Sector SPDR ETFs — used by buildWorldContextForPortfolio to sketch sector
+// rotation on portfolio-analysis questions. Small fixed set so the world-
+// context fetch stays cheap.
+const SECTOR_SNAPSHOT_SYMBOLS = ["XLK", "XLE", "XLF", "XLV", "XLY", "XLI", "XLP", "XLU", "XLC", "XLB", "XLRE"];
+
+// Case-insensitive keyword filter for macro/policy/geopolitics headlines.
+// Applied to headline + summary text after fetching the general news feed.
+const MACRO_KEYWORDS = [
+  "fed", "fomc", "federal reserve", "powell", "rate cut", "rate hike", "interest rate",
+  "cpi", "ppi", "inflation", "core cpi", "pce",
+  "jobs report", "payroll", "nonfarm", "unemployment", "jobless claims", "labor market",
+  "gdp", "recession", "yield curve", "treasury",
+  "geopolit", "ukraine", "russia", "china", "taiwan", "middle east", "israel", "iran", "opec",
+  "tariff", "sanction", "trade war", "election",
+];
+
+// Detects portfolio-analysis "why did this move" style questions so we know
+// when to auto-fetch world context. Only fires on typed questions inside a
+// portfolio-linked conversation — explicit Analyze buttons pass their own
+// trigger flag through openAskRayla.
+const WHY_QUESTION_RE = /\b(why|what happened|what[’']s driving|what is driving|what caused|caused (?:the )?move|reason (?:for|behind)|explain (?:the )?(?:move|drop|jump|rally|sell[- ]?off))\b/i;
+
+function looksLikeWhyQuestion(text) {
+  return WHY_QUESTION_RE.test(String(text || ""));
+}
+
+// Assembles the world-context payload the ask-rayla system prompt consumes.
+// Fetches in parallel: general market news, per-symbol news for the top
+// holdings, and sector ETF snapshot. Returns a compact object safe to attach
+// to extraContext.worldContext. Failure is non-fatal — a partial or empty
+// world-context block just means Rayla answers without world data.
+async function buildWorldContextForPortfolio({ supabaseClient, symbols = [], generalNewsLimit = 24 }) {
+  const shortlist = Array.from(new Set(
+    (Array.isArray(symbols) ? symbols : [])
+      .map((s) => String(s || "").toUpperCase().trim())
+      .filter(Boolean),
+  )).slice(0, 6); // cap per-symbol fetches to keep latency in check
+
+  const generalPromise = supabaseClient.functions.invoke("market-data", {
+    body: { includeGeneralNews: true, generalNewsLimit },
+  }).then((res) => Array.isArray(res?.data?.generalNews) ? res.data.generalNews : [])
+    .catch(() => []);
+
+  const sectorPromise = supabaseClient.functions.invoke("market-data", {
+    body: { symbols: SECTOR_SNAPSHOT_SYMBOLS.map((s) => ({ symbol: s, type: "stock" })) },
+  }).then((res) => {
+    const quotes = res?.data?.quotes || {};
+    return SECTOR_SNAPSHOT_SYMBOLS
+      .map((sym) => ({ symbol: sym, change: Number(quotes?.[sym]?.change) }))
+      .filter((row) => Number.isFinite(row.change))
+      .sort((a, b) => b.change - a.change);
+  }).catch(() => []);
+
+  const perSymbolPromise = Promise.all(
+    shortlist.map(async (sym) => {
+      try {
+        const res = await supabaseClient.functions.invoke("market-data", {
+          body: { newsSymbol: sym, newsType: "stock" },
+        });
+        const news = Array.isArray(res?.data?.news) ? res.data.news.slice(0, 3) : [];
+        return [sym, news];
+      } catch {
+        return [sym, []];
+      }
+    }),
+  );
+
+  const [general, sectorSnapshot, symbolPairs] = await Promise.all([
+    generalPromise, sectorPromise, perSymbolPromise,
+  ]);
+
+  const bySymbol = {};
+  for (const [sym, news] of symbolPairs) {
+    if (news.length) bySymbol[sym] = news;
+  }
+
+  const macroMatches = general.filter((item) => {
+    const text = `${item?.headline || ""} ${item?.summary || ""}`.toLowerCase();
+    return MACRO_KEYWORDS.some((kw) => text.includes(kw));
+  });
+
+  return {
+    generalHeadlines: general.slice(0, 12),
+    macroHeadlines: macroMatches.slice(0, 8),
+    bySymbol,
+    sectorSnapshot,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 function normalizeAssetId(rawSymbol, type = "", tvSymbol = "") {
   const raw = String(rawSymbol || "").trim().toUpperCase();
   if (!raw) return "";
@@ -3969,7 +4059,7 @@ function InvestorCtaBand({ actions }) {
   );
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null, financialGoalsContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null, financialGoalsContext = null, worldContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
@@ -3994,6 +4084,7 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
       simulationContext,
     }),
     marketIntelContext: marketIntelContext || null,
+    worldContext: worldContext || null,
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
     picksProfileContext: picksProfileContext || null,
@@ -14635,6 +14726,10 @@ useEffect(() => {
   // creates — populated by openAskRayla so context-derived titles ("AAPL 1D
   // chart", "GOOG trade review") win over the user's raw first message.
   const raylaPendingConversationTitleRef = useRef(null);
+  // When set, handleAskRaylaQuestion assembles real-world market context
+  // (news + macro + sectors) before sending. Portfolio-analysis launchers set
+  // this; the sticky "why did X move" heuristic sets it too.
+  const raylaPendingWorldContextRef = useRef(false);
   const closeAskRaylaOverlay = useCallback(() => {
     setAskRaylaOverlayOpen(false);
     setRaylaHistoryOpen(false);
@@ -18562,6 +18657,7 @@ useEffect(() => {
       // context — an archived chart-tap thread doesn't inherit today's chart.
       raylaPendingContextRef.current = null;
       raylaPendingConversationTitleRef.current = null;
+      raylaPendingWorldContextRef.current = false;
     } catch (err) {
       // Non-blocking: DO NOT wipe existing UI on load failure.
       console.warn("[rayla] loadConversation failed", err);
@@ -18691,6 +18787,10 @@ useEffect(() => {
     seedAssistantMessage = null,
     resetToNewConversation = false,
     conversationTitle = null,
+    // When true, mark this conversation as portfolio-analysis so
+    // handleAskRaylaQuestion auto-fetches world context on the first send AND
+    // on any follow-up "why did X move?" question inside the same thread.
+    withWorldContext = false,
   } = {}) => {
     // Open the right-side overlay — do NOT change activeTab. The user stays
     // on whatever page they launched from; the overlay slides in beside it.
@@ -18700,6 +18800,7 @@ useEffect(() => {
     // this conversation. Explicit null means "no context" — different from
     // "leave the previous context alone".
     raylaPendingContextRef.current = context || null;
+    raylaPendingWorldContextRef.current = Boolean(withWorldContext);
 
     if (resetToNewConversation) {
       raylaPendingConversationTitleRef.current = conversationTitle || null;
@@ -19573,6 +19674,7 @@ Respond in strict JSON only — no markdown, no extra text:
         recentConversation: extraContext?.recentConversation || null,
         activeReviewedTrade: extraContext?.activeReviewedTrade || null,
         marketIntelContext: picksConstraint ? null : (hotColdReport || null),
+        worldContext: extraContext?.worldContext || null,
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
         picksProfileContext: buildPicksProfileContext(picksProfile),
@@ -19721,6 +19823,46 @@ Respond in strict JSON only — no markdown, no extra text:
       }
     }
 
+    // World-context assembly. Two triggers:
+    //   (a) Launcher requested it (Analyze portfolio, About $SYM, doc analysis, etc.)
+    //   (b) User typed a "why did X move" question inside a portfolio-linked
+    //       conversation — once we've fetched world context once, keep the
+    //       sticky flag so follow-ups in the same thread stay grounded.
+    // The extra fetch adds ~200–500ms. We do it in parallel with kicking off
+    // the LLM call so streaming isn't gated by the news round-trip.
+    let worldContextData = null;
+    const worldTriggered = raylaPendingWorldContextRef.current
+      || (raylaPendingWorldContextRef.current === false && looksLikeWhyQuestion(trimmedQuestion) && pendingContext);
+    if (worldTriggered) {
+      try {
+        // Prefer symbols already named by the context / active positions; fall
+        // back to top brokerage holdings by market value so a bare "why is
+        // everything red today?" still gets per-holding news.
+        const symbolsForNews = [];
+        if (pendingContext?.chartContext?.symbol) symbolsForNews.push(pendingContext.chartContext.symbol);
+        if (pendingContext?.simulationContext?.symbol) symbolsForNews.push(pendingContext.simulationContext.symbol);
+        if (nextActiveReviewedTrade?.symbol) symbolsForNews.push(nextActiveReviewedTrade.symbol);
+        const holdingSymbols = (Array.isArray(longTermBrokerPositions) ? longTermBrokerPositions : [])
+          .concat(Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [])
+          .map((p) => p?.symbol)
+          .filter(Boolean);
+        for (const sym of holdingSymbols) {
+          if (symbolsForNews.length >= 6) break;
+          if (!symbolsForNews.includes(sym)) symbolsForNews.push(sym);
+        }
+        worldContextData = await buildWorldContextForPortfolio({
+          supabaseClient: supabase,
+          symbols: symbolsForNews,
+        });
+        // Sticky: once world context has been engaged in a conversation, keep
+        // pulling fresh data on follow-ups so "and what about NVDA?" gets the
+        // same treatment as the initial "why is my portfolio down?".
+        raylaPendingWorldContextRef.current = true;
+      } catch (err) {
+        console.warn("[rayla] worldContext fetch failed", err);
+      }
+    }
+
     try {
       const answer = await requestRaylaAnswer(
         trimmedQuestion,
@@ -19728,6 +19870,7 @@ Respond in strict JSON only — no markdown, no extra text:
           ...(mergedExtraContext || {}),
           activeReviewedTrade: nextActiveReviewedTrade,
           recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
+          ...(worldContextData ? { worldContext: worldContextData } : {}),
         },
         {
           // Stream real tokens into the pending assistant message. Flip
@@ -25163,6 +25306,7 @@ return (
                                       autoSend: true,
                                       resetToNewConversation: true,
                                       conversationTitle: "Portfolio analysis",
+                                      withWorldContext: true,
                                     });
                                   },
                                 },
@@ -25177,6 +25321,7 @@ return (
                                       autoSend: true,
                                       resetToNewConversation: true,
                                       conversationTitle: "Suggested additions",
+                                      withWorldContext: true,
                                     });
                                   },
                                 },
@@ -29177,6 +29322,7 @@ return (
                               autoSend: true,
                               resetToNewConversation: true,
                               conversationTitle: "Portfolio analysis",
+                              withWorldContext: true,
                             });
                           },
                         },
@@ -29191,6 +29337,7 @@ return (
                               autoSend: true,
                               resetToNewConversation: true,
                               conversationTitle: "Suggested additions",
+                              withWorldContext: true,
                             });
                           },
                         },
@@ -29228,6 +29375,7 @@ return (
                       autoSend: true,
                       resetToNewConversation: true,
                       conversationTitle: `${symbol} position`,
+                      withWorldContext: true,
                     });
                   }}
                   onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
@@ -29246,6 +29394,7 @@ return (
                             autoSend: true,
                             resetToNewConversation: true,
                             conversationTitle: "Holdings analysis",
+                            withWorldContext: true,
                           });
                         },
                       },
@@ -29260,6 +29409,7 @@ return (
                             autoSend: true,
                             resetToNewConversation: true,
                             conversationTitle: "Suggested additions",
+                            withWorldContext: true,
                           });
                         },
                       },
@@ -29912,6 +30062,7 @@ return (
                             autoSend: true,
                             resetToNewConversation: true,
                             conversationTitle: "Portfolio analysis",
+                            withWorldContext: true,
                           });
                         }}
                         title="Analyze my portfolio"

@@ -722,6 +722,86 @@ function buildRaylaPicksSummary(context: any) {
   return `Rayla picks context: ${JSON.stringify(picks)}`;
 }
 
+// Renders a compact "what's happening in the world right now" block so Rayla
+// can attribute portfolio moves to specific catalysts (earnings, macro
+// releases, geopolitics, sector rotation, company news) when the evidence
+// supports it. The client assembles this only for portfolio-analysis
+// questions or when the user asks "why did X move".
+function buildWorldContextBlock(context: any) {
+  const wc = context?.worldContext;
+  if (!wc || typeof wc !== "object") return "";
+
+  const lines: string[] = ["Current-world context (real market data snapshot):"];
+
+  const fmtHeadline = (h: any) => {
+    const src = h?.source ? ` [${h.source}]` : "";
+    const dt = h?.datetime ? ` (${String(h.datetime).slice(0, 16).replace("T", " ")}Z)` : "";
+    const summary = String(h?.summary || "").trim();
+    const bullet = `- ${String(h?.headline || "").trim()}${src}${dt}`;
+    return summary
+      ? `${bullet}\n    ${summary.slice(0, 220)}`
+      : bullet;
+  };
+
+  const macro = Array.isArray(wc.macroHeadlines) ? wc.macroHeadlines : [];
+  if (macro.length) {
+    lines.push("Macro / Fed / CPI / PPI / employment / geopolitics — filtered from today's general news:");
+    lines.push(...macro.slice(0, 8).map(fmtHeadline));
+  }
+
+  const general = Array.isArray(wc.generalHeadlines) ? wc.generalHeadlines : [];
+  if (general.length) {
+    lines.push("General market headlines (most recent, top of feed):");
+    lines.push(...general.slice(0, 10).map(fmtHeadline));
+  }
+
+  const bySymbol = wc.bySymbol && typeof wc.bySymbol === "object" ? wc.bySymbol : {};
+  const symbolEntries = Object.entries(bySymbol);
+  if (symbolEntries.length) {
+    lines.push("Per-holding news (last 72h, most-recent first):");
+    for (const [sym, items] of symbolEntries) {
+      const arr = Array.isArray(items) ? items.slice(0, 3) : [];
+      if (!arr.length) continue;
+      lines.push(`  ${String(sym).toUpperCase()}:`);
+      lines.push(...arr.map((h: any) => `    - ${String(h?.headline || "").trim()}${h?.source ? ` [${h.source}]` : ""}`));
+    }
+  }
+
+  const sectors = Array.isArray(wc.sectorSnapshot) ? wc.sectorSnapshot : [];
+  if (sectors.length) {
+    const winners = sectors.filter((s: any) => Number(s?.change) > 0).slice(0, 3);
+    const losers = sectors.filter((s: any) => Number(s?.change) < 0).slice(-3).reverse();
+    lines.push("Sector snapshot (SPDR ETFs, latest daily change %):");
+    if (winners.length) {
+      lines.push(`  Leaders: ${winners.map((s: any) => `${s.symbol} ${Number(s.change) >= 0 ? "+" : ""}${Number(s.change).toFixed(2)}%`).join(", ")}`);
+    }
+    if (losers.length) {
+      lines.push(`  Laggards: ${losers.map((s: any) => `${s.symbol} ${Number(s.change) >= 0 ? "+" : ""}${Number(s.change).toFixed(2)}%`).join(", ")}`);
+    }
+  }
+
+  if (wc.fetchedAt) {
+    lines.push(`Context freshness: ${String(wc.fetchedAt).slice(0, 19).replace("T", " ")}Z.`);
+  }
+
+  return lines.length > 1 ? lines.join("\n") : "";
+}
+
+const worldContextReasoningGuidance = [
+  "World-context reasoning rules (apply only when a `Current-world context` block is present above):",
+  "- Use the world-context block to explain WHY a holding, sector, or the broader market moved — not just what moved. When a headline plausibly caused the move (earnings, Fed action, CPI/PPI release, geopolitical event, sector rotation, major company announcement), cite the specific event.",
+  "- Attribution must be evidence-based. Only claim causation when a specific headline in the world-context block plausibly supports it AND the timing fits. Distinguish clearly between three registers:",
+  "    1. CONFIRMED fact — 'PLTR reported earnings today per the news feed, beating estimates on revenue.' — restate what the data says.",
+  "    2. REASONABLE inference — 'PLTR is up 16% today. Earnings were reported this morning per the news feed, which is the most plausible driver.' — link the fact to the observation with a hedge word ('likely', 'most plausible', 'consistent with').",
+  "    3. UNCERTAINTY — 'PLTR is up 16% today. I don't see a single news event in the current context that clearly explains this — it may be part of broader tech/software strength (XLK is +1.4%), or a rotation pattern rather than a company-specific catalyst.' — say so plainly.",
+  "- NEVER INVENT CAUSATION. If no headline in the world-context block plausibly explains a move, do not speculate on causes that aren't in the evidence. Say the catalyst isn't visible, then reference the sector snapshot or broader market conditions as an alternative frame.",
+  "- Do NOT dress up 'no catalyst found' as a limitation of the assistant. Phrase it as an observation: 'No single event stands out for AAPL today — this looks more like sector-level movement.' — same voice as any other observation.",
+  "- Do not repeat headlines verbatim in long paragraphs. Pull the specific fact that matters ('Fed signaled hold at the June meeting'), attribute the sector move to it, and move on.",
+  "- Prioritize catalysts by relevance: (1) a headline directly naming the user's holding, (2) a macro release aligned with the holding's sector, (3) sector rotation visible in the snapshot, (4) general market sentiment. If none fit, say the move is unexplained by current context.",
+  "- The `Context freshness` timestamp is the truth about how current the data is. If asked whether Rayla is aware of an event more recent than that timestamp, say the world-context snapshot doesn't extend to that news.",
+  "- When the world-context block is absent, revert to normal answering — don't fabricate world context you don't have.",
+].join("\n");
+
 function buildBehavioralPatternBlock(context: any) {
   const bp = context?.behavioralPatternContext;
   if (!bp || !bp.patternThresholdMet) return "";
@@ -1383,6 +1463,8 @@ function buildSystemPrompt(context: any, intent: string) {
     // Intel + market context
     buildMarketIntelSummary(context),
     buildRaylaPicksSummary(context),
+    buildWorldContextBlock(context),
+    worldContextReasoningGuidance,
     buildAppContextSummary(context),
     // Background reference — edge/performance, used only when directly relevant
     buildBackgroundReferenceBlock(context),
