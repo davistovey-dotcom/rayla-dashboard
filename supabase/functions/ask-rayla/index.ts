@@ -1051,6 +1051,7 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     visualChartContext: visualChartContext || context.visualChartContext || "",
     simulationContext: context.simulationContext ?? null,
     marketIntelContext: context.marketIntelContext ?? null,
+    worldContext: context.worldContext ?? null,
     raylaPicksContext: context.raylaPicksContext ?? null,
     behavioralPatternContext: context.behavioralPatternContext ?? null,
     selectedAssetContext: context.selectedAssetContext ?? null,
