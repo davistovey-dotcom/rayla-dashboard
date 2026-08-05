@@ -60,7 +60,7 @@ export function conversationTitleFromMessage(text) {
 // All operations scope by user_id defensively even though RLS on the two
 // tables already enforces per-user isolation. Both belt and suspenders.
 
-const CONVERSATION_SELECT = "id, title, created_at, updated_at";
+const CONVERSATION_SELECT = "id, title, created_at, updated_at, kind, generated_for, daily_message_id";
 const MESSAGE_SELECT = "id, role, content, created_at";
 
 export async function fetchConversations(supabase, userId, { limit = 50 } = {}) {
@@ -136,6 +136,75 @@ export async function touchConversation(supabase, userId, conversationId) {
     .update({ updated_at: new Date().toISOString() })
     .eq("user_id", userId)
     .eq("id", conversationId);
+  if (error) throw error;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Rayla Daily — tagged-conversation helpers
+// ---------------------------------------------------------------------------
+//
+// Rayla Daily lives inside rayla_conversations, discriminated by
+// kind = 'rayla_daily' and scoped to a user-local calendar day via
+// generated_for. daily_message_id points at the first assistant message
+// (the briefing itself) so Refresh can replace it without touching any
+// follow-up messages the user has added.
+
+// Returns today's Daily conversation row, or null when the user hasn't
+// generated one for this date yet.
+export async function findRaylaDaily(supabase, userId, dateStr) {
+  const { data, error } = await supabase
+    .from("rayla_conversations")
+    .select(CONVERSATION_SELECT)
+    .eq("user_id", userId)
+    .eq("kind", "rayla_daily")
+    .eq("generated_for", dateStr)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+// Creates a new Daily conversation row. The partial unique index on
+// (user_id, generated_for) WHERE kind = 'rayla_daily' guarantees at most
+// one Daily per user per day; a concurrent duplicate insert surfaces as a
+// unique-violation error that the caller can handle by calling findRaylaDaily.
+export async function createRaylaDailyConversation(supabase, userId, dateStr, title) {
+  const { data, error } = await supabase
+    .from("rayla_conversations")
+    .insert({
+      user_id: userId,
+      title: title || `Rayla Daily · ${dateStr}`,
+      kind: "rayla_daily",
+      generated_for: dateStr,
+    })
+    .select(CONVERSATION_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Called after the initial Daily message is persisted. Wires the message id
+// onto the conversation row so future refreshes know which message to
+// replace.
+export async function attachDailyMessageId(supabase, userId, conversationId, messageId) {
+  const { error } = await supabase
+    .from("rayla_conversations")
+    .update({ daily_message_id: messageId })
+    .eq("user_id", userId)
+    .eq("id", conversationId);
+  if (error) throw error;
+  return true;
+}
+
+// In-place message content replacement — used only by Refresh Daily.
+// Follow-up messages (message_ids other than daily_message_id) are never
+// touched by this path.
+export async function updateMessageContent(supabase, userId, messageId, content) {
+  const { error } = await supabase
+    .from("rayla_messages")
+    .update({ content: String(content ?? "") })
+    .eq("user_id", userId)
+    .eq("id", messageId);
   if (error) throw error;
   return true;
 }

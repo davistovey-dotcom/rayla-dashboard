@@ -21,6 +21,9 @@ import InvestorProgressCard from "./components/InvestorProgressCard";
 import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistoryDrawer";
 import IntelSimulationSetupOverlay from "./components/IntelSimulationSetupOverlay";
 import * as raylaChat from "./services/raylaConversations";
+import * as raylaDaily from "./services/raylaDaily";
+import { computeInvestorScore } from "./utils/investorScore";
+import { deriveProfileFromData } from "./utils/adaptiveLearningProfile";
 import { buildAskRaylaWelcome, ASK_RAYLA_WELCOME_STARTERS } from "./services/askRaylaWelcome";
 import { Tutorial } from "./Login";
 import { Capacitor } from '@capacitor/core';
@@ -4088,7 +4091,7 @@ function InvestorCtaBand({ actions }) {
   );
 }
 
-function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null, financialGoalsContext = null, worldContext = null }) {
+function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPositions = null, selectedMarketId, adaptiveProfile, chartContext = null, simulationContext = null, selectedAssetContext = null, recentConversation = null, activeReviewedTrade = null, raylaMode = "beginner", marketIntelContext = null, raylaPicksContext = null, behavioralPatternContext = null, picksProfileContext = null, screenContext = null, financialGoalsContext = null, worldContext = null, intent = null, raylaDailyContext = null }) {
   const stats = buildTradeStats(trades);
   const edgeFacetTrades = [
     ...(Array.isArray(trades) ? trades : []),
@@ -4114,6 +4117,8 @@ function buildAskRaylaContext({ trades, simulationTradeHistory = null, brokerPos
     }),
     marketIntelContext: marketIntelContext || null,
     worldContext: worldContext || null,
+    raylaDailyContext: raylaDailyContext || null,
+    intent: intent || null,
     raylaPicksContext: raylaPicksContext || null,
     behavioralPatternContext: behavioralPatternContext || null,
     picksProfileContext: picksProfileContext || null,
@@ -14759,6 +14764,11 @@ useEffect(() => {
   // (news + macro + sectors) before sending. Portfolio-analysis launchers set
   // this; the sticky "why did X move" heuristic sets it too.
   const raylaPendingWorldContextRef = useRef(false);
+  // True while Rayla Daily is generating or refreshing. Guards against
+  // double-clicks on Refresh and the double-fire of the overlay-open
+  // trigger effect during React's dev-strict double-invoke.
+  const [raylaDailyBusy, setRaylaDailyBusy] = useState(false);
+  const raylaDailyInFlightRef = useRef(false);
   const closeAskRaylaOverlay = useCallback(() => {
     setAskRaylaOverlayOpen(false);
     setRaylaHistoryOpen(false);
@@ -18868,6 +18878,306 @@ useEffect(() => {
     }
   }, [createFreshRaylaConversation, setRaylaConversationId]);
 
+  // ---------------------------------------------------------------------------
+  // Rayla Daily
+  // ---------------------------------------------------------------------------
+  //
+  // The Daily lives inside the existing Ask Rayla overlay as a tagged
+  // conversation (kind='rayla_daily'). It auto-opens once per local calendar
+  // day on the first overlay-open of that day; on later opens same day, we
+  // preserve whatever conversation the user was on. Refresh replaces only
+  // the first assistant message via daily_message_id; follow-ups are never
+  // touched.
+
+  // Assembles the raylaDailyContext payload for one Daily generation. Pure
+  // aggregation of state that already lives in this component — no LLM
+  // calls here. Score-yesterday is recomputed from the ledger filtered to
+  // <= yesterday so we don't need a snapshot table.
+  const buildRaylaDailyGenerationContext = useCallback(async ({ userId, todayYMD }) => {
+    const firstNameCandidate = String(
+      session?.user?.user_metadata?.first_name
+      || String(session?.user?.user_metadata?.full_name || "").split(" ")[0]
+      || String(session?.user?.user_metadata?.name || "").split(" ")[0]
+      || String(session?.user?.email || "").split("@")[0]
+      || "",
+    ).trim();
+    const firstName = firstNameCandidate && firstNameCandidate !== session?.user?.email
+      ? firstNameCandidate
+      : null;
+
+    const hasBrokerage = Boolean(alpacaAccount);
+    const currentEquity = Number(alpacaAccount?.equity);
+    const portfolioDelta = raylaDaily.computePortfolioDelta(
+      Array.isArray(portfolioSnapshots) ? portfolioSnapshots : [],
+      currentEquity,
+      todayYMD,
+    );
+    const topMovers = raylaDaily.topIntradayMovers(brokerPositionsWithIntent, 5);
+
+    // Pull 60d of ledger — same window the ALP uses. Two computations:
+    // today's Investor Score uses the full ledger; yesterday's score uses
+    // entries with created_at date < today (in the user's local day).
+    let ledgerRows = [];
+    try {
+      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("decision_ledger_entries")
+        .select("id, created_at, entry_type, symbol, emotion, rule_followed, lesson, outcome")
+        .eq("user_id", userId)
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      ledgerRows = Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.warn("[rayla-daily] ledger fetch failed", err);
+    }
+
+    let scoreCurrent = null;
+    let scoreYesterday = null;
+    let scoreEvidence = null;
+    if (Array.isArray(ledgerRows)) {
+      try {
+        const todayProfile = deriveProfileFromData(
+          { ledger: ledgerRows, trades, portfolioSnapshots },
+          { userId },
+        );
+        const todayScore = computeInvestorScore({ profile: todayProfile, positions: brokerPositionsWithIntent });
+        scoreCurrent = Number.isFinite(Number(todayScore?.total)) ? Number(todayScore.total) : null;
+        const yestLedger = ledgerRows.filter((r) => String(r.created_at || "").slice(0, 10) < todayYMD);
+        const yestProfile = deriveProfileFromData(
+          { ledger: yestLedger, trades, portfolioSnapshots },
+          { userId },
+        );
+        const yestScore = computeInvestorScore({ profile: yestProfile, positions: brokerPositionsWithIntent });
+        scoreYesterday = Number.isFinite(Number(yestScore?.total)) ? Number(yestScore.total) : null;
+        scoreEvidence = {
+          ledgerCount: yestLedger.length,
+          primaryDriver: (Array.isArray(todayProfile?.evolvingStrengths) && todayProfile.evolvingStrengths[0])
+            || (Array.isArray(todayProfile?.emergingRisks) && todayProfile.emergingRisks[0])
+            || null,
+        };
+      } catch (err) {
+        console.warn("[rayla-daily] score compute failed", err);
+      }
+    }
+
+    return raylaDaily.buildRaylaDailyContext({
+      todayYMD,
+      firstName,
+      hasBrokerage,
+      portfolioDelta,
+      topMovers,
+      investorScoreCurrent: scoreCurrent,
+      investorScoreYesterday: scoreYesterday,
+      investorScoreEvidence: scoreEvidence,
+      // ALP summary — hand the LLM a compact string, not the full profile,
+      // so we don't blow the token budget on this one section.
+      adaptiveProfileSummary: null,
+      raylaPicksToday: raylaPicksContext || null,
+      marketIsOpen: null,
+    });
+  }, [
+    session?.user?.id, session?.user?.user_metadata, session?.user?.email,
+    alpacaAccount, portfolioSnapshots, brokerPositionsWithIntent,
+    trades, raylaPicksContext,
+  ]);
+
+  // Runs the full first-time Daily generation. Creates the conversation row,
+  // streams the LLM response, persists, and attaches daily_message_id +
+  // follow-up chips. Guarded against re-entry via raylaDailyInFlightRef.
+  const triggerRaylaDailyGeneration = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    if (raylaDailyInFlightRef.current) return;
+    raylaDailyInFlightRef.current = true;
+    setRaylaDailyBusy(true);
+    const todayYMD = raylaDaily.todayLocalYMD();
+
+    try {
+      const dailyContext = await buildRaylaDailyGenerationContext({ userId, todayYMD });
+
+      // Create the conversation row. If a concurrent generation already
+      // created one, the partial unique index rejects — fall back to
+      // opening the existing row. Title is always plain "Rayla Daily";
+      // the date is surfaced from generated_for in the overlay header.
+      let conv;
+      try {
+        conv = await raylaChat.createRaylaDailyConversation(supabase, userId, todayYMD, "Rayla Daily");
+      } catch (err) {
+        console.warn("[rayla-daily] create conflict, opening existing", err);
+        const existing = await raylaChat.findRaylaDaily(supabase, userId, todayYMD);
+        if (!existing) throw err;
+        setRaylaConversationId(existing.id);
+        await loadRaylaConversation(existing.id);
+        return;
+      }
+
+      setRaylaConversations((prev) => [conv, ...prev.filter((c) => c.id !== conv.id)]);
+      setRaylaConversationId(conv.id);
+      raylaChat.persistLocal(raylaLocalCurrentConvoKey, conv.id);
+
+      const pendingId = createClientId();
+      setRaylaChatMessages([{ id: pendingId, role: "assistant", content: "", loading: true }]);
+
+      const raw = await requestRaylaAnswer(
+        "Generate the Rayla Daily briefing.",
+        {
+          intent: "rayla_daily",
+          raylaDailyContext: dailyContext,
+        },
+        {
+          onDelta: (partial) => {
+            const displayed = raylaDaily.stripFollowupMarker(partial);
+            setRaylaChatMessages([{ id: pendingId, role: "assistant", content: displayed, loading: false }]);
+          },
+        },
+      );
+
+      // Persist the raw LLM output including the trailing FOLLOWUP_PROMPTS
+      // marker so chips can be re-derived from the message content on every
+      // load. The message bubble renderer applies stripFollowupMarker for
+      // display; chip rendering calls extractFollowupPrompts on the same
+      // content. Storing chips separately would treat UI suggestions as
+      // user data — this way they are purely LLM output.
+      const persistedMessageId = await persistRaylaMessage({ conversationId: conv.id, role: "assistant", content: raw });
+      const messageId = persistedMessageId || pendingId;
+      try {
+        await raylaChat.attachDailyMessageId(supabase, userId, conv.id, messageId);
+      } catch (err) {
+        console.warn("[rayla-daily] attachDailyMessageId failed", err);
+      }
+
+      setRaylaChatMessages([{ id: messageId, role: "assistant", content: raw, loading: false }]);
+      setRaylaConversations((prev) => prev.map((c) => (
+        c.id === conv.id
+          ? { ...c, daily_message_id: messageId }
+          : c
+      )));
+    } catch (err) {
+      console.error("[rayla-daily] generation failed", err);
+      // Clean the placeholder so the user isn't stuck staring at a broken
+      // loading bubble. The failed conversation row stays; next-day
+      // trigger won't retry until tomorrow.
+      setRaylaChatMessages([]);
+    } finally {
+      raylaDailyInFlightRef.current = false;
+      setRaylaDailyBusy(false);
+    }
+  }, [
+    session?.user?.id, buildRaylaDailyGenerationContext,
+    setRaylaConversationId, raylaLocalCurrentConvoKey,
+    persistRaylaMessage, loadRaylaConversation,
+  ]);
+
+  // Refresh — regenerates the Daily content and REPLACES only the message
+  // whose id is stored on the conversation row as daily_message_id. All
+  // follow-up messages are preserved. If the conversation somehow lost its
+  // daily_message_id, we abort rather than guess which message to replace.
+  const handleRefreshRaylaDaily = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    if (raylaDailyInFlightRef.current) return;
+    const activeConv = raylaConversations.find((c) => c.id === raylaConversationId);
+    if (!activeConv || activeConv.kind !== "rayla_daily") return;
+    const dailyMessageId = activeConv.daily_message_id;
+    if (!dailyMessageId) {
+      console.warn("[rayla-daily] refresh aborted: no daily_message_id on active conversation");
+      return;
+    }
+
+    raylaDailyInFlightRef.current = true;
+    setRaylaDailyBusy(true);
+    const todayYMD = raylaDaily.todayLocalYMD();
+
+    try {
+      const dailyContext = await buildRaylaDailyGenerationContext({ userId, todayYMD });
+
+      // Show a "refreshing" state on the daily message without deleting it.
+      setRaylaChatMessages((prev) => prev.map((m) => (
+        m.id === dailyMessageId
+          ? { ...m, loading: true }
+          : m
+      )));
+
+      const raw = await requestRaylaAnswer(
+        "Regenerate the Rayla Daily briefing with the latest data.",
+        {
+          intent: "rayla_daily",
+          raylaDailyContext: dailyContext,
+        },
+        {
+          onDelta: (partial) => {
+            const displayed = raylaDaily.stripFollowupMarker(partial);
+            setRaylaChatMessages((prev) => prev.map((m) => (
+              m.id === dailyMessageId
+                ? { ...m, content: displayed, loading: false }
+                : m
+            )));
+          },
+        },
+      );
+
+      // Store raw content (with FOLLOWUP_PROMPTS marker) — chips are
+      // re-parsed at render time from message content.
+      await raylaChat.updateMessageContent(supabase, userId, dailyMessageId, raw);
+
+      setRaylaChatMessages((prev) => prev.map((m) => (
+        m.id === dailyMessageId
+          ? { ...m, content: raw, loading: false }
+          : m
+      )));
+    } catch (err) {
+      console.error("[rayla-daily] refresh failed", err);
+      // Clear the loading flag on failure so the old content is shown.
+      setRaylaChatMessages((prev) => prev.map((m) => (
+        m.id === dailyMessageId ? { ...m, loading: false } : m
+      )));
+    } finally {
+      raylaDailyInFlightRef.current = false;
+      setRaylaDailyBusy(false);
+    }
+  }, [
+    session?.user?.id, raylaConversations, raylaConversationId,
+    buildRaylaDailyGenerationContext, setRaylaConversationId,
+  ]);
+
+  // First-open-per-day trigger. Fires exactly once when the overlay opens
+  // AND today's Daily hasn't been surfaced yet on this device/day.
+  useEffect(() => {
+    if (!askRaylaOverlayOpen) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const todayYMD = raylaDaily.todayLocalYMD();
+    const flagKey = `rayla_daily_opened_${userId}_${todayYMD}`;
+    if (typeof window === "undefined") return;
+    try {
+      if (window.localStorage.getItem(flagKey)) return;
+      window.localStorage.setItem(flagKey, "true");
+    } catch {
+      // Private mode / storage denied — proceed but the flag won't stick.
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const existing = await raylaChat.findRaylaDaily(supabase, userId, todayYMD);
+        if (cancelled) return;
+        if (existing) {
+          setRaylaConversationId(existing.id);
+          await loadRaylaConversation(existing.id);
+          setRaylaConversations((prev) => {
+            const has = prev.some((c) => c.id === existing.id);
+            return has ? prev : [existing, ...prev];
+          });
+        } else {
+          await triggerRaylaDailyGeneration();
+        }
+      } catch (err) {
+        console.warn("[rayla-daily] first-open trigger failed", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [askRaylaOverlayOpen, session?.user?.id, setRaylaConversationId, loadRaylaConversation, triggerRaylaDailyGeneration]);
+
   // On user change: load conversation list, restore last-open conversation
   // (or start fresh), restore draft text. Never wipes React state on failure.
   useEffect(() => {
@@ -19704,6 +20014,8 @@ Respond in strict JSON only — no markdown, no extra text:
         activeReviewedTrade: extraContext?.activeReviewedTrade || null,
         marketIntelContext: picksConstraint ? null : (hotColdReport || null),
         worldContext: extraContext?.worldContext || null,
+        raylaDailyContext: extraContext?.raylaDailyContext || null,
+        intent: extraContext?.intent || null,
         raylaPicksContext: raylaPicksContext || null,
         behavioralPatternContext: buildBehavioralPatternSummary(visibleSimulationTradeHistoryAll),
         picksProfileContext: buildPicksProfileContext(picksProfile),
@@ -30039,6 +30351,11 @@ return (
                 : Number.isFinite(simCtx?.currentPrice) ? simCtx.currentPrice
                 : null;
               const canAnalyzePortfolio = holdingsSnapshot?.count > 0 && alpacaAccount;
+              // If the active conversation is today's Rayla Daily, expose
+              // the label + Refresh Daily button in the toolbar. Refresh
+              // is disabled during generation to prevent double-fire.
+              const activeConv = raylaConversations.find((c) => c.id === raylaConversationId);
+              const isRaylaDailyActive = activeConv?.kind === "rayla_daily";
               return (
                 <div
                   style={{
@@ -30053,6 +30370,11 @@ return (
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+                    {isRaylaDailyActive ? (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#7CC4FF", background: "rgba(124,196,255,0.10)", border: "1px solid rgba(124,196,255,0.22)", borderRadius: 6, padding: "2px 8px" }}>
+                        Rayla Daily{activeConv.generated_for ? ` · ${activeConv.generated_for}` : ""}
+                      </div>
+                    ) : null}
                     {contextAsset ? (
                       <div style={{ fontSize: 12, color: "#94a3b8" }}>
                         {contextAsset}
@@ -30078,57 +30400,82 @@ return (
                     ) : null}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => { setDocUploadOpen(true); setDocUploadError(null); }}
-                      title="Analyze a document"
-                      style={{
-                        height: 32,
-                        paddingInline: 12,
-                        borderRadius: 999,
-                        border: "1px solid rgba(124,196,255,0.2)",
-                        background: documentIntelligence ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
-                        color: documentIntelligence ? "#7cc4ff" : "#94a3b8",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Analyze doc
-                    </button>
-                    {canAnalyzePortfolio ? (
+                    {isRaylaDailyActive ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
-                          const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
-                          openAskRayla({
-                            initialQuestion: q,
-                            initialDisplayText: "Analyze my portfolio",
-                            autoSend: true,
-                            resetToNewConversation: true,
-                            conversationTitle: "Portfolio analysis",
-                            withWorldContext: true,
-                          });
-                        }}
-                        title="Analyze my portfolio"
+                        onClick={handleRefreshRaylaDaily}
+                        disabled={raylaDailyBusy}
+                        title="Regenerate today's Rayla Daily"
                         style={{
                           height: 32,
                           paddingInline: 12,
                           borderRadius: 999,
-                          border: "1px solid rgba(124,196,255,0.2)",
-                          background: "rgba(255,255,255,0.04)",
-                          color: "#94a3b8",
-                          cursor: "pointer",
+                          border: "1px solid rgba(124,196,255,0.25)",
+                          background: raylaDailyBusy ? "rgba(255,255,255,0.04)" : "rgba(124,196,255,0.10)",
+                          color: raylaDailyBusy ? "#64748b" : "#7CC4FF",
+                          cursor: raylaDailyBusy ? "not-allowed" : "pointer",
                           fontSize: 12,
-                          fontWeight: 600,
+                          fontWeight: 700,
                           whiteSpace: "nowrap",
                         }}
                       >
-                        Analyze portfolio
+                        {raylaDailyBusy ? "Refreshing…" : "↻ Refresh Daily"}
                       </button>
-                    ) : null}
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => { setDocUploadOpen(true); setDocUploadError(null); }}
+                          title="Analyze a document"
+                          style={{
+                            height: 32,
+                            paddingInline: 12,
+                            borderRadius: 999,
+                            border: "1px solid rgba(124,196,255,0.2)",
+                            background: documentIntelligence ? "rgba(124,196,255,0.12)" : "rgba(255,255,255,0.04)",
+                            color: documentIntelligence ? "#7cc4ff" : "#94a3b8",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Analyze doc
+                        </button>
+                        {canAnalyzePortfolio ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const p = buildInvestorContextPacket(longTermBrokerPositions, alpacaAccount, "holdings");
+                              const q = `Give me a sharp, direct read on my portfolio — 3-4 lines max. Lead with the biggest risk and one thing to act on.\n\n${formatInvestorContextForAI(p)}`;
+                              openAskRayla({
+                                initialQuestion: q,
+                                initialDisplayText: "Analyze my portfolio",
+                                autoSend: true,
+                                resetToNewConversation: true,
+                                conversationTitle: "Portfolio analysis",
+                                withWorldContext: true,
+                              });
+                            }}
+                            title="Analyze my portfolio"
+                            style={{
+                              height: 32,
+                              paddingInline: 12,
+                              borderRadius: 999,
+                              border: "1px solid rgba(124,196,255,0.2)",
+                              background: "rgba(255,255,255,0.04)",
+                              color: "#94a3b8",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            Analyze portfolio
+                          </button>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -30407,7 +30754,7 @@ return (
                           </div>
                         ) : (
                           <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
-                            {renderRaylaMessageContent(message.content)}
+                            {renderRaylaMessageContent(raylaDaily.stripFollowupMarker(message.content))}
                           </div>
                         )}
                       </div>
@@ -30491,6 +30838,55 @@ return (
                     </div>
                   ) : null}
                 </div>
+
+                {/* Rayla Daily follow-up chips. Rendered above the sticky
+                    input whenever the active conversation is a Daily and
+                    the Daily message content contains a FOLLOWUP_PROMPTS
+                    marker. Chips are re-parsed from the message content on
+                    every render — never stored in the database as their
+                    own field. Clicking a chip fires the same
+                    handleAskRaylaQuestion path as typing it. */}
+                {(() => {
+                  const activeConv = raylaConversations.find((c) => c.id === raylaConversationId);
+                  if (activeConv?.kind !== "rayla_daily" || !activeConv?.daily_message_id) return null;
+                  const dailyMessage = raylaChatMessages.find((m) => m.id === activeConv.daily_message_id);
+                  if (!dailyMessage) return null;
+                  const chips = raylaDaily.extractFollowupPrompts(dailyMessage.content).slice(0, 3);
+                  if (!chips.length) return null;
+                  return (
+                    <div style={{ padding: "0 16px 12px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {chips.map((chip, idx) => (
+                        <button
+                          key={`${idx}-${chip}`}
+                          type="button"
+                          disabled={isRaylaLoading || raylaDailyBusy}
+                          onClick={async () => {
+                            try {
+                              await handleAskRaylaQuestion(chip, { clearInput: false, useChat: true });
+                            } catch (err) {
+                              console.error("[rayla-daily] chip send failed", err);
+                            }
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(124,196,255,0.28)",
+                            background: (isRaylaLoading || raylaDailyBusy) ? "rgba(255,255,255,0.03)" : "rgba(124,196,255,0.08)",
+                            color: (isRaylaLoading || raylaDailyBusy) ? "#64748b" : "#dbeafe",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: (isRaylaLoading || raylaDailyBusy) ? "not-allowed" : "pointer",
+                            whiteSpace: "normal",
+                            textAlign: "left",
+                            maxWidth: "100%",
+                          }}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {simulationRaylaPromptTradeId
                   && simulationRaylaGuidanceStateByTrade[simulationRaylaPromptTradeId] === "pending" ? (

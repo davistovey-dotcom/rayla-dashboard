@@ -834,6 +834,124 @@ const worldContextReasoningGuidance = [
   "When the world-context block is absent, revert to normal answering — don't fabricate world context you don't have.",
 ].join("\n");
 
+// Renders the raylaDailyContext payload the client assembles at Daily
+// generation time: portfolio delta, top intraday movers, Investor Score
+// with evidence, ALP summary, Rayla Picks. Returns "" when no Daily
+// context is attached (i.e. the current intent is not rayla_daily).
+function buildRaylaDailyContextBlock(context: any) {
+  const rd = context?.raylaDailyContext;
+  if (!rd || typeof rd !== "object") return "";
+
+  const lines: string[] = ["Rayla Daily generation context (facts for the Daily — do not invent beyond this):"];
+
+  lines.push(`- Local calendar day: ${rd.todayYMD || "unknown"}`);
+  lines.push(`- User first name for personalization: ${rd.firstName || "(none — do not fabricate)"}`);
+  lines.push(`- Brokerage connected: ${rd.hasBrokerage ? "yes" : "no"}`);
+  if (rd.marketIsOpen != null) {
+    lines.push(`- Market open right now: ${rd.marketIsOpen ? "yes" : "no"}`);
+  }
+
+  if (rd.portfolio) {
+    const p = rd.portfolio;
+    const dir = Number(p.deltaPct) >= 0 ? "+" : "";
+    lines.push(`- Portfolio delta since ${p.priorDate}: equity went from $${Number(p.priorEquity).toFixed(2)} to $${Number(p.currentEquity).toFixed(2)} (${dir}$${Number(p.deltaAbs).toFixed(2)}, ${dir}${Number(p.deltaPct).toFixed(2)}%)`);
+  } else if (rd.hasBrokerage) {
+    lines.push("- Portfolio delta: not available yet (first-day user or missing snapshots) — omit the portfolio bullet in the Daily rather than fabricate one.");
+  }
+
+  const movers = Array.isArray(rd.topMovers) ? rd.topMovers : [];
+  if (movers.length) {
+    lines.push("- Top intraday movers among the user's holdings:");
+    for (const m of movers) {
+      const dir = Number(m.changeTodayPct) >= 0 ? "+" : "";
+      const plStr = m.intradayPl != null ? ` (${Number(m.intradayPl) >= 0 ? "+" : ""}$${Number(m.intradayPl).toFixed(2)})` : "";
+      lines.push(`    ${m.symbol}: ${dir}${Number(m.changeTodayPct).toFixed(2)}%${plStr}`);
+    }
+  } else if (rd.hasBrokerage) {
+    lines.push("- Top intraday movers: none with meaningful moves right now.");
+  }
+
+  if (rd.investorScore) {
+    const s = rd.investorScore;
+    const evidence = `evidence: ${s.evidenceLedgerCount} recent decision-ledger entries`;
+    const driver = s.primaryDriver ? `, primary driver: ${s.primaryDriver}` : "";
+    if (s.delta != null) {
+      const sign = s.delta > 0 ? "+" : s.delta < 0 ? "" : "±";
+      lines.push(`- Investor Score: ${s.current} today vs ${s.yesterday} yesterday (${sign}${s.delta}). ${evidence}${driver}.`);
+    } else {
+      lines.push(`- Investor Score: ${s.current} today (no yesterday comparison available). ${evidence}${driver}.`);
+    }
+  }
+
+  if (rd.adaptiveProfileSummary) {
+    lines.push("- Adaptive Learning Profile snapshot:");
+    lines.push(`    ${String(rd.adaptiveProfileSummary).replace(/\n/g, "\n    ")}`);
+  }
+
+  if (rd.raylaPicksToday) {
+    lines.push("- Rayla Picks for today:");
+    lines.push(`    ${JSON.stringify(rd.raylaPicksToday).slice(0, 600)}`);
+  }
+
+  return lines.join("\n");
+}
+
+// Voice + structure rules specific to Rayla Daily. Only appended to the
+// system prompt when intent === "rayla_daily". Sits on top of the standard
+// world-context reasoning rules (which apply for the "why should I care"
+// attribution work). The Daily is a shape, not a new voice — the composition
+// rules above still govern tone.
+const raylaDailyGuidance = [
+  "Rayla Daily rules (apply only when intent = 'rayla_daily'):",
+  "",
+  "Opening.",
+  "- Do NOT open with 'Good morning' or any time-of-day greeting. The Daily is time-agnostic — a user might open it midday or evening.",
+  "- Open with 'Since you were last here,' followed by the strongest fact from the generation context. If no portfolio and no market news to lead with, open with the most notable macro / market event.",
+  "- Do NOT restate 'This is Rayla Daily' or any similar header. The title is already shown in the UI. Get straight to substance.",
+  "",
+  "Structure — brokerage-connected users:",
+  "- Section 1: 'Since you were last here,' followed by 3-5 bullet facts. Each bullet is a CONFIRMED FACT drawn directly from the Rayla Daily generation context or the world-context block. Bullets carry sources for news-driven facts using the `(Source)` format from the world-context reasoning rules.",
+  "- Section 2 heading exactly: 'What deserves your attention today'",
+  "- Under Section 2: 2-5 prioritized items. Each item is INTERPRETATION — it takes a fact from Section 1 or the world-context block and answers 'Why should I care?' by tying it to the user's holdings, portfolio, Investor Score, opportunities, or risk. Every item must end with a concrete implication for the user, not a generic market observation.",
+  "",
+  "Structure — users WITHOUT brokerage data:",
+  "- Skip the portfolio-delta bullet. Section 1 becomes 'Since you were last here,' followed by 3-4 market-focused facts (macro release, sector rotation, notable earnings, major headline).",
+  "- Section 2 heading exactly: 'What deserves your attention today' — 2-4 prioritized items grounded in Rayla Picks (if present) or the strongest market signals visible.",
+  "- Add Section 3 heading exactly: 'Worth learning today' — one specific, timely concept tied to something in the day's news. NOT generic education. Skip if nothing sharp comes to mind.",
+  "",
+  "'Why should I care?' framing (both variants):",
+  "- Every Section 2 item MUST connect a fact to the user. Bad: 'Tech stocks are rallying today.' Good (with brokerage): 'Tech is rallying (XLK +1.4%). Your NVDA and MSFT positions together are ~34% of the book, so today's move is meaningfully lifting the portfolio — but it also means concentration risk is higher than it was yesterday.' Good (without brokerage): 'Tech is rallying (XLK +1.4%) on rate-cut hopes. If you follow tech names, watch semis specifically — the group has led the last three intraday tops.'",
+  "- Personal ties may reference: individual holdings, sector weight, portfolio direction, Investor Score, past decision patterns from the ALP, or the user's stated goals. Never invent a tie that isn't visible in the generation context.",
+  "",
+  "Investor Score bullet — gated.",
+  "- ONLY include a Score narrative bullet when the generation context shows: (a) score delta ≥ 1 (positive or negative), AND (b) evidenceLedgerCount ≥ 5, AND (c) a primaryDriver is present.",
+  "- When all three gates pass, name the delta AND the specific driver: 'Your Investor Score moved from 60 to 63. The lift is coming from your patience on entries — you sat through two pullbacks this week that you would have chased three weeks ago.'",
+  "- When any gate fails, either OMIT the Score bullet entirely, or (if the score itself is worth naming) reduce to a bare fact with no behavioral narrative: 'Your Investor Score is 62 today.' Never claim behavioral improvement without ledger evidence backing it.",
+  "- NEVER use the phrase 'held through volatility instead of panic selling' or similar templates. That reasoning MUST come from actual ledger evidence surfaced in primaryDriver.",
+  "",
+  "Trust and citation.",
+  "- Reuse every rule from the world-context reasoning block. Cite sources on news facts. Never invent causation. Distinguish facts from interpretation via the two-section structure.",
+  "- If the generation context is thin (no news, no significant moves, quiet market), say so plainly and keep the Daily short. Do NOT pad. A 120-word Daily on a quiet day is honest; a 300-word Daily on a quiet day is not.",
+  "",
+  "Length.",
+  "- Target 200-300 words for the body (Sections 1 + 2 + optional Section 3). Hard cap 320 words. The follow-up chip block below does not count toward the word budget.",
+  "",
+  "Follow-up chips — REQUIRED trailing marker.",
+  "- After the body, emit a blank line, then the marker line exactly (all caps, no code fence, no other formatting):",
+  "",
+  "    FOLLOWUP_PROMPTS:",
+  "",
+  "- Follow that marker with 2-3 lines, each starting with '- ' and a natural follow-up question the user might realistically ask after reading the Daily. Chips MUST reflect what the Daily actually discussed — reference the specific tickers, sectors, events, or Score moves you named above.",
+  "- Example format:",
+  "",
+  "    FOLLOWUP_PROMPTS:",
+  "    - Should I trim my NVDA exposure given today's rally?",
+  "    - What does the Fed's language mean for my bond allocation?",
+  "    - Explain why my Investor Score moved up",
+  "",
+  "- Keep each chip under 90 characters. Phrase as first-person questions the user would ask, not commands or headlines. The client parses these into clickable suggestions and strips the marker+chips from the visible message text, so do NOT reference the chip block in the body prose.",
+].join("\n");
+
 function buildBehavioralPatternBlock(context: any) {
   const bp = context?.behavioralPatternContext;
   if (!bp || !bp.patternThresholdMet) return "";
@@ -1084,6 +1202,8 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     simulationContext: context.simulationContext ?? null,
     marketIntelContext: context.marketIntelContext ?? null,
     worldContext: context.worldContext ?? null,
+    raylaDailyContext: context.raylaDailyContext ?? null,
+    intent: context.intent ?? null,
     raylaPicksContext: context.raylaPicksContext ?? null,
     behavioralPatternContext: context.behavioralPatternContext ?? null,
     selectedAssetContext: context.selectedAssetContext ?? null,
@@ -1498,6 +1618,10 @@ function buildSystemPrompt(context: any, intent: string) {
     buildRaylaPicksSummary(context),
     buildWorldContextBlock(context),
     worldContextReasoningGuidance,
+    // Rayla Daily — context block always renders when present (so the model
+    // can see it), guidance is appended only for the rayla_daily intent.
+    buildRaylaDailyContextBlock(context),
+    context?.intent === "rayla_daily" ? raylaDailyGuidance : "",
     buildAppContextSummary(context),
     // Background reference — edge/performance, used only when directly relevant
     buildBackgroundReferenceBlock(context),
