@@ -101,7 +101,7 @@ export function scoreDiscipline(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Log a rule check or tag an emotion on a decision to unlock this score.",
+      reason: "This score fills in as Rayla and you talk through your trades.",
     };
   }
 
@@ -132,7 +132,7 @@ export function scoreDiscipline(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Log a rule check or tag an emotion on a decision to unlock this score.",
+      reason: "This score fills in as Rayla and you talk through your trades.",
     };
   }
 
@@ -284,7 +284,7 @@ export function scoreReflection(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Write a reflection entry or add a lesson to a decision to unlock this score.",
+      reason: "Rayla asks what each trade taught you when it closes. Once a few of those are in, this score starts moving.",
     };
   }
 
@@ -296,7 +296,7 @@ export function scoreReflection(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Write a reflection entry or add a lesson to a decision to unlock this score.",
+      reason: "Rayla asks what each trade taught you when it closes. Once a few of those are in, this score starts moving.",
     };
   }
 

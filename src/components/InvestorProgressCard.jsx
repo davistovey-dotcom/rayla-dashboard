@@ -73,7 +73,7 @@ export default function InvestorProgressCard({
           You&apos;re just getting started.
         </div>
         <div style={subtitleStyle}>
-          As you invest and journal, patterns start showing up in the way you make decisions. This is where you&apos;ll see them.
+          As you invest and Rayla learns from your trades, patterns start showing up in how you decide. This is where you&apos;ll see them.
         </div>
       </div>
     );

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
+import * as tradeReflections from "../services/tradeReflections";
 
 const INVESTOR_REVIEW_STRENGTH_META = {
   strong: { label: "Strong", color: "#4ade80", bg: "rgba(74,222,128,0.14)" },
@@ -35,6 +36,7 @@ export default function InvestorReviewTab({ userId, getCoachProfile }) {
   const [error, setError] = useState(null);
   const [entries, setEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(false);
+  const [reflections, setReflections] = useState([]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formEntryType, setFormEntryType] = useState("plan");
@@ -82,20 +84,36 @@ export default function InvestorReviewTab({ userId, getCoachProfile }) {
   }, [targetWeekStartISO, getCoachProfile]);
 
   const fetchEntries = useCallback(async () => {
-    if (!userId) { setEntries([]); return; }
+    if (!userId) { setEntries([]); setReflections([]); return; }
     setEntriesLoading(true);
+    // Fetch ledger entries and completed trade reflections in parallel;
+    // the Decision Log merges both into a single chronological feed
+    // grouped by day. Failures in either fetch don't block the other.
     try {
-      const { data, error: qError } = await supabase
-        .from("decision_ledger_entries")
-        .select("id, created_at, entry_type, symbol, decision, reasoning, confidence, emotion, rule_followed, source, outcome, lesson")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (qError) throw qError;
-      setEntries(data || []);
+      const [ledgerRes, reflectionsRes] = await Promise.allSettled([
+        supabase
+          .from("decision_ledger_entries")
+          .select("id, created_at, entry_type, symbol, decision, reasoning, confidence, emotion, rule_followed, source, outcome, lesson, metadata")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(30),
+        tradeReflections.fetchCompletedReflections(supabase, userId, { limit: 30 }),
+      ]);
+      if (ledgerRes.status === "fulfilled") {
+        if (ledgerRes.value.error) throw ledgerRes.value.error;
+        setEntries(ledgerRes.value.data || []);
+      } else {
+        setEntries([]);
+      }
+      if (reflectionsRes.status === "fulfilled") {
+        setReflections(Array.isArray(reflectionsRes.value) ? reflectionsRes.value : []);
+      } else {
+        setReflections([]);
+      }
     } catch (err) {
       console.error("[investor-review] load entries failed", err);
       setEntries([]);
+      setReflections([]);
     } finally {
       setEntriesLoading(false);
     }
@@ -103,6 +121,43 @@ export default function InvestorReviewTab({ userId, getCoachProfile }) {
 
   useEffect(() => { fetchReview(); }, [fetchReview]);
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
+
+  // Merge ledger entries and completed trade reflections into a single
+  // chronological feed. Reflections are normalized into the same shape
+  // the existing entry renderer expects so we don't have to fork the UI.
+  // Each merged row carries a `_source` tag ('ledger' | 'reflection') so
+  // the renderer can badge them appropriately.
+  const mergedEntries = useMemo(() => {
+    const fromLedger = (Array.isArray(entries) ? entries : []).map((e) => ({ ...e, _source: "ledger" }));
+    const fromReflections = (Array.isArray(reflections) ? reflections : []).map((r) => {
+      const sym = r?.metadata?.symbol || null;
+      const pl = r?.metadata?.pl;
+      const plPct = r?.metadata?.pl_pct;
+      const outcomeParts = [];
+      if (Number.isFinite(Number(pl))) outcomeParts.push(`${Number(pl) >= 0 ? "+" : ""}$${Math.abs(Number(pl)).toFixed(2)}`);
+      if (Number.isFinite(Number(plPct))) outcomeParts.push(`${Number(plPct) >= 0 ? "+" : ""}${Number(plPct).toFixed(2)}%`);
+      return {
+        id: `reflection:${r.id}`,
+        created_at: r.answered_at || r.created_at,
+        entry_type: "reflection",
+        symbol: sym ? String(sym).toUpperCase() : null,
+        decision: r.reflection_question || null,
+        reasoning: r.user_response || null,
+        confidence: null,
+        emotion: null,
+        rule_followed: null,
+        source: "trade_reflection",
+        outcome: outcomeParts.length ? outcomeParts.join(" / ") : null,
+        lesson: null,
+        metadata: r.metadata || {},
+        _source: "reflection",
+        _reflectionId: r.id,
+      };
+    });
+    const merged = [...fromLedger, ...fromReflections];
+    merged.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    return merged.slice(0, 50);
+  }, [entries, reflections]);
 
   async function submitEntry(e) {
     e.preventDefault();
@@ -277,18 +332,9 @@ export default function InvestorReviewTab({ userId, getCoachProfile }) {
       ) : null}
 
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <div>
-            <div style={eyebrowStyle}>Decision ledger</div>
-            <div style={{ ...subtleText, marginTop: 2 }}>The raw evidence Rayla reviews. You control every entry.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFormOpen((v) => !v)}
-            style={{ padding: "8px 14px", borderRadius: 10, background: "rgba(124,196,255,0.14)", border: "1px solid rgba(124,196,255,0.28)", color: "#7CC4FF", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-          >
-            {formOpen ? "Close" : "+ Log decision"}
-          </button>
+        <div>
+          <div style={eyebrowStyle}>Decision log</div>
+          <div style={{ ...subtleText, marginTop: 2 }}>What Rayla and you have noted from your trades.</div>
         </div>
 
         {formOpen ? (
@@ -346,32 +392,121 @@ export default function InvestorReviewTab({ userId, getCoachProfile }) {
         ) : null}
 
         {entriesLoading ? (
-          <div style={subtleText}>Loading recent entries…</div>
-        ) : entries.length === 0 ? (
-          <div style={{ ...subtleText, fontStyle: "italic" }}>No decision ledger entries yet. Log a plan before your next trade to give Rayla something to review.</div>
+          <div style={subtleText}>Loading…</div>
+        ) : mergedEntries.length === 0 ? (
+          <div style={{ ...subtleText, fontStyle: "italic" }}>Rayla will start capturing moments from your trades — including a short reflection after each closed trade. You can also add a note yourself if something's on your mind.</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {entries.map((entry) => {
-              const created = entry.created_at ? new Date(entry.created_at) : null;
-              return (
-                <div key={entry.id} style={{ padding: "12px 14px", background: "rgba(8,12,18,0.55)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "#7CC4FF" }}>{entry.entry_type}</span>
-                      {entry.symbol ? <span style={{ fontSize: 12, color: "#e2f0ff", fontWeight: 600 }}>{entry.symbol}</span> : null}
-                      {entry.confidence != null ? <span style={{ fontSize: 11, color: "#94a3b8" }}>conf {entry.confidence}/10</span> : null}
-                      {entry.rule_followed === true ? <span style={{ fontSize: 11, color: "#4ade80" }}>rule ✓</span> : entry.rule_followed === false ? <span style={{ fontSize: 11, color: "#f87171" }}>rule ✗</span> : null}
-                      {entry.emotion ? <span style={{ fontSize: 11, color: "#c084fc" }}>{entry.emotion}</span> : null}
-                    </div>
-                    <span style={{ fontSize: 11, color: "#7f8ea3" }}>{created ? created.toLocaleString() : ""}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {(() => {
+              // Group by local calendar day. Newest first.
+              const groups = new Map();
+              for (const e of mergedEntries) {
+                const d = e.created_at ? new Date(e.created_at) : new Date();
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, "0");
+                const day = String(d.getDate()).padStart(2, "0");
+                const ymd = `${y}-${m}-${day}`;
+                if (!groups.has(ymd)) groups.set(ymd, []);
+                groups.get(ymd).push(e);
+              }
+              const today = new Date();
+              const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+              const todayYMD = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+              const yestYMD = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+              const labelFor = (ymd) => {
+                if (ymd === todayYMD) return "Today";
+                if (ymd === yestYMD) return "Yesterday";
+                const [yy, mm, dd] = ymd.split("-").map(Number);
+                return new Date(yy, mm - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+              };
+              return Array.from(groups.entries()).map(([ymd, dayEntries]) => (
+                <div key={ymd} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ ...eyebrowStyle, color: "#64748b" }}>{labelFor(ymd)}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {dayEntries.map((entry) => {
+                      const created = entry.created_at ? new Date(entry.created_at) : null;
+                      // Row source classification for the badge:
+                      //   - trade reflection (Phase 2.1) → "Reflection" badge
+                      //   - decision_ledger_entries captured by Rayla (Phase 1) → "Rayla" badge
+                      //   - manually-added ledger row → "Manual" badge
+                      const isReflection = entry._source === "reflection";
+                      const capturedByRayla = !isReflection && (
+                        entry?.metadata?.captured_via === "behavior_capture"
+                        || String(entry?.source || "").startsWith("behavior_capture")
+                      );
+                      const badgeMeta = isReflection
+                        ? { label: "↺ Reflection", color: "#c084fc", bg: "rgba(192,132,252,0.10)", border: "rgba(192,132,252,0.28)", title: "Automatic reflection captured after a closed trade" }
+                        : capturedByRayla
+                          ? { label: "↻ Rayla", color: "#7CC4FF", bg: "rgba(124,196,255,0.10)", border: "rgba(124,196,255,0.22)", title: "Captured by Rayla during a conversation" }
+                          : { label: "✎ Manual", color: "#64748b", bg: "rgba(148,163,184,0.08)", border: "rgba(148,163,184,0.16)", title: "Added manually" };
+                      return (
+                        <div key={entry.id} style={{ padding: "12px 14px", background: "rgba(8,12,18,0.55)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "#7CC4FF" }}>{entry.entry_type}</span>
+                              {entry.symbol ? <span style={{ fontSize: 12, color: "#e2f0ff", fontWeight: 600 }}>{entry.symbol}</span> : null}
+                              {entry.confidence != null ? <span style={{ fontSize: 11, color: "#94a3b8" }}>conf {entry.confidence}/10</span> : null}
+                              {entry.rule_followed === true ? <span style={{ fontSize: 11, color: "#4ade80" }}>rule ✓</span> : entry.rule_followed === false ? <span style={{ fontSize: 11, color: "#f87171" }}>rule ✗</span> : null}
+                              {entry.emotion ? <span style={{ fontSize: 11, color: "#c084fc" }}>{entry.emotion}</span> : null}
+                              <span
+                                title={badgeMeta.title}
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  letterSpacing: "0.4px",
+                                  textTransform: "uppercase",
+                                  padding: "2px 6px",
+                                  borderRadius: 6,
+                                  color: badgeMeta.color,
+                                  background: badgeMeta.bg,
+                                  border: `1px solid ${badgeMeta.border}`,
+                                }}
+                              >
+                                {badgeMeta.label}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 11, color: "#7f8ea3" }}>{created ? created.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : ""}</span>
+                          </div>
+                          {/* For reflections, entry.decision is the question Rayla
+                              asked; entry.reasoning is the user's answer. Render
+                              them with clear labels. For ledger rows, decision +
+                              lesson + reasoning are all optional prose fields. */}
+                          {entry.decision ? (
+                            isReflection ? (
+                              <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.5, fontStyle: "italic" }}>Rayla asked: {entry.decision}</div>
+                            ) : (
+                              <div style={{ color: "#e2f0ff", fontSize: 14 }}>{entry.decision}</div>
+                            )
+                          ) : null}
+                          {entry.lesson ? <div style={{ color: "#dbeafe", fontSize: 13, lineHeight: 1.5 }}><b style={{ color: "#7CC4FF" }}>Lesson:</b> {entry.lesson}</div> : null}
+                          {entry.reasoning ? (
+                            isReflection
+                              ? <div style={{ color: "#e2f0ff", fontSize: 14, lineHeight: 1.5 }}>{entry.reasoning}</div>
+                              : <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.5 }}>{entry.reasoning}</div>
+                          ) : null}
+                          {entry.outcome ? <div style={{ color: "#7f8ea3", fontSize: 12 }}>Outcome: {entry.outcome}</div> : null}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div style={{ color: "#e2f0ff", fontSize: 14 }}>{entry.decision}</div>
-                  {entry.reasoning ? <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.5 }}>{entry.reasoning}</div> : null}
                 </div>
-              );
-            })}
+              ));
+            })()}
           </div>
         )}
+
+        {/* Manual-log escape hatch — deliberately downgraded from a prominent
+            header button to a plain link at the bottom, per the Behavior
+            Capture spec. Rayla is the primary capture surface now. */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={() => setFormOpen((v) => !v)}
+            style={{ background: "none", border: "none", padding: 0, color: "#7f8ea3", fontSize: 12, cursor: "pointer", textDecoration: "underline dotted" }}
+          >
+            {formOpen ? "Close manual entry" : "Add a note manually"}
+          </button>
+        </div>
       </div>
     </div>
   );

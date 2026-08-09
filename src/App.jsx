@@ -22,6 +22,8 @@ import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistor
 import IntelSimulationSetupOverlay from "./components/IntelSimulationSetupOverlay";
 import * as raylaChat from "./services/raylaConversations";
 import * as raylaDaily from "./services/raylaDaily";
+import * as behaviorCapture from "./services/behaviorCapture";
+import * as tradeReflections from "./services/tradeReflections";
 import { computeInvestorScore } from "./utils/investorScore";
 import { deriveProfileFromData } from "./utils/adaptiveLearningProfile";
 import { buildAskRaylaWelcome, ASK_RAYLA_WELCOME_STARTERS } from "./services/askRaylaWelcome";
@@ -14769,6 +14771,32 @@ useEffect(() => {
   // trigger effect during React's dev-strict double-invoke.
   const [raylaDailyBusy, setRaylaDailyBusy] = useState(false);
   const raylaDailyInFlightRef = useRef(false);
+  // Recent decision-ledger entries piped into Ask Rayla's context so coaching
+  // conversations can cite specific captured moments. Loaded on session
+  // establish, refreshed after every successful behavior-capture write.
+  const [raylaLedgerCache, setRaylaLedgerCache] = useState([]);
+  // Pending trade-close capture prompts. Rendered as chips under the Ask
+  // Rayla toolbar the next time the overlay opens. Never auto-opens the
+  // overlay — trade-close is passive by design.
+  const [raylaCaptureQueue, setRaylaCaptureQueue] = useState([]);
+  // Sticky per-conversation flag: when active, every user message sent in
+  // the current conversation carries intent="behavior_capture" and the
+  // captureContext, so Rayla can emit LEDGER_ENTRY markers. Cleared on
+  // conversation switch.
+  const raylaActiveCaptureRef = useRef(null);
+  // Sticky per-conversation ref for a pending trade reflection (Phase 2.1).
+  // Set when the overlay surfaces a pending reflection; the user's next
+  // message in that conversation is saved as the reflection response and
+  // the ref is cleared. Subsequent messages in the same conversation flow
+  // as normal Ask Rayla.
+  const raylaActiveReflectionRef = useRef(null);
+  // Guard so a single overlay-open surfaces at most one pending reflection.
+  // Reset when the overlay closes.
+  const raylaReflectionSurfacedThisOpenRef = useRef(false);
+  // Prior broker positions — used to diff-detect closed positions for the
+  // trade-close capture queue. Seeded on first successful load so the
+  // initial fetch doesn't fire a false "everything just closed" storm.
+  const prevBrokerPositionsRef = useRef(null);
   const closeAskRaylaOverlay = useCallback(() => {
     setAskRaylaOverlayOpen(false);
     setRaylaHistoryOpen(false);
@@ -18697,6 +18725,8 @@ useEffect(() => {
       raylaPendingContextRef.current = null;
       raylaPendingConversationTitleRef.current = null;
       raylaPendingWorldContextRef.current = false;
+      raylaActiveCaptureRef.current = null;
+      raylaActiveReflectionRef.current = null;
     } catch (err) {
       // Non-blocking: DO NOT wipe existing UI on load failure.
       console.warn("[rayla] loadConversation failed", err);
@@ -18877,6 +18907,263 @@ useEffect(() => {
       }
     }
   }, [createFreshRaylaConversation, setRaylaConversationId]);
+
+  // ---------------------------------------------------------------------------
+  // Behavior Capture (Phase 1) — trade-close reflections
+  // ---------------------------------------------------------------------------
+
+  // Refresh the in-memory decision-ledger cache so subsequent Ask Rayla
+  // requests can cite recent entries. Called on session load and after every
+  // silent write from a capture conversation.
+  const refreshLedgerCache = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) { setRaylaLedgerCache([]); return; }
+    try {
+      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from("decision_ledger_entries")
+        .select("id, created_at, entry_type, symbol, decision, reasoning, confidence, emotion, rule_followed, outcome, lesson")
+        .eq("user_id", userId)
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      setRaylaLedgerCache(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("[behavior-capture] ledger cache load failed", err);
+    }
+  }, [session?.user?.id]);
+
+  // Load ledger on session establish. Not blocking — Ask Rayla still works
+  // without it, just without ledger-grounded coaching answers.
+  useEffect(() => { refreshLedgerCache(); }, [refreshLedgerCache]);
+
+  // Sync capture queue from localStorage on mount + when the overlay opens.
+  // The queue itself lives in localStorage; this state mirror lets the chip
+  // renderer be reactive.
+  const syncCaptureQueueFromStorage = useCallback(() => {
+    const userId = session?.user?.id;
+    if (!userId) { setRaylaCaptureQueue([]); return; }
+    setRaylaCaptureQueue(behaviorCapture.readCaptureQueue(userId));
+  }, [session?.user?.id]);
+  useEffect(() => { syncCaptureQueueFromStorage(); }, [syncCaptureQueueFromStorage]);
+  useEffect(() => {
+    if (askRaylaOverlayOpen) syncCaptureQueueFromStorage();
+  }, [askRaylaOverlayOpen, syncCaptureQueueFromStorage]);
+
+  // Position-close watcher. Diffs previous vs current broker positions on
+  // every change. Enqueues one capture item per newly-closed position.
+  // Never opens the overlay — chip surfaces passively on next open.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    // Only run when we have brokerage state. If the account isn't loaded,
+    // an empty positions array is meaningless (could be pre-fetch state),
+    // not "everything closed".
+    if (!alpacaAccount) return;
+    if (prevBrokerPositionsRef.current === null) {
+      // First observation — seed the ref, don't detect. Otherwise the
+      // initial page load would flood the queue with "closes" for every
+      // position that was previously open.
+      prevBrokerPositionsRef.current = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [];
+      return;
+    }
+    const closed = behaviorCapture.detectClosedPositions(prevBrokerPositionsRef.current, brokerPositionsWithIntent || []);
+    if (closed.length) {
+      // Trade Reflection Engine (Phase 2.1) — insert one pending row per
+      // closed trade. The UNIQUE (user_id, trade_id, reflection_type)
+      // constraint makes this idempotent across re-detections. This is
+      // the ONLY reflection surface for a completed trade; the earlier
+      // Phase 1 capture chip has been removed for trade closes so users
+      // get exactly one prompt per closed trade (delivered as an auto-
+      // surfaced conversation on next Ask Rayla overlay open).
+      (async () => {
+        const brokerEnv = alpacaAccount?.status === "PAPER_ACCOUNT" || alpacaAccount?.paper === true
+          ? "paper"
+          : "live";
+        for (const item of closed) {
+          try {
+            await tradeReflections.createPendingReflection(supabase, userId, item, { brokerEnv });
+          } catch (err) {
+            console.warn("[trade-reflection] create pending failed", err);
+          }
+        }
+      })();
+    }
+    prevBrokerPositionsRef.current = Array.isArray(brokerPositionsWithIntent) ? brokerPositionsWithIntent : [];
+  }, [brokerPositionsWithIntent, alpacaAccount, session?.user?.id]);
+
+  // Chip-click handler. Creates a fresh conversation seeded with Rayla's
+  // opening question (hard-coded template, no LLM roundtrip) and sets the
+  // capture ref so the user's first reply carries intent="behavior_capture"
+  // + captureContext to ask-rayla, which triggers the LEDGER_ENTRY marker.
+  const openCaptureConversation = useCallback(async (item) => {
+    const userId = session?.user?.id;
+    if (!userId || !item) return;
+    raylaActiveCaptureRef.current = {
+      captureId: item.id,
+      captureContext: {
+        triggerContext: "trade_close",
+        symbol: item.symbol,
+        side: item.side,
+        qty: item.qty,
+        entryPrice: item.entryPrice,
+        exitPrice: item.exitPrice,
+        pl: item.pl,
+        plPct: item.plPct,
+        closedAt: item.closedAt,
+      },
+    };
+    // Also clear any other pending sticky refs so the capture conversation
+    // is clean of unrelated context.
+    raylaPendingContextRef.current = null;
+    raylaPendingWorldContextRef.current = false;
+    const seed = behaviorCapture.buildCaptureSeedMessage(item);
+    const title = `${item.symbol} trade review`;
+    try {
+      await createFreshRaylaConversation({
+        title,
+        seedAssistantMessage: seed,
+      });
+      raylaPendingConversationTitleRef.current = title;
+    } catch (err) {
+      console.error("[behavior-capture] failed to open capture conversation", err);
+      raylaActiveCaptureRef.current = null;
+      return;
+    }
+    // Do not dequeue yet — dequeue on user's first reply (successful capture
+    // OR skip). If the user closes the overlay without answering, the chip
+    // stays in the queue for their next visit.
+  }, [session?.user?.id, createFreshRaylaConversation]);
+
+  // Called after a capture conversation's LLM response completes. Parses
+  // the LEDGER_ENTRY marker; writes the row silently; refreshes the cache;
+  // clears the queue chip regardless (the user has been asked).
+  const finalizeCaptureFromResponse = useCallback(async (rawResponseText) => {
+    const active = raylaActiveCaptureRef.current;
+    if (!active) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const parsed = behaviorCapture.parseLedgerEntryMarker(rawResponseText);
+    if (parsed) {
+      try {
+        await raylaChat.writeLedgerEntry(supabase, userId, parsed, {
+          triggerContext: active.captureContext?.triggerContext || "trade_close",
+          positionRef: {
+            positionId: active.captureContext?.symbol,
+            closedAt: active.captureContext?.closedAt,
+          },
+        });
+        await refreshLedgerCache();
+      } catch (err) {
+        console.warn("[behavior-capture] ledger write failed (silent, non-blocking)", err);
+      }
+    } else {
+      // Malformed marker OR user gave no substantive content — silently
+      // drop, log to console per the spec, never interrupt the user.
+      console.debug("[behavior-capture] no valid LEDGER_ENTRY parsed; dropping capture without write");
+    }
+
+    // Dequeue the chip whether or not a row was written — the user has
+    // been asked and we don't nag on the same close twice.
+    behaviorCapture.dequeueCapture(userId, active.captureId);
+    syncCaptureQueueFromStorage();
+  }, [session?.user?.id, refreshLedgerCache, syncCaptureQueueFromStorage]);
+
+  // ---------------------------------------------------------------------------
+  // Trade Reflection Engine (Phase 2.1)
+  // ---------------------------------------------------------------------------
+  //
+  // Auto-inserts one pending reflection per closed live trade (handled in the
+  // position-close watcher above via tradeReflections.createPendingReflection).
+  //
+  // On overlay open, after Rayla Daily has been handled for the day, we look
+  // for the oldest pending reflection and — if one exists AND we haven't
+  // already surfaced one this open cycle — spawn a new conversation seeded
+  // with the reflection question. The user's first reply becomes the
+  // response (see the intercept in handleAskRaylaQuestion below); after
+  // that, the conversation continues as normal Ask Rayla.
+
+  const surfacePendingReflectionIfAny = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    if (raylaReflectionSurfacedThisOpenRef.current) return;
+    if (raylaActiveReflectionRef.current) return; // already in a reflection convo
+    try {
+      const pending = await tradeReflections.fetchOldestPending(supabase, userId);
+      if (!pending) return;
+      raylaReflectionSurfacedThisOpenRef.current = true;
+      raylaActiveReflectionRef.current = {
+        id: pending.id,
+        tradeId: pending.trade_id,
+        symbol: pending?.metadata?.symbol || null,
+        question: pending.reflection_question,
+      };
+      const titleSymbol = pending?.metadata?.symbol
+        ? String(pending.metadata.symbol).toUpperCase()
+        : "trade";
+      await createFreshRaylaConversation({
+        title: `Reflection: ${titleSymbol}`,
+        seedAssistantMessage: pending.reflection_question,
+      });
+    } catch (err) {
+      console.warn("[trade-reflection] surface pending failed", err);
+      // Any failure clears the sentinel so we might retry on next open.
+      raylaActiveReflectionRef.current = null;
+      raylaReflectionSurfacedThisOpenRef.current = false;
+    }
+  }, [session?.user?.id, createFreshRaylaConversation]);
+
+  // Overlay-open effect: fires the reflection surface AFTER the Rayla Daily
+  // first-open effect has had its turn. We defer to Daily's localStorage
+  // flag — if today's Daily hasn't been shown yet, Daily will hijack the
+  // overlay and we skip reflection this session.
+  //
+  // Also resets the "surfaced this open" sentinel when the overlay closes,
+  // so a fresh open on the same day can surface the next pending reflection.
+  useEffect(() => {
+    if (!askRaylaOverlayOpen) {
+      raylaReflectionSurfacedThisOpenRef.current = false;
+      return;
+    }
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const todayYMD = raylaDaily.todayLocalYMD();
+    const dailyFlagKey = `rayla_daily_opened_${userId}_${todayYMD}`;
+    let dailyAlreadyShown = false;
+    try {
+      dailyAlreadyShown = Boolean(typeof window !== "undefined" && window.localStorage.getItem(dailyFlagKey));
+    } catch {
+      // localStorage denied — treat as "shown" so reflection surfaces
+      // rather than being permanently blocked by a broken storage state.
+      dailyAlreadyShown = true;
+    }
+    if (!dailyAlreadyShown) {
+      // Daily's own effect will auto-open the Daily conversation. Skip
+      // reflection this open — it'll surface on the next open once the
+      // Daily flag is set.
+      return;
+    }
+    surfacePendingReflectionIfAny();
+  }, [askRaylaOverlayOpen, session?.user?.id, surfacePendingReflectionIfAny]);
+
+  // Save-on-first-reply intercept — called from handleAskRaylaQuestion
+  // before its normal flow. Saves the user's message as the reflection
+  // response and stamps answered_at. Clears the ref so subsequent
+  // messages in the same conversation are treated as normal Ask Rayla.
+  const finalizeReflectionOnUserReply = useCallback(async (userMessageText) => {
+    const active = raylaActiveReflectionRef.current;
+    if (!active) return;
+    const userId = session?.user?.id;
+    if (!userId) { raylaActiveReflectionRef.current = null; return; }
+    try {
+      await tradeReflections.saveReflectionResponse(supabase, userId, active.id, userMessageText);
+    } catch (err) {
+      console.warn("[trade-reflection] save response failed", err);
+    }
+    raylaActiveReflectionRef.current = null;
+  }, [session?.user?.id]);
 
   // ---------------------------------------------------------------------------
   // Rayla Daily
@@ -20106,6 +20393,15 @@ Respond in strict JSON only — no markdown, no extra text:
       : null;
 
     const trimmedQuestion = question.trim();
+    // Trade Reflection (Phase 2.1) — if this is the user's first reply
+    // inside a reflection conversation, save it as user_response +
+    // populate answered_at BEFORE the normal Ask Rayla flow. This runs
+    // fire-and-forget-ish: we await the save but do NOT gate the rest of
+    // handleAskRaylaQuestion on it, so even a DB hiccup lets the user's
+    // message flow to Rayla normally.
+    if (raylaActiveReflectionRef.current) {
+      try { await finalizeReflectionOnUserReply(trimmedQuestion); } catch (err) { console.warn("[trade-reflection] finalize failed", err); }
+    }
     // displayText — when a launcher smushes an instruction prompt + a big
     // context blob into `question` (e.g. "Analyze my portfolio\n\n<packet>"),
     // the chat bubble + sidebar title should show only the human-readable
@@ -20223,6 +20519,11 @@ Respond in strict JSON only — no markdown, no extra text:
     }
 
     try {
+      // Behavior Capture — if the active conversation is a capture, tag
+      // the intent + captureContext so ask-rayla applies the capture
+      // guidance and can emit a LEDGER_ENTRY marker. Also always pipe the
+      // recent-ledger cache so any conversation can cite past captures.
+      const activeCapture = raylaActiveCaptureRef.current;
       const answer = await requestRaylaAnswer(
         trimmedQuestion,
         {
@@ -20230,6 +20531,12 @@ Respond in strict JSON only — no markdown, no extra text:
           activeReviewedTrade: nextActiveReviewedTrade,
           recentConversation: normalizeConversationSlice(raylaChatMessages, 20),
           ...(worldContextData ? { worldContext: worldContextData } : {}),
+          ...(Array.isArray(raylaLedgerCache) && raylaLedgerCache.length
+            ? { decisionLedgerContext: raylaLedgerCache }
+            : {}),
+          ...(activeCapture
+            ? { intent: "behavior_capture", captureContext: activeCapture.captureContext }
+            : {}),
         },
         {
           // Stream real tokens into the pending assistant message. Flip
@@ -20250,14 +20557,23 @@ Respond in strict JSON only — no markdown, no extra text:
       );
       setRaylaResponse(answer);
       setRaylaActiveReviewedTrade(nextActiveReviewedTrade);
+      // Behavior Capture — parse the LEDGER_ENTRY marker (if any) and write
+      // the row silently. Then strip the marker from what we persist +
+      // display so the user only sees Rayla's natural reply, not the JSON
+      // block. Malformed markers drop silently per spec.
+      let persistAnswer = answer;
+      if (activeCapture) {
+        try { await finalizeCaptureFromResponse(answer); } catch (err) { console.warn("[behavior-capture] finalize failed", err); }
+        persistAnswer = behaviorCapture.stripLedgerEntryMarker(answer);
+      }
       if (useChat) {
         setRaylaChatMessages((prev) => prev.map((message) => (
           message.id === pendingMessageId
-            ? { ...message, content: answer, loading: false }
+            ? { ...message, content: persistAnswer, loading: false }
             : message
         )));
         if (convId) {
-          persistRaylaMessage({ conversationId: convId, role: "assistant", content: answer });
+          persistRaylaMessage({ conversationId: convId, role: "assistant", content: persistAnswer });
         }
       }
       return answer;
@@ -30481,6 +30797,12 @@ return (
               );
             })()}
 
+            {/* Trade-close reflections are auto-surfaced as a conversation
+                on the next Ask Rayla overlay open (Phase 2.1 flow). The
+                previous Phase 1 chip is intentionally NOT rendered here —
+                a user should get exactly one reflection experience per
+                closed trade. */}
+
             {!askRaylaHasMessages ? (
               <div
                 style={{
@@ -30754,7 +31076,7 @@ return (
                           </div>
                         ) : (
                           <div style={{ fontSize: 14, color: "#e2e8f0", display: "flex", flexDirection: "column", gap: 12 }}>
-                            {renderRaylaMessageContent(raylaDaily.stripFollowupMarker(message.content))}
+                            {renderRaylaMessageContent(behaviorCapture.stripLedgerEntryMarker(raylaDaily.stripFollowupMarker(message.content)))}
                           </div>
                         )}
                       </div>

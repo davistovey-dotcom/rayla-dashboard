@@ -196,6 +196,46 @@ export async function attachDailyMessageId(supabase, userId, conversationId, mes
   return true;
 }
 
+// Behavior Capture — inserts a decision_ledger_entries row from a parsed
+// LEDGER_ENTRY marker. Called silently after the capture-conversation
+// stream completes. The row carries metadata tagging its capture source
+// so InvestorReviewTab can render a "Rayla" vs "Manual" badge and future
+// analytics can filter.
+//
+//   rowData     the parsed marker payload (entry_type, symbol, reasoning,
+//               lesson, emotion, outcome, rule_followed, confidence)
+//   triggerContext  e.g. "trade_close" — stored in metadata for audit
+//   positionRef optional { positionId, closedAt } — stored in metadata to
+//               tie the entry back to the specific closed position
+export async function writeLedgerEntry(supabase, userId, rowData, { triggerContext = null, positionRef = null } = {}) {
+  if (!userId || !rowData || !rowData.entry_type) return null;
+  const insertRow = {
+    user_id: userId,
+    entry_type: rowData.entry_type,
+    symbol: rowData.symbol || null,
+    decision: rowData.decision || null,
+    reasoning: rowData.reasoning || null,
+    confidence: Number.isFinite(Number(rowData.confidence)) ? Number(rowData.confidence) : null,
+    emotion: rowData.emotion || null,
+    rule_followed: typeof rowData.rule_followed === "boolean" ? rowData.rule_followed : null,
+    outcome: rowData.outcome || null,
+    lesson: rowData.lesson || null,
+    source: triggerContext ? `behavior_capture:${triggerContext}` : "behavior_capture",
+    metadata: {
+      captured_via: "behavior_capture",
+      trigger_context: triggerContext || null,
+      ...(positionRef ? { position_id: positionRef.positionId || null, closed_at: positionRef.closedAt || null } : {}),
+    },
+  };
+  const { data, error } = await supabase
+    .from("decision_ledger_entries")
+    .insert(insertRow)
+    .select("id, created_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 // In-place message content replacement — used only by Refresh Daily.
 // Follow-up messages (message_ids other than daily_message_id) are never
 // touched by this path.

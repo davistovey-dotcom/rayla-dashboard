@@ -132,7 +132,7 @@ function cardDiscipline(profile) {
   return {
     type: "opportunity",
     category: "Discipline",
-    statement: "Try tagging how you're feeling on your next trade. Once a few tags are in, this card starts showing what it sees.",
+    statement: "Rayla starts reading discipline signals from her conversations with you around your trades. Give it a few of those.",
   };
 }
 
@@ -162,7 +162,7 @@ function cardPreparation(profile) {
   return {
     type: "opportunity",
     category: "Preparation",
-    statement: "Try writing a short plan before your next trade. Even one line about what you're expecting is enough for this card to start tracking.",
+    statement: "This card starts showing your preparation habits once Rayla has a few of your trades to compare against.",
   };
 }
 
@@ -179,7 +179,7 @@ function cardReflection(profile) {
   return {
     type: "opportunity",
     category: "Reflection",
-    statement: "Add a lesson or outcome to one of your recent decisions. Anything you write shows up here as your reflection habit takes shape.",
+    statement: "When a trade closes, Rayla asks you what it taught you. This card starts filling in after a few of those conversations.",
   };
 }
 
@@ -252,7 +252,7 @@ export function computeInvestorProgress(
   if (!hasProfileEvidence && !hasSnapshots) {
     return {
       empty: true,
-      emptyMessage: "You're just getting started. As you invest and journal, patterns start showing up in the way you make decisions. This is where you'll see them.",
+      emptyMessage: "You're just getting started. As you invest and Rayla learns from your trades, patterns start showing up in how you decide. This is where you'll see them.",
       cards: [],
     };
   }

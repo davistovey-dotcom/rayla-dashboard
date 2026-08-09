@@ -952,6 +952,119 @@ const raylaDailyGuidance = [
   "- Keep each chip under 90 characters. Phrase as first-person questions the user would ask, not commands or headlines. The client parses these into clickable suggestions and strips the marker+chips from the visible message text, so do NOT reference the chip block in the body prose.",
 ].join("\n");
 
+// Renders the last-N decision-ledger entries the client hands us. Consumed
+// by regular coaching conversations so Rayla can ground behavioral answers
+// in the user's actual captured moments. Returns "" when no ledger data is
+// attached.
+function buildDecisionLedgerBlock(context: any) {
+  const ledger = context?.decisionLedgerContext;
+  if (!Array.isArray(ledger) || ledger.length === 0) return "";
+
+  const lines: string[] = [
+    `Recent decision-ledger entries (${ledger.length} shown, most recent first):`,
+  ];
+  for (const row of ledger.slice(0, 30)) {
+    const date = String(row?.created_at || "").slice(0, 10);
+    const type = String(row?.entry_type || "").trim() || "note";
+    const sym = row?.symbol ? String(row.symbol).toUpperCase() : "portfolio";
+    const bits: string[] = [];
+    if (row?.decision) bits.push(`decision: ${row.decision}`);
+    if (row?.emotion) bits.push(`emotion: ${row.emotion}`);
+    if (typeof row?.rule_followed === "boolean") bits.push(`rule_followed: ${row.rule_followed}`);
+    if (row?.outcome) bits.push(`outcome: ${String(row.outcome).slice(0, 120)}`);
+    if (row?.lesson) bits.push(`lesson: "${String(row.lesson).slice(0, 140)}"`);
+    if (row?.reasoning) bits.push(`reasoning: "${String(row.reasoning).slice(0, 160)}"`);
+    lines.push(`- ${date} · ${type} · ${sym}${bits.length ? " · " + bits.join(" · ") : ""}`);
+  }
+  return lines.join("\n");
+}
+
+// Guidance appended alongside the ledger block. Instructs Rayla to actually
+// use the entries when a coaching / behavioral question comes up, rather
+// than generalizing or projecting patterns the ledger doesn't show.
+const decisionLedgerReasoningGuidance = [
+  "Decision-ledger reasoning rules (apply when the ledger block is present above):",
+  "- Ground behavioral, discipline, or 'how am I doing' answers in specific ledger entries. Cite them by date + symbol: 'On 2026-08-06 you reflected on PLTR that you let it run past your first target — that pattern's showing up.'",
+  "- When the ledger is thin (fewer than 5 entries), say so plainly instead of generalizing. 'Only 3 entries so far — not enough to call a pattern.'",
+  "- Never invent entries. Only quote or paraphrase what's actually in the block. Never claim the user 'often does X' unless multiple entries support it.",
+  "- Don't turn the ledger into a report. Reference it naturally as evidence when it's relevant to the question, and skip it when it isn't.",
+].join("\n");
+
+// Renders the captureContext the client passes at the start of a behavior-
+// capture conversation. Gives Rayla the exact numbers she needs to open
+// the reflection intelligently.
+function buildCaptureContextBlock(context: any) {
+  const cc = context?.captureContext;
+  if (!cc || typeof cc !== "object") return "";
+  const lines: string[] = ["Behavior-capture context (facts about the moment being reflected on):"];
+  if (cc.triggerContext) lines.push(`- Trigger: ${cc.triggerContext}`);
+  if (cc.symbol) lines.push(`- Symbol: ${cc.symbol}`);
+  if (cc.side) lines.push(`- Side: ${cc.side}`);
+  if (Number.isFinite(Number(cc.qty))) lines.push(`- Size: ${cc.qty} shares`);
+  if (Number.isFinite(Number(cc.entryPrice))) lines.push(`- Entry price: $${Number(cc.entryPrice).toFixed(2)}`);
+  if (Number.isFinite(Number(cc.exitPrice))) lines.push(`- Exit price: $${Number(cc.exitPrice).toFixed(2)}`);
+  if (Number.isFinite(Number(cc.pl))) {
+    const sign = Number(cc.pl) >= 0 ? "+" : "";
+    lines.push(`- P&L: ${sign}$${Number(cc.pl).toFixed(2)}`);
+  }
+  if (Number.isFinite(Number(cc.plPct))) {
+    const sign = Number(cc.plPct) >= 0 ? "+" : "";
+    lines.push(`- P&L %: ${sign}${Number(cc.plPct).toFixed(2)}%`);
+  }
+  if (cc.closedAt) lines.push(`- Closed at: ${String(cc.closedAt).slice(0, 19).replace("T", " ")}Z`);
+  return lines.join("\n");
+}
+
+// Voice + structure rules for a Behavior Capture conversation. Only
+// appended to the system prompt when intent === "behavior_capture". Rayla
+// runs a short coaching chat and, when the user's reply has substance,
+// emits a strict LEDGER_ENTRY marker at the very end so the client can
+// write a decision_ledger_entries row silently.
+const behaviorCaptureGuidance = [
+  "Behavior Capture rules (apply only when intent = 'behavior_capture'):",
+  "",
+  "You are having a short coaching conversation with the user about a recent trade — not filling out a form.",
+  "The client has already shown the user an opening question tied to a specific closed trade (the captureContext block above has the details).",
+  "The user is about to reply, then Rayla replies once, then the conversation typically ends.",
+  "",
+  "Reply structure:",
+  "- Keep the reply short: 1-3 sentences. This is a coaching moment, not a briefing.",
+  "- Reflect back what the user said in their own frame — do not restate it verbatim, do not lecture.",
+  "- If the user's reply revealed a lesson, a rule they followed or broke, or an emotional pattern, acknowledge it naturally in the reply. That acknowledgement is what makes the capture feel like a chat instead of a form.",
+  "- If the user said 'skip', 'nothing', 'not sure', or gave a one-word answer with no substance: respond briefly ('Fair, we'll come back to it.') and DO NOT emit a LEDGER_ENTRY block. The row does not get written.",
+  "",
+  "LEDGER_ENTRY marker — REQUIRED at the end of the reply ONLY when the user gave substantive content.",
+  "- After the natural reply, emit a blank line, then the literal marker on its own line, then a single JSON object on the lines after:",
+  "",
+  "    LEDGER_ENTRY:",
+  "    {",
+  "      \"entry_type\": \"reflection\",",
+  "      \"symbol\": \"TSLA\",",
+  "      \"reasoning\": \"held past first target because momentum was still expanding\",",
+  "      \"lesson\": \"let winners run when broader tape supports it\",",
+  "      \"emotion\": null,",
+  "      \"rule_followed\": true,",
+  "      \"outcome\": \"+2.4% (+$120)\"",
+  "    }",
+  "",
+  "- The client parses this JSON block silently and inserts a decision_ledger_entries row. The user never sees the JSON.",
+  "- entry_type is almost always 'reflection' for trade-close captures. Use other types only if the moment is clearly a plan, rule_check, trade, or other.",
+  "- symbol MUST match the symbol in captureContext. Do not invent a symbol.",
+  "- outcome MUST come from the captureContext numbers, not fabricated. Copy the P&L and % from the context block above.",
+  "- reasoning: 1 sentence paraphrase of the user's answer.",
+  "- lesson: only if the user's answer contained a lesson (a takeaway, a pattern to repeat/avoid). Otherwise null.",
+  "- emotion: one of {fear_of_missing_out, revenge_trading, fear_response, greed_driven, impulsive_action, overconfidence, analysis_paralysis, calm_decision_making, patience, discipline} — pick the closest match ONLY if the user's language directly supports it. Otherwise null. Do NOT project an emotion the user did not express.",
+  "- rule_followed: true if the user's answer implies they stuck with their plan; false if they explicitly say they broke a rule; null if ambiguous or not discussed.",
+  "- confidence: null (this field is for pre-trade plans, not reflections).",
+  "",
+  "Trust discipline:",
+  "- Never fabricate a field. Every populated JSON field must trace to something the user actually said or something in the captureContext numbers.",
+  "- If you're not sure whether to include a field, omit it (set to null). Sparse rows are better than invented rows.",
+  "- The user can always type 'delete that' or 'actually skip' as their next turn if they want the capture undone; you don't need to warn them about this.",
+  "",
+  "Do NOT emit a FOLLOWUP_PROMPTS: block for capture conversations. That marker is only for Rayla Daily.",
+].join("\n");
+
 function buildBehavioralPatternBlock(context: any) {
   const bp = context?.behavioralPatternContext;
   if (!bp || !bp.patternThresholdMet) return "";
@@ -1203,6 +1316,8 @@ function buildUnifiedRaylaContext(question: string, rawContext: any, visualChart
     marketIntelContext: context.marketIntelContext ?? null,
     worldContext: context.worldContext ?? null,
     raylaDailyContext: context.raylaDailyContext ?? null,
+    decisionLedgerContext: Array.isArray(context.decisionLedgerContext) ? context.decisionLedgerContext : null,
+    captureContext: context.captureContext ?? null,
     intent: context.intent ?? null,
     raylaPicksContext: context.raylaPicksContext ?? null,
     behavioralPatternContext: context.behavioralPatternContext ?? null,
@@ -1622,6 +1737,18 @@ function buildSystemPrompt(context: any, intent: string) {
     // can see it), guidance is appended only for the rayla_daily intent.
     buildRaylaDailyContextBlock(context),
     context?.intent === "rayla_daily" ? raylaDailyGuidance : "",
+    // Decision Ledger — recent captured moments the user has logged (or
+    // Rayla captured on their behalf). Block always renders when present;
+    // paired guidance instructs Rayla to cite entries rather than invent
+    // behavioral patterns.
+    buildDecisionLedgerBlock(context),
+    context?.decisionLedgerContext ? decisionLedgerReasoningGuidance : "",
+    // Behavior Capture — the captureContext block always renders when
+    // present, but the strict marker-emitting guidance is only applied for
+    // the behavior_capture intent so regular chats don't accidentally emit
+    // LEDGER_ENTRY blocks.
+    buildCaptureContextBlock(context),
+    context?.intent === "behavior_capture" ? behaviorCaptureGuidance : "",
     buildAppContextSummary(context),
     // Background reference — edge/performance, used only when directly relevant
     buildBackgroundReferenceBlock(context),
