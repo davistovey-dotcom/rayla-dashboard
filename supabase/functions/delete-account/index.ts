@@ -195,28 +195,56 @@ serve(async (req) => {
           console.error("[delete-account] stripe_cancel_skipped", { reason: "missing_STRIPE_SECRET_KEY" });
         } else {
           const subscriptionId = subRow.stripe_subscription_id;
-          const cancelRes = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${stripeKey}` },
-          });
-          const cancelPayload = await cancelRes.json().catch(() => ({}));
-          if (!cancelRes.ok) {
+          let cancelRes: Response | null = null;
+          let cancelPayload: any = {};
+          let attempts = 0;
+          const maxAttempts = 2;
+          while (attempts < maxAttempts) {
+            attempts += 1;
+            cancelRes = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${stripeKey}` },
+            });
+            cancelPayload = await cancelRes.json().catch(() => ({}));
+            if (cancelRes.ok) break;
+            if (attempts < maxAttempts) {
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+          if (!cancelRes || !cancelRes.ok) {
             console.error("[delete-account] stripe_cancel_failed", {
               subscriptionId,
-              status: cancelRes.status,
+              status: cancelRes?.status || null,
               error: cancelPayload?.error?.message || null,
+              attempts,
             });
-          } else {
-            console.log("[delete-account] stripe_cancel_success", {
-              subscriptionId,
-              cancelStatus: cancelPayload?.status || null,
+            return new Response(JSON.stringify({
+              ok: false,
+              stage: "stripe_cancel",
+              error: "Could not cancel your Stripe subscription. Please try again in a moment or contact support.",
+            }), {
+              status: 502,
+              headers: corsHeaders,
             });
           }
+          console.log("[delete-account] stripe_cancel_success", {
+            subscriptionId,
+            cancelStatus: cancelPayload?.status || null,
+            attempts,
+          });
         }
       }
     } catch (stripeErr) {
       console.error("[delete-account] stripe_cancel_threw", {
         message: stripeErr instanceof Error ? stripeErr.message : String(stripeErr),
+      });
+      return new Response(JSON.stringify({
+        ok: false,
+        stage: "stripe_cancel",
+        error: "Could not cancel your Stripe subscription. Please try again in a moment or contact support.",
+      }), {
+        status: 502,
+        headers: corsHeaders,
       });
     }
 

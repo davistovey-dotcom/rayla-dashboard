@@ -14986,6 +14986,14 @@ useEffect(() => {
       SIMULATION_STORAGE_KEYS.quietUntil,
       FIRST_TRADE_ONBOARDING_STORAGE_KEYS.completed,
       FIRST_TRADE_ONBOARDING_STORAGE_KEYS.autoStarted,
+      RAYLA_COACH_PROFILE_STORAGE_KEY,
+      HOLDING_THESIS_STORAGE_KEY,
+      PICKS_PROFILE_STORAGE_KEY,
+      FINANCIAL_GOALS_STORAGE_KEY,
+      RAYLA_ADAPTIVE_STORAGE_KEY,
+      ADVANCED_TRADING_STORAGE_KEY,
+      POSITION_INTENT_STORAGE_KEY,
+      "rayla_broker_prefer_paper",
     ];
     const localStoragePrefixes = ["rayla_drawings_"];
     const exactSessionStorageKeys = [
@@ -16085,13 +16093,22 @@ useEffect(() => {
 
   async function fetchBillingSubscription({ silent = false, skipReconcile = false } = {}) {
     if (!session) {
-      setBillingSubscription(null);
-      setBillingError("");
-      setBillingLoaded(false);
+      // No session — DO NOT mutate access state here. Session-clearing is
+      // handled by clearSignedOutWorkspaceState on explicit sign-out. If a
+      // fetch is somehow triggered during a transient session-null window
+      // (token refresh race, getSession blip), resetting billingLoaded=false
+      // here would flash the "Checking access" screen and, worse, if
+      // billingSubscription was cleared to null and the session came back,
+      // the user would land on the paywall before the next fetch could
+      // restore state. Silent no-op is the safe default.
       return;
     }
 
-    setBillingLoaded(false);
+    // Silent refreshes MUST NOT reset billingLoaded. Doing so would flip
+    // waitingForAccessState back to true, remount the entire dashboard,
+    // drop Ask Rayla state mid-conversation, and briefly flash the
+    // "Checking access" splash. Only setBillingLoading (a soft, non-render-
+    // gating flag used for banners) toggles for non-silent refreshes.
     if (!silent) setBillingLoading(true);
     setBillingError("");
 
@@ -16118,8 +16135,32 @@ useEffect(() => {
         return;
       }
 
-      setBillingSubscription(data || null);
+      // Preserve last-known-good subscription when the read returns null
+      // for an already-active user. This defends against three known
+      // sources of transient nulls that would otherwise bounce the user
+      // to the paywall while they're still legitimately authenticated:
+      //   1. Read-replica lag after a fresh Stripe webhook update
+      //   2. Mid-reconciliation window where the row was briefly rewritten
+      //   3. Rare Auth/PostgREST hiccups that let the query resolve to
+      //      an empty result set instead of throwing
+      // A REAL cancellation still returns data (status='canceled'), so
+      // this preserves the user's state ONLY when the DB is ambiguous.
+      // The only real-world case this covers over is an admin hard-delete
+      // of the row — in that case the user keeps client-side access until
+      // sign-out; an acceptable trade for eliminating false paywall bounces.
+      setBillingSubscription((prev) => {
+        if (data) return data;
+        if (hasActiveRaylaSubscription(prev)) {
+          console.warn("[billing] fetch returned null but previous subscription was active — preserving to avoid false paywall bounce");
+          return prev;
+        }
+        return null;
+      });
     } catch (error) {
+      // Network error / timeout: billingSubscription is intentionally NOT
+      // reset here so an authenticated user is never kicked to the paywall
+      // by a transient outage. The soft billingError banner surfaces the
+      // condition without blocking the app.
       if (isSupabaseAuthLockError(error)) {
         console.warn("[billing] transient auth-lock error while loading subscription; skipping banner", error);
       } else {
@@ -17384,10 +17425,36 @@ useEffect(() => {
   }, [activeTab, activeTradeChartSelection.mode, performanceAnalysisSource, performancePositionFilter, performancePortfolioRange, performanceHoldingsRange, performanceActiveTradesRange, alpacaAccount, tradePortfolioDisplayedSymbols, alpacaPositions, brokerTradeLog, tradeChartRange, tradeChartRefreshTick, tradePortfolioCombinedUnrealizedPl]);
 
   useEffect(() => {
-  supabase.auth.getSession().then(({ data }) => {
-    setSession(data.session);
+  // Race the initial session probe against a hard timeout so a hung
+  // Supabase auth request can never leave the app stuck on the splash.
+  // If the timeout wins, we fall through with session=null; the Login
+  // component renders and the user can attempt sign-in explicitly.
+  // onAuthStateChange still fires later if the real request eventually
+  // resolves, and setSession(sessionData) picks up the true session
+  // without any additional action from the user.
+  const INITIAL_SESSION_TIMEOUT_MS = 12000;
+  let initialSessionResolved = false;
+  const initialSessionTimeout = setTimeout(() => {
+    if (initialSessionResolved) return;
+    initialSessionResolved = true;
+    console.warn("[auth] getSession() timed out after 12s — proceeding without session");
     setAuthLoading(false);
-  });
+  }, INITIAL_SESSION_TIMEOUT_MS);
+  supabase.auth.getSession()
+    .then(({ data }) => {
+      if (initialSessionResolved) return;
+      initialSessionResolved = true;
+      clearTimeout(initialSessionTimeout);
+      setSession(data.session);
+      setAuthLoading(false);
+    })
+    .catch((err) => {
+      if (initialSessionResolved) return;
+      initialSessionResolved = true;
+      clearTimeout(initialSessionTimeout);
+      console.error("[auth] getSession() failed", err);
+      setAuthLoading(false);
+    });
 
   const { data: listener } = supabase.auth.onAuthStateChange((event, sessionData) => {
     console.info("[auth] state change", {
@@ -17601,7 +17668,11 @@ useEffect(() => {
           if (session?.user?.id) localStorage.removeItem(getBrokerOnboardingSkipStorageKey(session.user.id));
         } catch {}
         setBrokerOnboardingSkipped(false);
+        // Stripe webhook delivery can lag several seconds after checkout.
+        // Poll a few times so the UI unlocks without a manual refresh.
         setTimeout(() => fetchBillingSubscription({ silent: true }), 3000);
+        setTimeout(() => fetchBillingSubscription({ silent: true }), 8000);
+        setTimeout(() => fetchBillingSubscription({ silent: true }), 20000);
       } else if (billingStatus === "cancelled") {
         showToast("Checkout cancelled.", "warning");
       } else if (billingStatus === "portal_return") {
@@ -30609,6 +30680,7 @@ return (
                 justifyContent: "space-between",
                 gap: 8,
                 padding: "10px 12px",
+                paddingTop: "calc(10px + env(safe-area-inset-top))",
                 borderBottom: "1px solid rgba(255,255,255,0.05)",
               }}
             >
@@ -31268,6 +31340,7 @@ return (
                     position: "sticky",
                     bottom: 0,
                     padding: 16,
+                    paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
                     borderTop: "1px solid rgba(255,255,255,0.08)",
                     background: "rgba(11,16,23,0.96)",
                     backdropFilter: "blur(10px)",

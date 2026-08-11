@@ -23,7 +23,34 @@ function getCalmAuthErrorMessage(error, fallback) {
   if (normalized.includes("rate limit") || normalized.includes("too many")) return "Too many attempts. Wait a moment, then try again.";
   if (normalized.includes("token") && normalized.includes("expired")) return "That code has expired. Use Resend to get a new one.";
   if (normalized.includes("otp") || normalized.includes("token is invalid")) return "That code is incorrect or has expired. Check your email or use Resend.";
+  // Network / timeout classification. Covers both our own withAuthTimeout
+  // rejections and native fetch failures — critical because a hung mobile
+  // request otherwise falls all the way through to the generic message and
+  // makes users think the app is broken rather than the network.
+  if (
+    normalized.includes("timed out")
+    || normalized.includes("timeout")
+    || normalized.includes("failed to fetch")
+    || normalized.includes("network request failed")
+    || normalized.includes("networkerror")
+    || normalized.includes("load failed")
+  ) return "Sign-in couldn't reach our servers. Check your connection and try again.";
   return "Something went wrong. Please try again.";
+}
+
+// Prevents mobile (Capacitor WebView especially) from spinning indefinitely
+// when a Supabase auth request hangs. Races the auth promise against a
+// timeout that rejects with a Network-shaped error the classifier above
+// picks up. Wraps every user-triggered auth call in Login.
+const AUTH_TIMEOUT_MS = 25000;
+function withAuthTimeout(promise, timeoutMs = AUTH_TIMEOUT_MS) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error("Auth request timed out — please try again.")),
+      timeoutMs,
+    )),
+  ]);
 }
 
 
@@ -306,9 +333,9 @@ export default function Login({ onLogin }) {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      const { error } = await withAuthTimeout(supabase.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: getResetPasswordRedirectUrl(),
-      });
+      }));
       if (error) {
         setAuthMessage({ type: "error", text: getCalmAuthErrorMessage(error, "Could not send reset email.") });
         return;
@@ -352,7 +379,7 @@ export default function Login({ onLogin }) {
     try {
       // Create the user through Supabase's signup flow so the Confirmation email
       // template can send {{ .Token }} for desktop code entry.
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await withAuthTimeout(supabase.auth.signUp({
         email: normalizedEmail,
         password,
         options: {
@@ -361,7 +388,7 @@ export default function Login({ onLogin }) {
             timezone: browserTimeZone,
           },
         },
-      });
+      }));
 
       console.info("[auth] signup verification requested", {
         email: normalizedEmail,
@@ -410,11 +437,11 @@ export default function Login({ onLogin }) {
   // Called by VerifyEmailScreen with the code the user typed
   async function handleVerifyCode(code) {
     try {
-      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+      const { data, error: verifyError } = await withAuthTimeout(supabase.auth.verifyOtp({
         email: verificationEmail,
         token: code,
         type: verificationType,
-      });
+      }));
 
       console.info("[auth] verify OTP", {
         email: verificationEmail,
@@ -456,21 +483,21 @@ export default function Login({ onLogin }) {
     try {
       let error = null;
       if (verificationType === "signup") {
-        ({ error } = await supabase.auth.resend({
+        ({ error } = await withAuthTimeout(supabase.auth.resend({
           type: "signup",
           email: targetEmail,
           options: {
             emailRedirectTo: getAuthRedirectUrl(),
           },
-        }));
+        })));
       } else {
-        ({ error } = await supabase.auth.signInWithOtp({
+        ({ error } = await withAuthTimeout(supabase.auth.signInWithOtp({
           email: targetEmail,
           options: {
             shouldCreateUser: true,
             emailRedirectTo: getAuthRedirectUrl(),
           },
-        }));
+        })));
       }
 
       console.info("[auth] resend verification", { email: targetEmail, type: verificationType, ok: !error, error: error?.message || null });
@@ -497,10 +524,10 @@ export default function Login({ onLogin }) {
     }
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await withAuthTimeout(supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password,
-      });
+      }));
       console.info("[auth] signin", {
         email: email.trim().toLowerCase(),
         ok: !error,
