@@ -13792,6 +13792,10 @@ useEffect(() => {
   const [alpacaOrderSizeMode, setAlpacaOrderSizeMode] = useState("qty");
   const [alpacaOrderSizeInput, setAlpacaOrderSizeInput] = useState("");
   const [tradeHelpTopic, setTradeHelpTopic] = useState(null);
+  // Cross-tab handoff so a "Log a trade plan" click on the Investor Score
+  // card (rendered under Performance) opens the ledger form under Journal
+  // with plan preselected. InvestorReviewTab clears it via onRequestConsumed.
+  const [pendingLedgerEntryType, setPendingLedgerEntryType] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const storedTab = sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
@@ -19226,14 +19230,24 @@ useEffect(() => {
   const finalizeReflectionOnUserReply = useCallback(async (userMessageText) => {
     const active = raylaActiveReflectionRef.current;
     if (!active) return;
+    // Clear the ref BEFORE the awaits so a fast second send in the same
+    // conversation cannot re-enter this handler with the same active
+    // reflection and double-write a ledger row.
+    raylaActiveReflectionRef.current = null;
     const userId = session?.user?.id;
-    if (!userId) { raylaActiveReflectionRef.current = null; return; }
+    if (!userId) return;
     try {
       await tradeReflections.saveReflectionResponse(supabase, userId, active.id, userMessageText);
     } catch (err) {
       console.warn("[trade-reflection] save response failed", err);
     }
-    raylaActiveReflectionRef.current = null;
+    // Close the loop into decision_ledger_entries so Investor Score's
+    // Reflection metric actually moves. Idempotent by reflection_id.
+    try {
+      await tradeReflections.convertReflectionToLedgerEntry(supabase, userId, active.id, userMessageText);
+    } catch (err) {
+      console.warn("[trade-reflection] ledger conversion failed", err);
+    }
   }, [session?.user?.id]);
 
   // ---------------------------------------------------------------------------
@@ -30017,6 +30031,10 @@ return (
                 userId={session?.user?.id || null}
                 trades={trades}
                 positions={alpacaPositions}
+                onLogPlan={() => {
+                  setPendingLedgerEntryType("plan");
+                  setActiveTab("journal");
+                }}
               />
               <InvestorProgressCard
                 userId={session?.user?.id || null}
@@ -30316,7 +30334,12 @@ return (
                 liveSimulationTrades={liveSimulationJournalTrades}
                 onDeleteManualTrade={handleDeleteTrade}
               />
-              <InvestorReviewTab userId={session?.user?.id || null} getCoachProfile={loadCoachProfile} />
+              <InvestorReviewTab
+                userId={session?.user?.id || null}
+                getCoachProfile={loadCoachProfile}
+                requestedEntryType={pendingLedgerEntryType}
+                onRequestConsumed={() => setPendingLedgerEntryType(null)}
+              />
             </div>
           </div>
         )}

@@ -29,7 +29,7 @@ function investorReviewFormatWeek(startISO, endISO) {
   return `${startLabel} – ${endLabel}`;
 }
 
-export default function InvestorReviewTab({ userId, getCoachProfile }) {
+export default function InvestorReviewTab({ userId, getCoachProfile, requestedEntryType = null, onRequestConsumed = null }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [review, setReview] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -121,6 +121,18 @@ export default function InvestorReviewTab({ userId, getCoachProfile }) {
 
   useEffect(() => { fetchReview(); }, [fetchReview]);
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
+
+  // Parent (App.jsx) drives the entry form open with a preselected type by
+  // passing a requestedEntryType prop. Common trigger: the "Log a trade plan"
+  // button on the Investor Score card when Preparation is Building.
+  useEffect(() => {
+    if (!requestedEntryType) return;
+    const allowed = INVESTOR_REVIEW_ENTRY_TYPES.some((t) => t.value === requestedEntryType);
+    if (!allowed) { if (typeof onRequestConsumed === "function") onRequestConsumed(); return; }
+    setFormEntryType(requestedEntryType);
+    setFormOpen(true);
+    if (typeof onRequestConsumed === "function") onRequestConsumed();
+  }, [requestedEntryType, onRequestConsumed]);
 
   // Merge ledger entries and completed trade reflections into a single
   // chronological feed. Reflections are normalized into the same shape

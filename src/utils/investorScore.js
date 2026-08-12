@@ -19,7 +19,7 @@
 // ALP via getEmotionalPatternKeysByKind("warning"), so new patterns added to
 // the ALP flow into Discipline without any change here.
 //
-// Only STATE-metric scores (Risk Management, Diversification) still read raw
+// Only STATE-metric scores (Concentration, Diversification) still read raw
 // positions, because the Adaptive Learning Profile stores riskComfort as a
 // categorical value with neutral polarity — that is a different granularity
 // than "top holding is 42% of the book across 6 positions."
@@ -101,7 +101,7 @@ export function scoreDiscipline(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "This score fills in as Rayla and you talk through your trades.",
+      reason: "Complete a few trade conversations with Rayla to begin measuring your discipline.",
     };
   }
 
@@ -132,7 +132,7 @@ export function scoreDiscipline(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "This score fills in as Rayla and you talk through your trades.",
+      reason: "Complete a few trade conversations with Rayla to begin measuring your discipline.",
     };
   }
 
@@ -149,12 +149,15 @@ export function scoreDiscipline(profile) {
 }
 
 // ---------------------------------------------------------------------------
-// Risk Management  (state metric — NOT in the profile)
+// Concentration  (state metric — NOT in the profile)
 // ---------------------------------------------------------------------------
-// Uses one signal Rayla actually records reliably: portfolio concentration —
-// what share of the book sits in the single largest holding. Per-trade stop
-// prices are not stored, so no stop-discipline signal is emitted (we do not
-// invent a proxy such as R-multiple thresholds).
+// Formerly labeled "Risk Management", but the internal `riskManagement` key
+// is preserved so downstream consumers (Weekly Review, InvestorProgress
+// state cards) don't need to change. The score measures ONE thing: what
+// share of the book sits in the single largest holding. Per-trade stop
+// prices are not stored, so no stop-discipline signal is emitted (we do
+// not invent a proxy such as R-multiple thresholds), and there is no
+// sizing-consistency measurement across trades.
 //
 // This score is intentionally NOT read from profile.traits.riskComfort:
 // the ALP stores riskComfort as a categorical value (concentrated / balanced
@@ -169,7 +172,7 @@ export function scoreRiskManagement({ positions = [] } = {}) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Add an open position to unlock this score.",
+      reason: "This score improves as your book spreads across more positions instead of sitting in one.",
     };
   }
 
@@ -178,7 +181,7 @@ export function scoreRiskManagement({ positions = [] } = {}) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Add an open position to unlock this score.",
+      reason: "This score improves as your book spreads across more positions instead of sitting in one.",
     };
   }
   const sorted = [...openPositions].sort(
@@ -215,7 +218,7 @@ export function scoreDiversification(positions = []) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Diversification will unlock once you have open positions.",
+      reason: "As you build a broader portfolio this score will begin updating.",
     };
   }
   const total = list.reduce((s, p) => s + positionMarketValue(p), 0);
@@ -248,7 +251,7 @@ export function scorePreparation(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: `Log at least 3 trades in the last ${SCORE_WINDOW_DAYS} days to unlock this score.`,
+      reason: "Log a few trade plans before entering positions to unlock this score.",
     };
   }
 
@@ -260,7 +263,7 @@ export function scorePreparation(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: `Log at least 3 trades in the last ${SCORE_WINDOW_DAYS} days to unlock this score.`,
+      reason: "Log a few trade plans before entering positions to unlock this score.",
     };
   }
 
@@ -284,7 +287,7 @@ export function scoreReflection(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Rayla asks what each trade taught you when it closes. Once a few of those are in, this score starts moving.",
+      reason: "Answer trade reflections after closing positions to build this score.",
     };
   }
 
@@ -296,7 +299,7 @@ export function scoreReflection(profile) {
     return {
       score: null,
       status: STATUS_BUILDING,
-      reason: "Rayla asks what each trade taught you when it closes. Once a few of those are in, this score starts moving.",
+      reason: "Answer trade reflections after closing positions to build this score.",
     };
   }
 
@@ -347,7 +350,7 @@ export function computeInvestorScore({ profile = null, positions = [] } = {}) {
 
 export const CATEGORY_ORDER = [
   { key: "discipline", label: "Discipline" },
-  { key: "riskManagement", label: "Risk Management" },
+  { key: "riskManagement", label: "Concentration" },
   { key: "diversification", label: "Diversification" },
   { key: "preparation", label: "Preparation" },
   { key: "reflection", label: "Reflection" },

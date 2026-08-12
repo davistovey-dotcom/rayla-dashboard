@@ -11,7 +11,7 @@
 // via getEmotionalPatternKeysByKind, so any new pattern added to the ALP
 // automatically becomes a coaching signal here.
 //
-// Only STATE-metric cards (Diversification, Risk Management) still walk
+// Only STATE-metric cards (Diversification, Concentration) still walk
 // portfolio_snapshots here, because the Adaptive Learning Profile intentionally
 // does not track position-count deltas or top-holding percentage deltas —
 // riskComfort is stored as a categorical value with neutral polarity, which
@@ -56,7 +56,7 @@ function positionMarketValue(position) {
 }
 
 // For each 30-day window, return the most recent snapshot inside it (or null).
-// Used ONLY by state-metric cards (Diversification, Risk Management) — the
+// Used ONLY by state-metric cards (Diversification, Concentration) — the
 // profile handles all behavioral windowing internally.
 function bucketSnapshots(snapshots, now) {
   const currentStart = now - WINDOW_MS;
@@ -223,7 +223,7 @@ function cardRiskManagement(currentSnap, priorSnap) {
       if (cPct + 1 < pPct) {
         return {
           type: "improvement",
-          category: "Risk Management",
+          category: "Concentration",
           statement: "Your largest holding takes up less of the book than it did a month ago. The rest of your positions are carrying more of the total than they were.",
         };
       }
@@ -231,8 +231,8 @@ function cardRiskManagement(currentSnap, priorSnap) {
   }
   return {
     type: "opportunity",
-    category: "Risk Management",
-    statement: "As your sizing evens out across positions, you'll see that pattern reflected here.",
+    category: "Concentration",
+    statement: "As your book spreads across more positions instead of sitting in one, you'll see that pattern reflected here.",
   };
 }
 

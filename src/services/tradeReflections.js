@@ -183,6 +183,101 @@ export async function saveReflectionResponse(supabase, userId, reflectionId, res
   return true;
 }
 
+// Closes the loop between trade_reflections and decision_ledger_entries.
+// Without this the Investor Score's Reflection metric never moves when a
+// user answers a trade reflection, because scoreReflection reads only
+// ledger-source observations (ledger.reflection_entry / lesson_recorded /
+// outcome_tracked) that deriveProfileFromData emits from ledger rows.
+//
+// Called from App.jsx right after saveReflectionResponse succeeds. The
+// user's reply becomes `lesson`. The trade's P/L direction becomes
+// `outcome`. Both fields are exactly what the ALP looks for.
+//
+// Idempotent: metadata.reflection_id is the dedup key. Re-running for the
+// same reflection is a no-op that returns the existing row.
+export async function convertReflectionToLedgerEntry(supabase, userId, reflectionId, userResponse, { reflectionRow = null } = {}) {
+  if (!userId || !reflectionId) return null;
+  const trimmed = String(userResponse ?? "").trim();
+  if (!trimmed) return null; // no substantive answer → no ledger entry
+
+  // Dedup — bail out early if we've already written a ledger entry for
+  // this reflection. Survives client retries and future pipeline re-runs.
+  try {
+    const { data: existing } = await supabase
+      .from("decision_ledger_entries")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("source", "trade_reflection")
+      .eq("metadata->>reflection_id", reflectionId)
+      .maybeSingle();
+    if (existing) return existing;
+  } catch (dedupErr) {
+    console.warn("[trade-reflection] ledger dedup check failed", dedupErr);
+    // fall through — insert path below will still attempt the write
+  }
+
+  // Load reflection metadata if the caller didn't hand it in.
+  let reflection = reflectionRow;
+  if (!reflection) {
+    const { data, error } = await supabase
+      .from("trade_reflections")
+      .select("id, trade_id, reflection_question, reflection_type, metadata")
+      .eq("user_id", userId)
+      .eq("id", reflectionId)
+      .maybeSingle();
+    if (error || !data) return null;
+    reflection = data;
+  }
+
+  const meta = reflection?.metadata || {};
+  const symbol = meta.symbol ? String(meta.symbol).toUpperCase() : null;
+  const plPct = Number(meta.pl_pct);
+  const plAbs = Number(meta.pl);
+  // Bucket by the same 0.5% threshold buildReflectionQuestion uses so the
+  // outcome label matches the tone of the coaching question.
+  let outcomeDirection = null;
+  if (Number.isFinite(plPct)) {
+    if (plPct >= 0.5) outcomeDirection = "win";
+    else if (plPct <= -0.5) outcomeDirection = "loss";
+    else outcomeDirection = "flat";
+  }
+  const outcomeLabel = outcomeDirection
+    ? (Number.isFinite(plPct)
+        ? `${outcomeDirection} (${plPct >= 0 ? "+" : ""}${plPct.toFixed(2)}%)`
+        : outcomeDirection)
+    : null;
+
+  const insertRow = {
+    user_id: userId,
+    entry_type: "reflection",
+    symbol,
+    decision: reflection?.reflection_question || `Reflection on ${symbol || "trade close"}`,
+    lesson: trimmed,
+    outcome: outcomeLabel,
+    source: "trade_reflection",
+    metadata: {
+      reflection_id: reflection.id,
+      trade_id: reflection.trade_id || null,
+      reflection_type: reflection.reflection_type || null,
+      captured_via: "trade_reflection",
+      pl_pct: Number.isFinite(plPct) ? plPct : null,
+      pl: Number.isFinite(plAbs) ? plAbs : null,
+    },
+  };
+
+  const { data: created, error: insertErr } = await supabase
+    .from("decision_ledger_entries")
+    .insert(insertRow)
+    .select("id")
+    .single();
+
+  if (insertErr) {
+    console.error("[trade-reflection] ledger insert failed", insertErr);
+    return null;
+  }
+  return created;
+}
+
 // Fetches recent completed (answered) reflections for the Decision Log
 // audit trail. Newest first. Caller decides limit.
 export async function fetchCompletedReflections(supabase, userId, { limit = 30 } = {}) {

@@ -19,7 +19,7 @@ function scoreColor(score) {
   return "#fb923c";
 }
 
-export default function InvestorScoreCard({ userId, trades = [], positions = [] }) {
+export default function InvestorScoreCard({ userId, trades = [], positions = [], onLogPlan = null }) {
   const [ledger, setLedger] = useState([]);
   // ledgerReady stays false until the first fetch settles, so we never render
   // a score computed against an unloaded ledger (would flash a wrong number).
@@ -128,6 +128,26 @@ export default function InvestorScoreCard({ userId, trades = [], positions = [] 
               <div style={{ ...subtleText, color: isBuilding ? "#7f8ea3" : "#cbd5e1", fontStyle: isBuilding ? "italic" : "normal" }}>
                 {cat.reason}
               </div>
+              {key === "preparation" && isBuilding && typeof onLogPlan === "function" ? (
+                <button
+                  type="button"
+                  onClick={onLogPlan}
+                  style={{
+                    alignSelf: "flex-start",
+                    marginTop: 2,
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: "#7CC4FF",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline dotted",
+                  }}
+                >
+                  Log a trade plan →
+                </button>
+              ) : null}
             </div>
           );
         })}
