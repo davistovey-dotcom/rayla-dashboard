@@ -18,6 +18,7 @@ import PersonalPicksTab from "./components/PersonalPicksTab";
 import InvestorReviewTab from "./components/InvestorReviewTab";
 import InvestorScoreCard from "./components/InvestorScoreCard";
 import InvestorProgressCard from "./components/InvestorProgressCard";
+import RaylaSummaryCard from "./components/RaylaSummaryCard";
 import RaylaHistoryDrawer, { RaylaHistoryButton } from "./components/RaylaHistoryDrawer";
 import IntelSimulationSetupOverlay from "./components/IntelSimulationSetupOverlay";
 import * as raylaChat from "./services/raylaConversations";
@@ -6555,15 +6556,11 @@ function PerfBreakdownTable({ title, rows, nameColor = "#94a3b8", maxHeight = nu
 
 function PositionPerformanceInsights({
   positions = [],
-  title = "Position Analytics",
   scopeLabel = "positions",
   totalValue = null,
   totalUnrealizedPl = null,
   unrealizedPct = null,
-  onRefresh = null,
 }) {
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const safePositions = Array.isArray(positions) ? positions : [];
   if (!safePositions.length) return null;
 
@@ -6618,21 +6615,6 @@ function PositionPerformanceInsights({
     }
   );
 
-  const scopedPositionNoun = losingPositions.length === 1 && scopeLabel.endsWith("s")
-    ? scopeLabel.slice(0, -1)
-    : scopeLabel;
-  const concentrationWarning = Number.isFinite(topAllocation) && topAllocation >= 70
-    ? `${topPosition.symbol} is ${topAllocation.toFixed(0)}% of this view. That concentration matters more than the number of positions.`
-    : null;
-  const lossWarning = losingPositions.length
-    ? `${losingPositions.length} ${scopedPositionNoun}${losingPositions.length === 1 ? " is" : " are"} currently underwater. Check whether the reason you bought still holds.`
-    : null;
-  const nextAction = concentrationWarning
-    ? "Check whether the largest allocation is intentional before adding more exposure."
-    : lossWarning
-      ? "Review the underwater positions first; separate temporary drawdown from evidence the setup broke down."
-      : "Keep monitoring allocation, unrealized P/L, and whether each position still matches its intent.";
-
   const cardBase = { background: "rgba(18,26,38,0.86)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14 };
 
   return (
@@ -6682,72 +6664,6 @@ function PositionPerformanceInsights({
         }))} totalValue={resolvedTotalValue} />
       </div>
 
-      <div style={cardBase}>
-        <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#7CC4FF" }}>Rayla's Position Diagnosis</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ fontSize: 11, color: "#475569" }}>{title}</div>
-            {lastRefreshedAt ? (
-              <div style={{ fontSize: 10, color: "#475569" }}>
-                Updated {lastRefreshedAt.toLocaleTimeString()}
-              </div>
-            ) : null}
-            {(() => {
-              const disabled = typeof onRefresh !== "function" || !safePositions.length || isRefreshing;
-              return (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (typeof onRefresh !== "function" || !safePositions.length || isRefreshing) return;
-                    setIsRefreshing(true);
-                    try {
-                      const result = onRefresh();
-                      if (result && typeof result.then === "function") await result;
-                    } finally {
-                      setLastRefreshedAt(new Date());
-                      setIsRefreshing(false);
-                    }
-                  }}
-                  disabled={disabled}
-                  style={{
-                    background: disabled ? "rgba(124,196,255,0.04)" : "rgba(124,196,255,0.1)",
-                    border: "1px solid rgba(124,196,255,0.25)",
-                    borderRadius: 8,
-                    padding: "6px 14px",
-                    color: "#7CC4FF",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: disabled ? "not-allowed" : "pointer",
-                    opacity: disabled ? 0.5 : 1,
-                    minWidth: 84,
-                  }}
-                >
-                  {isRefreshing ? "Refreshing…" : "Refresh"}
-                </button>
-              );
-            })()}
-          </div>
-        </div>
-        <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-          {concentrationWarning ? (
-            <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.18)", fontSize: 13, color: "#fbbf24", lineHeight: 1.6 }}>
-              {concentrationWarning}
-            </div>
-          ) : null}
-          {lossWarning ? (
-            <div style={{ padding: "11px 14px", borderRadius: 10, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.14)", fontSize: 13, color: "#fecaca", lineHeight: 1.6 }}>
-              {lossWarning}
-            </div>
-          ) : null}
-          <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(124,196,255,0.06)", border: "1px solid rgba(124,196,255,0.15)" }}>
-            <div style={{ fontSize: 11, color: "#7CC4FF", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8, fontWeight: 700 }}>Next Action</div>
-            <div style={{ display: "flex", gap: 8, fontSize: 13, color: "#e2e8f0", lineHeight: 1.5 }}>
-              <span style={{ color: "#7CC4FF", fontWeight: 800, flexShrink: 0 }}>1.</span>
-              <span>{nextAction}</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -7292,6 +7208,8 @@ function PortfolioPerformancePanel({
   portfolioInceptionMs = null,
   preferPaper = false,
   onRefresh = null,
+  summaryUserId = null,
+  summaryTrades = [],
 }) {
   const portfolioRanges = [
     { value: "1D", label: "1D" },
@@ -7510,13 +7428,20 @@ function PortfolioPerformancePanel({
       </div>
 
       <PositionPerformanceInsights
-        title="Portfolio"
         scopeLabel="positions"
         positions={sortedPositions}
         totalValue={totalMarketValue}
         totalUnrealizedPl={totalUnrealizedPl}
         unrealizedPct={unrealizedPct}
-        onRefresh={onRefresh}
+      />
+      <RaylaSummaryCard
+        userId={summaryUserId}
+        positions={sortedPositions}
+        alpacaAccount={alpacaAccount}
+        portfolioSnapshots={portfolioSnapshots}
+        brokerTradeLog={brokerTradeLog}
+        trades={summaryTrades}
+        title="Portfolio"
       />
     </div>
   );
@@ -7780,13 +7705,11 @@ function HoldingsPerformancePanel({
       </div>
 
       <PositionPerformanceInsights
-        title="Long-Term Holdings"
         scopeLabel="holdings"
         positions={sortedHoldings}
         totalValue={summary.totalValue}
         totalUnrealizedPl={summary.totalUnrealizedPl}
         unrealizedPct={summary.unrealizedPct}
-        onRefresh={onRefresh}
       />
     </div>
   );
@@ -8163,13 +8086,11 @@ function ActiveTradesPerformancePanel({
 
       {hasOpenTrades && (
         <PositionPerformanceInsights
-          title="Day Trades"
           scopeLabel="day trades"
           positions={sortedTrades}
           totalValue={summary.totalValue}
           totalUnrealizedPl={summary.totalUnrealizedPl}
           unrealizedPct={summary.unrealizedPct}
-          onRefresh={onRefresh}
         />
       )}
 
@@ -30111,6 +30032,8 @@ return (
                   portfolioInceptionMs={portfolioInceptionMs}
                   preferPaper={brokerPreferPaper}
                   onRefresh={() => fetchAlpacaBrokerData({ silent: true, snapshotSource: "manual_refresh" })}
+                  summaryUserId={session?.user?.id || null}
+                  summaryTrades={trades}
                 />
                 </>
               ) : isLiveTradesPerformance && performancePositionFilter === "holdings" ? (
