@@ -12069,6 +12069,47 @@ function getSubscriptionPresentation(subscription) {
   return { label: "Not subscribed", tone: "neutral", detail: "Start checkout when you are ready." };
 }
 
+// Persist the last successful billing fetch per user so a valid subscriber
+// is never bounced to the paywall while the app waits for a slow first
+// billing fetch on resume from long inactivity (mobile tab eviction, hard
+// reload, or a captive-portal wake). Cleared explicitly on sign-out.
+const BILLING_CACHE_PREFIX = "rayla_billing_v1:";
+
+function readBillingCache(userId) {
+  if (!userId || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(`${BILLING_CACHE_PREFIX}${userId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeBillingCache(userId, subscription) {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    if (subscription == null) {
+      window.localStorage.removeItem(`${BILLING_CACHE_PREFIX}${userId}`);
+    } else {
+      window.localStorage.setItem(`${BILLING_CACHE_PREFIX}${userId}`, JSON.stringify(subscription));
+    }
+  } catch {
+    // best-effort — losing the cache falls back to network-only behavior
+  }
+}
+
+function clearBillingCache(userId) {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(`${BILLING_CACHE_PREFIX}${userId}`);
+  } catch {
+    // best-effort
+  }
+}
+
 function hasActiveRaylaSubscription(subscription) {
   const status = String(subscription?.status || "inactive").toLowerCase();
   if (status === "active") return true;
@@ -14124,6 +14165,20 @@ useEffect(() => {
   const [billingLoaded, setBillingLoaded] = useState(false);
   const [billingAction, setBillingAction] = useState("");
   const [billingError, setBillingError] = useState("");
+  // Tracks whether the current session has ever received a successful billing
+  // read back from Supabase (not an error, not a timeout). The paywall gate
+  // must NEVER fire on a mere absence of data — only on a CONFIRMED inactive
+  // subscription. Flipped false again only in clearSignedOutWorkspaceState.
+  const [hadSuccessfulBillingFetch, setHadSuccessfulBillingFetch] = useState(false);
+  // Monotonic id for the in-flight billing fetch so an older failed request
+  // cannot overwrite a newer successful response (or vice versa). Every
+  // fetchBillingSubscription call bumps this and captures the value; the
+  // response/finally paths bail out if a newer call has since started.
+  const billingFetchTokenRef = useRef(0);
+  // Debounce marker for visibility-triggered revalidation so a user tabbing
+  // in and out repeatedly does not fire N background billing fetches per
+  // minute.
+  const lastBillingRevalidateRef = useRef(0);
   const [brokerOnboardingSkipped, setBrokerOnboardingSkipped] = useState(false);
   const [lastAnalyzedCounts, setLastAnalyzedCounts] = useState({ live_trades: -1, live_simulation: -1 });
   const [showNoNewTradesBySource, setShowNoNewTradesBySource] = useState({ live_trades: false, live_simulation: false });
@@ -14876,6 +14931,13 @@ useEffect(() => {
     setBillingError("");
     setBillingLoaded(false);
     setBillingAction("");
+    setHadSuccessfulBillingFetch(false);
+    // Bump the fetch token so any in-flight billing fetch's late response
+    // is dropped by the stale-response guard and cannot re-populate state
+    // for the just-signed-out user.
+    billingFetchTokenRef.current += 1;
+    lastBillingRevalidateRef.current = 0;
+    try { clearBillingCache(session?.user?.id); } catch { /* best-effort */ }
     setBrokerOnboardingSkipped(false);
     setActiveTab("home");
     setPerformanceAnalysisSource("live_trades");
@@ -16029,6 +16091,14 @@ useEffect(() => {
       return;
     }
 
+    // Snapshot the user + a monotonic token BEFORE any awaits so we can
+    // drop stale responses that arrive after the user has changed or a
+    // newer request has fired. Without this, an older slow-failing fetch
+    // can flip billingLoaded=true (via finally) after a newer successful
+    // fetch has already written state, briefly widening the paywall gap.
+    const fetchUserId = session.user.id;
+    const requestToken = ++billingFetchTokenRef.current;
+
     // Silent refreshes MUST NOT reset billingLoaded. Doing so would flip
     // waitingForAccessState back to true, remount the entire dashboard,
     // drop Ask Rayla state mid-conversation, and briefly flash the
@@ -16044,9 +16114,15 @@ useEffect(() => {
       const queryPromise = supabase
         .from("user_subscriptions")
         .select("*")
-        .eq("user_id", session.user.id)
+        .eq("user_id", fetchUserId)
         .maybeSingle();
       const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+
+      // Stale-response guard: another fetch has since fired, or the user
+      // signed out / switched, so this response is no longer authoritative.
+      // Bail out silently — the newer fetch (or sign-out) owns state now.
+      if (requestToken !== billingFetchTokenRef.current) return;
+      if (!session || session.user?.id !== fetchUserId) return;
 
       if (error) throw new Error(error.message);
 
@@ -16074,14 +16150,28 @@ useEffect(() => {
       // of the row — in that case the user keeps client-side access until
       // sign-out; an acceptable trade for eliminating false paywall bounces.
       setBillingSubscription((prev) => {
-        if (data) return data;
+        if (data) {
+          writeBillingCache(fetchUserId, data);
+          return data;
+        }
         if (hasActiveRaylaSubscription(prev)) {
           console.warn("[billing] fetch returned null but previous subscription was active — preserving to avoid false paywall bounce");
           return prev;
         }
+        // Confirmed absence of an active subscription — cache the null so
+        // the next mount hydrates to the same confirmed state instead of
+        // needing another network round-trip to reach the paywall.
+        writeBillingCache(fetchUserId, null);
         return null;
       });
+      // Successful read — the paywall gate is now allowed to consider
+      // this user's subscription state authoritative. This flag NEVER
+      // flips false again except on real sign-out.
+      setHadSuccessfulBillingFetch(true);
     } catch (error) {
+      // Stale-response guard on the error path too — an older fetch
+      // failing should not set billingError over a newer fetch's clear.
+      if (requestToken !== billingFetchTokenRef.current) return;
       // Network error / timeout: billingSubscription is intentionally NOT
       // reset here so an authenticated user is never kicked to the paywall
       // by a transient outage. The soft billingError banner surfaces the
@@ -16092,8 +16182,14 @@ useEffect(() => {
         setBillingError(error instanceof Error ? error.message : "Billing status is unavailable.");
       }
     } finally {
-      setBillingLoaded(true);
-      if (!silent) setBillingLoading(false);
+      // Only mark loaded / clear the loading banner if THIS request is
+      // still the most recent one. An older fetch's finally must not
+      // steal loaded=true from a newer in-flight fetch, or unwind the
+      // billingLoading banner state a newer non-silent call just set.
+      if (requestToken === billingFetchTokenRef.current) {
+        setBillingLoaded(true);
+        if (!silent) setBillingLoading(false);
+      }
     }
   }
 
@@ -17552,8 +17648,47 @@ useEffect(() => {
       setPortfolioSnapshotsLoading(false);
       return;
     }
+    // Hydrate billing state from localStorage BEFORE the network fetch
+    // fires. On a fresh mount after tab eviction (mobile Safari / Capacitor)
+    // or hard reload, useState defaults leave billingSubscription=null. If
+    // the initial fetch then fails (spotty network on resume, 12s timeout),
+    // the paywall gate would fire against a null subscription. Hydrating a
+    // known-active cached row means the user never sees that false paywall,
+    // and the background fetch still corrects a real cancellation whenever
+    // it eventually succeeds.
+    const cachedSubscription = readBillingCache(session.user.id);
+    if (cachedSubscription !== null) {
+      setBillingSubscription(cachedSubscription);
+      // If the cache says the user is active, we can honor the gate right
+      // away — the "Checking access" splash exists to avoid flashing a
+      // wrong number, not to slow down users we already know about.
+      if (hasActiveRaylaSubscription(cachedSubscription)) {
+        setBillingLoaded(true);
+        setHadSuccessfulBillingFetch(true);
+      }
+    }
     fetchBillingSubscription({ silent: false });
     fetchPortfolioSnapshots({ silent: true });
+  }, [session?.user?.id]);
+
+  // App-resume revalidation. When the tab returns from background (mobile
+  // app foregrounded, desktop tab activated), silently refetch billing so
+  // subscription state that changed while the user was away (cancellation,
+  // renewal) is reflected within seconds without gating the UI. Throttled
+  // so tabbing back and forth does not fire N fetches per minute.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    if (typeof document === "undefined") return;
+    function handleVisibility() {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastBillingRevalidateRef.current < 60_000) return;
+      lastBillingRevalidateRef.current = now;
+      fetchBillingSubscription({ silent: true });
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -24133,6 +24268,65 @@ if (waitingForAccessState) {
 }
 
 if (!hasRaylaAccess) {
+  // The paywall is only allowed to render when we have CONFIRMED the
+  // subscription is not active — i.e. at least one successful fetch has
+  // completed for this user. If the current billing state is unknown
+  // (fetch is still failing or timing out on resume, no cached row, and
+  // we have never received a clean read this session), showing the
+  // paywall would be a false alarm. Show a soft "we can't reach billing"
+  // retry surface instead. This is the core fix for the intermittent
+  // resume-from-inactive false paywall: loading/error MUST NOT equal
+  // unauthorized.
+  if (!hadSuccessfulBillingFetch) {
+    return (
+      <div className="authPage">
+        <div className="authCard authStatusCard">
+          <div className="authBrand">Rayla</div>
+          <h1 className="authTitle">Reconnecting</h1>
+          <p className="authSubtitle">
+            {billingError
+              ? "We couldn't reach your subscription info just now. Your access is preserved — try again in a moment."
+              : "Syncing your subscription status."}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+            <button
+              type="button"
+              onClick={() => fetchBillingSubscription({ silent: false })}
+              disabled={billingLoading}
+              style={{
+                background: billingLoading ? "rgba(124,196,255,0.25)" : "rgba(124,196,255,0.9)",
+                border: "1px solid rgba(124,196,255,0.35)",
+                borderRadius: 10,
+                padding: "11px 0",
+                fontSize: 14,
+                fontWeight: 700,
+                color: billingLoading ? "rgba(255,255,255,0.5)" : "#0b1017",
+                cursor: billingLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              {billingLoading ? "Trying again…" : "Try again"}
+            </button>
+            <button
+              type="button"
+              onClick={forcePreAppSignOut}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 10,
+                padding: "11px 0",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#94a3b8",
+                cursor: "pointer",
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <UnlockRaylaPage
       subscription={billingSubscription}
