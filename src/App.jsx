@@ -12069,6 +12069,16 @@ function getSubscriptionPresentation(subscription) {
   return { label: "Not subscribed", tone: "neutral", detail: "Start checkout when you are ready." };
 }
 
+// Dev-only structured logger for auth + billing lifecycle events. Silent
+// in production so we do not leak subscription info into the browser
+// console for real users. `import.meta.env.DEV` is a Vite build-time
+// constant that tree-shakes the whole helper out of prod bundles.
+function billingLog(tag, payload = {}) {
+  if (import.meta.env.DEV) {
+    try { console.info(`[billing:${tag}]`, payload); } catch { /* ignore */ }
+  }
+}
+
 // Persist the last successful billing fetch per user so a valid subscriber
 // is never bounced to the paywall while the app waits for a slow first
 // billing fetch on resume from long inactivity (mobile tab eviction, hard
@@ -14179,6 +14189,24 @@ useEffect(() => {
   // in and out repeatedly does not fire N background billing fetches per
   // minute.
   const lastBillingRevalidateRef = useRef(0);
+  // Live mirror of billingSubscription so fetchBillingSubscription's response
+  // path can read the true "prev" without a functional updater (needed
+  // because the retry decision depends on prev but happens OUTSIDE the
+  // setter). Updated by the effect below on every state change.
+  const billingSubscriptionRef = useRef(null);
+  // Live mirror of session for use inside delayed callbacks whose closure
+  // was captured before the session most recently changed.
+  const sessionRef = useRef(null);
+  // Consecutive-null confirmation counter. A single null response from
+  // Supabase is AMBIGUOUS (real absence vs transient replica lag / PostgREST
+  // hiccup / RLS blip). We only treat null as authoritative absence after
+  // two consecutive null responses separated by a delayed re-fetch. Reset
+  // on any non-null response or sign-out.
+  const billingNullConfirmationRef = useRef(0);
+  // Whether a delayed confirmation re-fetch is scheduled. While true, the
+  // paywall gate stays in "unknown" state (splash) rather than either
+  // showing the paywall or a retry surface — we know we're mid-confirmation.
+  const [billingConfirmationPending, setBillingConfirmationPending] = useState(false);
   const [brokerOnboardingSkipped, setBrokerOnboardingSkipped] = useState(false);
   const [lastAnalyzedCounts, setLastAnalyzedCounts] = useState({ live_trades: -1, live_simulation: -1 });
   const [showNoNewTradesBySource, setShowNoNewTradesBySource] = useState({ live_trades: false, live_simulation: false });
@@ -14932,10 +14960,15 @@ useEffect(() => {
     setBillingLoaded(false);
     setBillingAction("");
     setHadSuccessfulBillingFetch(false);
+    setBillingConfirmationPending(false);
     // Bump the fetch token so any in-flight billing fetch's late response
     // is dropped by the stale-response guard and cannot re-populate state
-    // for the just-signed-out user.
+    // for the just-signed-out user. Reset the null-confirmation counter
+    // and the visibility-throttle marker so the next signed-in user gets
+    // a clean lifecycle.
     billingFetchTokenRef.current += 1;
+    billingNullConfirmationRef.current = 0;
+    billingSubscriptionRef.current = null;
     lastBillingRevalidateRef.current = 0;
     try { clearBillingCache(session?.user?.id); } catch { /* best-effort */ }
     setBrokerOnboardingSkipped(false);
@@ -16136,42 +16169,97 @@ useEffect(() => {
         return;
       }
 
-      // Preserve last-known-good subscription when the read returns null
-      // for an already-active user. This defends against three known
-      // sources of transient nulls that would otherwise bounce the user
-      // to the paywall while they're still legitimately authenticated:
-      //   1. Read-replica lag after a fresh Stripe webhook update
-      //   2. Mid-reconciliation window where the row was briefly rewritten
-      //   3. Rare Auth/PostgREST hiccups that let the query resolve to
-      //      an empty result set instead of throwing
-      // A REAL cancellation still returns data (status='canceled'), so
-      // this preserves the user's state ONLY when the DB is ambiguous.
-      // The only real-world case this covers over is an admin hard-delete
-      // of the row — in that case the user keeps client-side access until
-      // sign-out; an acceptable trade for eliminating false paywall bounces.
-      setBillingSubscription((prev) => {
-        if (data) {
-          writeBillingCache(fetchUserId, data);
-          return data;
+      // Read the true previous subscription via the mirror-ref rather
+      // than a functional updater so the retry decision below has access
+      // to it. Reading a ref inside the response path is safe because
+      // the effect that mirrors state runs after every commit.
+      const prevSubscription = billingSubscriptionRef.current;
+      const prevWasActive = hasActiveRaylaSubscription(prevSubscription);
+
+      if (data) {
+        // Authoritative non-null response. Trust it. Reset the null
+        // confirmation counter and cancel any pending confirmation.
+        billingLog("resolved", { source: "non_null_row", status: data?.status, userId: fetchUserId });
+        billingNullConfirmationRef.current = 0;
+        setBillingConfirmationPending(false);
+        writeBillingCache(fetchUserId, data);
+        setBillingSubscription(data);
+        setHadSuccessfulBillingFetch(true);
+      } else if (prevWasActive) {
+        // Null response but the previous state was active. Preserve.
+        // This is the "protect the active subscriber from transient
+        // nulls" branch — has always been correct.
+        billingLog("preserved_active", { reason: "null_response_with_active_prev", userId: fetchUserId });
+        billingNullConfirmationRef.current = 0;
+        setBillingConfirmationPending(false);
+        // hadSuccessfulBillingFetch is invariantly true whenever prev
+        // was active (either from a prior success or from cache hydration),
+        // so we don't need to set it explicitly here.
+      } else {
+        // Null response AND no active prev in memory. This is the
+        // AMBIGUOUS case that used to bounce fresh-mount subscribers to
+        // the paywall. Supabase can return `data: null, error: null` for
+        // several transient reasons (read-replica lag, PostgREST hiccup,
+        // RLS mid-refresh) that are indistinguishable from a real
+        // "no row exists" for a new user. We require a second consecutive
+        // null response, separated by a delayed re-fetch, before treating
+        // the absence as authoritative.
+        billingNullConfirmationRef.current += 1;
+        if (billingNullConfirmationRef.current >= 2) {
+          // Two consecutive nulls — confirmed absence.
+          billingLog("resolved", { source: "confirmed_absent", nullCount: billingNullConfirmationRef.current, userId: fetchUserId });
+          billingNullConfirmationRef.current = 0;
+          setBillingConfirmationPending(false);
+          writeBillingCache(fetchUserId, null);
+          setBillingSubscription(null);
+          setHadSuccessfulBillingFetch(true);
+        } else {
+          // First null — schedule a confirmation re-fetch. Do NOT flip
+          // hadSuccessfulBillingFetch. Do NOT touch billingSubscription
+          // (leave it as-is; hydration cache or useState default). The
+          // paywall gate stays in "unknown" state (splash) rather than
+          // bouncing the user to the paywall from a single ambiguous read.
+          // 1500ms is enough for Supabase read-replica lag to resolve
+          // (typically <500ms) while keeping the splash-then-paywall
+          // path snappy for genuine new users.
+          const CONFIRMATION_DELAY_MS = 1500;
+          billingLog("pending_confirmation", {
+            reason: "first_null_response",
+            userId: fetchUserId,
+            scheduledIn: CONFIRMATION_DELAY_MS,
+          });
+          setBillingConfirmationPending(true);
+          setTimeout(() => {
+            // Only re-fetch if the same user is still signed in and no
+            // newer fetch has fired in the meantime.
+            const currentSession = sessionRef.current;
+            if (!currentSession || currentSession.user?.id !== fetchUserId) {
+              billingLog("confirmation_skipped", { reason: "user_changed", userId: fetchUserId });
+              return;
+            }
+            if (billingFetchTokenRef.current !== requestToken) {
+              billingLog("confirmation_skipped", { reason: "newer_fetch_active", userId: fetchUserId });
+              return;
+            }
+            fetchBillingSubscription({ silent: true });
+          }, CONFIRMATION_DELAY_MS);
         }
-        if (hasActiveRaylaSubscription(prev)) {
-          console.warn("[billing] fetch returned null but previous subscription was active — preserving to avoid false paywall bounce");
-          return prev;
-        }
-        // Confirmed absence of an active subscription — cache the null so
-        // the next mount hydrates to the same confirmed state instead of
-        // needing another network round-trip to reach the paywall.
-        writeBillingCache(fetchUserId, null);
-        return null;
-      });
-      // Successful read — the paywall gate is now allowed to consider
-      // this user's subscription state authoritative. This flag NEVER
-      // flips false again except on real sign-out.
-      setHadSuccessfulBillingFetch(true);
+      }
     } catch (error) {
       // Stale-response guard on the error path too — an older fetch
       // failing should not set billingError over a newer fetch's clear.
       if (requestToken !== billingFetchTokenRef.current) return;
+      // If we were mid-confirmation for an ambiguous null and this
+      // (confirmation) fetch just errored, we can't confirm absence
+      // this attempt. Reset the confirmation state so the finally block
+      // flips billingLoaded=true, and the gate then falls through to the
+      // Retry surface (not the paywall). Users see "Reconnecting" and can
+      // retry manually or the next visibility revalidation will try again.
+      if (billingNullConfirmationRef.current > 0) {
+        billingLog("confirmation_failed", { error: String(error?.message || error) });
+        billingNullConfirmationRef.current = 0;
+        setBillingConfirmationPending(false);
+      }
       // Network error / timeout: billingSubscription is intentionally NOT
       // reset here so an authenticated user is never kicked to the paywall
       // by a transient outage. The soft billingError banner surfaces the
@@ -16187,7 +16275,15 @@ useEffect(() => {
       // steal loaded=true from a newer in-flight fetch, or unwind the
       // billingLoading banner state a newer non-silent call just set.
       if (requestToken === billingFetchTokenRef.current) {
-        setBillingLoaded(true);
+        // Do NOT flip billingLoaded while a null confirmation re-fetch is
+        // scheduled. The gate stays in "Checking access" splash during
+        // the confirmation window instead of bouncing the user to the
+        // paywall from a single ambiguous read. billingLoaded gets flipped
+        // by the confirmation fetch's finally block once we have a
+        // definitive answer.
+        if (billingNullConfirmationRef.current === 0) {
+          setBillingLoaded(true);
+        }
         if (!silent) setBillingLoading(false);
       }
     }
@@ -17635,6 +17731,20 @@ useEffect(() => {
 
   useEffect(() => { fetchRaylaUserCount(); }, []);
 
+  // Keep the billing subscription mirror-ref in sync with state so the
+  // fetch response path can consult the true "prev" outside of a
+  // functional updater.
+  useEffect(() => {
+    billingSubscriptionRef.current = billingSubscription;
+  }, [billingSubscription]);
+
+  // Session mirror-ref. Delayed callbacks (confirmation re-fetch) need to
+  // check the CURRENT session at fire time, not the closure snapshot from
+  // when the callback was scheduled.
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   useEffect(() => {
     // Depend on the USER ID, not the session object identity. Supabase auto-
     // refreshes tokens every ~55 minutes and emits TOKEN_REFRESHED events
@@ -17679,15 +17789,26 @@ useEffect(() => {
   useEffect(() => {
     if (!session?.user?.id) return;
     if (typeof document === "undefined") return;
-    function handleVisibility() {
-      if (document.visibilityState !== "visible") return;
+    function triggerRevalidate(source) {
       const now = Date.now();
       if (now - lastBillingRevalidateRef.current < 60_000) return;
       lastBillingRevalidateRef.current = now;
+      billingLog("revalidate", { source, userId: session.user.id });
       fetchBillingSubscription({ silent: true });
     }
+    function handleVisibility() {
+      if (document.visibilityState !== "visible") return;
+      triggerRevalidate("visibility");
+    }
+    function handleOnline() {
+      triggerRevalidate("online");
+    }
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("online", handleOnline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
@@ -24244,8 +24365,10 @@ const hasRaylaAccess = hasActiveRaylaSubscription(billingSubscription);
 // least once, subsequent silent-or-not refreshes MUST NOT re-mount the app
 // (they used to remount the whole tree, dropping Ask Rayla state mid-chat).
 // Silent refreshes now happen in the background while the current screen
-// stays mounted.
-const waitingForAccessState = !billingLoaded;
+// stays mounted. billingConfirmationPending also keeps the splash up: a
+// single null response is not authoritative and we do not want to bounce
+// a valid subscriber to any non-app surface while we confirm.
+const waitingForAccessState = !billingLoaded || billingConfirmationPending;
 const shouldShowBrokerOnboarding = hasRaylaAccess
   && alpacaConnectionLoaded
   && !alpacaAccount
