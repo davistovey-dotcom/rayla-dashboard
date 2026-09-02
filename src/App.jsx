@@ -45,6 +45,17 @@ function openLegalLink(e, path) {
   }
 }
 
+// Same defense for arbitrary external URLs (news article links, brokerage
+// signup, etc.). On iOS, force the tap into the in-app Safari sheet so
+// reviewers never see a dead-looking tap.
+function openExternalUrl(e, url) {
+  if (!url) return;
+  if (isNativeIOS) {
+    if (e && typeof e.preventDefault === "function") e.preventDefault();
+    Browser.open({ url });
+  }
+}
+
 const CRYPTO_SYMBOL_SET = new Set(["BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","MATIC","DOT","UNI","ATOM","LTC","BCH","ALGO","NEAR","FTM","SAND","MANA","TRX","TRON","SHIB","APT","ARB","OP","SUI","INJ","FIL","ICP","HBAR","VET"]);
 const DEFAULT_POSITION_TYPE = "day_trade";
 const POSITION_TYPE_DEFINITIONS = [
@@ -11589,7 +11600,7 @@ function IntelAssetCard({ item, onTrySimulation = null, onAskRayla = null, quote
         </div>
       )}
       {article && (
-        <a className="intelAssetCardArticle" href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, textDecoration: "none", marginTop: 4, padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
+        <a className="intelAssetCardArticle" href={article.url} onClick={(e) => openExternalUrl(e, article.url)} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, textDecoration: "none", marginTop: 4, padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
           {article.image ? (
             <img src={article.image} alt="" onError={e => { e.target.style.display = "none"; }} style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
           ) : (
@@ -11684,7 +11695,7 @@ function IntelAssetCardMini({ item, onTrySimulation = null, onAskRayla = null, q
         )}
       </div>
       {article && (
-        <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none", marginBottom: 6, padding: "6px 7px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+        <a href={article.url} onClick={(e) => openExternalUrl(e, article.url)} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none", marginBottom: 6, padding: "6px 7px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ fontSize: 11, color: "#7CC4FF", lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{article.title}</div>
           <div style={{ fontSize: 10, color: "#7f8ea3", marginTop: 2 }}>{article.source?.name}</div>
         </a>
@@ -16290,6 +16301,15 @@ useEffect(() => {
   }
 
   async function handleStartStripeCheckout() {
+    // Defensive guard: Apple guideline 3.1.1 requires all in-app digital
+    // purchases on iOS to use StoreKit / IAP. The paywall UI already
+    // hides Stripe buttons on native iOS, but this early return means
+    // even a code-level regression (a future edit that renders the
+    // Stripe button unconditionally) cannot route iOS users to Stripe.
+    if (isNativeIOS) {
+      console.warn("[stripe-checkout] blocked on native iOS — IAP is the only supported purchase path");
+      return;
+    }
     if (billingAction) return;
     setBillingAction("checkout");
     setBillingError("");
@@ -16321,6 +16341,14 @@ useEffect(() => {
   }
 
   async function handleOpenStripePortal() {
+    // Same defensive iOS guard as handleStartStripeCheckout. Apple-billed
+    // subscribers manage their subscription in App Store settings, and
+    // Stripe-billed users on iOS should never happen (Stripe checkout is
+    // blocked on iOS above) — so the Stripe billing portal is web-only.
+    if (isNativeIOS) {
+      console.warn("[stripe-portal] blocked on native iOS — manage in App Store settings");
+      return;
+    }
     if (billingAction) return;
     setBillingAction("portal");
     setBillingError("");
@@ -16471,6 +16499,13 @@ useEffect(() => {
   }
 
   function handleCreateAlpacaAccount() {
+    // Native iOS WKWebView drops window.open with target="_blank" silently,
+    // so the button would look broken to App Review. Use the in-app Safari
+    // sheet on iOS and a real new-tab window on web.
+    if (isNativeIOS) {
+      Browser.open({ url: "https://alpaca.markets/" });
+      return;
+    }
     window.open("https://alpaca.markets/", "_blank", "noopener,noreferrer");
   }
 
