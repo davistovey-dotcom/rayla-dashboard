@@ -30904,6 +30904,7 @@ return (
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
               <a href="/terms.html" onClick={(e) => openLegalLink(e, "/terms.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Terms of Service ↗</a>
               <a href="/privacy.html" onClick={(e) => openLegalLink(e, "/privacy.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Privacy Policy ↗</a>
+              <a href="https://www.raylainc.live/support.html" onClick={(e) => openLegalLink(e, "/support.html")} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 500 }}>Support ↗</a>
               <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>Effective June 4, 2026 · Rayla LLC</div>
             </div>
           </div>
